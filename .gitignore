@@ -11,3 +11,9 @@ dist-ssr
 .vinxi
 __unconfig*
 todos.json
+
+# Claude Code
+.claude/
+.agents/
+CLAUDE.md
+skills-lock.json
