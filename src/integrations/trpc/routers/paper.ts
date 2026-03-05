@@ -3,6 +3,9 @@ import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { creditTransactions, paperResults, papers, user } from "#/db/schema";
 import { protectedProcedure, router } from "../init";
+import type { AIConfig } from "#/lib/ai";
+import { generateSummary } from "#/lib/ai";
+import { extractPDFText } from "#/lib/pdf";
 
 export const paperRouter = router({
   /**
@@ -225,5 +228,104 @@ export const paperRouter = router({
       }
 
       return { success: true };
+    }),
+
+  /**
+   * Regenerate summary in a different language
+   */
+  regenerateSummary: protectedProcedure
+    .input(
+      z.object({
+        paperId: z.string().uuid(),
+        language: z.enum(["en", "zh"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Step 1: Check if paper exists and belongs to user
+      const [paper] = await ctx.db
+        .select()
+        .from(papers)
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.userId, ctx.session.user.id),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      // Step 2: Check if paper is completed
+      if (paper.status !== "completed") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Paper processing is not completed yet",
+        });
+      }
+
+      // Step 3: Get PDF from R2 and extract text
+      const pdfObject = await ctx.env.PAPERS_BUCKET.get(paper.pdfR2Key);
+      if (!pdfObject) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "PDF file not found in storage",
+        });
+      }
+
+      const pdfBuffer = await pdfObject.arrayBuffer();
+      const { text } = await extractPDFText(pdfBuffer);
+
+      if (!text || text.trim().length === 0) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to extract text from PDF",
+        });
+      }
+
+      // Step 4: Generate new summary with specified language
+      const aiConfig: AIConfig = {
+        openaiApiKey: ctx.env.OPENAI_API_KEY,
+        openaiBaseUrl: ctx.env.OPENAI_BASE_URL,
+        openaiModel: ctx.env.OPENAI_MODEL,
+        geminiApiKey: ctx.env.GEMINI_API_KEY,
+        geminiBaseUrl: ctx.env.GEMINI_BASE_URL,
+        geminiModel: ctx.env.GEMINI_MODEL,
+      };
+
+      const newSummary = await generateSummary(text, aiConfig, input.language);
+
+      // Step 5: Update paperResults with new summary and language
+      const [existingResult] = await ctx.db
+        .select()
+        .from(paperResults)
+        .where(eq(paperResults.paperId, input.paperId))
+        .limit(1);
+
+      if (!existingResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper results not found",
+        });
+      }
+
+      await ctx.db
+        .update(paperResults)
+        .set({
+          summary: newSummary,
+          summaryLanguage: input.language,
+        })
+        .where(eq(paperResults.paperId, input.paperId));
+
+      return {
+        success: true,
+        summary: newSummary,
+        language: input.language,
+      };
     }),
 });

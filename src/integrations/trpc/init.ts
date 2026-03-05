@@ -18,6 +18,12 @@ interface AppEnvBindings {
   DB: D1Database;
   PAPER_QUEUE: Queue<PaperQueueMessage>;
   PAPERS_BUCKET: R2Bucket;
+  OPENAI_API_KEY: string;
+  OPENAI_BASE_URL?: string;
+  OPENAI_MODEL?: string;
+  GEMINI_API_KEY: string;
+  GEMINI_BASE_URL?: string;
+  GEMINI_MODEL?: string;
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
