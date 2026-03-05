@@ -69,7 +69,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 				sourceType: "arxiv",
 				arxivUrl,
 				filename: arxivUrl.split("/").pop() || "arxiv-paper",
-				fileSize: 0,
+				fileSize: 1, // Placeholder size for arxiv, will be updated after download
 				r2Key: `arxiv/${Date.now()}`,
 			});
 			setOpen(false);

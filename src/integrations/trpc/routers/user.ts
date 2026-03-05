@@ -1,6 +1,5 @@
 import { count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "#/db";
 import { creditTransactions } from "#/db/schema";
 import { protectedProcedure, router } from "../init";
 
@@ -36,7 +35,7 @@ export const userRouter = router({
 		.query(async ({ ctx, input }) => {
 			const offset = (input.page - 1) * input.limit;
 
-			const transactions = await db
+			const transactions = await ctx.db
 				.select()
 				.from(creditTransactions)
 				.where(eq(creditTransactions.userId, ctx.session.user.id))
@@ -44,7 +43,7 @@ export const userRouter = router({
 				.limit(input.limit)
 				.offset(offset);
 
-			const [totalResult] = await db
+			const [totalResult] = await ctx.db
 				.select({ count: count() })
 				.from(creditTransactions)
 				.where(eq(creditTransactions.userId, ctx.session.user.id));

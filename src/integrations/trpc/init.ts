@@ -1,8 +1,10 @@
 import { env } from "cloudflare:workers";
+import { drizzle } from "drizzle-orm/d1";
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import superjson from "superjson";
 import { auth } from "#/lib/auth";
+import * as schema from "#/db/schema";
 
 export interface PaperQueueMessage {
 	paperId: string;
@@ -13,15 +15,18 @@ export interface PaperQueueMessage {
 }
 
 interface AppEnvBindings {
+	DB: D1Database;
 	PAPER_QUEUE: Queue<PaperQueueMessage>;
 	PAPER_STATUS_DO: DurableObjectNamespace;
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
+	const appEnv = env as typeof env & AppEnvBindings;
 	return {
 		auth,
 		headers: opts.req.headers,
-		env: env as typeof env & AppEnvBindings,
+		env: appEnv,
+		db: drizzle(appEnv.DB, { schema }),
 	};
 }
 
