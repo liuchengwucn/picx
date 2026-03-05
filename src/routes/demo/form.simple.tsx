@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { useAppForm } from "#/hooks/demo.form";
 
-export const Route = createFileRoute("/demo/form")({
+export const Route = createFileRoute("/demo/form/simple")({
 	component: SimpleForm,
 });
 
@@ -26,7 +26,7 @@ function SimpleForm() {
 			// Show success message
 			alert("Form submitted successfully!");
 		},
-	});
+	})
 
 	return (
 		<div
@@ -61,5 +61,5 @@ function SimpleForm() {
 				</form>
 			</div>
 		</div>
-	);
+	)
 }
