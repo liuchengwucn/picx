@@ -1,32 +1,31 @@
-import {
-	index,
-	integer,
-	pgTable,
-	serial,
-	text,
-	timestamp,
-} from "drizzle-orm/pg-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-export const todos = pgTable("todos", {
-	id: serial().primaryKey(),
-	title: text().notNull(),
-	createdAt: timestamp("created_at").defaultNow(),
+export const todos = sqliteTable("todos", {
+	id: integer("id").primaryKey({ autoIncrement: true }),
+	title: text("title").notNull(),
+	createdAt: integer("created_at", { mode: "timestamp" })
+		.notNull()
+		.$defaultFn(() => new Date()),
 });
 
 // Better Auth will create the users table, we define it here for reference
-export const users = pgTable("users", {
+export const users = sqliteTable("users", {
 	id: text("id").primaryKey(),
 	name: text("name").notNull(),
 	email: text("email").notNull().unique(),
-	emailVerified: timestamp("emailVerified", { mode: "date" }),
+	emailVerified: integer("emailVerified", { mode: "timestamp" }),
 	image: text("image"),
 	credits: integer("credits").notNull().default(10),
-	createdAt: timestamp("createdAt", { mode: "date" }).notNull(),
-	updatedAt: timestamp("updatedAt", { mode: "date" }).notNull(),
+	createdAt: integer("createdAt", { mode: "timestamp" })
+		.notNull()
+		.$defaultFn(() => new Date()),
+	updatedAt: integer("updatedAt", { mode: "timestamp" })
+		.notNull()
+		.$defaultFn(() => new Date()),
 });
 
 // 论文表
-export const papers = pgTable(
+export const papers = sqliteTable(
 	"papers",
 	{
 		id: text("id")
@@ -53,9 +52,13 @@ export const papers = pgTable(
 			.notNull()
 			.default("pending"),
 		errorMessage: text("error_message"),
-		deletedAt: timestamp("deleted_at", { mode: "date" }),
-		createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
-		updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+		deletedAt: integer("deleted_at", { mode: "timestamp" }),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.$defaultFn(() => new Date()),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.$defaultFn(() => new Date()),
 	},
 	(table) => ({
 		userIdIdx: index("papers_user_id_idx").on(
@@ -68,7 +71,7 @@ export const papers = pgTable(
 );
 
 // 论文结果表
-export const paperResults = pgTable(
+export const paperResults = sqliteTable(
 	"paper_results",
 	{
 		id: text("id")
@@ -78,13 +81,14 @@ export const paperResults = pgTable(
 			.notNull()
 			.references(() => papers.id, { onDelete: "cascade" }),
 		summary: text("summary").notNull(),
-		// Note: PostgreSQL jsonb type is not directly supported by drizzle-orm/pg-core
-		// Using text type to store JSON string. Consider using json() from drizzle-orm if available
+		// Note: SQLite doesn't have a native JSON type, using text to store JSON string
 		mindmapStructure: text("mindmap_structure").notNull(), // JSON string
 		mindmapImageR2Key: text("mindmap_image_r2_key"),
 		imagePrompt: text("image_prompt").notNull(),
 		processingTimeMs: integer("processing_time_ms"),
-		createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.$defaultFn(() => new Date()),
 	},
 	(table) => ({
 		paperIdIdx: index("paper_results_paper_id_idx").on(table.paperId),
@@ -92,7 +96,7 @@ export const paperResults = pgTable(
 );
 
 // 积分交易表
-export const creditTransactions = pgTable(
+export const creditTransactions = sqliteTable(
 	"credit_transactions",
 	{
 		id: text("id")
@@ -109,7 +113,9 @@ export const creditTransactions = pgTable(
 			onDelete: "set null",
 		}),
 		description: text("description").notNull(),
-		createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.$defaultFn(() => new Date()),
 	},
 	(table) => ({
 		userIdIdx: index("credit_transactions_user_id_idx").on(
