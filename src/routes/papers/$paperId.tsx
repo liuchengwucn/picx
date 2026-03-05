@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import {
 	CheckCircle2,
 	ChevronRight,
@@ -33,9 +33,21 @@ import { Progress } from "#/components/ui/progress";
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/papers/$paperId")({
+	beforeLoad: async () => {
+		const session = await authClient.getSession();
+		if (!session) {
+			throw redirect({
+				to: "/",
+				search: {
+					redirect: "/papers",
+				},
+			});
+		}
+	},
 	component: PaperDetailPage,
 });
 

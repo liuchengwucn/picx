@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import {
 	ArrowDownRight,
 	ArrowUpRight,
@@ -20,9 +20,21 @@ import {
 	TableRow,
 } from "#/components/ui/table";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/credits/")({
+	beforeLoad: async () => {
+		const session = await authClient.getSession();
+		if (!session) {
+			throw redirect({
+				to: "/",
+				search: {
+					redirect: "/credits",
+				},
+			});
+		}
+	},
 	component: CreditsPage,
 });
 

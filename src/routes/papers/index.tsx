@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import {
@@ -12,6 +12,7 @@ import { Button } from "#/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
 
 type StatusFilter =
@@ -23,6 +24,17 @@ type StatusFilter =
 	| "failed";
 
 export const Route = createFileRoute("/papers/")({
+	beforeLoad: async () => {
+		const session = await authClient.getSession();
+		if (!session) {
+			throw redirect({
+				to: "/",
+				search: {
+					redirect: "/papers",
+				},
+			});
+		}
+	},
 	component: PapersPage,
 });
 
