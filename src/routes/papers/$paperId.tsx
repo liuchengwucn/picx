@@ -6,11 +6,20 @@ import {
   Clock,
   FileText,
   ImageIcon,
+  Languages,
   Loader2,
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useEffect } from "react";
+import mermaid from "mermaid";
+import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
+import rehypeKatex from "rehype-katex";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import "highlight.js/styles/github.css";
+import "katex/dist/katex.min.css";
 import {
   Accordion,
   AccordionContent,
@@ -41,6 +50,46 @@ export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
 });
 
+// Initialize mermaid
+mermaid.initialize({
+  startOnLoad: true,
+  theme: "default",
+  securityLevel: "loose",
+});
+
+// Mermaid component for rendering mermaid diagrams
+function MermaidDiagram({ chart }: { chart: string }) {
+  const [svg, setSvg] = useState<string>("");
+  const [error, setError] = useState<string>("");
+
+  useEffect(() => {
+    const renderDiagram = async () => {
+      try {
+        const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+        const { svg } = await mermaid.render(id, chart);
+        setSvg(svg);
+      } catch (err) {
+        console.error("Mermaid rendering error:", err);
+        setError("Failed to render diagram");
+      }
+    };
+    renderDiagram();
+  }, [chart]);
+
+  if (error) {
+    return <div className="text-[var(--sienna)] text-sm">{error}</div>;
+  }
+
+  if (!svg) {
+    return (
+      <div className="text-[var(--ink-soft)] text-sm">Loading diagram...</div>
+    );
+  }
+
+  // biome-ignore lint/security/noDangerouslySetInnerHtml: Mermaid generates safe SVG content
+  return <div dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
 const statusProgress: Record<string, number> = {
   pending: 10,
   processing_text: 40,
@@ -69,6 +118,16 @@ function PaperDetailPage() {
     trpc.paper.delete.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: trpc.paper.list.queryKey() });
+      },
+    }),
+  );
+
+  const regenerateSummaryMutation = useMutation(
+    trpc.paper.regenerateSummary.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: trpc.paper.getById.queryKey(paperId),
+        });
       },
     }),
   );
@@ -210,11 +269,75 @@ function PaperDetailPage() {
                 <Accordion type="single" collapsible defaultValue="summary">
                   <AccordionItem value="summary" className="paper-card px-6">
                     <AccordionTrigger className="font-serif text-lg font-semibold">
-                      {m.paper_summary()}
+                      <div className="flex items-center justify-between w-full pr-4">
+                        <span>{m.paper_summary()}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newLanguage =
+                              result.summaryLanguage === "en" ? "zh" : "en";
+                            regenerateSummaryMutation.mutate({
+                              paperId,
+                              language: newLanguage,
+                            });
+                          }}
+                          disabled={regenerateSummaryMutation.isPending}
+                          className="gap-1.5"
+                        >
+                          {regenerateSummaryMutation.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              {m.paper_summary_regenerating()}
+                            </>
+                          ) : (
+                            <>
+                              <Languages className="h-4 w-4" />
+                              {result.summaryLanguage === "en" ? "中文" : "EN"}
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </AccordionTrigger>
                     <AccordionContent>
                       <div className="prose prose-sm max-w-none text-[var(--ink)]">
-                        {result.summary}
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkMath]}
+                          rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                          components={{
+                            code({
+                              node,
+                              inline,
+                              className,
+                              children,
+                              ...props
+                            }) {
+                              const match = /language-(\w+)/.exec(
+                                className || "",
+                              );
+                              const language = match ? match[1] : "";
+
+                              // Handle mermaid diagrams
+                              if (language === "mermaid") {
+                                return (
+                                  <MermaidDiagram
+                                    chart={String(children).replace(/\n$/, "")}
+                                  />
+                                );
+                              }
+
+                              // Regular code blocks
+                              return (
+                                <code className={className} {...props}>
+                                  {children}
+                                </code>
+                              );
+                            },
+                          }}
+                        >
+                          {result.summary}
+                        </ReactMarkdown>
                       </div>
                     </AccordionContent>
                   </AccordionItem>
