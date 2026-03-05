@@ -1,0 +1,7 @@
+name = "picx"
+compatibility_date = "2024-01-01"
+
+[[r2_buckets]]
+binding = "PAPERS_BUCKET"
+bucket_name = "picx-papers"
+preview_bucket_name = "picx-papers-preview"
