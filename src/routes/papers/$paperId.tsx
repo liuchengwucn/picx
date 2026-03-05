@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Download, Trash2, FileText, Clock,
+  Trash2, FileText, Clock,
   CheckCircle2, XCircle, Loader2, ImageIcon, ChevronRight
 } from "lucide-react";
 import { m } from "#/paraglide/messages";
