@@ -4,19 +4,19 @@ import { createTRPCContext } from "#/integrations/trpc/init";
 import { trpcRouter } from "#/integrations/trpc/router";
 
 function handler({ request }: { request: Request }) {
-	return fetchRequestHandler({
-		req: request,
-		router: trpcRouter,
-		endpoint: "/api/trpc",
-		createContext: createTRPCContext,
-	});
+  return fetchRequestHandler({
+    req: request,
+    router: trpcRouter,
+    endpoint: "/api/trpc",
+    createContext: createTRPCContext,
+  });
 }
 
 export const Route = createFileRoute("/api/trpc/$")({
-	server: {
-		handlers: {
-			GET: handler,
-			POST: handler,
-		},
-	},
+  server: {
+    handlers: {
+      GET: handler,
+      POST: handler,
+    },
+  },
 });

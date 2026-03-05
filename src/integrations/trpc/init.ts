@@ -7,33 +7,33 @@ import { auth } from "#/lib/auth";
 import * as schema from "#/db/schema";
 
 export interface PaperQueueMessage {
-	paperId: string;
-	userId: string;
-	sourceType: "upload" | "arxiv";
-	arxivUrl?: string;
-	r2Key: string;
+  paperId: string;
+  userId: string;
+  sourceType: "upload" | "arxiv";
+  arxivUrl?: string;
+  r2Key: string;
 }
 
 interface AppEnvBindings {
-	DB: D1Database;
-	PAPER_QUEUE: Queue<PaperQueueMessage>;
-	PAPER_STATUS_DO: DurableObjectNamespace;
+  DB: D1Database;
+  PAPER_QUEUE: Queue<PaperQueueMessage>;
+  PAPER_STATUS_DO: DurableObjectNamespace;
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
-	const appEnv = env as typeof env & AppEnvBindings;
-	return {
-		auth,
-		headers: opts.req.headers,
-		env: appEnv,
-		db: drizzle(appEnv.DB, { schema }),
-	};
+  const appEnv = env as typeof env & AppEnvBindings;
+  return {
+    auth,
+    headers: opts.req.headers,
+    env: appEnv,
+    db: drizzle(appEnv.DB, { schema }),
+  };
 }
 
 export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
 
 const t = initTRPC.context<Context>().create({
-	transformer: superjson,
+  transformer: superjson,
 });
 
 export const router = t.router;
@@ -42,19 +42,19 @@ export const createTRPCRouter = t.router;
 
 // Authentication middleware
 const isAuthed = t.middleware(async ({ ctx, next }) => {
-	const session = await ctx.auth.api.getSession({ headers: ctx.headers });
-	if (!session) {
-		throw new TRPCError({
-			code: "UNAUTHORIZED",
-			message: "You must be logged in to access this resource",
-		});
-	}
-	return next({
-		ctx: {
-			...ctx,
-			session,
-		},
-	});
+  const session = await ctx.auth.api.getSession({ headers: ctx.headers });
+  if (!session) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "You must be logged in to access this resource",
+    });
+  }
+  return next({
+    ctx: {
+      ...ctx,
+      session,
+    },
+  });
 });
 
 // Protected procedure with authentication

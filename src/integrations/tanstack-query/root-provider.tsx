@@ -7,71 +7,71 @@ import { TRPCProvider } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
 
 function getUrl() {
-	const base = (() => {
-		if (typeof window !== "undefined") return "";
-		return `http://localhost:${process.env.PORT ?? 3000}`;
-	})();
-	return `${base}/api/trpc`;
+  const base = (() => {
+    if (typeof window !== "undefined") return "";
+    return `http://localhost:${process.env.PORT ?? 3000}`;
+  })();
+  return `${base}/api/trpc`;
 }
 
 export const trpcClient = createTRPCClient<TRPCRouter>({
-	links: [
-		httpBatchStreamLink({
-			transformer: superjson,
-			url: getUrl(),
-		}),
-	],
+  links: [
+    httpBatchStreamLink({
+      transformer: superjson,
+      url: getUrl(),
+    }),
+  ],
 });
 
 let context:
-	| {
-			queryClient: QueryClient;
-			trpc: ReturnType<typeof createTRPCOptionsProxy<TRPCRouter>>;
-	  }
-	| undefined;
+  | {
+      queryClient: QueryClient;
+      trpc: ReturnType<typeof createTRPCOptionsProxy<TRPCRouter>>;
+    }
+  | undefined;
 
 export function getContext() {
-	if (context) {
-		return context;
-	}
+  if (context) {
+    return context;
+  }
 
-	const queryClient = new QueryClient({
-		defaultOptions: {
-			queries: {
-				staleTime: 1000 * 60, // 1 minute
-				gcTime: 1000 * 60 * 5, // 5 minutes
-				refetchOnWindowFocus: false,
-				retry: 1,
-			},
-			dehydrate: { serializeData: superjson.serialize },
-			hydrate: { deserializeData: superjson.deserialize },
-		},
-	});
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 1000 * 60, // 1 minute
+        gcTime: 1000 * 60 * 5, // 5 minutes
+        refetchOnWindowFocus: false,
+        retry: 1,
+      },
+      dehydrate: { serializeData: superjson.serialize },
+      hydrate: { deserializeData: superjson.deserialize },
+    },
+  });
 
-	const serverHelpers = createTRPCOptionsProxy({
-		client: trpcClient,
-		queryClient: queryClient,
-	});
-	context = {
-		queryClient,
-		trpc: serverHelpers,
-	};
+  const serverHelpers = createTRPCOptionsProxy({
+    client: trpcClient,
+    queryClient: queryClient,
+  });
+  context = {
+    queryClient,
+    trpc: serverHelpers,
+  };
 
-	return context;
+  return context;
 }
 
 export default function TanStackQueryProvider({
-	children,
+  children,
 }: {
-	children: ReactNode;
+  children: ReactNode;
 }) {
-	const { queryClient } = getContext();
+  const { queryClient } = getContext();
 
-	return (
-		<QueryClientProvider client={queryClient}>
-			<TRPCProvider trpcClient={trpcClient} queryClient={queryClient}>
-				{children}
-			</TRPCProvider>
-		</QueryClientProvider>
-	);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TRPCProvider trpcClient={trpcClient} queryClient={queryClient}>
+        {children}
+      </TRPCProvider>
+    </QueryClientProvider>
+  );
 }

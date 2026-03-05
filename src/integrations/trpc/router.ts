@@ -6,9 +6,9 @@ import { uploadRouter } from "./routers/upload";
 import { userRouter } from "./routers/user";
 
 export const trpcRouter = createTRPCRouter({
-	user: userRouter,
-	paper: paperRouter,
-	upload: uploadRouter,
-	sse: sseRouter,
+  user: userRouter,
+  paper: paperRouter,
+  upload: uploadRouter,
+  sse: sseRouter,
 });
 export type TRPCRouter = typeof trpcRouter;

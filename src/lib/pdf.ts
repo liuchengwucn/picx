@@ -1,8 +1,8 @@
 import { getDocument } from "pdfjs-serverless";
 
 export interface PDFMetadata {
-	pageCount: number;
-	text: string;
+  pageCount: number;
+  text: string;
 }
 
 /**
@@ -13,49 +13,49 @@ export interface PDFMetadata {
  * @throws 如果提取失败则抛出错误
  */
 export async function extractPDFText(
-	pdfData: ArrayBuffer,
+  pdfData: ArrayBuffer,
 ): Promise<PDFMetadata> {
-	try {
-		const pdf = await getDocument({
-			data: new Uint8Array(pdfData),
-			useSystemFonts: true,
-		}).promise;
+  try {
+    const pdf = await getDocument({
+      data: new Uint8Array(pdfData),
+      useSystemFonts: true,
+    }).promise;
 
-		const textParts: string[] = [];
-		const numPages = pdf.numPages;
+    const textParts: string[] = [];
+    const numPages = pdf.numPages;
 
-		for (let i = 1; i <= numPages; i++) {
-			const page = await pdf.getPage(i);
-			const textContent = await page.getTextContent();
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
 
-			const pageText = textContent.items
-				.map((item) => {
-					if ("str" in item) {
-						return item.str;
-					}
-					return "";
-				})
-				.join(" ");
+      const pageText = textContent.items
+        .map((item) => {
+          if ("str" in item) {
+            return item.str;
+          }
+          return "";
+        })
+        .join(" ");
 
-			textParts.push(pageText);
-		}
+      textParts.push(pageText);
+    }
 
-		const fullText = textParts.join("\n\n");
+    const fullText = textParts.join("\n\n");
 
-		if (!fullText.trim()) {
-			throw new Error("No text content extracted from PDF");
-		}
+    if (!fullText.trim()) {
+      throw new Error("No text content extracted from PDF");
+    }
 
-		return {
-			pageCount: numPages,
-			text: fullText,
-		};
-	} catch (error) {
-		console.error("Failed to extract PDF text:", error);
-		throw new Error(
-			`PDF text extraction failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-		);
-	}
+    return {
+      pageCount: numPages,
+      text: fullText,
+    };
+  } catch (error) {
+    console.error("Failed to extract PDF text:", error);
+    throw new Error(
+      `PDF text extraction failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
 }
 
 /**
@@ -66,45 +66,45 @@ export async function extractPDFText(
  * @throws 如果下载失败则抛出错误
  */
 export async function downloadArxivPDF(arxivUrl: string): Promise<ArrayBuffer> {
-	try {
-		// 从 arXiv URL 提取论文 ID
-		// 支持格式: https://arxiv.org/abs/2301.00001 或 https://arxiv.org/pdf/2301.00001.pdf
-		const arxivIdMatch = arxivUrl.match(/arxiv\.org\/(abs|pdf)\/([0-9.]+)/);
-		if (!arxivIdMatch) {
-			throw new Error("Invalid arXiv URL format");
-		}
+  try {
+    // 从 arXiv URL 提取论文 ID
+    // 支持格式: https://arxiv.org/abs/2301.00001 或 https://arxiv.org/pdf/2301.00001.pdf
+    const arxivIdMatch = arxivUrl.match(/arxiv\.org\/(abs|pdf)\/([0-9.]+)/);
+    if (!arxivIdMatch) {
+      throw new Error("Invalid arXiv URL format");
+    }
 
-		const arxivId = arxivIdMatch[2];
-		const pdfUrl = `https://arxiv.org/pdf/${arxivId}.pdf`;
+    const arxivId = arxivIdMatch[2];
+    const pdfUrl = `https://arxiv.org/pdf/${arxivId}.pdf`;
 
-		console.log(`Downloading PDF from: ${pdfUrl}`);
+    console.log(`Downloading PDF from: ${pdfUrl}`);
 
-		const response = await fetch(pdfUrl);
+    const response = await fetch(pdfUrl);
 
-		if (!response.ok) {
-			throw new Error(
-				`Failed to download PDF: ${response.status} ${response.statusText}`,
-			);
-		}
+    if (!response.ok) {
+      throw new Error(
+        `Failed to download PDF: ${response.status} ${response.statusText}`,
+      );
+    }
 
-		const contentType = response.headers.get("content-type");
-		if (contentType && !contentType.includes("application/pdf")) {
-			throw new Error(`Unexpected content type: ${contentType}`);
-		}
+    const contentType = response.headers.get("content-type");
+    if (contentType && !contentType.includes("application/pdf")) {
+      throw new Error(`Unexpected content type: ${contentType}`);
+    }
 
-		const arrayBuffer = await response.arrayBuffer();
+    const arrayBuffer = await response.arrayBuffer();
 
-		if (arrayBuffer.byteLength === 0) {
-			throw new Error("Downloaded PDF is empty");
-		}
+    if (arrayBuffer.byteLength === 0) {
+      throw new Error("Downloaded PDF is empty");
+    }
 
-		console.log(`Successfully downloaded PDF: ${arrayBuffer.byteLength} bytes`);
+    console.log(`Successfully downloaded PDF: ${arrayBuffer.byteLength} bytes`);
 
-		return arrayBuffer;
-	} catch (error) {
-		console.error("Failed to download arXiv PDF:", error);
-		throw new Error(
-			`arXiv PDF download failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-		);
-	}
+    return arrayBuffer;
+  } catch (error) {
+    console.error("Failed to download arXiv PDF:", error);
+    throw new Error(
+      `arXiv PDF download failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
 }
