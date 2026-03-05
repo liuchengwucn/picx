@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
 	ArrowDownRight,
 	ArrowUpRight,
@@ -8,7 +8,7 @@ import {
 	Coins,
 	Gift,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import {
@@ -24,17 +24,6 @@ import { authClient } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/credits/")({
-	beforeLoad: async () => {
-		const session = await authClient.getSession();
-		if (!session) {
-			throw redirect({
-				to: "/",
-				search: {
-					redirect: "/credits",
-				},
-			});
-		}
-	},
 	component: CreditsPage,
 });
 
@@ -55,6 +44,10 @@ const typeLabels: Record<string, () => string> = {
 function CreditsPage() {
 	const [page, setPage] = useState(1);
 	const trpc = useTRPC();
+	const navigate = useNavigate();
+
+	const { data: session, isPending: isSessionPending } =
+		authClient.useSession();
 
 	const profile = useQuery(trpc.user.getProfile.queryOptions());
 	const history = useQuery(
@@ -62,6 +55,32 @@ function CreditsPage() {
 	);
 
 	const totalPages = Math.ceil((history.data?.total ?? 0) / 20);
+
+	// Redirect to home if not authenticated
+	useEffect(() => {
+		if (!isSessionPending && !session) {
+			navigate({ to: "/", search: { redirect: "/credits" } });
+		}
+	}, [session, isSessionPending, navigate]);
+
+	// Show loading while checking session
+	if (isSessionPending) {
+		return (
+			<main className="page-wrap py-8">
+				<div className="stagger-in">
+					<div className="h-8 w-32 bg-neutral-100 dark:bg-neutral-800 animate-pulse mb-6" />
+					<div className="paper-card p-6">
+						<Skeleton className="h-14 w-full" />
+					</div>
+				</div>
+			</main>
+		);
+	}
+
+	// Don't render if not authenticated (will redirect)
+	if (!session) {
+		return null;
+	}
 
 	return (
 		<main className="page-wrap py-8">

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
 	CheckCircle2,
 	ChevronRight,
@@ -10,6 +10,7 @@ import {
 	Trash2,
 	XCircle,
 } from "lucide-react";
+import { useEffect } from "react";
 import {
 	Accordion,
 	AccordionContent,
@@ -37,17 +38,6 @@ import { authClient } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/papers/$paperId")({
-	beforeLoad: async () => {
-		const session = await authClient.getSession();
-		if (!session) {
-			throw redirect({
-				to: "/",
-				search: {
-					redirect: "/papers",
-				},
-			});
-		}
-	},
 	component: PaperDetailPage,
 });
 
@@ -63,6 +53,10 @@ function PaperDetailPage() {
 	const { paperId } = Route.useParams();
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+
+	const { data: session, isPending: isSessionPending } =
+		authClient.useSession();
 
 	const profile = useQuery(trpc.user.getProfile.queryOptions());
 	usePaperSSE(profile.data?.id);
@@ -79,6 +73,16 @@ function PaperDetailPage() {
 		}),
 	);
 
+	// Redirect to home if not authenticated
+	useEffect(() => {
+		if (!isSessionPending && !session) {
+			navigate({ to: "/", search: { redirect: "/papers" } });
+		}
+	}, [session, isSessionPending, navigate]);
+
+	// Show loading while checking session
+	if (isSessionPending) return <DetailSkeleton />;
+	if (!session) return null;
 	if (isLoading) return <DetailSkeleton />;
 	if (!data) return null;
 

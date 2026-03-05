@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	EmptyState,
 	PaperCard,
@@ -24,17 +24,6 @@ type StatusFilter =
 	| "failed";
 
 export const Route = createFileRoute("/papers/")({
-	beforeLoad: async () => {
-		const session = await authClient.getSession();
-		if (!session) {
-			throw redirect({
-				to: "/",
-				search: {
-					redirect: "/papers",
-				},
-			});
-		}
-	},
 	component: PapersPage,
 });
 
@@ -42,6 +31,10 @@ function PapersPage() {
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 	const [page, setPage] = useState(1);
 	const trpc = useTRPC();
+	const navigate = useNavigate();
+
+	const { data: session, isPending: isSessionPending } =
+		authClient.useSession();
 
 	const profile = useQuery(trpc.user.getProfile.queryOptions());
 	usePaperSSE(profile.data?.id);
@@ -55,6 +48,34 @@ function PapersPage() {
 	);
 
 	const totalPages = Math.ceil((papersQuery.data?.total ?? 0) / 20);
+
+	// Redirect to home if not authenticated
+	useEffect(() => {
+		if (!isSessionPending && !session) {
+			navigate({ to: "/", search: { redirect: "/papers" } });
+		}
+	}, [session, isSessionPending, navigate]);
+
+	// Show loading while checking session
+	if (isSessionPending) {
+		return (
+			<main className="page-wrap py-8">
+				<div className="stagger-in">
+					<div className="h-8 w-32 bg-neutral-100 dark:bg-neutral-800 animate-pulse mb-6" />
+					<div className="space-y-3">
+						{Array.from({ length: 5 }).map((_, i) => (
+							<PaperCardSkeleton key={i} />
+						))}
+					</div>
+				</div>
+			</main>
+		);
+	}
+
+	// Don't render if not authenticated (will redirect)
+	if (!session) {
+		return null;
+	}
 
 	return (
 		<main className="page-wrap py-8">
