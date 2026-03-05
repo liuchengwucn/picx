@@ -21,3 +21,6 @@ skills-lock.json
 
 # Git worktrees
 .worktrees/
+
+# Playwright
+.playwright-mcp/
