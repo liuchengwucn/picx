@@ -41,20 +41,23 @@ CREATE TABLE "todos" (
 	"created_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-CREATE TABLE "user" (
+CREATE TABLE "users" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
 	"email" text NOT NULL,
 	"emailVerified" timestamp,
 	"image" text,
+	"credits" integer DEFAULT 10 NOT NULL,
 	"createdAt" timestamp NOT NULL,
-	"updatedAt" timestamp NOT NULL
+	"updatedAt" timestamp NOT NULL,
+	CONSTRAINT "users_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
-ALTER TABLE "credit_transactions" ADD CONSTRAINT "credit_transactions_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "credit_transactions" ADD CONSTRAINT "credit_transactions_related_paper_id_papers_id_fk" FOREIGN KEY ("related_paper_id") REFERENCES "public"."papers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "paper_results" ADD CONSTRAINT "paper_results_paper_id_papers_id_fk" FOREIGN KEY ("paper_id") REFERENCES "public"."papers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "papers" ADD CONSTRAINT "papers_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "credit_transactions" ADD CONSTRAINT "credit_transactions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "credit_transactions" ADD CONSTRAINT "credit_transactions_related_paper_id_papers_id_fk" FOREIGN KEY ("related_paper_id") REFERENCES "public"."papers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "paper_results" ADD CONSTRAINT "paper_results_paper_id_papers_id_fk" FOREIGN KEY ("paper_id") REFERENCES "public"."papers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "papers" ADD CONSTRAINT "papers_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "credit_transactions_user_id_idx" ON "credit_transactions" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE INDEX "paper_results_paper_id_idx" ON "paper_results" USING btree ("paper_id");--> statement-breakpoint
 CREATE INDEX "papers_user_id_idx" ON "papers" USING btree ("user_id","deleted_at","created_at");--> statement-breakpoint
 CREATE INDEX "papers_status_idx" ON "papers" USING btree ("status","deleted_at");

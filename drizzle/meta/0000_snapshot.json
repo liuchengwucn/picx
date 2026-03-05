@@ -1,5 +1,5 @@
 {
-  "id": "c6134732-8d1d-465c-aeaa-c5e96390bb6e",
+  "id": "f34b8293-8145-4eee-b996-f2e9ae2cb7cf",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -76,17 +76,17 @@
         }
       },
       "foreignKeys": {
-        "credit_transactions_user_id_user_id_fk": {
-          "name": "credit_transactions_user_id_user_id_fk",
+        "credit_transactions_user_id_users_id_fk": {
+          "name": "credit_transactions_user_id_users_id_fk",
           "tableFrom": "credit_transactions",
-          "tableTo": "user",
+          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
         "credit_transactions_related_paper_id_papers_id_fk": {
@@ -99,7 +99,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -163,7 +163,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "paper_results_paper_id_idx": {
+          "name": "paper_results_paper_id_idx",
+          "columns": [
+            {
+              "expression": "paper_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "paper_results_paper_id_papers_id_fk": {
           "name": "paper_results_paper_id_papers_id_fk",
@@ -175,7 +191,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -322,17 +338,17 @@
         }
       },
       "foreignKeys": {
-        "papers_user_id_user_id_fk": {
-          "name": "papers_user_id_user_id_fk",
+        "papers_user_id_users_id_fk": {
+          "name": "papers_user_id_users_id_fk",
           "tableFrom": "papers",
-          "tableTo": "user",
+          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -374,8 +390,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.user": {
-      "name": "user",
+    "public.users": {
+      "name": "users",
       "schema": "",
       "columns": {
         "id": {
@@ -408,6 +424,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "credits": {
+          "name": "credits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 10
+        },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp",
@@ -424,7 +447,15 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
