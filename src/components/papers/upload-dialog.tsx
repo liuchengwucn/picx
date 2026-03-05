@@ -26,24 +26,25 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [uploading, setUploading] = useState(false);
   const trpc = useTRPC();
 
-  const getPresignedUrl = useMutation(
-    trpc.upload.getPresignedUrl.mutationOptions(),
-  );
+  const uploadFile = useMutation(trpc.upload.uploadFile.mutationOptions());
   const createPaper = useMutation(trpc.paper.create.mutationOptions());
 
   const handleFileUpload = useCallback(async () => {
     if (!file) return;
     setUploading(true);
     try {
-      const { uploadUrl, r2Key } = await getPresignedUrl.mutateAsync({
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const fileData = btoa(binary);
+
+      const { r2Key } = await uploadFile.mutateAsync({
         filename: file.name,
-        contentType: "application/pdf",
+        fileData,
         fileSize: file.size,
-      });
-      await fetch(uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": "application/pdf" },
       });
       await createPaper.mutateAsync({
         sourceType: "upload",
@@ -59,7 +60,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     } finally {
       setUploading(false);
     }
-  }, [file, getPresignedUrl, createPaper, onSuccess]);
+  }, [file, uploadFile, createPaper, onSuccess]);
 
   const handleArxivSubmit = useCallback(async () => {
     if (!arxivUrl) return;

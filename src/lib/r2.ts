@@ -1,49 +1,5 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-
 export interface R2Env {
   PAPERS_BUCKET: R2Bucket;
-  R2_ACCOUNT_ID: string;
-  R2_ACCESS_KEY_ID: string;
-  R2_SECRET_ACCESS_KEY: string;
-}
-
-/**
- * 生成 R2 预签名上传 URL
- * 使用 S3 兼容 API
- *
- * @param accountId R2 账户 ID
- * @param accessKeyId R2 访问密钥 ID
- * @param secretAccessKey R2 访问密钥
- * @param bucketName Bucket 名称
- * @param key 文件存储路径
- * @param expiresIn 过期时间（秒），默认 3600
- * @returns 预签名上传 URL
- */
-export async function generatePresignedUploadUrl(
-  accountId: string,
-  accessKeyId: string,
-  secretAccessKey: string,
-  bucketName: string,
-  key: string,
-  expiresIn = 3600,
-): Promise<string> {
-  const s3Client = new S3Client({
-    region: "auto",
-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId,
-      secretAccessKey,
-    },
-  });
-
-  const command = new PutObjectCommand({
-    Bucket: bucketName,
-    Key: key,
-  });
-
-  const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
-  return uploadUrl;
 }
 
 /**
