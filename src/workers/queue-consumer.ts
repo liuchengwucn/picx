@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { papers, paperResults } from "#/db/schema";
 import { extractPDFText, downloadArxivPDF } from "#/lib/pdf";
+import type { PDFMetadata } from "#/lib/pdf";
 import {
 	generateSummary,
 	generateMindmapStructure,
@@ -26,7 +27,6 @@ interface Env {
 	GEMINI_API_KEY: string;
 	GEMINI_BASE_URL?: string;
 	GEMINI_MODEL?: string;
-	PAPER_STATUS_DO: DurableObjectNamespace;
 }
 
 export default {
@@ -68,7 +68,6 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
 	if (msg.sourceType === "arxiv") {
 		// 下载 arXiv PDF
-		await updatePaperStatus(msg.paperId, "processing_text", null, env);
 		pdfBuffer = await downloadArxivPDF(msg.arxivUrl!);
 
 		// 上传到 R2
@@ -91,11 +90,17 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
 	// Step 2: 提取文本
 	await updatePaperStatus(msg.paperId, "processing_text", null, env);
-	const text = await extractPDFText(pdfBuffer);
+	const { pageCount, text } = await extractPDFText(pdfBuffer);
 
 	if (!text || text.trim().length === 0) {
 		throw new Error("Failed to extract text from PDF");
 	}
+
+	// 更新页数
+	await db
+		.update(papers)
+		.set({ pageCount })
+		.where(eq(papers.id, msg.paperId));
 
 	// Step 3: 生成总结和思维导图结构
 	const aiConfig: AIConfig = {
@@ -136,9 +141,6 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
 	// Step 6: 标记完成
 	await updatePaperStatus(msg.paperId, "completed", null, env);
-
-	// Step 7: 通知 Durable Object 推送 SSE 更新
-	await notifyPaperUpdate(msg.paperId, "completed", env);
 }
 
 async function updatePaperStatus(
@@ -156,9 +158,6 @@ async function updatePaperStatus(
 			updatedAt: new Date(),
 		})
 		.where(eq(papers.id, paperId));
-
-	// 通知 Durable Object 推送状态更新
-	await notifyPaperUpdate(paperId, status, env, errorMessage);
 }
 
 async function markPaperFailed(
@@ -193,31 +192,4 @@ function isRetryableError(error: unknown): boolean {
 	}
 
 	return false;
-}
-
-async function notifyPaperUpdate(
-	paperId: string,
-	status: string,
-	env: Env,
-	errorMessage?: string | null,
-): Promise<void> {
-	try {
-		// 获取 Durable Object 实例
-		const id = env.PAPER_STATUS_DO.idFromName(paperId);
-		const stub = env.PAPER_STATUS_DO.get(id);
-
-		// 发送通知
-		await stub.fetch("https://fake-host/notify", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				paperId,
-				status,
-				errorMessage,
-			}),
-		});
-	} catch (error) {
-		// SSE 通知失败不应该影响主流程
-		console.error("Failed to notify paper update:", error);
-	}
 }

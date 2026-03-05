@@ -1,13 +1,20 @@
 import { getDocument } from "pdfjs-serverless";
 
+export interface PDFMetadata {
+	pageCount: number;
+	text: string;
+}
+
 /**
  * 从 PDF 文件中提取文本内容
  *
  * @param pdfData PDF 文件的 ArrayBuffer 数据
- * @returns 提取的文本内容
+ * @returns 包含页数和文本内容的对象
  * @throws 如果提取失败则抛出错误
  */
-export async function extractPDFText(pdfData: ArrayBuffer): Promise<string> {
+export async function extractPDFText(
+	pdfData: ArrayBuffer,
+): Promise<PDFMetadata> {
 	try {
 		const pdf = await getDocument({
 			data: new Uint8Array(pdfData),
@@ -39,7 +46,10 @@ export async function extractPDFText(pdfData: ArrayBuffer): Promise<string> {
 			throw new Error("No text content extracted from PDF");
 		}
 
-		return fullText;
+		return {
+			pageCount: numPages,
+			text: fullText,
+		};
 	} catch (error) {
 		console.error("Failed to extract PDF text:", error);
 		throw new Error(
