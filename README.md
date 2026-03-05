@@ -92,6 +92,25 @@ Then run migrations:
 npx -y @better-auth/cli migrate
 ```
 
+## Database Migrations
+
+This project uses Drizzle ORM for database migrations. Migration files are located in the `drizzle/` directory.
+
+**Important**: Some migrations may be destructive and require user action. Always review the migration documentation before applying:
+
+- See [drizzle/MIGRATIONS.md](./drizzle/MIGRATIONS.md) for detailed migration instructions
+- Check migration file comments for specific warnings and impact analysis
+
+To apply migrations:
+
+```bash
+# For local development
+npx wrangler d1 migrations apply <DATABASE_NAME> --local
+
+# For production
+npx wrangler d1 migrations apply <DATABASE_NAME>
+```
+
 
 # Paraglide i18n
 

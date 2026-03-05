@@ -54,7 +54,7 @@ export const Route = createFileRoute("/papers/$paperId")({
 mermaid.initialize({
   startOnLoad: true,
   theme: "default",
-  securityLevel: "loose",
+  securityLevel: "strict",
 });
 
 // Mermaid component for rendering mermaid diagrams
@@ -308,7 +308,6 @@ function PaperDetailPage() {
                           components={{
                             code({
                               node,
-                              inline,
                               className,
                               children,
                               ...props

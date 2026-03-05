@@ -232,6 +232,7 @@ export const paperRouter = router({
 
   /**
    * Regenerate summary in a different language
+   * Deducts 1 credit from user
    */
   regenerateSummary: protectedProcedure
     .input(
@@ -241,6 +242,8 @@ export const paperRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
       // Step 1: Check if paper exists and belongs to user
       const [paper] = await ctx.db
         .select()
@@ -248,7 +251,7 @@ export const paperRouter = router({
         .where(
           and(
             eq(papers.id, input.paperId),
-            eq(papers.userId, ctx.session.user.id),
+            eq(papers.userId, userId),
             isNull(papers.deletedAt),
           ),
         )
@@ -269,7 +272,24 @@ export const paperRouter = router({
         });
       }
 
-      // Step 3: Get PDF from R2 and extract text
+      // Step 3: Deduct credit before regenerating summary
+      const [updatedUser] = await ctx.db
+        .update(user)
+        .set({
+          credits: sql`${user.credits} - 1`,
+        })
+        .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
+        .returning();
+
+      // If no rows updated, insufficient credits
+      if (!updatedUser) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Insufficient credits. You need at least 1 credit.",
+        });
+      }
+
+      // Step 4: Get PDF from R2 and extract text
       const pdfObject = await ctx.env.PAPERS_BUCKET.get(paper.pdfR2Key);
       if (!pdfObject) {
         throw new TRPCError({
@@ -288,7 +308,7 @@ export const paperRouter = router({
         });
       }
 
-      // Step 4: Generate new summary with specified language
+      // Step 5: Generate new summary with specified language
       const aiConfig: AIConfig = {
         openaiApiKey: ctx.env.OPENAI_API_KEY,
         openaiBaseUrl: ctx.env.OPENAI_BASE_URL,
@@ -300,7 +320,7 @@ export const paperRouter = router({
 
       const newSummary = await generateSummary(text, aiConfig, input.language);
 
-      // Step 5: Update paperResults with new summary and language
+      // Step 6: Update paperResults with new summary and language
       const [existingResult] = await ctx.db
         .select()
         .from(paperResults)
@@ -321,6 +341,15 @@ export const paperRouter = router({
           summaryLanguage: input.language,
         })
         .where(eq(paperResults.paperId, input.paperId));
+
+      // Step 7: Record credit transaction
+      await ctx.db.insert(creditTransactions).values({
+        userId: userId,
+        amount: -1,
+        type: "consume",
+        relatedPaperId: input.paperId,
+        description: "重新生成摘要",
+      });
 
       return {
         success: true,
