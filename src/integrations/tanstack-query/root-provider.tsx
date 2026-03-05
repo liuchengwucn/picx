@@ -37,6 +37,12 @@ export function getContext() {
 
 	const queryClient = new QueryClient({
 		defaultOptions: {
+			queries: {
+				staleTime: 1000 * 60, // 1 minute
+				gcTime: 1000 * 60 * 5, // 5 minutes
+				refetchOnWindowFocus: false,
+				retry: 1,
+			},
 			dehydrate: { serializeData: superjson.serialize },
 			hydrate: { deserializeData: superjson.deserialize },
 		},
