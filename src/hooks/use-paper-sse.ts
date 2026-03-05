@@ -13,47 +13,60 @@ export function usePaperSSE(userId: string | undefined) {
   const queryClient = useQueryClient();
   const trpc = useTRPC();
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!userId) return;
 
-    const url = `/api/trpc/sse.connect`;
-    const es = new EventSource(url);
-    eventSourceRef.current = es;
-
-    es.onmessage = (event) => {
-      try {
-        const data: PaperStatusEvent = JSON.parse(event.data);
-        // Invalidate paper queries to trigger refetch
-        queryClient.invalidateQueries({
-          queryKey: trpc.paper.list.queryKey(),
-        });
-        queryClient.invalidateQueries({
-          queryKey: trpc.paper.getById.queryKey(data.paperId),
-        });
-        if (data.status === "completed" || data.status === "failed") {
-          queryClient.invalidateQueries({
-            queryKey: trpc.user.getProfile.queryKey(),
-          });
-        }
-      } catch (e) {
-        console.error("SSE parse error:", e);
+    function connect() {
+      // Clean up any existing connection
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
       }
-    };
 
-    es.onerror = () => {
-      es.close();
-      // Reconnect after 3 seconds
-      setTimeout(() => {
-        if (eventSourceRef.current === es) {
-          eventSourceRef.current = null;
+      const es = new EventSource("/api/sse/connect");
+      eventSourceRef.current = es;
+
+      es.addEventListener("paper-update", (event) => {
+        try {
+          const data: PaperStatusEvent = JSON.parse(event.data);
+          queryClient.invalidateQueries({
+            queryKey: trpc.paper.list.queryKey(),
+          });
+          queryClient.invalidateQueries({
+            queryKey: trpc.paper.getById.queryKey(data.paperId),
+          });
+          if (data.status === "completed" || data.status === "failed") {
+            queryClient.invalidateQueries({
+              queryKey: trpc.user.getProfile.queryKey(),
+            });
+          }
+        } catch (e) {
+          console.error("SSE parse error:", e);
         }
-      }, 3000);
-    };
+      });
+
+      es.onerror = () => {
+        es.close();
+        eventSourceRef.current = null;
+        // Reconnect after 3 seconds
+        reconnectTimerRef.current = setTimeout(() => {
+          connect();
+        }, 3000);
+      };
+    }
+
+    connect();
 
     return () => {
-      es.close();
-      eventSourceRef.current = null;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
     };
   }, [userId, queryClient, trpc]);
 }

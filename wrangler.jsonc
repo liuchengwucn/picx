@@ -42,25 +42,6 @@
     ]
   },
 
-  // Durable Objects 配置
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "PAPER_STATUS_DO",
-        "class_name": "PaperStatusDO",
-        "script_name": "picx"
-      }
-    ]
-  },
-
-  // Durable Objects 迁移
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_classes": ["PaperStatusDO"]
-    }
-  ],
-
   // 本地开发配置
   "dev": {
     "port": 3000,
