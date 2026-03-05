@@ -115,7 +115,10 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     geminiModel: env.GEMINI_MODEL,
   };
 
-  const summary = await generateSummary(text, aiConfig);
+  // TODO: 从用户配置获取语言偏好，目前默认使用英文
+  const language: "en" | "zh" = "en";
+
+  const summary = await generateSummary(text, aiConfig, language);
   const mindmapStructure = await generateMindmapStructure(summary, aiConfig);
 
   // Step 4: 生成思维导图图片
@@ -136,6 +139,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   await db.insert(paperResults).values({
     paperId: msg.paperId,
     summary,
+    summaryLanguage: language,
     mindmapStructure: JSON.stringify(mindmapStructure),
     mindmapImageR2Key: imageR2Key,
     imagePrompt: prompt,
