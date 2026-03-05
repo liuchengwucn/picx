@@ -17,10 +17,6 @@ CLOUDFLARE_D1_DATABASE_ID=your_d1_database_id
 CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
 
 # ===== R2 配置 =====
-# 用于生成预签名 URL（Worker 运行时需要）
-R2_ACCOUNT_ID=your-r2-account-id
-R2_ACCESS_KEY_ID=your-r2-access-key-id
-R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
 R2_PUBLIC_DOMAIN=your_r2_public_domain.r2.dev
 
 # ===== Better Auth =====
