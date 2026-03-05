@@ -31,15 +31,56 @@ export interface MindmapStructure {
  *
  * @param paperText 论文文本内容
  * @param config AI 配置
- * @returns 论文总结文本
+ * @param language 生成语言 ('en' 为英文, 'zh' 为中文)
+ * @returns 论文总结文本（Markdown 格式）
  * @throws 如果生成失败则抛出错误
  */
 export async function generateSummary(
   paperText: string,
   config: AIConfig,
+  language: "en" | "zh" = "en",
 ): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
   const model = config.openaiModel || "gpt-5-mini";
+
+  const languageInstruction =
+    language === "zh"
+      ? "请用中文回答。"
+      : "Please respond in English.";
+
+  const systemPrompt = `You are an expert at summarizing academic papers. Generate a comprehensive, well-structured summary in Markdown format.
+
+${languageInstruction}
+
+Structure your summary with the following sections:
+
+## Summary (Overview)
+Provide 3-5 key bullet points highlighting the main contributions and findings.
+
+## Introduction and Theoretical Foundation
+Explain the background, motivation, and theoretical basis of the research.
+
+## Methodology
+Describe the research methods, approaches, and techniques used.
+
+## Empirical Validation / Results
+Present the key experimental results, findings, and evidence.
+
+## Theoretical and Practical Implications
+Discuss the significance and impact of the findings.
+
+## Conclusion
+Summarize the main takeaways and future directions.
+
+## Visual Summary (Optional)
+If helpful, include a Mermaid diagram using \`\`\`mermaid code blocks to visualize key concepts or workflows.
+
+Guidelines:
+- Use proper Markdown formatting (headers, lists, bold, italic)
+- Support LaTeX math formulas using $inline$ or $$display$$ notation
+- Use code blocks with syntax highlighting when showing code
+- Use blockquotes (>) for important quotes or definitions
+- Be comprehensive but clear and well-organized`;
 
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -53,8 +94,7 @@ export async function generateSummary(
         messages: [
           {
             role: "system",
-            content:
-              "You are an expert at summarizing academic papers. Provide a concise, clear summary that captures the key points, methodology, and findings.",
+            content: systemPrompt,
           },
           {
             role: "user",
@@ -62,7 +102,7 @@ export async function generateSummary(
           },
         ],
         temperature: 0.7,
-        max_tokens: 1000,
+        max_tokens: 4000,
       }),
     });
 
