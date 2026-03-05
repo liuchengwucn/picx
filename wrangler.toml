@@ -25,3 +25,13 @@ max_batch_size = 1
 max_retries = 3
 dead_letter_queue = "paper-processing-dlq"
 
+# Durable Objects 配置
+[[durable_objects.bindings]]
+name = "PAPER_STATUS_DO"
+class_name = "PaperStatusDO"
+script_name = "picx"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["PaperStatusDO"]
+
