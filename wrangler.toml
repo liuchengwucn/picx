@@ -14,3 +14,14 @@ preview_bucket_name = "picx-papers-preview"
 [vars]
 # R2_ACCOUNT_ID = "your-account-id"  # 取消注释并填入实际值
 
+# Queues 配置
+[[queues.producers]]
+binding = "PAPER_QUEUE"
+queue = "paper-processing"
+
+[[queues.consumers]]
+queue = "paper-processing"
+max_batch_size = 1
+max_retries = 3
+dead_letter_queue = "paper-processing-dlq"
+
