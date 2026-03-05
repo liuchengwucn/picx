@@ -1,13 +1,5 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-export const todos = sqliteTable("todos", {
-	id: integer("id").primaryKey({ autoIncrement: true }),
-	title: text("title").notNull(),
-	createdAt: integer("created_at", { mode: "timestamp" })
-		.notNull()
-		.$defaultFn(() => new Date()),
-});
-
 // Better Auth will create the users table, we define it here for reference
 export const users = sqliteTable("users", {
 	id: text("id").primaryKey(),
