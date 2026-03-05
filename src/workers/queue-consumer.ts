@@ -1,13 +1,13 @@
-import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
-import { papers, paperResults } from "#/db/schema";
-import { extractPDFText, downloadArxivPDF } from "#/lib/pdf";
-import {
-	generateSummary,
-	generateMindmapStructure,
-	generateMindmapImage,
-} from "#/lib/ai";
+import { drizzle } from "drizzle-orm/d1";
+import { paperResults, papers } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
+import {
+	generateMindmapImage,
+	generateMindmapStructure,
+	generateSummary,
+} from "#/lib/ai";
+import { downloadArxivPDF, extractPDFText } from "#/lib/pdf";
 
 type PaperStatus =
 	| "pending"

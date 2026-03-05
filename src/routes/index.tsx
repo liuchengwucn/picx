@@ -1,5 +1,12 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
-import { FileText, Sparkles, Network, Coins, Upload, ArrowRight } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import {
+	ArrowRight,
+	Coins,
+	FileText,
+	Network,
+	Sparkles,
+	Upload,
+} from "lucide-react";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/")({ component: HomePage });

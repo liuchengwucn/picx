@@ -76,7 +76,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 								name: "Tanstack Router",
 								render: <TanStackRouterDevtoolsPanel />,
 							},
-						TanStackQueryDevtools,
+							TanStackQueryDevtools,
 						]}
 					/>
 				</TanStackQueryProvider>

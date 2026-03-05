@@ -36,7 +36,7 @@ export interface MindmapStructure {
  */
 export async function generateSummary(
 	paperText: string,
-	config: AIConfig
+	config: AIConfig,
 ): Promise<string> {
 	const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
 	const model = config.openaiModel || "gpt-5-mini";
@@ -69,7 +69,7 @@ export async function generateSummary(
 		if (!response.ok) {
 			const errorText = await response.text();
 			throw new Error(
-				`OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`
+				`OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`,
 			);
 		}
 
@@ -89,7 +89,7 @@ export async function generateSummary(
 	} catch (error) {
 		console.error("Failed to generate summary:", error);
 		throw new Error(
-			`Summary generation failed: ${error instanceof Error ? error.message : "Unknown error"}`
+			`Summary generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
@@ -104,7 +104,7 @@ export async function generateSummary(
  */
 export async function generateMindmapStructure(
 	paperText: string,
-	config: AIConfig
+	config: AIConfig,
 ): Promise<MindmapStructure> {
 	const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
 	const model = config.openaiModel || "gpt-5-mini";
@@ -153,7 +153,7 @@ ${paperText}`,
 		if (!response.ok) {
 			const errorText = await response.text();
 			throw new Error(
-				`OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`
+				`OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`,
 			);
 		}
 
@@ -187,7 +187,7 @@ ${paperText}`,
 	} catch (error) {
 		console.error("Failed to generate mindmap structure:", error);
 		throw new Error(
-			`Mindmap structure generation failed: ${error instanceof Error ? error.message : "Unknown error"}`
+			`Mindmap structure generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
@@ -202,7 +202,7 @@ ${paperText}`,
  */
 export async function generateMindmapImage(
 	mindmapStructure: MindmapStructure,
-	config: AIConfig
+	config: AIConfig,
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
 	const baseUrl =
 		config.geminiBaseUrl || "https://generativelanguage.googleapis.com/v1beta";
@@ -236,13 +236,13 @@ export async function generateMindmapImage(
 						maxOutputTokens: 4096,
 					},
 				}),
-			}
+			},
 		);
 
 		if (!response.ok) {
 			const errorText = await response.text();
 			throw new Error(
-				`Gemini API request failed: ${response.status} ${response.statusText} - ${errorText}`
+				`Gemini API request failed: ${response.status} ${response.statusText} - ${errorText}`,
 			);
 		}
 
@@ -260,7 +260,7 @@ export async function generateMindmapImage(
 		const parts = data.candidates[0].content.parts;
 		const imagePart = parts.find(
 			(part: { inlineData?: { mimeType: string; data: string } }) =>
-				part.inlineData?.mimeType?.startsWith("image/")
+				part.inlineData?.mimeType?.startsWith("image/"),
 		);
 
 		if (!imagePart || !imagePart.inlineData) {
@@ -282,7 +282,7 @@ export async function generateMindmapImage(
 	} catch (error) {
 		console.error("Failed to generate mindmap image:", error);
 		throw new Error(
-			`Mindmap image generation failed: ${error instanceof Error ? error.message : "Unknown error"}`
+			`Mindmap image generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
