@@ -1,4 +1,4 @@
-import { initTRPC } from "@trpc/server";
+import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import superjson from "superjson";
 import { auth } from "#/lib/auth";
@@ -19,3 +19,23 @@ const t = initTRPC.context<Context>().create({
 export const router = t.router;
 export const publicProcedure = t.procedure;
 export const createTRPCRouter = t.router;
+
+// Authentication middleware
+const isAuthed = t.middleware(async ({ ctx, next }) => {
+	const session = await ctx.auth.api.getSession({ headers: ctx.headers });
+	if (!session) {
+		throw new TRPCError({
+			code: "UNAUTHORIZED",
+			message: "You must be logged in to access this resource",
+		});
+	}
+	return next({
+		ctx: {
+			...ctx,
+			session,
+		},
+	});
+});
+
+// Protected procedure with authentication
+export const protectedProcedure = t.procedure.use(isAuthed);

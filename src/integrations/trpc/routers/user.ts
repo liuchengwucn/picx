@@ -1,48 +1,53 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "#/db";
 import { creditTransactions } from "#/db/schema";
-import { publicProcedure, router } from "../init";
+import { protectedProcedure, router } from "../init";
 
 export const userRouter = router({
-	getProfile: publicProcedure.query(async ({ ctx }) => {
-		// Get user from Better Auth session
-		const session = await ctx.auth.api.getSession({ headers: ctx.headers });
-		if (!session) throw new Error("Unauthorized");
-
+	/**
+	 * Get current user's profile information
+	 * @returns User profile with id, email, name, and credits
+	 * @throws UNAUTHORIZED if user is not logged in
+	 */
+	getProfile: protectedProcedure.query(async ({ ctx }) => {
 		return {
-			id: session.user.id,
-			email: session.user.email,
-			name: session.user.name,
-			credits: session.user.credits,
+			id: ctx.session.user.id,
+			email: ctx.session.user.email,
+			name: ctx.session.user.name,
+			credits: ctx.session.user.credits,
 		};
 	}),
 
-	getCreditHistory: publicProcedure
+	/**
+	 * Get user's credit transaction history with pagination
+	 * @param page - Page number (min: 1)
+	 * @param limit - Items per page (min: 1, max: 100)
+	 * @returns Paginated credit transactions and total count
+	 * @throws UNAUTHORIZED if user is not logged in
+	 */
+	getCreditHistory: protectedProcedure
 		.input(
 			z.object({
-				page: z.number().default(1),
-				limit: z.number().default(20),
+				page: z.number().int().min(1).default(1),
+				limit: z.number().int().min(1).max(100).default(20),
 			}),
 		)
 		.query(async ({ ctx, input }) => {
-			const session = await ctx.auth.api.getSession({ headers: ctx.headers });
-			if (!session) throw new Error("Unauthorized");
-
 			const offset = (input.page - 1) * input.limit;
 
 			const transactions = await db
 				.select()
 				.from(creditTransactions)
-				.where(eq(creditTransactions.userId, session.user.id))
+				.where(eq(creditTransactions.userId, ctx.session.user.id))
 				.orderBy(desc(creditTransactions.createdAt))
 				.limit(input.limit)
 				.offset(offset);
 
 			const [totalResult] = await db
-				.select({ count: sql<number>`count(*)` })
+				.select({ count: count() })
 				.from(creditTransactions)
-				.where(eq(creditTransactions.userId, session.user.id));
+				.where(eq(creditTransactions.userId, ctx.session.user.id));
 
 			return {
 				transactions,
