@@ -2,13 +2,19 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { papers, paperResults } from "#/db/schema";
 import { extractPDFText, downloadArxivPDF } from "#/lib/pdf";
-import type { PDFMetadata } from "#/lib/pdf";
 import {
 	generateSummary,
 	generateMindmapStructure,
 	generateMindmapImage,
 } from "#/lib/ai";
 import type { AIConfig } from "#/lib/ai";
+
+type PaperStatus =
+	| "pending"
+	| "processing_text"
+	| "processing_image"
+	| "completed"
+	| "failed";
 
 interface QueueMessage {
 	paperId: string;
@@ -97,10 +103,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 	}
 
 	// 更新页数
-	await db
-		.update(papers)
-		.set({ pageCount })
-		.where(eq(papers.id, msg.paperId));
+	await db.update(papers).set({ pageCount }).where(eq(papers.id, msg.paperId));
 
 	// Step 3: 生成总结和思维导图结构
 	const aiConfig: AIConfig = {
@@ -113,7 +116,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 	};
 
 	const summary = await generateSummary(text, aiConfig);
-	const mindmapStructure = await generateMindmapStructure(text, aiConfig);
+	const mindmapStructure = await generateMindmapStructure(summary, aiConfig);
 
 	// Step 4: 生成思维导图图片
 	await updatePaperStatus(msg.paperId, "processing_image", null, env);
@@ -145,7 +148,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
 async function updatePaperStatus(
 	paperId: string,
-	status: string,
+	status: PaperStatus,
 	errorMessage: string | null,
 	env: Env,
 ): Promise<void> {

@@ -53,7 +53,7 @@ export async function extractPDFText(
 	} catch (error) {
 		console.error("Failed to extract PDF text:", error);
 		throw new Error(
-			`PDF text extraction failed: ${error instanceof Error ? error.message : "Unknown error"}`
+			`PDF text extraction failed: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
@@ -83,7 +83,7 @@ export async function downloadArxivPDF(arxivUrl: string): Promise<ArrayBuffer> {
 
 		if (!response.ok) {
 			throw new Error(
-				`Failed to download PDF: ${response.status} ${response.statusText}`
+				`Failed to download PDF: ${response.status} ${response.statusText}`,
 			);
 		}
 
@@ -104,7 +104,7 @@ export async function downloadArxivPDF(arxivUrl: string): Promise<ArrayBuffer> {
 	} catch (error) {
 		console.error("Failed to download arXiv PDF:", error);
 		throw new Error(
-			`arXiv PDF download failed: ${error instanceof Error ? error.message : "Unknown error"}`
+			`arXiv PDF download failed: ${error instanceof Error ? error.message : "Unknown error"}`,
 		);
 	}
 }
