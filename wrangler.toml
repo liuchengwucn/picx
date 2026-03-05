@@ -1,6 +1,12 @@
 name = "picx"
 compatibility_date = "2026-03-01"
 
+# D1 数据库配置
+[[d1_databases]]
+binding = "DB"
+database_name = "picx-db"
+database_id = "your-database-id"  # 使用 wrangler d1 create picx-db 创建后填入
+
 [[r2_buckets]]
 binding = "PAPERS_BUCKET"
 bucket_name = "picx-papers"
