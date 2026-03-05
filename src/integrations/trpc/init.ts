@@ -14,6 +14,7 @@ export interface PaperQueueMessage {
 
 interface AppEnvBindings {
 	PAPER_QUEUE: Queue<PaperQueueMessage>;
+	PAPER_STATUS_DO: DurableObjectNamespace;
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
