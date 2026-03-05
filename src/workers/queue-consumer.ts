@@ -33,6 +33,35 @@ interface Env {
 	GEMINI_API_KEY: string;
 	GEMINI_BASE_URL?: string;
 	GEMINI_MODEL?: string;
+	PAPER_STATUS_DO: DurableObjectNamespace;
+}
+
+async function notifySSE(
+	env: Env,
+	userId: string,
+	paperId: string,
+	status: string,
+	progress: number,
+): Promise<void> {
+	try {
+		const doId = env.PAPER_STATUS_DO.idFromName(userId);
+		const stub = env.PAPER_STATUS_DO.get(doId);
+
+		await stub.fetch(
+			new Request("https://do/notify", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					paperId,
+					status,
+					progress,
+					errorMessage: null,
+				}),
+			}),
+		);
+	} catch (error) {
+		console.error("Failed to notify SSE:", error);
+	}
 }
 
 export default {
@@ -96,6 +125,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
 	// Step 2: 提取文本
 	await updatePaperStatus(msg.paperId, "processing_text", null, env);
+	await notifySSE(env, msg.userId, msg.paperId, "processing_text", 33);
 	const { pageCount, text } = await extractPDFText(pdfBuffer);
 
 	if (!text || text.trim().length === 0) {
@@ -120,6 +150,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
 	// Step 4: 生成思维导图图片
 	await updatePaperStatus(msg.paperId, "processing_image", null, env);
+	await notifySSE(env, msg.userId, msg.paperId, "processing_image", 66);
 	const { imageData, prompt } = await generateMindmapImage(
 		mindmapStructure,
 		aiConfig,
@@ -144,6 +175,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
 	// Step 6: 标记完成
 	await updatePaperStatus(msg.paperId, "completed", null, env);
+	await notifySSE(env, msg.userId, msg.paperId, "completed", 100);
 }
 
 async function updatePaperStatus(
