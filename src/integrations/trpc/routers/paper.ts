@@ -76,7 +76,14 @@ export const paperRouter = router({
 					return newPaper;
 				});
 
-				// TODO: 推送到队列
+				// 推送到队列进行异步处理
+				await ctx.env.PAPER_QUEUE.send({
+					paperId: paper.id,
+					userId: ctx.session.user.id,
+					sourceType: input.sourceType,
+					arxivUrl: input.arxivUrl,
+					r2Key: input.r2Key,
+				});
 
 				return { paperId: paper.id, status: paper.status };
 			} catch (error) {

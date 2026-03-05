@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import superjson from "superjson";
@@ -7,6 +8,7 @@ export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
 	return {
 		auth,
 		headers: opts.req.headers,
+		env,
 	};
 }
 
