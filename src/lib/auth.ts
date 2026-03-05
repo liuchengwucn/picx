@@ -4,8 +4,11 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { INITIAL_CREDITS, initializeUserCredits } from "#/db/user-extensions";
 
 export const auth = betterAuth({
-	emailAndPassword: {
-		enabled: true,
+	socialProviders: {
+		github: {
+			clientId: process.env.GITHUB_CLIENT_ID || "",
+			clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
+		},
 	},
 	user: {
 		additionalFields: {
@@ -18,7 +21,8 @@ export const auth = betterAuth({
 	},
 	hooks: {
 		after: createAuthMiddleware(async (ctx) => {
-			if (ctx.path.startsWith("/sign-up")) {
+			// GitHub OAuth 回调路径
+			if (ctx.path.startsWith("/callback/github")) {
 				const newSession = ctx.context.newSession;
 				if (newSession?.user?.id) {
 					const success = await initializeUserCredits(newSession.user.id);
