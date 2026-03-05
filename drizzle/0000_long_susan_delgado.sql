@@ -43,12 +43,6 @@ CREATE TABLE `papers` (
 --> statement-breakpoint
 CREATE INDEX `papers_user_id_idx` ON `papers` (`user_id`,`deleted_at`,`created_at`);--> statement-breakpoint
 CREATE INDEX `papers_status_idx` ON `papers` (`status`,`deleted_at`);--> statement-breakpoint
-CREATE TABLE `todos` (
-	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`title` text NOT NULL,
-	`created_at` integer NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
