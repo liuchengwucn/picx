@@ -32,6 +32,8 @@
   "paper_delete_confirm_title": "确认删除此论文？",
   "paper_delete_confirm_description": "此操作不可撤销。论文及其处理结果将被永久删除。",
   "paper_processing_hint": "论文正在处理中，结果将自动显示在此处。",
+  "paper_summary_language_switch": "切换语言",
+  "paper_summary_regenerating": "正在重新生成摘要...",
   "upload_file_title": "上传文件",
   "upload_arxiv_title": "arXiv 链接",
   "upload_drag_hint": "拖拽 PDF 文件到此处",

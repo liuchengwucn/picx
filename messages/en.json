@@ -32,6 +32,8 @@
   "paper_delete_confirm_title": "Delete this paper?",
   "paper_delete_confirm_description": "This action cannot be undone. The paper and its results will be permanently removed.",
   "paper_processing_hint": "Your paper is being processed. Results will appear here automatically.",
+  "paper_summary_language_switch": "Switch Language",
+  "paper_summary_regenerating": "Regenerating summary...",
   "upload_file_title": "Upload File",
   "upload_arxiv_title": "arXiv Link",
   "upload_drag_hint": "Drag and drop a PDF file here",
