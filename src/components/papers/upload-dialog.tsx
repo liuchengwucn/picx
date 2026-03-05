@@ -82,7 +82,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 		}
 	}, [arxivUrl, createPaper, onSuccess]);
 
-	const insufficientCredits = credits < 10;
+	const insufficientCredits = credits < 1;
 
 	const handleDrop = useCallback((e: React.DragEvent) => {
 		e.preventDefault();
@@ -166,7 +166,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 								{m.credits_balance()}: {credits}
 							</span>
 							<span className="text-[var(--ink-soft)]">
-								{m.upload_cost()}: 10
+								{m.upload_cost()}: 1
 							</span>
 						</div>
 						<Button
@@ -199,7 +199,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 								{m.credits_balance()}: {credits}
 							</span>
 							<span className="text-[var(--ink-soft)]">
-								{m.upload_cost()}: 10
+								{m.upload_cost()}: 1
 							</span>
 						</div>
 						<Button

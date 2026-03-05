@@ -8,7 +8,7 @@ import { protectedProcedure, router } from "../init";
 export const paperRouter = router({
 	/**
 	 * Create a new paper processing task
-	 * Deducts 10 credits from user and creates paper record
+	 * Deducts 1 credit from user and creates paper record
 	 */
 	create: protectedProcedure
 		.input(
@@ -34,12 +34,12 @@ export const paperRouter = router({
 					const [updatedUser] = await tx
 						.update(users)
 						.set({
-							credits: sql`${users.credits} - 10`,
+							credits: sql`${users.credits} - 1`,
 						})
 						.where(
 							and(
 								eq(users.id, ctx.session.user.id),
-								sql`${users.credits} >= 10`,
+								sql`${users.credits} >= 1`,
 							),
 						)
 						.returning();
@@ -48,7 +48,7 @@ export const paperRouter = router({
 					if (!updatedUser) {
 						throw new TRPCError({
 							code: "BAD_REQUEST",
-							message: "Insufficient credits. You need at least 10 credits.",
+							message: "Insufficient credits. You need at least 1 credit.",
 						});
 					}
 
@@ -69,7 +69,7 @@ export const paperRouter = router({
 					// 记录积分交易
 					await tx.insert(creditTransactions).values({
 						userId: ctx.session.user.id,
-						amount: -10,
+						amount: -1,
 						type: "consume",
 						relatedPaperId: newPaper.id,
 						description: "处理论文",
