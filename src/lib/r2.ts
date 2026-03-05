@@ -1,31 +1,49 @@
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
 export interface R2Env {
 	PAPERS_BUCKET: R2Bucket;
+	R2_ACCOUNT_ID: string;
+	R2_ACCESS_KEY_ID: string;
+	R2_SECRET_ACCESS_KEY: string;
 }
 
 /**
  * 生成 R2 预签名上传 URL
+ * 使用 S3 兼容 API
  *
- * 注意：Cloudflare R2 不直接支持预签名 URL。
- * 推荐方案：
- * 1. 使用 R2 的 S3 兼容 API 生成预签名 URL
- * 2. 或者直接在 Worker 中处理上传（使用 uploadFile 函数）
- *
- * @param bucket R2 bucket 实例
+ * @param accountId R2 账户 ID
+ * @param accessKeyId R2 访问密钥 ID
+ * @param secretAccessKey R2 访问密钥
+ * @param bucketName Bucket 名称
  * @param key 文件存储路径
  * @param expiresIn 过期时间（秒），默认 3600
  * @returns 预签名上传 URL
  */
 export async function generatePresignedUploadUrl(
-	_bucket: R2Bucket,
-	_key: string,
-	_expiresIn = 3600,
+	accountId: string,
+	accessKeyId: string,
+	secretAccessKey: string,
+	bucketName: string,
+	key: string,
+	expiresIn = 3600,
 ): Promise<string> {
-	// TODO: 实现 S3 兼容 API 的预签名 URL 生成
-	// 需要配置 R2 的 S3 兼容端点和访问密钥
-	throw new Error(
-		"Presigned URL generation requires S3-compatible API configuration. " +
-			"Use uploadFile() for direct uploads instead.",
-	);
+	const s3Client = new S3Client({
+		region: "auto",
+		endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+		credentials: {
+			accessKeyId,
+			secretAccessKey,
+		},
+	});
+
+	const command = new PutObjectCommand({
+		Bucket: bucketName,
+		Key: key,
+	});
+
+	const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
+	return uploadUrl;
 }
 
 /**

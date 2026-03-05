@@ -1,14 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { generatePresignedUploadUrl } from "#/lib/r2";
 import { protectedProcedure, router } from "../init";
 
 export const uploadRouter = router({
 	/**
-	 * Get upload URL for PDF file
-	 * Note: Since R2 presigned URLs are not implemented,
-	 * this returns the r2Key for direct upload via API
+	 * Get presigned upload URL for PDF file
+	 * Client can upload directly to R2 using this URL
 	 */
-	getUploadUrl: protectedProcedure
+	getPresignedUrl: protectedProcedure
 		.input(
 			z.object({
 				filename: z.string().min(1).max(255),
@@ -33,14 +33,41 @@ export const uploadRouter = router({
 			const timestamp = Date.now();
 			const r2Key = `papers/${ctx.session.user.id}/${timestamp}-${input.filename}`;
 
-			// 注意：由于 R2 预签名 URL 未实现，
-			// 这里返回 r2Key，客户端需要通过另一个 API 上传文件内容
-			// 或者实现直接上传的 endpoint
+			try {
+				// 从环境变量获取 R2 配置
+				const accountId = process.env.R2_ACCOUNT_ID;
+				const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+				const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 
-			return {
-				r2Key,
-				uploadUrl: null, // 预签名 URL 未实现
-				message: "Use the upload endpoint to upload file content",
-			};
+				if (!accountId || !accessKeyId || !secretAccessKey) {
+					throw new TRPCError({
+						code: "INTERNAL_SERVER_ERROR",
+						message: "R2 credentials not configured",
+					});
+				}
+
+				// 生成预签名 URL
+				const uploadUrl = await generatePresignedUploadUrl(
+					accountId,
+					accessKeyId,
+					secretAccessKey,
+					"picx-papers",
+					r2Key,
+					3600, // 1 hour
+				);
+
+				return {
+					uploadUrl,
+					r2Key,
+					expiresIn: 3600,
+				};
+			} catch (error) {
+				console.error("Failed to generate presigned URL:", error);
+				throw new TRPCError({
+					code: "INTERNAL_SERVER_ERROR",
+					message: "Failed to generate upload URL",
+					cause: error,
+				});
+			}
 		}),
 });

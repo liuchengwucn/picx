@@ -1,0 +1,7 @@
+# R2 配置（用于预签名 URL）
+# 复制此文件为 .dev.vars 并填入实际值
+# .dev.vars 文件不会被提交到 git
+
+R2_ACCOUNT_ID=your-r2-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
