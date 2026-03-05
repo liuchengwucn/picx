@@ -36,12 +36,22 @@ interface Env {
 	PAPER_STATUS_DO: DurableObjectNamespace;
 }
 
+/**
+ * Send SSE notification to user about paper processing status
+ * @param env - Worker environment bindings
+ * @param userId - User ID to send notification to
+ * @param paperId - Paper ID being processed
+ * @param status - Current processing status
+ * @param progress - Processing progress (0-100)
+ * @param errorMessage - Optional error message for failed status
+ */
 async function notifySSE(
 	env: Env,
 	userId: string,
 	paperId: string,
-	status: string,
+	status: PaperStatus,
 	progress: number,
+	errorMessage: string | null = null,
 ): Promise<void> {
 	try {
 		const doId = env.PAPER_STATUS_DO.idFromName(userId);
@@ -55,12 +65,15 @@ async function notifySSE(
 					paperId,
 					status,
 					progress,
-					errorMessage: null,
+					errorMessage,
 				}),
 			}),
 		);
 	} catch (error) {
-		console.error("Failed to notify SSE:", error);
+		console.error(
+			`Failed to notify SSE for user ${userId}, paper ${paperId}:`,
+			error,
+		);
 	}
 }
 
@@ -82,6 +95,7 @@ export default {
 				} else {
 					// 标记为 failed
 					await markPaperFailed(
+						message.body.userId,
 						message.body.paperId,
 						error instanceof Error ? error.message : "Unknown error",
 						env,
@@ -178,6 +192,13 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 	await notifySSE(env, msg.userId, msg.paperId, "completed", 100);
 }
 
+/**
+ * Update paper status in database
+ * @param paperId - Paper ID to update
+ * @param status - New status
+ * @param errorMessage - Error message if status is failed
+ * @param env - Worker environment bindings
+ */
 async function updatePaperStatus(
 	paperId: string,
 	status: PaperStatus,
@@ -195,12 +216,21 @@ async function updatePaperStatus(
 		.where(eq(papers.id, paperId));
 }
 
+/**
+ * Mark paper as failed and notify user via SSE
+ * @param userId - User ID who owns the paper
+ * @param paperId - Paper ID to mark as failed
+ * @param errorMessage - Error message describing the failure
+ * @param env - Worker environment bindings
+ */
 async function markPaperFailed(
+	userId: string,
 	paperId: string,
 	errorMessage: string,
 	env: Env,
 ): Promise<void> {
 	await updatePaperStatus(paperId, "failed", errorMessage, env);
+	await notifySSE(env, userId, paperId, "failed", 0, errorMessage);
 }
 
 function isRetryableError(error: unknown): boolean {
