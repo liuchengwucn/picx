@@ -25,9 +25,11 @@ export const paperRouter = router({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			let paper: typeof papers.$inferSelect;
+
 			// 使用事务：创建论文记录 + 扣除积分
 			try {
-				const paper = await db.transaction(async (tx) => {
+				paper = await db.transaction(async (tx) => {
 					// 在事务内扣除积分，使用条件更新确保积分足够
 					const [updatedUser] = await tx
 						.update(users)
@@ -75,17 +77,6 @@ export const paperRouter = router({
 
 					return newPaper;
 				});
-
-				// 推送到队列进行异步处理
-				await ctx.env.PAPER_QUEUE.send({
-					paperId: paper.id,
-					userId: ctx.session.user.id,
-					sourceType: input.sourceType,
-					arxivUrl: input.arxivUrl,
-					r2Key: input.r2Key,
-				});
-
-				return { paperId: paper.id, status: paper.status };
 			} catch (error) {
 				// 如果是我们抛出的 TRPCError，直接重新抛出
 				if (error instanceof TRPCError) {
@@ -98,6 +89,33 @@ export const paperRouter = router({
 					cause: error,
 				});
 			}
+
+			// 推送到队列进行异步处理
+			try {
+				await ctx.env.PAPER_QUEUE.send({
+					paperId: paper.id,
+					userId: ctx.session.user.id,
+					sourceType: input.sourceType,
+					arxivUrl: input.arxivUrl,
+					r2Key: input.r2Key,
+				});
+			} catch (error) {
+				await db
+					.update(papers)
+					.set({
+						status: "failed",
+						errorMessage: "Queue dispatch failed",
+					})
+					.where(eq(papers.id, paper.id));
+
+				throw new TRPCError({
+					code: "INTERNAL_SERVER_ERROR",
+					message: "Paper created but queue dispatch failed",
+					cause: error,
+				});
+			}
+
+			return { paperId: paper.id, status: paper.status };
 		}),
 
 	/**

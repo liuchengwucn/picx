@@ -4,11 +4,23 @@ import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import superjson from "superjson";
 import { auth } from "#/lib/auth";
 
+export interface PaperQueueMessage {
+	paperId: string;
+	userId: string;
+	sourceType: "upload" | "arxiv";
+	arxivUrl?: string;
+	r2Key: string;
+}
+
+interface AppEnvBindings {
+	PAPER_QUEUE: Queue<PaperQueueMessage>;
+}
+
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
 	return {
 		auth,
 		headers: opts.req.headers,
-		env,
+		env: env as typeof env & AppEnvBindings,
 	};
 }
 
