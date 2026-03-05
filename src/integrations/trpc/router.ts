@@ -1,6 +1,7 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "./init";
+import { paperRouter } from "./routers/paper";
 import { userRouter } from "./routers/user";
 
 const todos = [
@@ -23,5 +24,6 @@ const todosRouter = {
 export const trpcRouter = createTRPCRouter({
 	todos: todosRouter,
 	user: userRouter,
+	paper: paperRouter,
 });
 export type TRPCRouter = typeof trpcRouter;
