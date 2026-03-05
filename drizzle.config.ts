@@ -1,7 +1,8 @@
 import { config } from 'dotenv'
 import { defineConfig } from 'drizzle-kit'
 
-config({ path: ['.env.local', '.env'] })
+// 统一使用 .dev.vars 文件
+config({ path: '.dev.vars' })
 
 export default defineConfig({
   out: './drizzle',

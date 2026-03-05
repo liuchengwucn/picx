@@ -5,10 +5,8 @@
 ```
 picx/
 ├── wrangler.jsonc          # Cloudflare Workers 配置（D1/R2/Queues/DO）
-├── .dev.vars               # Wrangler 运行时密钥（不提交）
-├── .dev.vars.example       # .dev.vars 模板
-├── .env.local              # 构建时环境变量（不提交）
-└── .env.example            # .env.local 模板
+├── .dev.vars               # 统一的本地开发环境变量（不提交）
+└── .dev.vars.example       # .dev.vars 模板
 ```
 
 ## 🎯 配置文件职责
@@ -26,34 +24,27 @@ picx/
 ---
 
 ### 2️⃣ `.dev.vars`
-**用途**：Wrangler 本地开发时的密钥（Worker 运行时变量）
+**用途**：统一的本地开发环境变量
 
 **包含内容**：
+- Cloudflare 账户信息（用于 Drizzle Kit）
 - R2 访问密钥（用于预签名 URL）
-- Better Auth Secret
+- Better Auth 配置
 - OAuth 客户端密钥
 - AI API Keys
 
-**访问方式**：在 Worker 中通过 `env.VARIABLE_NAME` 访问
+**使用场景**：
+1. **Wrangler** 自动读取并注入到 Worker 运行时
+2. **Drizzle Kit** 通过 dotenv 读取用于数据库操作
+3. **其他 Node.js 脚本** 也可以通过 dotenv 读取
+
+**访问方式**：
+- Worker 中：`env.VARIABLE_NAME`
+- Node.js 脚本中：`process.env.VARIABLE_NAME`
 
 **提交到 Git**：❌ 否（已在 .gitignore）
 
 **生产环境**：使用 `wrangler secret put` 命令设置
-
----
-
-### 3️⃣ `.env.local`
-**用途**：构建时环境变量（Vite、Drizzle Kit、Node.js 脚本）
-
-**包含内容**：
-- Cloudflare 账户信息（用于 Drizzle Kit 远程操作）
-- Better Auth URL
-- AI API 配置（Base URL、Model）
-- R2 公共域名
-
-**访问方式**：在构建脚本中通过 `process.env.VARIABLE_NAME` 访问
-
-**提交到 Git**：❌ 否（已在 .gitignore）
 
 ---
 
@@ -64,20 +55,14 @@ picx/
 1. **复制配置文件**
 ```bash
 cp .dev.vars.example .dev.vars
-cp .env.example .env.local
 ```
 
-2. **填写 `.dev.vars`**（Worker 运行时密钥）
+2. **填写 `.dev.vars`**
 ```bash
-# 编辑 .dev.vars，填入实际的密钥
+# 编辑 .dev.vars，填入实际的密钥和配置
 ```
 
-3. **填写 `.env.local`**（构建时变量）
-```bash
-# 编辑 .env.local，填入 Cloudflare 账户信息
-```
-
-4. **创建 Cloudflare 资源**
+3. **创建 Cloudflare 资源**
 ```bash
 # 创建 D1 数据库
 wrangler d1 create picx-db
@@ -92,7 +77,7 @@ wrangler queues create paper-processing
 wrangler queues create paper-processing-dlq
 ```
 
-5. **运行数据库迁移**
+4. **运行数据库迁移**
 ```bash
 # 本地迁移
 wrangler d1 migrations apply picx-db --local
@@ -101,7 +86,7 @@ wrangler d1 migrations apply picx-db --local
 wrangler d1 migrations apply picx-db --remote
 ```
 
-6. **启动开发服务器**
+5. **启动开发服务器**
 ```bash
 npm run dev
 ```
@@ -134,17 +119,17 @@ wrangler secret put GEMINI_API_KEY
 
 ## 📊 配置对比表
 
-| 配置项 | wrangler.jsonc | .dev.vars | .env.local |
-|--------|----------------|-----------|------------|
-| D1 绑定 | ✅ | ❌ | ❌ |
-| R2 绑定 | ✅ | ❌ | ❌ |
-| R2 访问密钥 | ❌ | ✅ | ❌ |
-| Cloudflare 账户信息 | ❌ | ❌ | ✅ |
-| Better Auth Secret | ❌ | ✅ | ❌ |
-| Better Auth URL | ❌ | ❌ | ✅ |
-| OAuth 密钥 | ❌ | ✅ | ❌ |
-| AI API Keys | ❌ | ✅ | ❌ |
-| 提交到 Git | ✅ | ❌ | ❌ |
+| 配置项 | wrangler.jsonc | .dev.vars |
+|--------|----------------|-----------|
+| D1 绑定 | ✅ | ❌ |
+| R2 绑定 | ✅ | ❌ |
+| R2 访问密钥 | ❌ | ✅ |
+| Cloudflare 账户信息 | ❌ | ✅ |
+| Better Auth Secret | ❌ | ✅ |
+| Better Auth URL | ❌ | ✅ |
+| OAuth 密钥 | ❌ | ✅ |
+| AI API Keys | ❌ | ✅ |
+| 提交到 Git | ✅ | ❌ |
 
 ---
 
@@ -231,11 +216,17 @@ await fetch(uploadUrl, {
 
 ## ❓ 常见问题
 
-### Q: 为什么要分 `.dev.vars` 和 `.env.local`？
+### Q: 为什么统一使用 `.dev.vars`？
 A:
-- `.dev.vars` 是 Wrangler 专用的，变量会注入到 Worker 运行时
-- `.env.local` 是给 Vite、Drizzle Kit 等构建工具使用的
-- 两者作用域不同，不能混用
+- 根据 Cloudflare 文档，如果定义了 `.dev.vars`，Wrangler 会忽略 `.env` 文件
+- `.dev.vars` 既可以被 Wrangler 读取（Worker 运行时），也可以被 Drizzle Kit 等工具通过 dotenv 读取
+- 统一使用一个文件，避免配置分散和重复
+
+### Q: `.dev.vars` 和 `.env` 有什么区别？
+A:
+- **二选一原则**：如果存在 `.dev.vars`，Wrangler 会忽略 `.env` 文件
+- **合并规则不同**：`.env` 系列文件会合并，`.dev.vars` 系列文件是替换模式
+- **推荐使用 `.dev.vars`**：这是 Cloudflare Workers 的官方推荐方式
 
 ### Q: 本地开发时数据存在哪里？
 A:
