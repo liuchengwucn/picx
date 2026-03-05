@@ -34,8 +34,8 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 # ===== AI API Keys =====
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5-mini
 
 GEMINI_API_KEY=your-gemini-api-key
 GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
-GEMINI_MODEL=gemini-2.0-flash-exp
+GEMINI_MODEL=gemini-3.1-flash-image-preview
