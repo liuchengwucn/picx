@@ -54,7 +54,7 @@
   "credits_type_purchase": "购买积分",
   "credits_empty": "暂无交易记录",
   "cancel": "取消",
-  "error_insufficient_credits": "积分不足，至少需要 10 积分。",
+  "error_insufficient_credits": "积分不足，至少需要 1 积分。",
   "home_hero_title": "AI 驱动的论文总结与思维导图生成",
   "home_hero_subtitle": "上传 PDF 或 arXiv 链接，即刻获得论文总结和可视化思维导图",
   "home_cta_start": "开始使用",

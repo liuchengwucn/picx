@@ -54,7 +54,7 @@
   "credits_type_purchase": "Purchase",
   "credits_empty": "No transactions yet",
   "cancel": "Cancel",
-  "error_insufficient_credits": "Insufficient credits. You need at least 10 credits.",
+  "error_insufficient_credits": "Insufficient credits. You need at least 1 credits.",
   "home_hero_title": "AI-Powered Paper Summarization & Mind Mapping",
   "home_hero_subtitle": "Upload PDF or arXiv link, get instant summary and visual mind map",
   "home_cta_start": "Get Started",
