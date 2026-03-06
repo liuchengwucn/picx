@@ -42,7 +42,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "PicX - Paper Mindmap",
+        title: "PicX - Paper Whiteboard",
       },
     ],
     links: [

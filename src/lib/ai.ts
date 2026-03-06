@@ -147,14 +147,14 @@ Guidelines:
 }
 
 /**
- * 调用 OpenAI API 生成思维导图 Markdown 结构
+ * 调用 OpenAI API 生成白板 Markdown 结构
  *
  * @param paperText 论文文本内容
  * @param config AI 配置
- * @returns 思维导图的 Markdown 表示（可选包含 Mermaid 图表）
+ * @returns 白板的 Markdown 表示
  * @throws 如果生成失败则抛出错误
  */
-export async function generateMindmapStructure(
+export async function generateWhiteboardStructure(
   paperText: string,
   config: AIConfig,
 ): Promise<string> {
@@ -181,38 +181,34 @@ export async function generateMindmapStructure(
           {
             role: "system",
             content:
-              "You are an expert at creating structured mindmaps from academic papers. Generate a hierarchical mindmap using Markdown format. You can optionally use Mermaid syntax for visualization. Use clear, concise text for each node.",
+              "You are an expert at analyzing academic papers and identifying key insights. Extract the most important concepts, findings, and relationships from the paper. Focus on what matters most - the core insights, breakthrough ideas, and critical connections between concepts.",
           },
           {
             role: "user",
-            content: `Create a mindmap for the following paper using Markdown format.
+            content: `Analyze the following paper and identify the key insights that should be emphasized on a whiteboard.
 
-You can use either:
-1. Markdown lists (recommended for simplicity):
+Think about:
+- What are the core breakthrough ideas or novel contributions?
+- What are the most important concepts and their relationships?
+- What key formulas, equations, or results are critical to understanding?
+- What insights would a professor emphasize when explaining this on a whiteboard?
+
+Organize your analysis using Markdown lists:
 # Paper Title
-- Main Topic 1
-  - Subtopic 1.1
-  - Subtopic 1.2
-- Main Topic 2
-  - Subtopic 2.1
+- Core Insight 1
+  - Supporting Point 1.1
+  - Supporting Point 1.2
+- Core Insight 2
+  - Supporting Point 2.1
     - Detail 2.1.1
 
-2. Or Mermaid mindmap syntax (optional):
-\`\`\`mermaid
-mindmap
-  root((Paper Title))
-    Main Topic 1
-      Subtopic 1.1
-    Main Topic 2
-\`\`\`
-
-3. Or combine both formats
-
 Guidelines:
+- Focus on insights and understanding, not visual design
 - Organize by: Background, Methodology, Key Findings, Contributions, Limitations
-- Keep node text concise (max 5-7 words per node)
-- Use 2-4 main branches, each with 2-4 sub-branches
+- Keep text concise (max 5-7 words per item)
+- Use 2-4 main insights, each with 2-4 supporting points
 - Maximum 3 levels of depth
+- Emphasize what's novel and important
 
 Paper content:
 ${paperText}`,
@@ -245,50 +241,52 @@ ${paperText}`,
     const content = data.choices[0].message?.content?.trim();
 
     if (!content) {
-      throw new Error("Empty mindmap structure generated");
+      throw new Error("Empty whiteboard structure generated");
     }
 
     return content;
   } catch (error) {
-    console.error("Failed to generate mindmap structure:", error);
+    console.error("Failed to generate whiteboard structure:", error);
     throw new Error(
-      `Mindmap structure generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Whiteboard structure generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }
 
 /**
- * 生成思维导图图片
+ * 生成白板图片
  * 支持通过 OpenRouter 或直接调用 Gemini API
  *
- * @param mindmapMarkdown 思维导图的 Markdown 表示
+ * @param whiteboardMarkdown 白板的 Markdown 表示
+ * @param paperText 原始论文文本
  * @param config AI 配置
  * @returns 图片的 ArrayBuffer 数据和用于生成的 prompt
  * @throws 如果生成失败则抛出错误
  */
-export async function generateMindmapImage(
-  mindmapMarkdown: string,
+export async function generateWhiteboardImage(
+  whiteboardMarkdown: string,
+  paperText: string,
   config: AIConfig,
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
-  const prompt = buildMindmapPrompt(mindmapMarkdown);
+  const prompt = buildWhiteboardPrompt(whiteboardMarkdown, paperText);
 
   // 检测是否使用 OpenRouter (通过 geminiBaseUrl 判断)
   const isOpenRouter = config.geminiBaseUrl?.includes("openrouter");
 
   if (isOpenRouter) {
     // 使用 OpenRouter API (OpenAI 兼容格式)
-    return await generateMindmapImageWithOpenRouter(prompt, config);
+    return await generateWhiteboardImageWithOpenRouter(prompt, config);
   }
 
   // 使用原生 Gemini API
-  return await generateMindmapImageWithGemini(prompt, config);
+  return await generateWhiteboardImageWithGemini(prompt, config);
 }
 
 /**
- * 使用 OpenRouter API 生成思维导图图片
+ * 使用 OpenRouter API 生成白板图片
  * OpenRouter 支持通过 chat completions API 调用 Gemini 图像生成模型
  */
-async function generateMindmapImageWithOpenRouter(
+async function generateWhiteboardImageWithOpenRouter(
   prompt: string,
   config: AIConfig,
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
@@ -371,7 +369,7 @@ async function generateMindmapImageWithOpenRouter(
       prompt,
     };
   } catch (error) {
-    console.error("Failed to generate mindmap image with OpenRouter:", error);
+    console.error("Failed to generate whiteboard image with OpenRouter:", error);
     throw new Error(
       `OpenRouter image generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
@@ -379,9 +377,9 @@ async function generateMindmapImageWithOpenRouter(
 }
 
 /**
- * 使用原生 Gemini API 生成思维导图图片
+ * 使用原生 Gemini API 生成白板图片
  */
-async function generateMindmapImageWithGemini(
+async function generateWhiteboardImageWithGemini(
   prompt: string,
   config: AIConfig,
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
@@ -466,7 +464,7 @@ async function generateMindmapImageWithGemini(
       prompt,
     };
   } catch (error) {
-    console.error("Failed to generate mindmap image with Gemini:", error);
+    console.error("Failed to generate whiteboard image with Gemini:", error);
     throw new Error(
       `Gemini image generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
@@ -680,22 +678,30 @@ The title should be clean and properly formatted.`;
 }
 
 /**
- * 构建思维导图生成 prompt
+ * 构建白板生成 prompt
  *
- * @param mindmapMarkdown 思维导图的 Markdown 表示
+ * @param whiteboardMarkdown 白板的 Markdown 表示
+ * @param paperText 原始论文文本
  * @returns 生成的 prompt
  */
-function buildMindmapPrompt(mindmapMarkdown: string): string {
-  return `Create a beautiful, professional mindmap visualization based on the following structure:
+function buildWhiteboardPrompt(whiteboardMarkdown: string, paperText: string): string {
+  return `Transform this academic paper into a professor-style whiteboard image. Include diagrams, arrows, boxes, and short captions that explain the core ideas visually.
 
-${mindmapMarkdown}
+Key insights to emphasize:
+${whiteboardMarkdown}
+
+Original paper content:
+${paperText}
 
 Requirements:
-- Use a clean, modern design with a radial layout
-- Use different colors for different main branches
+- Create a hand-drawn whiteboard aesthetic with a clean, academic style
+- Use boxes and circles to highlight key concepts from the insights above
+- Draw arrows to show relationships and flow between ideas
+- Include key formulas and equations prominently (extract from paper content)
+- Use different sections or colors to organize main topics
 - Make the text readable and well-organized
-- Center the root node prominently
-- Use smooth connecting lines between nodes
-- Ensure good spacing between nodes to avoid overlap
-- Use a professional color palette`;
+- Ensure good spacing to avoid clutter
+- Use a professional, academic color palette (black, blue, red for emphasis)
+- Mimic the style of a university professor explaining concepts on a whiteboard
+- Focus on visualizing the insights and their connections, not just listing information`;
 }

@@ -4,8 +4,8 @@ import { paperResults, papers } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import {
   extractPaperTitle,
-  generateMindmapImage,
-  generateMindmapStructure,
+  generateWhiteboardImage,
+  generateWhiteboardStructure,
   generateSummary,
 } from "#/lib/ai";
 import { downloadArxivPDF, extractPDFText } from "#/lib/pdf";
@@ -146,21 +146,22 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     })
     .where(eq(papers.id, msg.paperId));
 
-  // Step 4: 生成总结和思维导图结构
+  // Step 4: 生成总结和白板结构
   const language: "en" | "zh" = msg.language || "en"; // 使用消息中的语言参数，默认英文
 
   const summary = await generateSummary(text, aiConfig, language);
-  const mindmapMarkdown = await generateMindmapStructure(summary, aiConfig);
+  const whiteboardMarkdown = await generateWhiteboardStructure(text, aiConfig);
 
-  // Step 5: 生成思维导图图片
+  // Step 5: 生成白板图片
   await updatePaperStatus(msg.paperId, "processing_image", null, env);
-  const { imageData, prompt } = await generateMindmapImage(
-    mindmapMarkdown,
+  const { imageData, prompt } = await generateWhiteboardImage(
+    whiteboardMarkdown,
+    text,
     aiConfig,
   );
 
   // 上传图片到 R2
-  const imageR2Key = `mindmaps/${msg.userId}/${msg.paperId}.png`;
+  const imageR2Key = `whiteboards/${msg.userId}/${msg.paperId}.png`;
   await env.PAPERS_BUCKET.put(imageR2Key, imageData, {
     httpMetadata: { contentType: "image/png" },
   });
@@ -171,8 +172,8 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     paperId: msg.paperId,
     summaries: { [language]: summary }, // 使用 JSON 结构存储
     summaryLanguage: language,
-    mindmapStructure: mindmapMarkdown,
-    mindmapImageR2Key: imageR2Key,
+    whiteboardStructure: whiteboardMarkdown,
+    whiteboardImageR2Key: imageR2Key,
     imagePrompt: prompt,
     processingTimeMs,
   });

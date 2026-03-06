@@ -262,15 +262,15 @@ function PaperDetailPage() {
                   </AccordionItem>
                 </Accordion>
 
-                {result.mindmapImageR2Key && (
+                {result.whiteboardImageR2Key && (
                   <div className="paper-card p-6">
                     <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
-                      {m.paper_mindmap()}
+                      {m.paper_whiteboard()}
                     </h2>
                     <div className="mt-4 overflow-hidden rounded-lg">
                       <img
-                        src={`/api/r2/${result.mindmapImageR2Key}`}
-                        alt="Mindmap"
+                        src={`/api/r2/${result.whiteboardImageR2Key}`}
+                        alt="Whiteboard"
                         className="w-full cursor-zoom-in"
                       />
                     </div>

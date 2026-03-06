@@ -76,8 +76,8 @@ function HomePage() {
               },
               {
                 icon: Network,
-                title: m.home_feature_mindmap_title(),
-                desc: m.home_feature_mindmap_desc(),
+                title: m.home_feature_whiteboard_title(),
+                desc: m.home_feature_whiteboard_desc(),
                 delay: "160ms",
               },
               {

@@ -128,8 +128,8 @@ export const paperResults = sqliteTable(
       .notNull()
       .$type<Record<string, string>>(),
     summaryLanguage: text("summary_language").notNull().default("en"),
-    mindmapStructure: text("mindmap_structure").notNull(),
-    mindmapImageR2Key: text("mindmap_image_r2_key"),
+    whiteboardStructure: text("whiteboard_structure").notNull(),
+    whiteboardImageR2Key: text("whiteboard_image_r2_key"),
     imagePrompt: text("image_prompt").notNull(),
     processingTimeMs: integer("processing_time_ms"),
     createdAt: integer("created_at", { mode: "timestamp" })
