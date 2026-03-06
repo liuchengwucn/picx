@@ -35,3 +35,10 @@ OPENAI_MODEL=gpt-5-mini
 GEMINI_API_KEY=your-gemini-api-key
 GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 GEMINI_MODEL=gemini-3.1-flash-image-preview
+
+# ===== Cloudflare AI Gateway (可选) =====
+# 用于绕过区域限制和添加缓存、速率限制等功能
+# 如果使用 AI Gateway，将 GEMINI_BASE_URL 改为：
+# https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/openrouter
+# 或 https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/google-ai-studio
+CF_API_TOKEN=your-cloudflare-api-token

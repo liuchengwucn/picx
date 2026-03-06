@@ -24,6 +24,7 @@ interface AppEnvBindings {
   GEMINI_API_KEY: string;
   GEMINI_BASE_URL?: string;
   GEMINI_MODEL?: string;
+  CF_API_TOKEN?: string;
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {

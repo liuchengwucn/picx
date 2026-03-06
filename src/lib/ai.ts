@@ -8,6 +8,7 @@ export interface AIConfig {
   geminiApiKey: string;
   geminiBaseUrl?: string;
   geminiModel?: string;
+  cfApiToken?: string;
 }
 
 
@@ -68,12 +69,19 @@ Guidelines:
 - Be comprehensive but clear and well-organized`;
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+
+    // 如果配置了 Cloudflare API Token，添加 AI Gateway 认证头
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.openaiApiKey}`,
-      },
+      headers,
       body: JSON.stringify({
         model,
         messages: [
@@ -141,12 +149,19 @@ export async function generateMindmapStructure(
   const model = config.openaiModel || "gpt-5-mini";
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+
+    // 如果配置了 Cloudflare API Token，添加 AI Gateway 认证头
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.openaiApiKey}`,
-      },
+      headers,
       body: JSON.stringify({
         model,
         messages: [
@@ -245,7 +260,7 @@ export async function generateMindmapImage(
   const prompt = buildMindmapPrompt(mindmapMarkdown);
 
   // 检测是否使用 OpenRouter (通过 geminiBaseUrl 判断)
-  const isOpenRouter = config.geminiBaseUrl?.includes("openrouter.ai");
+  const isOpenRouter = config.geminiBaseUrl?.includes("openrouter");
 
   if (isOpenRouter) {
     // 使用 OpenRouter API (OpenAI 兼容格式)
@@ -268,12 +283,19 @@ async function generateMindmapImageWithOpenRouter(
   const model = config.geminiModel || "google/gemini-3.1-flash-image-preview";
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.geminiApiKey}`,
+    };
+
+    // 如果配置了 Cloudflare API Token，添加 AI Gateway 认证头
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.geminiApiKey}`,
-      },
+      headers,
       body: JSON.stringify({
         model,
         messages: [

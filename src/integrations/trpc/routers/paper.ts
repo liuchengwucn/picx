@@ -316,6 +316,7 @@ export const paperRouter = router({
         geminiApiKey: ctx.env.GEMINI_API_KEY,
         geminiBaseUrl: ctx.env.GEMINI_BASE_URL,
         geminiModel: ctx.env.GEMINI_MODEL,
+        cfApiToken: ctx.env.CF_API_TOKEN,
       };
 
       const newSummary = await generateSummary(text, aiConfig, input.language);

@@ -33,6 +33,7 @@ interface Env {
   GEMINI_API_KEY: string;
   GEMINI_BASE_URL?: string;
   GEMINI_MODEL?: string;
+  CF_API_TOKEN?: string;
 }
 
 export default {
@@ -113,6 +114,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     geminiApiKey: env.GEMINI_API_KEY,
     geminiBaseUrl: env.GEMINI_BASE_URL,
     geminiModel: env.GEMINI_MODEL,
+    cfApiToken: env.CF_API_TOKEN,
   };
 
   // TODO: 从用户配置获取语言偏好，目前默认使用英文
