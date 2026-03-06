@@ -47,5 +47,12 @@
   "dev": {
     "port": 3000,
     "local_protocol": "http"
+  },
+
+  "observability": {
+    "logs": {
+      "enabled": false,
+      "invocation_logs": true
+    }
   }
 }
