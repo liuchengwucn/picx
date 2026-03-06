@@ -72,5 +72,12 @@
   "home_flow_step3": "查看总结并下载白板图",
   "home_credits_title": "积分系统",
   "home_credits_new_user": "新用户注册赠送 10 积分",
-  "home_credits_cost": "每次处理消耗 1 积分"
+  "home_credits_cost": "每次处理消耗 1 积分",
+  "home_showcase_title": "功能展示",
+  "home_showcase_paper_badge": "AI 分析",
+  "home_showcase_paper_title": "智能论文处理",
+  "home_showcase_paper_desc": "上传研究论文，即刻获得 AI 驱动的洞察、摘要和关键发现提取。",
+  "home_showcase_whiteboard_badge": "可视化映射",
+  "home_showcase_whiteboard_title": "交互式白板",
+  "home_showcase_whiteboard_desc": "在直观的白板界面中可视化论文概念和想法，AI 自动生成图表。"
 }

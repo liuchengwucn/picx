@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  ArrowDown,
   ArrowRight,
   Coins,
   FileText,
@@ -25,7 +26,7 @@ function HomePage() {
             {/* Large Logo */}
             <div className="rise-in mb-8 flex justify-center">
               <img
-                src="/logo.jpg"
+                src="/logo.webp"
                 alt="PicX Logo"
                 className="w-full max-w-4xl"
                 style={{
@@ -66,6 +67,81 @@ function HomePage() {
               {m.home_cta_start()}
               <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
             </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Showcase Section */}
+      <section className="px-4 py-16 sm:px-6">
+        <div className="page-wrap">
+          <div className="mx-auto max-w-6xl">
+            <h2 className="rise-in mb-12 text-center text-3xl font-bold text-[var(--ink)] sm:text-4xl">
+              {m.home_showcase_title()}
+            </h2>
+
+            <div className="grid gap-8 md:grid-cols-[1fr_auto_1fr] md:items-center">
+              {/* Paper Analysis Card */}
+              <div
+                className="rise-in group relative overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_24px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-2 hover:shadow-[0_12px_40px_rgba(139,111,71,0.16)]"
+                style={{ animationDelay: "0ms" }}
+              >
+                <div className="relative aspect-[16/9] overflow-hidden">
+                  <img
+                    src="/paper-example.webp"
+                    alt="Paper Analysis Example"
+                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[var(--surface-strong)] via-transparent to-transparent opacity-60" />
+                </div>
+                <div className="p-6">
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[var(--academic-brown)]/10 px-3 py-1 text-sm font-medium text-[var(--academic-brown)]">
+                    <FileText className="h-4 w-4" />
+                    <span>{m.home_showcase_paper_badge()}</span>
+                  </div>
+                  <h3 className="mb-2 text-xl font-semibold text-[var(--ink)]">
+                    {m.home_showcase_paper_title()}
+                  </h3>
+                  <p className="text-sm text-[var(--ink-soft)]">
+                    {m.home_showcase_paper_desc()}
+                  </p>
+                </div>
+              </div>
+
+              {/* Arrow between cards */}
+              <div className="rise-in flex items-center justify-center -my-4 md:my-0" style={{ animationDelay: "50ms" }}>
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--academic-brown)] shadow-[0_4px_16px_rgba(139,111,71,0.32)]">
+                  <ArrowDown className="md:hidden h-7 w-7 text-white" />
+                  <ArrowRight className="hidden md:inline-block h-7 w-7 text-white" />
+                </div>
+              </div>
+
+              {/* Whiteboard Card */}
+              <div
+                className="rise-in group relative overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_24px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-2 hover:shadow-[0_12px_40px_rgba(139,111,71,0.16)]"
+                style={{ animationDelay: "100ms" }}
+              >
+                <div className="relative aspect-[16/9] overflow-hidden">
+                  <img
+                    src="/whiteboard-example.webp"
+                    alt="Whiteboard Example"
+                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[var(--surface-strong)] via-transparent to-transparent opacity-60" />
+                </div>
+                <div className="p-6">
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[var(--gold)]/10 px-3 py-1 text-sm font-medium text-[var(--gold)]">
+                    <Network className="h-4 w-4" />
+                    <span>{m.home_showcase_whiteboard_badge()}</span>
+                  </div>
+                  <h3 className="mb-2 text-xl font-semibold text-[var(--ink)]">
+                    {m.home_showcase_whiteboard_title()}
+                  </h3>
+                  <p className="text-sm text-[var(--ink-soft)]">
+                    {m.home_showcase_whiteboard_desc()}
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

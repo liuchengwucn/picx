@@ -72,5 +72,12 @@
   "home_flow_step3": "View summary and download whiteboard",
   "home_credits_title": "Credit System",
   "home_credits_new_user": "New users get 10 free credits",
-  "home_credits_cost": "1 credit per paper processing"
+  "home_credits_cost": "1 credit per paper processing",
+  "home_showcase_title": "See It In Action",
+  "home_showcase_paper_badge": "AI Analysis",
+  "home_showcase_paper_title": "Intelligent Paper Processing",
+  "home_showcase_paper_desc": "Upload research papers and get instant AI-powered insights, summaries, and key findings extraction.",
+  "home_showcase_whiteboard_badge": "Visual Mapping",
+  "home_showcase_whiteboard_title": "Interactive Whiteboard",
+  "home_showcase_whiteboard_desc": "Visualize paper concepts and ideas in an intuitive whiteboard interface with AI-generated diagrams."
 }
