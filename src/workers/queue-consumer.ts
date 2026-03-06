@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { paperResults, papers } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import {
+  extractPaperTitle,
   generateMindmapImage,
   generateMindmapStructure,
   generateSummary,
@@ -81,10 +82,13 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     r2Key = `papers/${msg.userId}/${Date.now()}-arxiv-${msg.paperId}.pdf`;
     await env.PAPERS_BUCKET.put(r2Key, pdfBuffer);
 
-    // 更新数据库中的 r2Key
+    // 更新数据库中的 r2Key 和 fileSize
     await db
       .update(papers)
-      .set({ pdfR2Key: r2Key })
+      .set({
+        pdfR2Key: r2Key,
+        fileSize: pdfBuffer.byteLength,
+      })
       .where(eq(papers.id, msg.paperId));
   } else {
     // 从 R2 读取上传的 PDF
@@ -97,16 +101,13 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
   // Step 2: 提取文本
   await updatePaperStatus(msg.paperId, "processing_text", null, env);
-  const { pageCount, text } = await extractPDFText(pdfBuffer);
+  const { pageCount, text, title: pdfMetadataTitle } = await extractPDFText(pdfBuffer);
 
   if (!text || text.trim().length === 0) {
     throw new Error("Failed to extract text from PDF");
   }
 
-  // 更新页数
-  await db.update(papers).set({ pageCount }).where(eq(papers.id, msg.paperId));
-
-  // Step 3: 生成总结和思维导图结构
+  // Step 3: 提取标题
   const aiConfig: AIConfig = {
     openaiApiKey: env.OPENAI_API_KEY,
     openaiBaseUrl: env.OPENAI_BASE_URL,
@@ -117,13 +118,43 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     cfApiToken: env.CF_API_TOKEN,
   };
 
+  let paperTitle: string;
+  if (pdfMetadataTitle) {
+    // 如果PDF元数据中有标题，直接使用
+    paperTitle = pdfMetadataTitle;
+  } else {
+    // 否则使用LLM从文本中提取标题（使用前3000字符）
+    const textForTitleExtraction = text.substring(0, 3000);
+    try {
+      paperTitle = await extractPaperTitle(textForTitleExtraction, aiConfig);
+    } catch (error) {
+      console.warn("Failed to extract title with LLM, using fallback:", error);
+      // 如果LLM提取失败，使用原始文件名
+      paperTitle = msg.sourceType === "arxiv"
+        ? `arXiv Paper ${msg.paperId.substring(0, 8)}`
+        : (msg.arxivUrl?.split("/").pop() || `Paper ${msg.paperId.substring(0, 8)}`);
+    }
+  }
+
+  // 更新标题和页数
+  await db
+    .update(papers)
+    .set({
+      title: paperTitle,
+      pageCount
+    })
+    .where(eq(papers.id, msg.paperId));
+
+  // Step 4: 生成总结和思维导图结构
+
+  // Step 4: 生成总结和思维导图结构
   // TODO: 从用户配置获取语言偏好，目前默认使用英文
   const language: "en" | "zh" = "en";
 
   const summary = await generateSummary(text, aiConfig, language);
   const mindmapMarkdown = await generateMindmapStructure(summary, aiConfig);
 
-  // Step 4: 生成思维导图图片
+  // Step 5: 生成思维导图图片
   await updatePaperStatus(msg.paperId, "processing_image", null, env);
   const { imageData, prompt } = await generateMindmapImage(
     mindmapMarkdown,
@@ -136,7 +167,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     httpMetadata: { contentType: "image/png" },
   });
 
-  // Step 5: 保存结果
+  // Step 6: 保存结果
   const processingTimeMs = Date.now() - startTime;
   await db.insert(paperResults).values({
     paperId: msg.paperId,
@@ -148,7 +179,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     processingTimeMs,
   });
 
-  // Step 6: 标记完成
+  // Step 7: 标记完成
   await updatePaperStatus(msg.paperId, "completed", null, env);
 }
 

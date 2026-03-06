@@ -3,6 +3,7 @@ import { getDocument } from "pdfjs-serverless";
 export interface PDFMetadata {
   pageCount: number;
   text: string;
+  title?: string;
 }
 
 /**
@@ -23,6 +24,17 @@ export async function extractPDFText(
 
     const textParts: string[] = [];
     const numPages = pdf.numPages;
+
+    // 尝试从PDF元数据获取标题
+    let title: string | undefined;
+    try {
+      const metadata = await pdf.getMetadata();
+      if (metadata?.info?.Title && typeof metadata.info.Title === "string") {
+        title = metadata.info.Title.trim();
+      }
+    } catch (e) {
+      console.warn("Failed to extract PDF metadata:", e);
+    }
 
     for (let i = 1; i <= numPages; i++) {
       const page = await pdf.getPage(i);
@@ -49,6 +61,7 @@ export async function extractPDFText(
     return {
       pageCount: numPages,
       text: fullText,
+      title,
     };
   } catch (error) {
     console.error("Failed to extract PDF text:", error);

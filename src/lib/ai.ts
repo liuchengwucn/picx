@@ -590,6 +590,96 @@ Guidelines:
 }
 
 /**
+ * 从论文文本中提取标题
+ *
+ * @param paperText 论文文本内容（前几页）
+ * @param config AI 配置
+ * @returns 提取的论文标题
+ * @throws 如果提取失败则抛出错误
+ */
+export async function extractPaperTitle(
+  paperText: string,
+  config: AIConfig,
+): Promise<string> {
+  const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
+  const model = config.openaiModel || "gpt-5-mini";
+
+  const systemPrompt = `You are an expert at extracting paper titles from academic papers.
+Extract the main title of the paper from the given text.
+Return ONLY the title text, without any additional explanation or formatting.
+If there is a subtitle, include it separated by a colon.
+The title should be clean and properly formatted.`;
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: `Extract the paper title from the following text:\n\n${paperText}`,
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
+      }>;
+    };
+
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error("No response from OpenAI API");
+    }
+
+    const title = data.choices[0].message?.content?.trim();
+
+    if (!title) {
+      throw new Error("Empty title extracted");
+    }
+
+    // 限制标题长度
+    if (title.length > 255) {
+      return title.substring(0, 252) + "...";
+    }
+
+    return title;
+  } catch (error) {
+    console.error("Failed to extract paper title:", error);
+    throw new Error(
+      `Title extraction failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
+}
+
+/**
  * 构建思维导图生成 prompt
  *
  * @param mindmapMarkdown 思维导图的 Markdown 表示
