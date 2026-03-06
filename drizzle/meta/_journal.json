@@ -6,7 +6,28 @@
       "idx": 0,
       "version": "6",
       "when": 1772706789205,
-      "tag": "0000_long_susan_delgado",
+      "tag": "0000_initial_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1772717400000,
+      "tag": "0001_add_summary_language",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1772747220000,
+      "tag": "0002_migrate_to_multilingual_summaries",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1772749080000,
+      "tag": "0003_rename_mindmap_to_whiteboard",
       "breakpoints": true
     }
   ]
