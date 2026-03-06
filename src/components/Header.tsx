@@ -19,14 +19,14 @@ export default function Header() {
           </Link>
         </h2>
 
-        <div className="flex items-center gap-x-4 text-sm font-semibold">
+        <div className="flex items-center gap-x-2 text-sm font-semibold sm:gap-x-4">
           <Link
             to="/papers"
             className="nav-link inline-flex items-center gap-1.5"
             activeProps={{ className: "nav-link is-active" }}
           >
             <FileText className="h-4 w-4" />
-            {m.nav_papers()}
+            <span className="hidden sm:inline">{m.nav_papers()}</span>
           </Link>
           <Link
             to="/credits"
@@ -34,7 +34,7 @@ export default function Header() {
             activeProps={{ className: "nav-link is-active" }}
           >
             <Coins className="h-4 w-4" />
-            {m.nav_credits()}
+            <span className="hidden sm:inline">{m.nav_credits()}</span>
           </Link>
         </div>
 

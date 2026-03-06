@@ -9,6 +9,11 @@ const LOCALE_NAMES: Record<string, string> = {
   "zh-CN": "简体中文",
 };
 
+const LOCALE_SHORT_NAMES: Record<string, string> = {
+  en: "EN",
+  "zh-CN": "中文",
+};
+
 export default function ParaglideLocaleSwitcher() {
   const currentLocale = getLocale();
 
@@ -25,6 +30,7 @@ export default function ParaglideLocaleSwitcher() {
           key={locale}
           onClick={() => setLocale(locale)}
           aria-pressed={locale === currentLocale}
+          aria-label={LOCALE_NAMES[locale] || locale}
           style={{
             cursor: "pointer",
             padding: "0.35rem 0.75rem",
@@ -38,9 +44,11 @@ export default function ParaglideLocaleSwitcher() {
             fontWeight: locale === currentLocale ? 600 : 500,
             letterSpacing: "0.01em",
             fontSize: "0.875rem",
+            whiteSpace: "nowrap",
           }}
         >
-          {LOCALE_NAMES[locale] || locale}
+          <span className="hidden sm:inline">{LOCALE_NAMES[locale] || locale}</span>
+          <span className="sm:hidden">{LOCALE_SHORT_NAMES[locale] || locale}</span>
         </button>
       ))}
     </div>
