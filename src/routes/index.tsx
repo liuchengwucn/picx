@@ -47,7 +47,7 @@ function HomePage() {
             {/* CTA Button */}
             <Link
               to="/papers"
-              className="rise-in group inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-8 py-4 text-base font-semibold text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] active:translate-y-0"
+              className="rise-in group inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-8 py-4 text-base font-semibold !text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] active:translate-y-0 no-underline"
               style={{ animationDelay: "300ms" }}
             >
               {m.home_cta_start()}
@@ -163,7 +163,7 @@ function HomePage() {
             <div className="mt-8 text-center">
               <Link
                 to="/papers"
-                className="inline-flex items-center gap-2 rounded-xl border-2 border-[var(--academic-brown)] bg-transparent px-6 py-3 text-base font-semibold text-[var(--academic-brown)] transition-all hover:bg-[var(--academic-brown)] hover:text-white"
+                className="inline-flex items-center gap-2 rounded-xl border-2 border-[var(--academic-brown)] bg-transparent px-6 py-3 text-base font-semibold !text-[var(--academic-brown)] transition-all hover:bg-[var(--academic-brown)] hover:!text-white no-underline"
               >
                 {m.home_cta_start()}
                 <ArrowRight className="h-5 w-5" />
