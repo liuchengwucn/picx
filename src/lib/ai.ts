@@ -599,6 +599,11 @@ export async function extractPaperTitle(
   paperText: string,
   config: AIConfig,
 ): Promise<string> {
+  // 输入验证
+  if (!paperText || paperText.trim().length === 0) {
+    throw new Error("Paper text is empty or invalid");
+  }
+
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
   const model = config.openaiModel || "gpt-5-mini";
 
@@ -606,7 +611,8 @@ export async function extractPaperTitle(
 Extract the main title of the paper from the given text.
 Return ONLY the title text, without any additional explanation or formatting.
 If there is a subtitle, include it separated by a colon.
-The title should be clean and properly formatted.`;
+The title should be clean and properly formatted.
+If you cannot find a clear title, return "Untitled Paper".`;
 
   try {
     const headers: Record<string, string> = {
@@ -659,8 +665,8 @@ The title should be clean and properly formatted.`;
 
     const title = data.choices[0].message?.content?.trim();
 
-    if (!title) {
-      throw new Error("Empty title extracted");
+    if (!title || title.length === 0) {
+      throw new Error("Empty title extracted from LLM response");
     }
 
     // 限制标题长度

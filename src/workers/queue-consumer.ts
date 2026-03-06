@@ -119,21 +119,54 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     cfApiToken: env.CF_API_TOKEN,
   };
 
+  // 准备 fallback 标题
+  const getFallbackTitle = (): string => {
+    if (msg.sourceType === "arxiv" && msg.arxivUrl) {
+      // 从 arXiv URL 中提取 ID，例如：https://arxiv.org/abs/2301.12345 -> arXiv:2301.12345
+      const arxivIdMatch = msg.arxivUrl.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/i);
+      if (arxivIdMatch) {
+        return `arXiv:${arxivIdMatch[1]}`;
+      }
+    }
+
+    // 对于上传的文件，从 r2Key 中提取文件名
+    if (r2Key) {
+      const filename = r2Key.split("/").pop();
+      if (filename) {
+        // 移除扩展名和时间戳前缀
+        const cleanName = filename
+          .replace(/\.pdf$/i, "")
+          .replace(/^\d+-/, ""); // 移除时间戳前缀
+        if (cleanName.length > 0) {
+          return cleanName;
+        }
+      }
+    }
+
+    // 最后的兜底
+    return `Paper ${msg.paperId.substring(0, 8)}`;
+  };
+
   let paperTitle: string;
-  if (pdfMetadataTitle) {
+  if (pdfMetadataTitle && pdfMetadataTitle.trim().length > 0) {
     // 如果PDF元数据中有标题，直接使用
     paperTitle = pdfMetadataTitle;
   } else {
     // 否则使用LLM从文本中提取标题（使用前3000字符）
     const textForTitleExtraction = text.substring(0, 3000);
-    try {
-      paperTitle = await extractPaperTitle(textForTitleExtraction, aiConfig);
-    } catch (error) {
-      console.warn("Failed to extract title with LLM, using fallback:", error);
-      // 如果LLM提取失败，使用原始文件名
-      paperTitle = msg.sourceType === "arxiv"
-        ? `arXiv Paper ${msg.paperId.substring(0, 8)}`
-        : (msg.arxivUrl?.split("/").pop() || `Paper ${msg.paperId.substring(0, 8)}`);
+
+    // 检查文本是否足够用于提取标题
+    if (textForTitleExtraction.trim().length < 50) {
+      console.warn("Text too short for title extraction, using fallback");
+      paperTitle = getFallbackTitle();
+    } else {
+      try {
+        paperTitle = await extractPaperTitle(textForTitleExtraction, aiConfig);
+        console.log("Successfully extracted paper title:", paperTitle);
+      } catch (error) {
+        console.warn("Failed to extract title with LLM, using fallback:", error);
+        paperTitle = getFallbackTitle();
+      }
     }
   }
 
