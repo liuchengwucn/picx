@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Coins,
   FileText,
+  Github,
   Network,
   Sparkles,
   Upload,
@@ -230,33 +231,57 @@ function HomePage() {
       <section className="px-4 py-16 pb-24 sm:px-6">
         <div className="page-wrap">
           <div className="mx-auto max-w-2xl rounded-3xl border border-[var(--line)] bg-[var(--surface-strong)] p-8 shadow-[0_4px_24px_rgba(45,42,36,0.08)] sm:p-12">
-            <div className="mb-6 flex items-center justify-center">
+            <div className="mb-6 flex items-center justify-center gap-3">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] shadow-[0_4px_16px_rgba(139,111,71,0.24)]">
                 <Coins className="h-8 w-8 text-white" />
               </div>
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--academic-brown)] shadow-[0_4px_16px_rgba(139,111,71,0.24)]">
+                <Github className="h-8 w-8 text-white" />
+              </div>
             </div>
 
-            <h2 className="mb-4 text-center text-2xl font-bold text-[var(--ink)] sm:text-3xl">
+            <h2 className="mb-6 text-center text-2xl font-bold text-[var(--ink)] sm:text-3xl">
               {m.home_credits_title()}
             </h2>
 
-            <div className="space-y-4 text-center">
+            <div className="space-y-3 text-center mb-8">
               <p className="text-lg text-[var(--ink-soft)]">
                 {m.home_credits_new_user()}
+              </p>
+              <p className="text-lg font-semibold text-[var(--academic-brown)]">
+                ✨ {m.home_credits_daily_bonus()}
               </p>
               <p className="text-base text-[var(--ink-soft)]">
                 {m.home_credits_cost()}
               </p>
             </div>
 
-            <div className="mt-8 text-center">
-              <Link
-                to="/papers"
-                className="inline-flex items-center gap-2 rounded-xl border-2 border-[var(--academic-brown)] bg-transparent px-6 py-3 text-base font-semibold !text-[var(--academic-brown)] transition-all hover:bg-[var(--academic-brown)] hover:!text-white no-underline"
-              >
-                {m.home_cta_start()}
-                <ArrowRight className="h-5 w-5" />
-              </Link>
+            {/* Open Source Banner */}
+            <div className="rounded-2xl border-2 border-[var(--academic-brown)] bg-gradient-to-br from-[var(--academic-brown)]/5 to-[var(--gold)]/5 p-6">
+              <div className="text-center">
+                <p className="mb-6 text-base font-semibold text-[var(--ink)]">
+                  {m.home_credits_opensource()}
+                </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                  <a
+                    href="https://github.com/liuchengwucn/picx"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold !text-white shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)] no-underline"
+                  >
+                    <Github className="h-5 w-5" />
+                    {m.home_credits_github()}
+                    <ArrowRight className="h-4 w-4" />
+                  </a>
+                  <Link
+                    to="/papers"
+                    className="inline-flex items-center gap-2 rounded-lg border-2 border-[var(--academic-brown)] bg-transparent px-6 py-3 text-sm font-semibold !text-[var(--academic-brown)] transition-all hover:bg-[var(--academic-brown)] hover:!text-white no-underline"
+                  >
+                    {m.home_cta_start()}
+                    <ArrowRight className="h-5 w-5" />
+                  </Link>
+                </div>
+              </div>
             </div>
           </div>
         </div>
