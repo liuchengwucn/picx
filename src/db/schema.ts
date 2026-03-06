@@ -153,7 +153,7 @@ export const creditTransactions = sqliteTable(
       .references(() => user.id, { onDelete: "restrict" }),
     amount: integer("amount").notNull(),
     type: text("type", {
-      enum: ["initial", "consume", "refund", "purchase"],
+      enum: ["initial", "consume", "refund", "purchase", "daily_bonus"],
     }).notNull(),
     relatedPaperId: text("related_paper_id").references(() => papers.id, {
       onDelete: "set null",

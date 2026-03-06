@@ -52,6 +52,7 @@
   "credits_type_consume": "处理论文",
   "credits_type_refund": "退款",
   "credits_type_purchase": "购买积分",
+  "credits_type_daily_bonus": "每日奖励",
   "credits_empty": "暂无交易记录",
   "cancel": "取消",
   "error_insufficient_credits": "积分不足，至少需要 1 积分。",

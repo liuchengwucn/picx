@@ -72,7 +72,7 @@ export const paperRouter = router({
           amount: -1,
           type: "consume",
           relatedPaperId: newPaper.id,
-          description: "处理论文",
+          description: "Paper processing",
         });
 
         paper = newPaper;

@@ -52,6 +52,7 @@
   "credits_type_consume": "Paper Processing",
   "credits_type_refund": "Refund",
   "credits_type_purchase": "Purchase",
+  "credits_type_daily_bonus": "Daily Bonus",
   "credits_empty": "No transactions yet",
   "cancel": "Cancel",
   "error_insufficient_credits": "Insufficient credits. You need at least 1 credits.",

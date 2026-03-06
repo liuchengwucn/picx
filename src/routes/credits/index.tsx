@@ -32,6 +32,7 @@ const typeIcons: Record<string, React.ElementType> = {
   consume: ArrowDownRight,
   refund: ArrowUpRight,
   purchase: ArrowUpRight,
+  daily_bonus: Gift,
 };
 
 const typeLabels: Record<string, () => string> = {
@@ -39,6 +40,7 @@ const typeLabels: Record<string, () => string> = {
   consume: () => m.credits_type_consume(),
   refund: () => m.credits_type_refund(),
   purchase: () => m.credits_type_purchase(),
+  daily_bonus: () => m.credits_type_daily_bonus(),
 };
 
 function CreditsPage() {

@@ -33,7 +33,7 @@ export async function initializeUserCredits(
       userId,
       amount: INITIAL_CREDITS,
       type: "initial",
-      description: "注册赠送",
+      description: "Initial registration bonus",
     });
 
     console.log(`Successfully initialized credits for user ${userId}`);

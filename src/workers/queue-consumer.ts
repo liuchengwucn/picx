@@ -9,6 +9,7 @@ import {
   generateWhiteboardStructure,
 } from "#/lib/ai";
 import { downloadArxivPDF, extractPDFText } from "#/lib/pdf";
+import type { Env } from "#/types/env";
 
 type PaperStatus =
   | "pending"
@@ -24,18 +25,6 @@ interface QueueMessage {
   arxivUrl?: string;
   r2Key?: string;
   language?: "en" | "zh"; // 用户偏好的语言
-}
-
-interface Env {
-  DB: D1Database;
-  PAPERS_BUCKET: R2Bucket;
-  OPENAI_API_KEY: string;
-  OPENAI_BASE_URL?: string;
-  OPENAI_MODEL?: string;
-  GEMINI_API_KEY: string;
-  GEMINI_BASE_URL?: string;
-  GEMINI_MODEL?: string;
-  CF_API_TOKEN?: string;
 }
 
 const MAX_RETRIES = 3;
