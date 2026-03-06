@@ -15,15 +15,28 @@ function HomePage() {
   return (
     <main className="min-h-screen bg-[var(--bg)]">
       {/* Hero Section */}
-      <section className="relative overflow-hidden px-4 pb-16 pt-20 sm:px-6 sm:pb-24 sm:pt-32">
+      <section className="relative overflow-hidden px-4 pb-4 pt-2 sm:px-6 sm:pb-8 sm:pt-4">
         {/* Background decorations */}
         <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-[radial-gradient(circle,rgba(139,111,71,0.12),transparent_70%)] blur-3xl" />
         <div className="pointer-events-none absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-[radial-gradient(circle,rgba(201,169,97,0.08),transparent_70%)] blur-3xl" />
 
         <div className="page-wrap relative">
           <div className="mx-auto max-w-4xl text-center">
+            {/* Large Logo */}
+            <div className="rise-in mb-8 flex justify-center">
+              <img
+                src="/logo.jpg"
+                alt="PicX Logo"
+                className="w-full max-w-4xl"
+                style={{
+                  maskImage: "linear-gradient(to right, transparent, black 20%, black 80%, transparent)",
+                  WebkitMaskImage: "linear-gradient(to right, transparent, black 20%, black 80%, transparent)"
+                }}
+              />
+            </div>
+
             {/* Badge */}
-            <div className="rise-in mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-sm font-medium text-[var(--ink-soft)] shadow-[0_2px_8px_rgba(45,42,36,0.06)]">
+            <div className="rise-in mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-sm font-medium text-[var(--ink-soft)] shadow-[0_2px_8px_rgba(45,42,36,0.06)]" style={{ animationDelay: "100ms" }}>
               <Sparkles className="h-4 w-4 text-[var(--academic-brown)]" />
               <span>AI-Powered Research Assistant</span>
             </div>
@@ -31,7 +44,7 @@ function HomePage() {
             {/* Title */}
             <h1
               className="rise-in mb-6 text-4xl font-bold leading-tight tracking-tight text-[var(--ink)] sm:text-6xl sm:leading-tight"
-              style={{ animationDelay: "100ms" }}
+              style={{ animationDelay: "200ms" }}
             >
               {m.home_hero_title()}
             </h1>
@@ -39,7 +52,7 @@ function HomePage() {
             {/* Subtitle */}
             <p
               className="rise-in mb-10 text-lg text-[var(--ink-soft)] sm:text-xl"
-              style={{ animationDelay: "200ms" }}
+              style={{ animationDelay: "300ms" }}
             >
               {m.home_hero_subtitle()}
             </p>
@@ -48,7 +61,7 @@ function HomePage() {
             <Link
               to="/papers"
               className="rise-in group inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-8 py-4 text-base font-semibold !text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] active:translate-y-0 no-underline"
-              style={{ animationDelay: "300ms" }}
+              style={{ animationDelay: "400ms" }}
             >
               {m.home_cta_start()}
               <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
