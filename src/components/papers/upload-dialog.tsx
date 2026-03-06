@@ -13,6 +13,7 @@ import { Input } from "#/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
 
 interface UploadDialogProps {
   credits: number;
@@ -46,11 +47,14 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         fileData,
         fileSize: file.size,
       });
+
+      const currentLocale = getLocale();
       await createPaper.mutateAsync({
         sourceType: "upload",
         filename: file.name,
         fileSize: file.size,
         r2Key,
+        language: currentLocale as "en" | "zh-CN",
       });
       setOpen(false);
       setFile(null);
@@ -66,12 +70,14 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     if (!arxivUrl) return;
     setUploading(true);
     try {
+      const currentLocale = getLocale();
       await createPaper.mutateAsync({
         sourceType: "arxiv",
         arxivUrl,
         filename: arxivUrl.split("/").pop() || "arxiv-paper",
         fileSize: 1, // Placeholder size for arxiv, will be updated after download
         r2Key: `arxiv/${Date.now()}`,
+        language: currentLocale as "en" | "zh-CN",
       });
       setOpen(false);
       setArxivUrl("");

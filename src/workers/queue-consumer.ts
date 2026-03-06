@@ -23,6 +23,7 @@ interface QueueMessage {
   sourceType: "upload" | "arxiv";
   arxivUrl?: string;
   r2Key?: string;
+  language?: "en" | "zh"; // 用户偏好的语言
 }
 
 interface Env {
@@ -146,10 +147,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     .where(eq(papers.id, msg.paperId));
 
   // Step 4: 生成总结和思维导图结构
-
-  // Step 4: 生成总结和思维导图结构
-  // TODO: 从用户配置获取语言偏好，目前默认使用英文
-  const language: "en" | "zh" = "en";
+  const language: "en" | "zh" = msg.language || "en"; // 使用消息中的语言参数，默认英文
 
   const summary = await generateSummary(text, aiConfig, language);
   const mindmapMarkdown = await generateMindmapStructure(summary, aiConfig);

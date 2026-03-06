@@ -23,6 +23,7 @@ export const paperRouter = router({
           .min(0) // Allow 0 for arxiv (will be updated after download)
           .max(50 * 1024 * 1024), // 50MB
         r2Key: z.string().min(1),
+        language: z.enum(["en", "zh-CN"]).optional(), // 用户的语言偏好
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -91,12 +92,20 @@ export const paperRouter = router({
 
       // 推送到队列进行异步处理
       try {
+        // 将 Paraglide 的语言代码映射为 AI 函数使用的语言代码
+        const queueLanguage: "en" | "zh" | undefined = input.language
+          ? input.language === "zh-CN"
+            ? "zh"
+            : "en"
+          : undefined;
+
         await ctx.env.PAPER_QUEUE.send({
           paperId: paper.id,
           userId: ctx.session.user.id,
           sourceType: input.sourceType,
           arxivUrl: input.arxivUrl,
           r2Key: input.r2Key,
+          language: queueLanguage,
         });
       } catch (error) {
         await ctx.db

@@ -12,6 +12,7 @@ export interface PaperQueueMessage {
   sourceType: "upload" | "arxiv";
   arxivUrl?: string;
   r2Key: string;
+  language?: "en" | "zh"; // 用户偏好的语言
 }
 
 interface AppEnvBindings {
