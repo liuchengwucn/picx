@@ -8,6 +8,7 @@ import {
   ImageIcon,
   Languages,
   Loader2,
+  Network,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -176,6 +177,18 @@ function PaperDetailPage() {
 
               {/* Actions */}
               <div className="mt-4 flex gap-2 border-t border-[var(--line)] pt-4">
+                {result?.whiteboardImageR2Key && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                  >
+                    <a href="#whiteboard">
+                      <Network className="mr-1.5 h-4 w-4" />
+                      {m.paper_whiteboard()}
+                    </a>
+                  </Button>
+                )}
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -276,7 +289,7 @@ function PaperDetailPage() {
                 </Accordion>
 
                 {result.whiteboardImageR2Key && (
-                  <div className="paper-card p-6">
+                  <div id="whiteboard" className="paper-card p-6">
                     <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
                       {m.paper_whiteboard()}
                     </h2>
