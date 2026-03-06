@@ -10,7 +10,7 @@
     {
       "binding": "DB",
       "database_name": "picx-db",
-      "database_id": "your-database-id",
+      "database_id": "510f4d6e-1740-4db4-8a96-3823cdaf9bc4",
       "migrations_dir": "drizzle"
     }
   ],
