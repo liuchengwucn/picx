@@ -4,8 +4,7 @@ import { z } from "zod";
 import { creditTransactions, paperResults, papers, user } from "#/db/schema";
 import { protectedProcedure, router } from "../init";
 import type { AIConfig } from "#/lib/ai";
-import { generateSummary } from "#/lib/ai";
-import { extractPDFText } from "#/lib/pdf";
+import { translateSummary } from "#/lib/ai";
 
 export const paperRouter = router({
   /**
@@ -232,7 +231,7 @@ export const paperRouter = router({
 
   /**
    * Regenerate summary in a different language
-   * Deducts 1 credit from user
+   * Does NOT deduct credits - just translates existing summary
    */
   regenerateSummary: protectedProcedure
     .input(
@@ -272,56 +271,7 @@ export const paperRouter = router({
         });
       }
 
-      // Step 3: Deduct credit before regenerating summary
-      const [updatedUser] = await ctx.db
-        .update(user)
-        .set({
-          credits: sql`${user.credits} - 1`,
-        })
-        .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
-        .returning();
-
-      // If no rows updated, insufficient credits
-      if (!updatedUser) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Insufficient credits. You need at least 1 credit.",
-        });
-      }
-
-      // Step 4: Get PDF from R2 and extract text
-      const pdfObject = await ctx.env.PAPERS_BUCKET.get(paper.pdfR2Key);
-      if (!pdfObject) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "PDF file not found in storage",
-        });
-      }
-
-      const pdfBuffer = await pdfObject.arrayBuffer();
-      const { text } = await extractPDFText(pdfBuffer);
-
-      if (!text || text.trim().length === 0) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to extract text from PDF",
-        });
-      }
-
-      // Step 5: Generate new summary with specified language
-      const aiConfig: AIConfig = {
-        openaiApiKey: ctx.env.OPENAI_API_KEY,
-        openaiBaseUrl: ctx.env.OPENAI_BASE_URL,
-        openaiModel: ctx.env.OPENAI_MODEL,
-        geminiApiKey: ctx.env.GEMINI_API_KEY,
-        geminiBaseUrl: ctx.env.GEMINI_BASE_URL,
-        geminiModel: ctx.env.GEMINI_MODEL,
-        cfApiToken: ctx.env.CF_API_TOKEN,
-      };
-
-      const newSummary = await generateSummary(text, aiConfig, input.language);
-
-      // Step 6: Update paperResults with new summary and language
+      // Step 3: Get existing result
       const [existingResult] = await ctx.db
         .select()
         .from(paperResults)
@@ -335,26 +285,35 @@ export const paperRouter = router({
         });
       }
 
+      // Step 4: Translate the existing summary
+      const aiConfig: AIConfig = {
+        openaiApiKey: ctx.env.OPENAI_API_KEY,
+        openaiBaseUrl: ctx.env.OPENAI_BASE_URL,
+        openaiModel: ctx.env.OPENAI_MODEL,
+        geminiApiKey: ctx.env.GEMINI_API_KEY,
+        geminiBaseUrl: ctx.env.GEMINI_BASE_URL,
+        geminiModel: ctx.env.GEMINI_MODEL,
+        cfApiToken: ctx.env.CF_API_TOKEN,
+      };
+
+      const translatedSummary = await translateSummary(
+        existingResult.summary,
+        input.language,
+        aiConfig,
+      );
+
+      // Step 5: Update paperResults with translated summary and language
       await ctx.db
         .update(paperResults)
         .set({
-          summary: newSummary,
+          summary: translatedSummary,
           summaryLanguage: input.language,
         })
         .where(eq(paperResults.paperId, input.paperId));
 
-      // Step 7: Record credit transaction
-      await ctx.db.insert(creditTransactions).values({
-        userId: userId,
-        amount: -1,
-        type: "consume",
-        relatedPaperId: input.paperId,
-        description: "重新生成摘要",
-      });
-
       return {
         success: true,
-        summary: newSummary,
+        summary: translatedSummary,
         language: input.language,
       };
     }),

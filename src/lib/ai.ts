@@ -474,6 +474,122 @@ async function generateMindmapImageWithGemini(
 }
 
 /**
+ * 翻译摘要文本
+ *
+ * @param summaryText 原始摘要文本（Markdown 格式）
+ * @param targetLanguage 目标语言 ('en' 为英文, 'zh' 为中文)
+ * @param config AI 配置
+ * @returns 翻译后的摘要文本（Markdown 格式）
+ * @throws 如果翻译失败则抛出错误
+ */
+export async function translateSummary(
+  summaryText: string,
+  targetLanguage: "en" | "zh",
+  config: AIConfig,
+): Promise<string> {
+  const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
+  const model = config.openaiModel || "gpt-5-mini";
+
+  const languageInstruction =
+    targetLanguage === "zh"
+      ? "请将以下学术论文摘要翻译成中文。"
+      : "Please translate the following academic paper summary into English.";
+
+  const systemPrompt = `You are an expert translator specializing in academic papers. Translate the given summary while maintaining its structure and formatting.
+
+${languageInstruction}
+
+CRITICAL - Preserve Mathematical Content:
+- ALWAYS preserve ALL mathematical formulas, equations, and expressions EXACTLY as they appear
+- Keep LaTeX notation unchanged: $inline$ for inline math, $$display$$ for display equations
+- Do NOT translate or modify any mathematical symbols, variables, operators, subscripts, superscripts
+- Preserve formula numbers and references exactly as they appear
+- Mathematical content should remain in its original form - only translate the surrounding text
+
+CRITICAL - Preserve Tables:
+- ALWAYS preserve ALL tables EXACTLY as they appear
+- Keep Markdown table syntax unchanged
+- Only translate table captions and text content within cells
+- Preserve column headers, row labels, and numerical values exactly
+- Maintain table alignment and structure
+
+CRITICAL - Preserve Markdown Formatting:
+- Keep all Markdown syntax (headers ##, lists -, bold **, italic *, code blocks \`\`\`, blockquotes >)
+- Preserve code blocks and their syntax highlighting markers
+- Maintain the document structure and hierarchy
+
+Guidelines:
+- Translate only the natural language text
+- Maintain academic tone and terminology
+- Keep technical terms accurate
+- Preserve all formatting, formulas, tables, and code blocks exactly`;
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+
+    // 如果配置了 Cloudflare API Token，添加 AI Gateway 认证头
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: summaryText,
+          },
+        ],
+        temperature: 0.3, // 较低的温度以保持翻译准确性
+        max_tokens: 4000,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
+      }>;
+    };
+
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error("No response from OpenAI API");
+    }
+
+    const translatedText = data.choices[0].message?.content?.trim();
+
+    if (!translatedText) {
+      throw new Error("Empty translation generated");
+    }
+
+    return translatedText;
+  } catch (error) {
+    console.error("Failed to translate summary:", error);
+    throw new Error(
+      `Translation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
+}
+
+/**
  * 构建思维导图生成 prompt
  *
  * @param mindmapMarkdown 思维导图的 Markdown 表示
