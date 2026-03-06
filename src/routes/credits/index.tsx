@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -19,8 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table";
+import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
-import { authClient } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/credits/")({
@@ -44,10 +44,8 @@ const typeLabels: Record<string, () => string> = {
 function CreditsPage() {
   const [page, setPage] = useState(1);
   const trpc = useTRPC();
-  const navigate = useNavigate();
 
-  const { data: session, isPending: isSessionPending } =
-    authClient.useSession();
+  const { session, isSessionPending } = useRequireAuth("/credits");
 
   const profile = useQuery(trpc.user.getProfile.queryOptions());
   const history = useQuery(
@@ -55,13 +53,6 @@ function CreditsPage() {
   );
 
   const totalPages = Math.ceil((history.data?.total ?? 0) / 20);
-
-  // Redirect to home if not authenticated
-  useEffect(() => {
-    if (!isSessionPending && !session) {
-      navigate({ to: "/", search: { redirect: "/credits" } });
-    }
-  }, [session, isSessionPending, navigate]);
 
   // Show loading while checking session
   if (isSessionPending) {

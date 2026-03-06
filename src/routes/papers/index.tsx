@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -11,8 +11,8 @@ import { UploadDialog } from "#/components/papers/upload-dialog";
 import { Button } from "#/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
+import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
-import { authClient } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
 
 type StatusFilter =
@@ -31,10 +31,8 @@ function PapersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
   const trpc = useTRPC();
-  const navigate = useNavigate();
 
-  const { data: session, isPending: isSessionPending } =
-    authClient.useSession();
+  const { session, isSessionPending } = useRequireAuth("/papers");
 
   const profile = useQuery(trpc.user.getProfile.queryOptions());
   usePaperSSE(profile.data?.id);
@@ -48,13 +46,6 @@ function PapersPage() {
   );
 
   const totalPages = Math.ceil((papersQuery.data?.total ?? 0) / 20);
-
-  // Redirect to home if not authenticated
-  useEffect(() => {
-    if (!isSessionPending && !session) {
-      navigate({ to: "/", search: { redirect: "/papers" } });
-    }
-  }, [session, isSessionPending, navigate]);
 
   // Show loading while checking session
   if (isSessionPending) {
