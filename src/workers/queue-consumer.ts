@@ -119,12 +119,12 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   const language: "en" | "zh" = "en";
 
   const summary = await generateSummary(text, aiConfig, language);
-  const mindmapStructure = await generateMindmapStructure(summary, aiConfig);
+  const mindmapMarkdown = await generateMindmapStructure(summary, aiConfig);
 
   // Step 4: 生成思维导图图片
   await updatePaperStatus(msg.paperId, "processing_image", null, env);
   const { imageData, prompt } = await generateMindmapImage(
-    mindmapStructure,
+    mindmapMarkdown,
     aiConfig,
   );
 
@@ -140,7 +140,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     paperId: msg.paperId,
     summary,
     summaryLanguage: language,
-    mindmapStructure: JSON.stringify(mindmapStructure),
+    mindmapStructure: mindmapMarkdown,
     mindmapImageR2Key: imageR2Key,
     imagePrompt: prompt,
     processingTimeMs,

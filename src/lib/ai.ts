@@ -10,21 +10,6 @@ export interface AIConfig {
   geminiModel?: string;
 }
 
-/**
- * 思维导图节点结构
- */
-export interface MindmapNode {
-  id: string;
-  text: string;
-  children?: MindmapNode[];
-}
-
-/**
- * 思维导图结构
- */
-export interface MindmapStructure {
-  root: MindmapNode;
-}
 
 /**
  * 调用 OpenAI API 生成论文总结
@@ -113,7 +98,13 @@ Guidelines:
       );
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
+      }>;
+    };
 
     if (!data.choices || data.choices.length === 0) {
       throw new Error("No response from OpenAI API");
@@ -135,17 +126,17 @@ Guidelines:
 }
 
 /**
- * 调用 OpenAI API 生成思维导图 JSON 结构
+ * 调用 OpenAI API 生成思维导图 Markdown 结构
  *
  * @param paperText 论文文本内容
  * @param config AI 配置
- * @returns 思维导图结构
+ * @returns 思维导图的 Markdown 表示（可选包含 Mermaid 图表）
  * @throws 如果生成失败则抛出错误
  */
 export async function generateMindmapStructure(
   paperText: string,
   config: AIConfig,
-): Promise<MindmapStructure> {
+): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
   const model = config.openaiModel || "gpt-5-mini";
 
@@ -162,24 +153,38 @@ export async function generateMindmapStructure(
           {
             role: "system",
             content:
-              "You are an expert at creating structured mindmaps from academic papers. Generate a hierarchical JSON structure that represents the paper's key concepts, methodology, and findings. Return ONLY valid JSON without any markdown formatting or code blocks.",
+              "You are an expert at creating structured mindmaps from academic papers. Generate a hierarchical mindmap using Markdown format. You can optionally use Mermaid syntax for visualization. Use clear, concise text for each node.",
           },
           {
             role: "user",
-            content: `Create a mindmap structure for the following paper. Return a JSON object with this structure:
-{
-  "root": {
-    "id": "root",
-    "text": "Paper Title",
-    "children": [
-      {
-        "id": "1",
-        "text": "Main Topic 1",
-        "children": [...]
-      }
-    ]
-  }
-}
+            content: `Create a mindmap for the following paper using Markdown format.
+
+You can use either:
+1. Markdown lists (recommended for simplicity):
+# Paper Title
+- Main Topic 1
+  - Subtopic 1.1
+  - Subtopic 1.2
+- Main Topic 2
+  - Subtopic 2.1
+    - Detail 2.1.1
+
+2. Or Mermaid mindmap syntax (optional):
+\`\`\`mermaid
+mindmap
+  root((Paper Title))
+    Main Topic 1
+      Subtopic 1.1
+    Main Topic 2
+\`\`\`
+
+3. Or combine both formats
+
+Guidelines:
+- Organize by: Background, Methodology, Key Findings, Contributions, Limitations
+- Keep node text concise (max 5-7 words per node)
+- Use 2-4 main branches, each with 2-4 sub-branches
+- Maximum 3 levels of depth
 
 Paper content:
 ${paperText}`,
@@ -197,7 +202,13 @@ ${paperText}`,
       );
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
+      }>;
+    };
 
     if (!data.choices || data.choices.length === 0) {
       throw new Error("No response from OpenAI API");
@@ -209,21 +220,7 @@ ${paperText}`,
       throw new Error("Empty mindmap structure generated");
     }
 
-    // 尝试解析 JSON，处理可能的 markdown 代码块
-    let jsonContent = content;
-    const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (codeBlockMatch) {
-      jsonContent = codeBlockMatch[1];
-    }
-
-    const mindmapStructure = JSON.parse(jsonContent) as MindmapStructure;
-
-    // 验证结构
-    if (!mindmapStructure.root || !mindmapStructure.root.id) {
-      throw new Error("Invalid mindmap structure: missing root node");
-    }
-
-    return mindmapStructure;
+    return content;
   } catch (error) {
     console.error("Failed to generate mindmap structure:", error);
     throw new Error(
@@ -236,16 +233,16 @@ ${paperText}`,
  * 生成思维导图图片
  * 支持通过 OpenRouter 或直接调用 Gemini API
  *
- * @param mindmapStructure 思维导图结构
+ * @param mindmapMarkdown 思维导图的 Markdown 表示
  * @param config AI 配置
  * @returns 图片的 ArrayBuffer 数据和用于生成的 prompt
  * @throws 如果生成失败则抛出错误
  */
 export async function generateMindmapImage(
-  mindmapStructure: MindmapStructure,
+  mindmapMarkdown: string,
   config: AIConfig,
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
-  const prompt = buildMindmapPrompt(mindmapStructure);
+  const prompt = buildMindmapPrompt(mindmapMarkdown);
 
   // 检测是否使用 OpenRouter (通过 geminiBaseUrl 判断)
   const isOpenRouter = config.geminiBaseUrl?.includes("openrouter.ai");
@@ -444,34 +441,20 @@ async function generateMindmapImageWithGemini(
 /**
  * 构建思维导图生成 prompt
  *
- * @param structure 思维导图结构
+ * @param mindmapMarkdown 思维导图的 Markdown 表示
  * @returns 生成的 prompt
  */
-function buildMindmapPrompt(structure: MindmapStructure): string {
-  const lines: string[] = [
-    "Create a beautiful, professional mindmap visualization with the following structure:",
-    "",
-  ];
+function buildMindmapPrompt(mindmapMarkdown: string): string {
+  return `Create a beautiful, professional mindmap visualization based on the following structure:
 
-  function traverseNode(node: MindmapNode, indent = 0): void {
-    const prefix = "  ".repeat(indent);
-    lines.push(`${prefix}- ${node.text}`);
-    if (node.children) {
-      for (const child of node.children) {
-        traverseNode(child, indent + 1);
-      }
-    }
-  }
+${mindmapMarkdown}
 
-  traverseNode(structure.root);
-
-  lines.push("");
-  lines.push("Requirements:");
-  lines.push("- Use a clean, modern design");
-  lines.push("- Use different colors for different branches");
-  lines.push("- Make the text readable and well-organized");
-  lines.push("- Center the root node");
-  lines.push("- Use connecting lines between nodes");
-
-  return lines.join("\n");
+Requirements:
+- Use a clean, modern design with a radial layout
+- Use different colors for different main branches
+- Make the text readable and well-organized
+- Center the root node prominently
+- Use smooth connecting lines between nodes
+- Ensure good spacing between nodes to avoid overlap
+- Use a professional color palette`;
 }
