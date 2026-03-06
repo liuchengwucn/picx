@@ -233,7 +233,8 @@ ${paperText}`,
 }
 
 /**
- * 调用 Gemini API 生成思维导图图片
+ * 生成思维导图图片
+ * 支持通过 OpenRouter 或直接调用 Gemini API
  *
  * @param mindmapStructure 思维导图结构
  * @param config AI 配置
@@ -244,14 +245,119 @@ export async function generateMindmapImage(
   mindmapStructure: MindmapStructure,
   config: AIConfig,
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
+  const prompt = buildMindmapPrompt(mindmapStructure);
+
+  // 检测是否使用 OpenRouter (通过 geminiBaseUrl 判断)
+  const isOpenRouter = config.geminiBaseUrl?.includes("openrouter.ai");
+
+  if (isOpenRouter) {
+    // 使用 OpenRouter API (OpenAI 兼容格式)
+    return await generateMindmapImageWithOpenRouter(prompt, config);
+  }
+
+  // 使用原生 Gemini API
+  return await generateMindmapImageWithGemini(prompt, config);
+}
+
+/**
+ * 使用 OpenRouter API 生成思维导图图片
+ * OpenRouter 支持通过 chat completions API 调用 Gemini 图像生成模型
+ */
+async function generateMindmapImageWithOpenRouter(
+  prompt: string,
+  config: AIConfig,
+): Promise<{ imageData: ArrayBuffer; prompt: string }> {
+  const baseUrl = config.geminiBaseUrl || "https://openrouter.ai/api/v1";
+  const model = config.geminiModel || "google/gemini-3.1-flash-image-preview";
+
+  try {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.geminiApiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        modalities: ["image", "text"], // 关键：告诉 OpenRouter 需要生成图片
+        temperature: 0.4,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `OpenRouter API request failed: ${response.status} ${response.statusText} - ${errorText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          images?: Array<{
+            image_url: { url: string };
+          }>;
+        };
+      }>;
+    };
+
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error("No response from OpenRouter API");
+    }
+
+    const message = data.choices[0].message;
+
+    // OpenRouter 返回的图片在 images 数组中
+    if (!message?.images || message.images.length === 0) {
+      throw new Error("No image data in OpenRouter response");
+    }
+
+    // 图片是 base64 data URL 格式: "data:image/png;base64,..."
+    const imageDataUrl = message.images[0].image_url.url;
+    const base64Match = imageDataUrl.match(/^data:image\/\w+;base64,(.+)$/);
+
+    if (!base64Match) {
+      throw new Error("Invalid image data URL format");
+    }
+
+    // 将 base64 转换为 ArrayBuffer
+    const base64Data = base64Match[1];
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    return {
+      imageData: bytes.buffer,
+      prompt,
+    };
+  } catch (error) {
+    console.error("Failed to generate mindmap image with OpenRouter:", error);
+    throw new Error(
+      `OpenRouter image generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
+}
+
+/**
+ * 使用原生 Gemini API 生成思维导图图片
+ */
+async function generateMindmapImageWithGemini(
+  prompt: string,
+  config: AIConfig,
+): Promise<{ imageData: ArrayBuffer; prompt: string }> {
   const baseUrl =
     config.geminiBaseUrl || "https://generativelanguage.googleapis.com/v1beta";
   const model = config.geminiModel || "gemini-3.1-flash-image-preview";
 
   try {
-    // 构建 prompt
-    const prompt = buildMindmapPrompt(mindmapStructure);
-
     const response = await fetch(
       `${baseUrl}/models/${model}:generateContent?key=${config.geminiApiKey}`,
       {
@@ -286,7 +392,15 @@ export async function generateMindmapImage(
       );
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      candidates?: Array<{
+        content?: {
+          parts: Array<{
+            inlineData?: { mimeType: string; data: string };
+          }>;
+        };
+      }>;
+    };
 
     if (
       !data.candidates ||
@@ -320,9 +434,9 @@ export async function generateMindmapImage(
       prompt,
     };
   } catch (error) {
-    console.error("Failed to generate mindmap image:", error);
+    console.error("Failed to generate mindmap image with Gemini:", error);
     throw new Error(
-      `Mindmap image generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Gemini image generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }
