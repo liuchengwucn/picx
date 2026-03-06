@@ -101,12 +101,12 @@ function PaperDetailPage() {
     <main className="page-wrap py-8">
       <div className="stagger-in">
         {/* Breadcrumb */}
-        <nav className="flex items-center gap-1 text-sm text-[var(--ink-soft)]">
-          <Link to="/papers" className="hover:text-[var(--ink)]">
+        <nav className="flex items-start gap-1 text-sm text-[var(--ink-soft)]">
+          <Link to="/papers" className="hover:text-[var(--ink)] shrink-0">
             {m.papers_title()}
           </Link>
-          <ChevronRight className="h-4 w-4" />
-          <span className="truncate text-[var(--ink)]">{paper.title}</span>
+          <ChevronRight className="h-4 w-4 shrink-0 mt-0.5" />
+          <span className="text-[var(--ink)] break-words min-w-0">{paper.title}</span>
         </nav>
 
         {/* Two-column layout */}
@@ -119,7 +119,7 @@ function PaperDetailPage() {
                   <FileText className="h-6 w-6 text-[var(--academic-brown)]" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h1 className="truncate font-serif text-lg font-bold text-[var(--ink)]">
+                  <h1 className="font-serif text-lg font-bold text-[var(--ink)] break-words">
                     {paper.title}
                   </h1>
                   <p className="text-xs text-[var(--ink-soft)]">
@@ -250,10 +250,23 @@ function PaperDetailPage() {
                       </div>
                     </AccordionTrigger>
                     <AccordionContent>
-                      <div className="prose prose-sm max-w-none text-[var(--ink)]">
+                      <div className="prose prose-sm max-w-none text-[var(--ink)] break-words overflow-hidden">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm, remarkMath]}
                           rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                          components={{
+                            pre: ({ children }) => (
+                              <pre className="overflow-x-auto max-w-full">{children}</pre>
+                            ),
+                            code: ({ children, className }) => (
+                              <code className={`${className || ''} break-words`}>{children}</code>
+                            ),
+                            table: ({ children }) => (
+                              <div className="overflow-x-auto">
+                                <table>{children}</table>
+                              </div>
+                            ),
+                          }}
                         >
                           {result.summary}
                         </ReactMarkdown>
@@ -271,7 +284,7 @@ function PaperDetailPage() {
                       <img
                         src={`/api/r2/${result.whiteboardImageR2Key}`}
                         alt="Whiteboard"
-                        className="w-full cursor-zoom-in"
+                        className="w-full h-auto cursor-zoom-in"
                       />
                     </div>
                   </div>
