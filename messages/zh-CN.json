@@ -4,7 +4,7 @@
   "about_page": "关于",
   "example_message": "欢迎使用国际化应用。",
   "language_label": "语言",
-  "current_locale": "当前语言: {locale}",
+  "current_locale": "当前语言：{locale}",
   "learn_router": "了解 Paraglide JS",
   "nav_papers": "论文",
   "nav_credits": "积分",
@@ -78,6 +78,6 @@
   "home_showcase_paper_title": "智能论文处理",
   "home_showcase_paper_desc": "上传研究论文，即刻获得 AI 驱动的洞察、摘要和关键发现提取。",
   "home_showcase_whiteboard_badge": "可视化映射",
-  "home_showcase_whiteboard_title": "交互式白板",
-  "home_showcase_whiteboard_desc": "在直观的白板界面中可视化论文概念和想法，AI 自动生成图表。"
+  "home_showcase_whiteboard_title": "想法可视化",
+  "home_showcase_whiteboard_desc": "将论文中的图片转化为洞察，AI 自动生成可视化白板图，呈现研究核心思想。"
 }
