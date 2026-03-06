@@ -4,13 +4,12 @@ import * as schema from "#/db/schema";
 import type { Env } from "#/types/env";
 
 const MAX_CREDIT = 20;
-const MIN_BONUS = 1;
-const MAX_BONUS = 3;
+const DAILY_BONUS = 1;
 
 /**
  * Daily credit bonus cron handler
  * Runs every day at 00:00 Beijing Time (16:00 UTC)
- * Adds 1-3 credits to users with less than 20 credits
+ * Adds 1 credit to users with less than 20 credits
  */
 export default {
   async scheduled(
@@ -51,9 +50,8 @@ export default {
       // Process each user
       for (const user of usersNeedingBonus) {
         try {
-          // Generate random bonus (1-3)
-          const bonus = Math.floor(Math.random() * MAX_BONUS) + MIN_BONUS;
-          const newCredit = Math.min(user.credits + bonus, MAX_CREDIT);
+          // Add fixed daily bonus (1 credit)
+          const newCredit = Math.min(user.credits + DAILY_BONUS, MAX_CREDIT);
           const actualBonus = newCredit - user.credits;
 
           // Update user credits

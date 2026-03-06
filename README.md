@@ -1,10 +1,18 @@
 # PicX
 
+[Nano Banana 2](https://blog.google/innovation-and-ai/technology/ai/nano-banana-2/) excels at whiteboard generation, [Emergent Mind](https://www.emergentmind.com/) excels at paper summarization—it would be even better if there was an open-source solution accessible to the research community.
+
 A modern web application for PDF processing and visualization, built with TanStack Start and Cloudflare Workers.
 
 If you find this project helpful, please consider giving it a star ⭐
 
 English | [简体中文](README.zh-CN.md)
+
+## Demo
+
+![Paper Analysis Example](public/paper-example.webp)
+
+![Whiteboard Example](public/whiteboard-example.webp)
 
 ## Features
 

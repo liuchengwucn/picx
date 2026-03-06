@@ -1,10 +1,18 @@
 # PicX
 
+[Nano Banana 2](https://blog.google/innovation-and-ai/technology/ai/nano-banana-2/) 的白板图生成能力很棒，[Emergent Mind](https://www.emergentmind.com/) 的论文总结能力很棒，要是它们有一个开源的、方便研究社区使用的方案就更棒了。
+
 基于 TanStack Start 和 Cloudflare Workers 构建的现代化 PDF 处理和可视化 Web 应用。
 
 如果这个项目对你有帮助，请考虑给它一个 star ⭐
 
 [English](README.md) | 简体中文
+
+## 效果演示
+
+![论文分析示例](public/paper-example.webp)
+
+![白板图示例](public/whiteboard-example.webp)
 
 ## 功能特性
 
