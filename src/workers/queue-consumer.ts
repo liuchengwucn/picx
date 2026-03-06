@@ -4,9 +4,9 @@ import { paperResults, papers } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import {
   extractPaperTitle,
+  generateSummary,
   generateWhiteboardImage,
   generateWhiteboardStructure,
-  generateSummary,
 } from "#/lib/ai";
 import { downloadArxivPDF, extractPDFText } from "#/lib/pdf";
 
@@ -38,29 +38,39 @@ interface Env {
   CF_API_TOKEN?: string;
 }
 
+const MAX_RETRIES = 3;
+
 export default {
   async queue(batch: MessageBatch<QueueMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
+      const { paperId } = message.body;
+      const attempt = message.attempts;
+
       try {
+        console.log(
+          `[paper:${paperId}] Processing attempt ${attempt}/${MAX_RETRIES}`,
+        );
         await processPaper(message.body, env);
         message.ack();
       } catch (error) {
+        const errorDetail = formatErrorDetail(error);
         console.error(
-          `Failed to process paper ${message.body.paperId}:`,
-          error,
+          `[paper:${paperId}] Failed on attempt ${attempt}/${MAX_RETRIES}: ${errorDetail}`,
         );
 
-        // 判断是否可重试
-        if (isRetryableError(error)) {
-          message.retry();
-        } else {
-          // 标记为 failed
-          await markPaperFailed(
-            message.body.paperId,
-            error instanceof Error ? error.message : "Unknown error",
-            env,
-          );
+        // 最后一次重试也失败了，或者是不可重试的错误 → 标记 failed
+        if (attempt >= MAX_RETRIES || !isRetryableError(error)) {
+          const reason =
+            attempt >= MAX_RETRIES
+              ? `Exhausted ${MAX_RETRIES} retries. Last error: ${errorDetail}`
+              : errorDetail;
+          await markPaperFailed(paperId, reason, env);
           message.ack();
+        } else {
+          console.log(
+            `[paper:${paperId}] Scheduling retry (attempt ${attempt + 1})`,
+          );
+          message.retry();
         }
       }
     }
@@ -70,42 +80,77 @@ export default {
 async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   const db = drizzle(env.DB);
   const startTime = Date.now();
+  const log = (step: string, message: string) =>
+    console.log(`[paper:${msg.paperId}][${step}] ${message}`);
+  const logWarn = (step: string, message: string, error?: unknown) =>
+    console.warn(`[paper:${msg.paperId}][${step}] ${message}`, error ?? "");
 
   // Step 1: 获取 PDF
   let pdfBuffer: ArrayBuffer;
   let r2Key = msg.r2Key;
 
-  if (msg.sourceType === "arxiv") {
-    // 下载 arXiv PDF
-    pdfBuffer = await downloadArxivPDF(msg.arxivUrl!);
+  try {
+    if (msg.sourceType === "arxiv") {
+      if (!msg.arxivUrl) {
+        throw new Error("arxivUrl is required for arxiv source type");
+      }
+      log("fetch-pdf", `Downloading arXiv PDF from ${msg.arxivUrl}`);
+      pdfBuffer = await downloadArxivPDF(msg.arxivUrl);
+      log("fetch-pdf", `Downloaded ${pdfBuffer.byteLength} bytes`);
 
-    // 上传到 R2
-    r2Key = `papers/${msg.userId}/${Date.now()}-arxiv-${msg.paperId}.pdf`;
-    await env.PAPERS_BUCKET.put(r2Key, pdfBuffer);
+      // 上传到 R2
+      r2Key = `papers/${msg.userId}/${Date.now()}-arxiv-${msg.paperId}.pdf`;
+      await env.PAPERS_BUCKET.put(r2Key, pdfBuffer);
 
-    // 更新数据库中的 r2Key 和 fileSize
-    await db
-      .update(papers)
-      .set({
-        pdfR2Key: r2Key,
-        fileSize: pdfBuffer.byteLength,
-      })
-      .where(eq(papers.id, msg.paperId));
-  } else {
-    // 从 R2 读取上传的 PDF
-    const object = await env.PAPERS_BUCKET.get(r2Key!);
-    if (!object) {
-      throw new Error("PDF file not found in R2");
+      // 更新数据库中的 r2Key 和 fileSize
+      await db
+        .update(papers)
+        .set({
+          pdfR2Key: r2Key,
+          fileSize: pdfBuffer.byteLength,
+        })
+        .where(eq(papers.id, msg.paperId));
+    } else {
+      if (!r2Key) {
+        throw new Error("r2Key is required for upload source type");
+      }
+      log("fetch-pdf", `Reading from R2: ${r2Key}`);
+      const object = await env.PAPERS_BUCKET.get(r2Key);
+      if (!object) {
+        throw new Error(`PDF file not found in R2: ${r2Key}`);
+      }
+      pdfBuffer = await object.arrayBuffer();
+      log("fetch-pdf", `Read ${pdfBuffer.byteLength} bytes from R2`);
     }
-    pdfBuffer = await object.arrayBuffer();
+  } catch (error) {
+    throw new StepError("fetch-pdf", error);
   }
 
   // Step 2: 提取文本
   await updatePaperStatus(msg.paperId, "processing_text", null, env);
-  const { pageCount, text, title: pdfMetadataTitle } = await extractPDFText(pdfBuffer);
+  let pageCount: number;
+  let text: string;
+  let pdfMetadataTitle: string | undefined;
 
-  if (!text || text.trim().length === 0) {
-    throw new Error("Failed to extract text from PDF");
+  try {
+    log(
+      "extract-text",
+      `Extracting text from PDF (${pdfBuffer.byteLength} bytes)`,
+    );
+    const result = await extractPDFText(pdfBuffer);
+    pageCount = result.pageCount;
+    text = result.text;
+    pdfMetadataTitle = result.title;
+    log(
+      "extract-text",
+      `Extracted ${text.length} chars from ${pageCount} pages`,
+    );
+
+    if (!text || text.trim().length === 0) {
+      throw new Error("Extracted text is empty");
+    }
+  } catch (error) {
+    throw new StepError("extract-text", error);
   }
 
   // Step 3: 提取标题
@@ -122,49 +167,50 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   // 准备 fallback 标题
   const getFallbackTitle = (): string => {
     if (msg.sourceType === "arxiv" && msg.arxivUrl) {
-      // 从 arXiv URL 中提取 ID，例如：https://arxiv.org/abs/2301.12345 -> arXiv:2301.12345
-      const arxivIdMatch = msg.arxivUrl.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/i);
+      const arxivIdMatch = msg.arxivUrl.match(
+        /arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/i,
+      );
       if (arxivIdMatch) {
         return `arXiv:${arxivIdMatch[1]}`;
       }
     }
 
-    // 对于上传的文件，从 r2Key 中提取文件名
     if (r2Key) {
       const filename = r2Key.split("/").pop();
       if (filename) {
-        // 移除扩展名和时间戳前缀
-        const cleanName = filename
-          .replace(/\.pdf$/i, "")
-          .replace(/^\d+-/, ""); // 移除时间戳前缀
+        const cleanName = filename.replace(/\.pdf$/i, "").replace(/^\d+-/, "");
         if (cleanName.length > 0) {
           return cleanName;
         }
       }
     }
 
-    // 最后的兜底
     return `Paper ${msg.paperId.substring(0, 8)}`;
   };
 
   let paperTitle: string;
   if (pdfMetadataTitle && pdfMetadataTitle.trim().length > 0) {
-    // 如果PDF元数据中有标题，直接使用
     paperTitle = pdfMetadataTitle;
+    log("extract-title", `Using PDF metadata title: ${paperTitle}`);
   } else {
-    // 否则使用LLM从文本中提取标题（使用前3000字符）
     const textForTitleExtraction = text.substring(0, 3000);
 
-    // 检查文本是否足够用于提取标题
     if (textForTitleExtraction.trim().length < 50) {
-      console.warn("Text too short for title extraction, using fallback");
+      logWarn(
+        "extract-title",
+        "Text too short for title extraction, using fallback",
+      );
       paperTitle = getFallbackTitle();
     } else {
       try {
         paperTitle = await extractPaperTitle(textForTitleExtraction, aiConfig);
-        console.log("Successfully extracted paper title:", paperTitle);
+        log("extract-title", `Extracted title: ${paperTitle}`);
       } catch (error) {
-        console.warn("Failed to extract title with LLM, using fallback:", error);
+        logWarn(
+          "extract-title",
+          "LLM title extraction failed, using fallback",
+          error,
+        );
         paperTitle = getFallbackTitle();
       }
     }
@@ -175,23 +221,57 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     .update(papers)
     .set({
       title: paperTitle,
-      pageCount
+      pageCount,
     })
     .where(eq(papers.id, msg.paperId));
 
   // Step 4: 生成总结和白板结构
-  const language: "en" | "zh" = msg.language || "en"; // 使用消息中的语言参数，默认英文
+  const language: "en" | "zh" = msg.language || "en";
 
-  const summary = await generateSummary(text, aiConfig, language);
-  const whiteboardMarkdown = await generateWhiteboardStructure(text, aiConfig);
+  let summary: string;
+  let whiteboardMarkdown: string;
+  try {
+    log(
+      "generate-summary",
+      `Generating summary (text: ${text.length} chars, lang: ${language}, model: ${aiConfig.openaiModel || "default"}, baseUrl: ${aiConfig.openaiBaseUrl || "default"})`,
+    );
+    summary = await generateSummary(text, aiConfig, language);
+    log("generate-summary", `Summary generated: ${summary.length} chars`);
+  } catch (error) {
+    throw new StepError("generate-summary", error);
+  }
+
+  try {
+    log("generate-whiteboard", "Generating whiteboard structure");
+    whiteboardMarkdown = await generateWhiteboardStructure(text, aiConfig);
+    log(
+      "generate-whiteboard",
+      `Whiteboard structure generated: ${whiteboardMarkdown.length} chars`,
+    );
+  } catch (error) {
+    throw new StepError("generate-whiteboard", error);
+  }
 
   // Step 5: 生成白板图片
   await updatePaperStatus(msg.paperId, "processing_image", null, env);
-  const { imageData, prompt } = await generateWhiteboardImage(
-    whiteboardMarkdown,
-    text,
-    aiConfig,
-  );
+  let imageData: ArrayBuffer;
+  let prompt: string;
+  try {
+    log(
+      "generate-image",
+      `Generating whiteboard image (model: ${aiConfig.geminiModel || "default"}, baseUrl: ${aiConfig.geminiBaseUrl || "default"})`,
+    );
+    const result = await generateWhiteboardImage(
+      whiteboardMarkdown,
+      text,
+      aiConfig,
+    );
+    imageData = result.imageData;
+    prompt = result.prompt;
+    log("generate-image", `Image generated: ${imageData.byteLength} bytes`);
+  } catch (error) {
+    throw new StepError("generate-image", error);
+  }
 
   // 上传图片到 R2
   const imageR2Key = `whiteboards/${msg.userId}/${msg.paperId}.png`;
@@ -203,7 +283,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   const processingTimeMs = Date.now() - startTime;
   await db.insert(paperResults).values({
     paperId: msg.paperId,
-    summaries: { [language]: summary }, // 使用 JSON 结构存储
+    summaries: { [language]: summary },
     summaryLanguage: language,
     whiteboardStructure: whiteboardMarkdown,
     whiteboardImageR2Key: imageR2Key,
@@ -213,6 +293,36 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
   // Step 7: 标记完成
   await updatePaperStatus(msg.paperId, "completed", null, env);
+  log("done", `Completed in ${processingTimeMs}ms`);
+}
+
+/**
+ * 带步骤标识的错误，用于在最终错误消息中标明失败的步骤
+ */
+class StepError extends Error {
+  readonly step: string;
+  readonly cause: unknown;
+
+  constructor(step: string, cause: unknown) {
+    const causeMessage =
+      cause instanceof Error ? cause.message : String(cause || "Unknown error");
+    super(`[${step}] ${causeMessage}`);
+    this.step = step;
+    this.cause = cause;
+  }
+}
+
+/**
+ * 格式化错误详情，包含 step 信息和 cause 链
+ */
+function formatErrorDetail(error: unknown): string {
+  if (error instanceof StepError) {
+    return `Step "${error.step}" failed: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error || "Unknown error");
 }
 
 async function updatePaperStatus(
@@ -237,7 +347,13 @@ async function markPaperFailed(
   errorMessage: string,
   env: Env,
 ): Promise<void> {
-  await updatePaperStatus(paperId, "failed", errorMessage, env);
+  // 截断过长的错误信息，D1 TEXT 字段没有硬限制但保持合理长度
+  const truncated =
+    errorMessage.length > 1000
+      ? `${errorMessage.substring(0, 997)}...`
+      : errorMessage;
+  console.error(`[paper:${paperId}] Marking as failed: ${truncated}`);
+  await updatePaperStatus(paperId, "failed", truncated, env);
 }
 
 function isRetryableError(error: unknown): boolean {
