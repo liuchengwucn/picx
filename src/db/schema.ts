@@ -123,7 +123,10 @@ export const paperResults = sqliteTable(
     paperId: text("paper_id")
       .notNull()
       .references(() => papers.id, { onDelete: "cascade" }),
-    summary: text("summary").notNull(),
+    // 存储多语言摘要的 JSON 对象: { "en": "...", "zh": "...", ... }
+    summaries: text("summaries", { mode: "json" })
+      .notNull()
+      .$type<Record<string, string>>(),
     summaryLanguage: text("summary_language").notNull().default("en"),
     mindmapStructure: text("mindmap_structure").notNull(),
     mindmapImageR2Key: text("mindmap_image_r2_key"),

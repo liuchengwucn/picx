@@ -140,7 +140,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   const processingTimeMs = Date.now() - startTime;
   await db.insert(paperResults).values({
     paperId: msg.paperId,
-    summary,
+    summaries: { [language]: summary }, // 使用 JSON 结构存储
     summaryLanguage: language,
     mindmapStructure: mindmapMarkdown,
     mindmapImageR2Key: imageR2Key,

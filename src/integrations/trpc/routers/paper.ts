@@ -199,9 +199,25 @@ export const paperRouter = router({
         .where(eq(paperResults.paperId, input))
         .limit(1);
 
+      // 如果有结果，返回当前语言的摘要
+      if (result) {
+        const summaries = result.summaries as Record<string, string>;
+        const currentLanguage = result.summaryLanguage;
+        const summary = summaries[currentLanguage] || summaries.en || "";
+
+        return {
+          paper,
+          result: {
+            ...result,
+            summary, // 返回当前语言的摘要
+            availableLanguages: Object.keys(summaries), // 返回可用的语言列表
+          },
+        };
+      }
+
       return {
         paper,
-        result: result || null,
+        result: null,
       };
     }),
 
@@ -232,6 +248,7 @@ export const paperRouter = router({
   /**
    * Regenerate summary in a different language
    * Does NOT deduct credits - just translates existing summary
+   * Caches translations so switching back doesn't require re-translation
    */
   regenerateSummary: protectedProcedure
     .input(
@@ -285,7 +302,37 @@ export const paperRouter = router({
         });
       }
 
-      // Step 4: Translate the existing summary
+      const summaries = existingResult.summaries as Record<string, string>;
+
+      // Step 4: Check if target language already exists
+      if (summaries[input.language]) {
+        // Language already exists, just update the current language
+        await ctx.db
+          .update(paperResults)
+          .set({
+            summaryLanguage: input.language,
+          })
+          .where(eq(paperResults.paperId, input.paperId));
+
+        return {
+          success: true,
+          summary: summaries[input.language],
+          language: input.language,
+          cached: true,
+        };
+      }
+
+      // Step 5: Translate from current language to target language
+      const currentLanguage = existingResult.summaryLanguage;
+      const sourceSummary = summaries[currentLanguage];
+
+      if (!sourceSummary) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Source summary not found",
+        });
+      }
+
       const aiConfig: AIConfig = {
         openaiApiKey: ctx.env.OPENAI_API_KEY,
         openaiBaseUrl: ctx.env.OPENAI_BASE_URL,
@@ -297,16 +344,21 @@ export const paperRouter = router({
       };
 
       const translatedSummary = await translateSummary(
-        existingResult.summary,
+        sourceSummary,
         input.language,
         aiConfig,
       );
 
-      // Step 5: Update paperResults with translated summary and language
+      // Step 6: Save the new translation and update current language
+      const updatedSummaries = {
+        ...summaries,
+        [input.language]: translatedSummary,
+      };
+
       await ctx.db
         .update(paperResults)
         .set({
-          summary: translatedSummary,
+          summaries: updatedSummaries,
           summaryLanguage: input.language,
         })
         .where(eq(paperResults.paperId, input.paperId));
@@ -315,6 +367,7 @@ export const paperRouter = router({
         success: true,
         summary: translatedSummary,
         language: input.language,
+        cached: false,
       };
     }),
 });
