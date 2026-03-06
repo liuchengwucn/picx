@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   CheckCircle2,
   ChevronRight,
@@ -61,6 +61,7 @@ function PaperDetailPage() {
   const { paperId } = Route.useParams();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const { session, isSessionPending } = useRequireAuth("/papers");
 
@@ -75,6 +76,7 @@ function PaperDetailPage() {
     trpc.paper.delete.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: trpc.paper.list.queryKey() });
+        navigate({ to: "/papers" });
       },
     }),
   );
