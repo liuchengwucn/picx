@@ -11,8 +11,6 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import mermaid from "mermaid";
-import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -49,46 +47,6 @@ import { m } from "#/paraglide/messages";
 export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
 });
-
-// Initialize mermaid
-mermaid.initialize({
-  startOnLoad: true,
-  theme: "default",
-  securityLevel: "strict",
-});
-
-// Mermaid component for rendering mermaid diagrams
-function MermaidDiagram({ chart }: { chart: string }) {
-  const [svg, setSvg] = useState<string>("");
-  const [error, setError] = useState<string>("");
-
-  useEffect(() => {
-    const renderDiagram = async () => {
-      try {
-        const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-        const { svg } = await mermaid.render(id, chart);
-        setSvg(svg);
-      } catch (err) {
-        console.error("Mermaid rendering error:", err);
-        setError("Failed to render diagram");
-      }
-    };
-    renderDiagram();
-  }, [chart]);
-
-  if (error) {
-    return <div className="text-[var(--sienna)] text-sm">{error}</div>;
-  }
-
-  if (!svg) {
-    return (
-      <div className="text-[var(--ink-soft)] text-sm">Loading diagram...</div>
-    );
-  }
-
-  // biome-ignore lint/security/noDangerouslySetInnerHtml: Mermaid generates safe SVG content
-  return <div dangerouslySetInnerHTML={{ __html: svg }} />;
-}
 
 const statusProgress: Record<string, number> = {
   pending: 10,
@@ -296,35 +254,6 @@ function PaperDetailPage() {
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm, remarkMath]}
                           rehypePlugins={[rehypeKatex, rehypeHighlight]}
-                          components={{
-                            code({
-                              node,
-                              className,
-                              children,
-                              ...props
-                            }) {
-                              const match = /language-(\w+)/.exec(
-                                className || "",
-                              );
-                              const language = match ? match[1] : "";
-
-                              // Handle mermaid diagrams
-                              if (language === "mermaid") {
-                                return (
-                                  <MermaidDiagram
-                                    chart={String(children).replace(/\n$/, "")}
-                                  />
-                                );
-                              }
-
-                              // Regular code blocks
-                              return (
-                                <code className={className} {...props}>
-                                  {children}
-                                </code>
-                              );
-                            },
-                          }}
                         >
                           {result.summary}
                         </ReactMarkdown>

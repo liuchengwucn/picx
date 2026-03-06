@@ -125,7 +125,7 @@ export const paperResults = sqliteTable(
       .references(() => papers.id, { onDelete: "cascade" }),
     summary: text("summary").notNull(),
     summaryLanguage: text("summary_language").notNull().default("en"),
-    mindmapStructure: text("mindmap_structure").notNull(), // Markdown format (may include Mermaid)
+    mindmapStructure: text("mindmap_structure").notNull(),
     mindmapImageR2Key: text("mindmap_image_r2_key"),
     imagePrompt: text("image_prompt").notNull(),
     processingTimeMs: integer("processing_time_ms"),

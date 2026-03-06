@@ -58,15 +58,28 @@ Discuss the significance and impact of the findings.
 ## Conclusion
 Summarize the main takeaways and future directions.
 
-## Visual Summary (Optional)
-If helpful, include a Mermaid diagram using \`\`\`mermaid code blocks to visualize key concepts or workflows.
+CRITICAL - Preserve Mathematical Content:
+- ALWAYS preserve key mathematical formulas, equations, and expressions from the paper
+- Use LaTeX notation: $inline$ for inline math, $$display$$ for display equations
+- Include formula numbers and references when present in the original paper
+- Preserve mathematical notation exactly as it appears (variables, operators, subscripts, superscripts)
+- For complex equations, use display mode ($$...$$) with proper formatting
+- Include definitions of key variables and parameters
+
+CRITICAL - Preserve Important Tables:
+- ALWAYS include important tables that contain key results, comparisons, or experimental data
+- Use Markdown table syntax with proper alignment
+- Preserve column headers and row labels exactly
+- Include table captions and numbers when present
+- For large tables, include the most important rows/columns
+- Highlight significant values or patterns in the table caption
 
 Guidelines:
 - Use proper Markdown formatting (headers, lists, bold, italic)
-- Support LaTeX math formulas using $inline$ or $$display$$ notation
 - Use code blocks with syntax highlighting when showing code
 - Use blockquotes (>) for important quotes or definitions
-- Be comprehensive but clear and well-organized`;
+- Be comprehensive but clear and well-organized
+- Prioritize preserving quantitative results, formulas, and data tables over prose descriptions`;
 
   try {
     const headers: Record<string, string> = {
