@@ -4,6 +4,7 @@
   "main": "src/server.ts",
   "compatibility_date": "2026-03-01",
   "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
 
   // D1 数据库配置
   "d1_databases": [
