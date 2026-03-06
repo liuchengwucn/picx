@@ -61,9 +61,9 @@
   "home_feature_upload_title": "多种输入方式",
   "home_feature_upload_desc": "支持 PDF 上传和 arXiv 链接",
   "home_feature_ai_title": "AI 智能总结",
-  "home_feature_ai_desc": "基于 OpenAI 的精准总结",
+  "home_feature_ai_desc": "先进的 AI 技术提供精准总结",
   "home_feature_mindmap_title": "思维导图生成",
-  "home_feature_mindmap_desc": "使用 Gemini AI 生成可视化导图",
+  "home_feature_mindmap_desc": "AI 驱动的可视化思维导图生成",
   "home_feature_credits_title": "积分系统",
   "home_feature_credits_desc": "新用户赠送 10 积分",
   "home_flow_title": "使用流程",
@@ -72,5 +72,5 @@
   "home_flow_step3": "查看总结并下载思维导图",
   "home_credits_title": "积分系统",
   "home_credits_new_user": "新用户注册赠送 10 积分",
-  "home_credits_cost": "每次处理消耗 10 积分"
+  "home_credits_cost": "每次处理消耗 1 积分"
 }
