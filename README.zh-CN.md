@@ -1,0 +1,167 @@
+# PicX
+
+基于 TanStack Start 和 Cloudflare Workers 构建的现代化 PDF 处理和可视化 Web 应用。
+
+如果这个项目对你有帮助，请考虑给它一个 star ⭐
+
+[English](README.md) | 简体中文
+
+## 功能特性
+
+- **PDF 处理**：上传和处理 PDF 文档，支持高级解析功能
+- **交互式白板**：通过直观的白板界面可视化和组织想法
+- **用户认证**：基于 Better Auth 的安全用户认证
+- **国际化**：完整支持英文和简体中文
+- **现代化 UI**：使用 Tailwind CSS 和 Shadcn 组件的响应式设计
+- **实时更新**：通过 TanStack Query 实现乐观 UI 更新
+- **类型安全 API**：使用 tRPC 实现端到端类型安全
+
+## 技术栈
+
+### 前端
+- **框架**：TanStack Start
+- **UI 组件**：Shadcn UI
+- **样式**：Tailwind CSS v4
+- **状态管理**：TanStack Store
+- **数据获取**：TanStack Query
+- **表单**：TanStack Form
+- **表格**：TanStack Table
+- **路由**：TanStack Router
+
+### 后端
+- **运行时**：Cloudflare Workers
+- **数据库**：Cloudflare D1 (SQLite)
+- **存储**：Cloudflare R2
+- **ORM**：Drizzle ORM
+- **API**：tRPC
+- **认证**：Better Auth & GitHub OAuth
+
+### 开发工具
+- **语言**：TypeScript
+- **构建工具**：Vite
+- **代码检查和格式化**：Biome
+- **测试**：Vitest
+- **国际化**：Paraglide JS
+
+## 本地开发
+
+### 前置要求
+
+- Node.js 18+ 和 npm
+- Cloudflare 账号（用于部署）
+
+### 安装步骤
+
+1. 克隆仓库：
+```bash
+git clone https://github.com/liuchengwucn/picx.git
+cd picx
+```
+
+2. 安装依赖：
+```bash
+npm install
+```
+
+3. 配置环境变量：
+```bash
+cp .dev.vars.example .dev.vars
+```
+
+编辑 `.dev.vars` 并配置以下内容：
+
+**本地开发必需：**
+- `BETTER_AUTH_SECRET`：使用 `npx -y @better-auth/cli secret` 生成
+- `BETTER_AUTH_URL`：本地开发设置为 `http://localhost:3000`
+
+**OAuth 登录必需（如果使用 GitHub 登录）：**
+- `GITHUB_CLIENT_ID`：你的 GitHub OAuth 应用客户端 ID
+- `GITHUB_CLIENT_SECRET`：你的 GitHub OAuth 应用客户端密钥
+
+**AI 功能必需：**
+- `OPENAI_API_KEY`：你的 OpenAI API 密钥
+- `OPENAI_BASE_URL`：OpenAI API 端点（默认：`https://api.openai.com/v1`）
+- `OPENAI_MODEL`：使用的模型（例如：`gpt-4o-mini`）
+- `GEMINI_API_KEY`：你的 Google Gemini API 密钥
+- `GEMINI_BASE_URL`：Gemini API 端点
+- `GEMINI_MODEL`：使用的模型（例如：`gemini-3.1-flash-image-preview`）
+
+**生产部署必需：**
+- `CLOUDFLARE_ACCOUNT_ID`：你的 Cloudflare 账号 ID
+- `CLOUDFLARE_D1_DATABASE_ID`：你的 D1 数据库 ID
+- `CLOUDFLARE_API_TOKEN`：具有 D1 权限的 Cloudflare API 令牌
+
+**可选：**
+- `CF_API_TOKEN`：用于使用 Cloudflare AI Gateway
+
+4. 设置数据库：
+```bash
+# 生成迁移文件
+npm run db:generate
+
+# 在本地应用迁移
+npx wrangler d1 migrations apply <DATABASE_NAME> --local
+```
+
+### 运行开发服务器
+
+```bash
+npm run dev
+```
+
+应用将在 `http://localhost:3000` 上运行。
+
+### 生产构建
+
+```bash
+npm run build
+```
+
+### 部署
+
+部署到 Cloudflare Workers：
+
+```bash
+npm run deploy
+```
+
+确保你已在 `wrangler.toml` 中配置了 Cloudflare 账号详情和绑定。
+
+### 测试
+
+运行测试：
+```bash
+npm run test
+```
+
+### 代码质量
+
+```bash
+# 代码检查
+npm run lint
+
+# 代码格式化
+npm run format
+
+# 同时检查代码规范和格式
+npm run check
+```
+
+## 项目结构
+
+```
+picx/
+├── src/
+│   ├── routes/          # 基于文件的路由
+│   ├── components/      # React 组件
+│   ├── lib/            # 工具函数和配置
+│   ├── server/         # 服务端代码
+│   └── paraglide/      # 生成的国际化文件
+├── drizzle/            # 数据库迁移
+├── public/             # 静态资源
+└── wrangler.toml       # Cloudflare Workers 配置
+```
+
+## 许可证
+
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
