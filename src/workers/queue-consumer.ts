@@ -269,6 +269,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       text,
       aiConfig,
       whiteboardLang,
+      summary, // 传递摘要作为降级选项
     );
     imageData = result.imageData;
     prompt = result.prompt;

@@ -260,11 +260,13 @@ ${paperText}`,
 /**
  * 生成白板图片
  * 支持通过 OpenRouter 或直接调用 Gemini API
+ * 如果论文文本过长导致失败，会自动降级使用摘要重试
  *
  * @param whiteboardMarkdown 白板的 Markdown 表示
  * @param paperText 原始论文文本
  * @param config AI 配置
  * @param language 白板图语言 ('en' 为英文, 'zh-cn' 为简体中文, 'zh-tw' 为繁体中文, 'ja' 为日文)
+ * @param summary 可选的论文摘要，当论文文本过长时使用
  * @returns 图片的 ArrayBuffer 数据和用于生成的 prompt
  * @throws 如果生成失败则抛出错误
  */
@@ -273,19 +275,41 @@ export async function generateWhiteboardImage(
   paperText: string,
   config: AIConfig,
   language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
+  summary?: string,
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
-  const prompt = buildWhiteboardPrompt(whiteboardMarkdown, paperText, language);
-
   // 检测是否使用 OpenRouter (通过 geminiBaseUrl 判断)
   const isOpenRouter = config.geminiBaseUrl?.includes("openrouter");
 
-  if (isOpenRouter) {
-    // 使用 OpenRouter API (OpenAI 兼容格式)
-    return await generateWhiteboardImageWithOpenRouter(prompt, config);
-  }
+  // 先尝试使用完整论文文本
+  try {
+    const prompt = buildWhiteboardPrompt(whiteboardMarkdown, paperText, language);
 
-  // 使用原生 Gemini API
-  return await generateWhiteboardImageWithGemini(prompt, config);
+    if (isOpenRouter) {
+      return await generateWhiteboardImageWithOpenRouter(prompt, config);
+    }
+    return await generateWhiteboardImageWithGemini(prompt, config);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // 检查是否是 token 超限错误
+    const isTokenLimitError =
+      errorMessage.includes("token") &&
+      (errorMessage.includes("exceed") || errorMessage.includes("limit") || errorMessage.includes("INVALID_ARGUMENT"));
+
+    // 如果是 token 超限错误且有摘要，尝试使用摘要重试
+    if (isTokenLimitError && summary) {
+      console.log("Token limit exceeded with full paper text, retrying with summary");
+      const promptWithSummary = buildWhiteboardPrompt(whiteboardMarkdown, summary, language);
+
+      if (isOpenRouter) {
+        return await generateWhiteboardImageWithOpenRouter(promptWithSummary, config);
+      }
+      return await generateWhiteboardImageWithGemini(promptWithSummary, config);
+    }
+
+    // 其他错误或没有摘要，直接抛出
+    throw error;
+  }
 }
 
 /**
@@ -700,12 +724,13 @@ If you cannot find a clear title, return "Untitled Paper".`;
  * 构建白板生成 prompt
  *
  * @param whiteboardMarkdown 白板的 Markdown 表示
- * @param paperText 原始论文文本
+ * @param contentText 论文文本或摘要
+ * @param language 白板图语言
  * @returns 生成的 prompt
  */
 function buildWhiteboardPrompt(
   whiteboardMarkdown: string,
-  paperText: string,
+  contentText: string,
   language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
 ): string {
   const languageInstruction =
@@ -724,8 +749,8 @@ ${languageInstruction}
 Key insights to emphasize:
 ${whiteboardMarkdown}
 
-Original paper content:
-${paperText}
+Paper content:
+${contentText}
 
 Requirements:
 - Create a hand-drawn whiteboard aesthetic with a clean, academic style
