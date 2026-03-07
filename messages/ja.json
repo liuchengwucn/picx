@@ -103,5 +103,6 @@
   "home_showcase_paper_desc": "研究論文をアップロードして、即座にAI駆動の洞察、要約、重要な発見の抽出を取得。",
   "home_showcase_whiteboard_badge": "視覚化マッピング",
   "home_showcase_whiteboard_title": "アイデアの視覚化",
-  "home_showcase_whiteboard_desc": "論文内容を深く要約して洞察を形成し、AIが自動的に視覚化ホワイトボードを生成して、研究の核心思想を提示。"
+  "home_showcase_whiteboard_desc": "論文内容を深く要約して洞察を形成し、AIが自動的に視覚化ホワイトボードを生成して、研究の核心思想を提示。",
+  "paper_download_pdf": "PDF をダウンロード"
 }

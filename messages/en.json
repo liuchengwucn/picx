@@ -103,5 +103,6 @@
   "home_showcase_paper_desc": "Upload research papers and get instant AI-powered insights, summaries, and key findings extraction.",
   "home_showcase_whiteboard_badge": "Visual Mapping",
   "home_showcase_whiteboard_title": "Idea Visualization",
-  "home_showcase_whiteboard_desc": "Deeply summarize papers and extract insights. AI automatically generates visual whiteboards that present core research ideas."
+  "home_showcase_whiteboard_desc": "Deeply summarize papers and extract insights. AI automatically generates visual whiteboards that present core research ideas.",
+  "paper_download_pdf": "Download PDF"
 }

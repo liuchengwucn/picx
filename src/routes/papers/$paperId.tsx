@@ -249,6 +249,15 @@ function PaperDetailPage() {
               </div>
 
               <div className="mt-4 flex gap-2 border-t border-[var(--line)] pt-4">
+                <Button variant="outline" size="sm" asChild>
+                  <a
+                    href={`/api/r2/${paper.pdfR2Key}`}
+                    download={`${paper.title}.pdf`}
+                  >
+                    <Download className="mr-1.5 h-4 w-4" />
+                    {m.paper_download_pdf()}
+                  </a>
+                </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
