@@ -24,7 +24,8 @@ interface QueueMessage {
   sourceType: "upload" | "arxiv";
   arxivUrl?: string;
   r2Key?: string;
-  language?: "en" | "zh"; // 用户偏好的语言
+  language?: "en" | "zh"; // 摘要语言
+  whiteboardLanguage?: "en" | "zh"; // 白板图语言
 }
 
 const MAX_RETRIES = 3;
@@ -250,10 +251,12 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       "generate-image",
       `Generating whiteboard image (model: ${aiConfig.geminiModel || "default"}, baseUrl: ${aiConfig.geminiBaseUrl || "default"})`,
     );
+    const whiteboardLang = msg.whiteboardLanguage || "en";
     const result = await generateWhiteboardImage(
       whiteboardMarkdown,
       text,
       aiConfig,
+      whiteboardLang,
     );
     imageData = result.imageData;
     prompt = result.prompt;

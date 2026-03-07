@@ -10,6 +10,14 @@ import {
   DialogTrigger,
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
+import { Label } from "#/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
@@ -20,11 +28,62 @@ interface UploadDialogProps {
   onSuccess?: () => void;
 }
 
+interface LanguageSelectorsProps {
+  summaryLanguage: "en" | "zh-CN";
+  whiteboardLanguage: "en" | "zh";
+  onSummaryLanguageChange: (value: "en" | "zh-CN") => void;
+  onWhiteboardLanguageChange: (value: "en" | "zh") => void;
+}
+
+function LanguageSelectors({
+  summaryLanguage,
+  whiteboardLanguage,
+  onSummaryLanguageChange,
+  onWhiteboardLanguageChange,
+}: LanguageSelectorsProps) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <Label className="text-sm text-[var(--ink-soft)]">
+          {m.upload_summary_language()}
+        </Label>
+        <Select value={summaryLanguage} onValueChange={onSummaryLanguageChange}>
+          <SelectTrigger className="border-[var(--line)]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="en">{m.upload_language_en()}</SelectItem>
+            <SelectItem value="zh-CN">{m.upload_language_zh()}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label className="text-sm text-[var(--ink-soft)]">
+          {m.upload_whiteboard_language()}
+        </Label>
+        <Select value={whiteboardLanguage} onValueChange={onWhiteboardLanguageChange}>
+          <SelectTrigger className="border-[var(--line)]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="en">{m.upload_language_en()}</SelectItem>
+            <SelectItem value="zh">{m.upload_language_zh()}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
 export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [arxivUrl, setArxivUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [summaryLanguage, setSummaryLanguage] = useState<"en" | "zh-CN">(
+    getLocale() as "en" | "zh-CN"
+  );
+  const [whiteboardLanguage, setWhiteboardLanguage] = useState<"en" | "zh">("en");
   const trpc = useTRPC();
 
   const uploadFile = useMutation(trpc.upload.uploadFile.mutationOptions());
@@ -54,7 +113,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         filename: file.name,
         fileSize: file.size,
         r2Key,
-        language: currentLocale as "en" | "zh-CN",
+        language: summaryLanguage,
+        whiteboardLanguage,
       });
       setOpen(false);
       setFile(null);
@@ -77,7 +137,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         filename: arxivUrl.split("/").pop() || "arxiv-paper",
         fileSize: 1, // Placeholder size for arxiv, will be updated after download
         r2Key: `arxiv/${Date.now()}`,
-        language: currentLocale as "en" | "zh-CN",
+        language: summaryLanguage,
+        whiteboardLanguage,
       });
       setOpen(false);
       setArxivUrl("");
@@ -168,6 +229,14 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 </>
               )}
             </div>
+            <div className="mt-4">
+              <LanguageSelectors
+                summaryLanguage={summaryLanguage}
+                whiteboardLanguage={whiteboardLanguage}
+                onSummaryLanguageChange={(value) => setSummaryLanguage(value)}
+                onWhiteboardLanguageChange={(value) => setWhiteboardLanguage(value)}
+              />
+            </div>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-[var(--ink-soft)]">
                 {m.credits_balance()}: {credits}
@@ -201,6 +270,14 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             <p className="mt-2 text-xs text-[var(--ink-soft)]">
               {m.upload_arxiv_hint()}
             </p>
+            <div className="mt-4">
+              <LanguageSelectors
+                summaryLanguage={summaryLanguage}
+                whiteboardLanguage={whiteboardLanguage}
+                onSummaryLanguageChange={(value) => setSummaryLanguage(value)}
+                onWhiteboardLanguageChange={(value) => setWhiteboardLanguage(value)}
+              />
+            </div>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-[var(--ink-soft)]">
                 {m.credits_balance()}: {credits}

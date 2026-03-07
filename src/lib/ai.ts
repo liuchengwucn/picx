@@ -260,6 +260,7 @@ ${paperText}`,
  * @param whiteboardMarkdown 白板的 Markdown 表示
  * @param paperText 原始论文文本
  * @param config AI 配置
+ * @param language 白板图语言 ('en' 为英文, 'zh' 为中文)
  * @returns 图片的 ArrayBuffer 数据和用于生成的 prompt
  * @throws 如果生成失败则抛出错误
  */
@@ -267,8 +268,9 @@ export async function generateWhiteboardImage(
   whiteboardMarkdown: string,
   paperText: string,
   config: AIConfig,
+  language: "en" | "zh" = "en",
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
-  const prompt = buildWhiteboardPrompt(whiteboardMarkdown, paperText);
+  const prompt = buildWhiteboardPrompt(whiteboardMarkdown, paperText, language);
 
   // 检测是否使用 OpenRouter (通过 geminiBaseUrl 判断)
   const isOpenRouter = config.geminiBaseUrl?.includes("openrouter");
@@ -690,8 +692,14 @@ If you cannot find a clear title, return "Untitled Paper".`;
  * @param paperText 原始论文文本
  * @returns 生成的 prompt
  */
-function buildWhiteboardPrompt(whiteboardMarkdown: string, paperText: string): string {
+function buildWhiteboardPrompt(whiteboardMarkdown: string, paperText: string, language: "en" | "zh" = "en"): string {
+  const languageInstruction = language === "zh"
+    ? "请用中文生成白板图，包括所有文字、标注和说明。"
+    : "Generate the whiteboard in English, including all text, labels, and captions.";
+
   return `Transform this academic paper into a professor-style whiteboard image. Include diagrams, arrows, boxes, and short captions that explain the core ideas visually.
+
+${languageInstruction}
 
 Key insights to emphasize:
 ${whiteboardMarkdown}

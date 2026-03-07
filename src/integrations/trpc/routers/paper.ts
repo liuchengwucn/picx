@@ -23,7 +23,8 @@ export const paperRouter = router({
           .min(0) // Allow 0 for arxiv (will be updated after download)
           .max(50 * 1024 * 1024), // 50MB
         r2Key: z.string().min(1),
-        language: z.enum(["en", "zh-CN"]).optional(), // 用户的语言偏好
+        language: z.enum(["en", "zh-CN"]).optional(), // 摘要语言
+        whiteboardLanguage: z.enum(["en", "zh"]).optional(), // 白板图语言
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -99,6 +100,8 @@ export const paperRouter = router({
             : "en"
           : undefined;
 
+        const queueWhiteboardLanguage: "en" | "zh" = input.whiteboardLanguage || "en";
+
         await ctx.env.PAPER_QUEUE.send({
           paperId: paper.id,
           userId: ctx.session.user.id,
@@ -106,6 +109,7 @@ export const paperRouter = router({
           arxivUrl: input.arxivUrl,
           r2Key: input.r2Key,
           language: queueLanguage,
+          whiteboardLanguage: queueWhiteboardLanguage,
         });
       } catch (error) {
         await ctx.db
