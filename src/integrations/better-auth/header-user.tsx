@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { authClient } from "#/lib/auth-client";
+import * as m from "#/paraglide/messages";
 
 export default function BetterAuthHeader() {
   const { data: session, isPending } = authClient.useSession();
@@ -28,8 +29,8 @@ export default function BetterAuthHeader() {
           }}
           className="h-9 px-3 sm:px-4 text-sm font-medium bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors whitespace-nowrap rounded"
         >
-          <span className="hidden sm:inline">Sign out</span>
-          <span className="sm:hidden">Out</span>
+          <span className="hidden sm:inline">{m.auth_sign_out()}</span>
+          <span className="sm:hidden">{m.auth_sign_out_short()}</span>
         </button>
       </div>
     );
@@ -46,8 +47,8 @@ export default function BetterAuthHeader() {
       }}
       className="h-9 px-3 sm:px-4 text-sm font-medium bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors inline-flex items-center whitespace-nowrap rounded"
     >
-      <span className="hidden sm:inline">Sign in with GitHub</span>
-      <span className="sm:hidden">Sign in</span>
+      <span className="hidden sm:inline">{m.auth_sign_in_github()}</span>
+      <span className="sm:hidden">{m.auth_sign_in()}</span>
     </button>
   );
 }

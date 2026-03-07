@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import * as m from "#/paraglide/messages";
 
 type ThemeMode = "light" | "dark" | "auto";
 
@@ -76,10 +77,10 @@ export default function ThemeToggle() {
       className="rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] shadow-[0_8px_22px_rgba(30,90,72,0.08)] transition hover:-translate-y-0.5 whitespace-nowrap"
     >
       <span className="hidden sm:inline">
-        {mode === "auto" ? "Auto" : mode === "dark" ? "Dark" : "Light"}
+        {mode === "auto" ? m.theme_auto() : mode === "dark" ? m.theme_dark() : m.theme_light()}
       </span>
       <span className="sm:hidden">
-        {mode === "auto" ? "A" : mode === "dark" ? "D" : "L"}
+        {mode === "auto" ? m.theme_auto_short() : mode === "dark" ? m.theme_dark_short() : m.theme_light_short()}
       </span>
     </button>
   );

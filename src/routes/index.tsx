@@ -40,7 +40,7 @@ function HomePage() {
             {/* Badge */}
             <div className="rise-in mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-sm font-medium text-[var(--ink-soft)] shadow-[0_2px_8px_rgba(45,42,36,0.06)]" style={{ animationDelay: "100ms" }}>
               <Sparkles className="h-4 w-4 text-[var(--academic-brown)]" />
-              <span>AI-Powered Research Assistant</span>
+              <span>{m.home_hero_badge()}</span>
             </div>
 
             {/* Title */}
