@@ -24,8 +24,8 @@ interface QueueMessage {
   sourceType: "upload" | "arxiv";
   arxivUrl?: string;
   r2Key?: string;
-  language?: "en" | "zh"; // 摘要语言
-  whiteboardLanguage?: "en" | "zh"; // 白板图语言
+  language?: "en" | "zh" | "ja"; // 摘要语言
+  whiteboardLanguage?: "en" | "zh" | "ja"; // 白板图语言
 }
 
 const MAX_RETRIES = 3;
@@ -216,7 +216,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     .where(eq(papers.id, msg.paperId));
 
   // Step 4: 生成总结和白板结构
-  const language: "en" | "zh" = msg.language || "en";
+  const language: "en" | "zh" | "ja" = msg.language || "en";
 
   let summary: string;
   let whiteboardMarkdown: string;

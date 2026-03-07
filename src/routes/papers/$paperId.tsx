@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
 import {
   CheckCircle2,
   ChevronRight,
@@ -15,6 +14,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -41,6 +41,13 @@ import {
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Progress } from "#/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useRequireAuth } from "#/hooks/use-require-auth";
@@ -123,7 +130,9 @@ function PaperDetailPage() {
             {m.papers_title()}
           </Link>
           <ChevronRight className="h-4 w-4 shrink-0 mt-0.5" />
-          <span className="text-[var(--ink)] break-words min-w-0">{paper.title}</span>
+          <span className="text-[var(--ink)] break-words min-w-0">
+            {paper.title}
+          </span>
         </nav>
 
         {/* Two-column layout */}
@@ -194,11 +203,7 @@ function PaperDetailPage() {
               {/* Actions */}
               <div className="mt-4 flex gap-2 border-t border-[var(--line)] pt-4">
                 {result?.whiteboardImageR2Key && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    asChild
-                  >
+                  <Button variant="outline" size="sm" asChild>
                     <a href="#whiteboard">
                       <Network className="mr-1.5 h-4 w-4" />
                       {m.paper_whiteboard()}
@@ -248,7 +253,9 @@ function PaperDetailPage() {
                   <AccordionItem value="summary" className="paper-card px-6">
                     <div className="flex items-center justify-between py-4">
                       <AccordionTrigger className="font-serif text-lg font-semibold flex-1 py-0 hover:no-underline">
-                        <span className="hover:underline">{m.paper_summary()}</span>
+                        <span className="hover:underline">
+                          {m.paper_summary()}
+                        </span>
                       </AccordionTrigger>
                       <div className="flex items-center gap-2 ml-4">
                         <Button
@@ -269,32 +276,38 @@ function PaperDetailPage() {
                             </>
                           )}
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const newLanguage =
-                              result.summaryLanguage === "en" ? "zh" : "en";
+                        <Select
+                          value={result.summaryLanguage || "en"}
+                          onValueChange={(value: "en" | "zh" | "ja") => {
                             regenerateSummaryMutation.mutate({
                               paperId,
-                              language: newLanguage,
+                              language: value,
                             });
                           }}
                           disabled={regenerateSummaryMutation.isPending}
-                          className="gap-1.5"
                         >
-                          {regenerateSummaryMutation.isPending ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              {m.paper_summary_regenerating()}
-                            </>
-                          ) : (
-                            <>
-                              <Languages className="h-4 w-4" />
-                              {result.summaryLanguage === "en" ? "中文" : "EN"}
-                            </>
-                          )}
-                        </Button>
+                          <SelectTrigger className="w-[140px] h-9">
+                            <div className="flex items-center gap-1.5 w-full">
+                              {regenerateSummaryMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                              ) : (
+                                <Languages className="h-4 w-4 shrink-0" />
+                              )}
+                              <SelectValue />
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="en">
+                              {m.upload_language_en()}
+                            </SelectItem>
+                            <SelectItem value="zh">
+                              {m.upload_language_zh()}
+                            </SelectItem>
+                            <SelectItem value="ja">
+                              {m.upload_language_ja()}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                     <AccordionContent>
@@ -304,10 +317,16 @@ function PaperDetailPage() {
                           rehypePlugins={[rehypeKatex, rehypeHighlight]}
                           components={{
                             pre: ({ children }) => (
-                              <pre className="overflow-x-auto max-w-full">{children}</pre>
+                              <pre className="overflow-x-auto max-w-full">
+                                {children}
+                              </pre>
                             ),
                             code: ({ children, className }) => (
-                              <code className={`${className || ''} break-words`}>{children}</code>
+                              <code
+                                className={`${className || ""} break-words`}
+                              >
+                                {children}
+                              </code>
                             ),
                             table: ({ children }) => (
                               <div className="overflow-x-auto">
@@ -329,11 +348,7 @@ function PaperDetailPage() {
                       <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
                         {m.paper_whiteboard()}
                       </h2>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        asChild
-                      >
+                      <Button variant="outline" size="sm" asChild>
                         <a
                           href={`/api/r2/${result.whiteboardImageR2Key}`}
                           download={`${paper.title}-whiteboard.png`}

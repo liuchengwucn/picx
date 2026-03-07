@@ -2,55 +2,40 @@
 // - Paraglide docs: https://inlang.com/m/gerre34r/library-inlang-paraglideJs
 // - Router example: https://github.com/TanStack/router/tree/main/examples/react/i18n-paraglide#switching-locale
 
+import { Languages } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#/components/ui/select";
 import { getLocale, locales, setLocale } from "#/paraglide/runtime";
 
 const LOCALE_NAMES: Record<string, string> = {
   en: "English",
   "zh-CN": "简体中文",
-};
-
-const LOCALE_SHORT_NAMES: Record<string, string> = {
-  en: "EN",
-  "zh-CN": "中文",
+  ja: "日本語",
 };
 
 export default function ParaglideLocaleSwitcher() {
   const currentLocale = getLocale();
 
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: "0.25rem",
-        alignItems: "center",
-      }}
-    >
-      {locales.map((locale) => (
-        <button
-          key={locale}
-          onClick={() => setLocale(locale)}
-          aria-pressed={locale === currentLocale}
-          aria-label={LOCALE_NAMES[locale] || locale}
-          style={{
-            cursor: "pointer",
-            padding: "0.35rem 0.75rem",
-            borderRadius: "999px",
-            border: "1px solid var(--line)",
-            background:
-              locale === currentLocale
-                ? "var(--surface-strong)"
-                : "transparent",
-            color: "inherit",
-            fontWeight: locale === currentLocale ? 600 : 500,
-            letterSpacing: "0.01em",
-            fontSize: "0.875rem",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <span className="hidden sm:inline">{LOCALE_NAMES[locale] || locale}</span>
-          <span className="sm:hidden">{LOCALE_SHORT_NAMES[locale] || locale}</span>
-        </button>
-      ))}
-    </div>
+    <Select value={currentLocale} onValueChange={(value) => setLocale(value)}>
+      <SelectTrigger className="w-[140px] h-9">
+        <div className="flex items-center gap-1.5 w-full">
+          <Languages className="h-4 w-4 shrink-0" />
+          <SelectValue />
+        </div>
+      </SelectTrigger>
+      <SelectContent>
+        {locales.map((locale) => (
+          <SelectItem key={locale} value={locale}>
+            {LOCALE_NAMES[locale] || locale}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

@@ -29,10 +29,10 @@ interface UploadDialogProps {
 }
 
 interface LanguageSelectorsProps {
-  summaryLanguage: "en" | "zh-CN";
-  whiteboardLanguage: "en" | "zh";
-  onSummaryLanguageChange: (value: "en" | "zh-CN") => void;
-  onWhiteboardLanguageChange: (value: "en" | "zh") => void;
+  summaryLanguage: "en" | "zh-CN" | "ja";
+  whiteboardLanguage: "en" | "zh" | "ja";
+  onSummaryLanguageChange: (value: "en" | "zh-CN" | "ja") => void;
+  onWhiteboardLanguageChange: (value: "en" | "zh" | "ja") => void;
 }
 
 function LanguageSelectors({
@@ -54,6 +54,7 @@ function LanguageSelectors({
           <SelectContent>
             <SelectItem value="en">{m.upload_language_en()}</SelectItem>
             <SelectItem value="zh-CN">{m.upload_language_zh()}</SelectItem>
+            <SelectItem value="ja">{m.upload_language_ja()}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -61,13 +62,17 @@ function LanguageSelectors({
         <Label className="text-sm text-[var(--ink-soft)]">
           {m.upload_whiteboard_language()}
         </Label>
-        <Select value={whiteboardLanguage} onValueChange={onWhiteboardLanguageChange}>
+        <Select
+          value={whiteboardLanguage}
+          onValueChange={onWhiteboardLanguageChange}
+        >
           <SelectTrigger className="border-[var(--line)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="en">{m.upload_language_en()}</SelectItem>
             <SelectItem value="zh">{m.upload_language_zh()}</SelectItem>
+            <SelectItem value="ja">{m.upload_language_ja()}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -80,10 +85,12 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [arxivUrl, setArxivUrl] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [summaryLanguage, setSummaryLanguage] = useState<"en" | "zh-CN">(
-    getLocale() as "en" | "zh-CN"
+  const [summaryLanguage, setSummaryLanguage] = useState<"en" | "zh-CN" | "ja">(
+    getLocale() as "en" | "zh-CN" | "ja",
   );
-  const [whiteboardLanguage, setWhiteboardLanguage] = useState<"en" | "zh">("en");
+  const [whiteboardLanguage, setWhiteboardLanguage] = useState<
+    "en" | "zh" | "ja"
+  >("en");
   const trpc = useTRPC();
 
   const uploadFile = useMutation(trpc.upload.uploadFile.mutationOptions());
@@ -107,7 +114,6 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         fileSize: file.size,
       });
 
-      const currentLocale = getLocale();
       await createPaper.mutateAsync({
         sourceType: "upload",
         filename: file.name,
@@ -130,7 +136,6 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     if (!arxivUrl) return;
     setUploading(true);
     try {
-      const currentLocale = getLocale();
       await createPaper.mutateAsync({
         sourceType: "arxiv",
         arxivUrl,
@@ -234,7 +239,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 summaryLanguage={summaryLanguage}
                 whiteboardLanguage={whiteboardLanguage}
                 onSummaryLanguageChange={(value) => setSummaryLanguage(value)}
-                onWhiteboardLanguageChange={(value) => setWhiteboardLanguage(value)}
+                onWhiteboardLanguageChange={(value) =>
+                  setWhiteboardLanguage(value)
+                }
               />
             </div>
             <div className="mt-4 flex items-center justify-between text-sm">
@@ -275,7 +282,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 summaryLanguage={summaryLanguage}
                 whiteboardLanguage={whiteboardLanguage}
                 onSummaryLanguageChange={(value) => setSummaryLanguage(value)}
-                onWhiteboardLanguageChange={(value) => setWhiteboardLanguage(value)}
+                onWhiteboardLanguageChange={(value) =>
+                  setWhiteboardLanguage(value)
+                }
               />
             </div>
             <div className="mt-4 flex items-center justify-between text-sm">

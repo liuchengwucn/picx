@@ -2,9 +2,9 @@ import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { creditTransactions, paperResults, papers, user } from "#/db/schema";
-import { protectedProcedure, router } from "../init";
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
+import { protectedProcedure, router } from "../init";
 
 export const paperRouter = router({
   /**
@@ -23,8 +23,8 @@ export const paperRouter = router({
           .min(0) // Allow 0 for arxiv (will be updated after download)
           .max(50 * 1024 * 1024), // 50MB
         r2Key: z.string().min(1),
-        language: z.enum(["en", "zh-CN"]).optional(), // 摘要语言
-        whiteboardLanguage: z.enum(["en", "zh"]).optional(), // 白板图语言
+        language: z.enum(["en", "zh-CN", "ja"]).optional(), // 摘要语言
+        whiteboardLanguage: z.enum(["en", "zh", "ja"]).optional(), // 白板图语言
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -94,13 +94,14 @@ export const paperRouter = router({
       // 推送到队列进行异步处理
       try {
         // 将 Paraglide 的语言代码映射为 AI 函数使用的语言代码
-        const queueLanguage: "en" | "zh" | undefined = input.language
+        const queueLanguage: "en" | "zh" | "ja" | undefined = input.language
           ? input.language === "zh-CN"
             ? "zh"
-            : "en"
+            : input.language
           : undefined;
 
-        const queueWhiteboardLanguage: "en" | "zh" = input.whiteboardLanguage || "en";
+        const queueWhiteboardLanguage: "en" | "zh" | "ja" =
+          input.whiteboardLanguage || "en";
 
         await ctx.env.PAPER_QUEUE.send({
           paperId: paper.id,
@@ -267,7 +268,7 @@ export const paperRouter = router({
     .input(
       z.object({
         paperId: z.string().uuid(),
-        language: z.enum(["en", "zh"]),
+        language: z.enum(["en", "zh", "ja"]),
       }),
     )
     .mutation(async ({ ctx, input }) => {

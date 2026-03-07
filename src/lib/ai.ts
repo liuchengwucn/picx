@@ -11,20 +11,19 @@ export interface AIConfig {
   cfApiToken?: string;
 }
 
-
 /**
  * 调用 OpenAI API 生成论文总结
  *
  * @param paperText 论文文本内容
  * @param config AI 配置
- * @param language 生成语言 ('en' 为英文, 'zh' 为中文)
+ * @param language 生成语言 ('en' 为英文, 'zh' 为中文, 'ja' 为日文)
  * @returns 论文总结文本（Markdown 格式）
  * @throws 如果生成失败则抛出错误
  */
 export async function generateSummary(
   paperText: string,
   config: AIConfig,
-  language: "en" | "zh" = "en",
+  language: "en" | "zh" | "ja" = "en",
 ): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
   const model = config.openaiModel || "gpt-5.2-instant";
@@ -32,7 +31,9 @@ export async function generateSummary(
   const languageInstruction =
     language === "zh"
       ? "请用中文回答。"
-      : "Please respond in English.";
+      : language === "ja"
+        ? "日本語で回答してください。"
+        : "Please respond in English.";
 
   const systemPrompt = `You are an expert at summarizing academic papers. Generate a comprehensive, well-structured summary in Markdown format.
 
@@ -268,7 +269,7 @@ export async function generateWhiteboardImage(
   whiteboardMarkdown: string,
   paperText: string,
   config: AIConfig,
-  language: "en" | "zh" = "en",
+  language: "en" | "zh" | "ja" = "en",
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
   const prompt = buildWhiteboardPrompt(whiteboardMarkdown, paperText, language);
 
@@ -371,7 +372,10 @@ async function generateWhiteboardImageWithOpenRouter(
       prompt,
     };
   } catch (error) {
-    console.error("Failed to generate whiteboard image with OpenRouter:", error);
+    console.error(
+      "Failed to generate whiteboard image with OpenRouter:",
+      error,
+    );
     throw new Error(
       `OpenRouter image generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
@@ -484,7 +488,7 @@ async function generateWhiteboardImageWithGemini(
  */
 export async function translateSummary(
   summaryText: string,
-  targetLanguage: "en" | "zh",
+  targetLanguage: "en" | "zh" | "ja",
   config: AIConfig,
 ): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
@@ -493,7 +497,9 @@ export async function translateSummary(
   const languageInstruction =
     targetLanguage === "zh"
       ? "请将以下学术论文摘要翻译成中文。"
-      : "Please translate the following academic paper summary into English.";
+      : targetLanguage === "ja"
+        ? "以下の学術論文の要約を日本語に翻訳してください。"
+        : "Please translate the following academic paper summary into English.";
 
   const systemPrompt = `You are an expert translator specializing in academic papers. Translate the given summary while maintaining its structure and formatting.
 
@@ -692,10 +698,17 @@ If you cannot find a clear title, return "Untitled Paper".`;
  * @param paperText 原始论文文本
  * @returns 生成的 prompt
  */
-function buildWhiteboardPrompt(whiteboardMarkdown: string, paperText: string, language: "en" | "zh" = "en"): string {
-  const languageInstruction = language === "zh"
-    ? "请用中文生成白板图，包括所有文字、标注和说明。"
-    : "Generate the whiteboard in English, including all text, labels, and captions.";
+function buildWhiteboardPrompt(
+  whiteboardMarkdown: string,
+  paperText: string,
+  language: "en" | "zh" | "ja" = "en",
+): string {
+  const languageInstruction =
+    language === "zh"
+      ? "请用中文生成白板图，包括所有文字、标注和说明。"
+      : language === "ja"
+        ? "日本語でホワイトボード図を生成してください。すべてのテキスト、ラベル、説明を含めてください。"
+        : "Generate the whiteboard in English, including all text, labels, and captions.";
 
   return `Transform this academic paper into a professor-style whiteboard image. Include diagrams, arrows, boxes, and short captions that explain the core ideas visually.
 
