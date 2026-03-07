@@ -11,6 +11,20 @@ export interface AIConfig {
   cfApiToken?: string;
 }
 
+export interface PaperTailReviewInput {
+  candidateTitle: string;
+  pageNumber: number;
+  totalPages: number;
+  previousContext: string;
+  candidateContext: string;
+  nextContext: string;
+}
+
+export interface PaperTailReviewResult {
+  cut: boolean;
+  confidence: number;
+}
+
 /**
  * 调用 OpenAI API 生成论文总结
  *
@@ -282,7 +296,11 @@ export async function generateWhiteboardImage(
 
   // 先尝试使用完整论文文本
   try {
-    const prompt = buildWhiteboardPrompt(whiteboardMarkdown, paperText, language);
+    const prompt = buildWhiteboardPrompt(
+      whiteboardMarkdown,
+      paperText,
+      language,
+    );
 
     if (isOpenRouter) {
       return await generateWhiteboardImageWithOpenRouter(prompt, config);
@@ -293,13 +311,24 @@ export async function generateWhiteboardImage(
 
     // 如果有摘要，不管什么错误都尝试使用摘要重试
     if (summary) {
-      console.log("First attempt failed, retrying with summary instead of full paper text");
+      console.log(
+        "First attempt failed, retrying with summary instead of full paper text",
+      );
       console.log(`Original error: ${errorMessage}`);
-      console.log(`Paper text length: ${paperText.length}, Summary length: ${summary.length}`);
-      const promptWithSummary = buildWhiteboardPrompt(whiteboardMarkdown, summary, language);
+      console.log(
+        `Paper text length: ${paperText.length}, Summary length: ${summary.length}`,
+      );
+      const promptWithSummary = buildWhiteboardPrompt(
+        whiteboardMarkdown,
+        summary,
+        language,
+      );
 
       if (isOpenRouter) {
-        return await generateWhiteboardImageWithOpenRouter(promptWithSummary, config);
+        return await generateWhiteboardImageWithOpenRouter(
+          promptWithSummary,
+          config,
+        );
       }
       return await generateWhiteboardImageWithGemini(promptWithSummary, config);
     }
@@ -369,11 +398,16 @@ async function generateWhiteboardImageWithOpenRouter(
     };
 
     // 记录完整响应以便调试
-    console.log("OpenRouter API response:", JSON.stringify(data).substring(0, 500));
+    console.log(
+      "OpenRouter API response:",
+      JSON.stringify(data).substring(0, 500),
+    );
 
     // 检查是否有错误信息
     if (data.error) {
-      throw new Error(`OpenRouter API error: ${data.error.message || 'Unknown error'}`);
+      throw new Error(
+        `OpenRouter API error: ${data.error.message || "Unknown error"}`,
+      );
     }
 
     if (!data.choices || data.choices.length === 0) {
@@ -717,7 +751,7 @@ If you cannot find a clear title, return "Untitled Paper".`;
 
     // 限制标题长度
     if (title.length > 255) {
-      return title.substring(0, 252) + "...";
+      return `${title.substring(0, 252)}...`;
     }
 
     return title;
@@ -725,6 +759,136 @@ If you cannot find a clear title, return "Untitled Paper".`;
     console.error("Failed to extract paper title:", error);
     throw new Error(
       `Title extraction failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
+}
+
+function extractFirstJsonObject(content: string): string | null {
+  const start = content.indexOf("{");
+
+  if (start === -1) {
+    return null;
+  }
+
+  let depth = 0;
+
+  for (let index = start; index < content.length; index++) {
+    const char = content[index];
+
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+
+      if (depth === 0) {
+        return content.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function parsePaperTailReviewResult(content: string): PaperTailReviewResult {
+  const jsonText = extractFirstJsonObject(content);
+
+  if (!jsonText) {
+    throw new Error("No JSON object found in tail review response");
+  }
+
+  const parsed = JSON.parse(jsonText) as Partial<PaperTailReviewResult>;
+
+  return {
+    cut: Boolean(parsed.cut),
+    confidence: Number.isFinite(parsed.confidence)
+      ? Math.max(0, Math.min(1, Number(parsed.confidence)))
+      : 0,
+  };
+}
+
+export async function reviewPaperTailCandidate(
+  input: PaperTailReviewInput,
+  config: AIConfig,
+): Promise<PaperTailReviewResult> {
+  const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
+  const model = config.openaiModel || "gpt-5.2-instant";
+
+  const systemPrompt = `You review academic paper text and decide whether a candidate heading marks the end of the paper's main body.
+
+Return only a JSON object with this exact shape:
+{
+  "cut": boolean,
+  "confidence": number
+}
+
+Rules:
+- Cut only when the candidate clearly starts non-body tail content.
+- Tail content includes references, bibliography, appendix, supplementary material, acknowledgments, author contributions, and similar back matter.
+- The candidate may be in English, Chinese, or Japanese.
+- Do not cut when the candidate text is only mentioned inside normal body prose.
+- Do not reject a cutoff just because it appears early in the PDF.
+- If uncertain, return {"cut": false, "confidence": 0}.`;
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: JSON.stringify(input),
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 300,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
+      }>;
+    };
+
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error("No response from OpenAI API");
+    }
+
+    const content = data.choices[0].message?.content?.trim();
+
+    if (!content) {
+      throw new Error("Empty paper tail review response");
+    }
+
+    return parsePaperTailReviewResult(content);
+  } catch (error) {
+    console.error("Failed to review paper tail candidate:", error);
+    throw new Error(
+      `Paper tail review failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }

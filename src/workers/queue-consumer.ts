@@ -121,9 +121,20 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     throw new StepError("fetch-pdf", error);
   }
 
+  const aiConfig: AIConfig = {
+    openaiApiKey: env.OPENAI_API_KEY,
+    openaiBaseUrl: env.OPENAI_BASE_URL,
+    openaiModel: env.OPENAI_MODEL,
+    geminiApiKey: env.GEMINI_API_KEY,
+    geminiBaseUrl: env.GEMINI_BASE_URL,
+    geminiModel: env.GEMINI_MODEL,
+    cfApiToken: env.CF_API_TOKEN,
+  };
+
   // Step 2: 提取文本
   await updatePaperStatus(msg.paperId, "processing_text", null, env);
   let pageCount: number;
+  let rawText: string;
   let text: string;
   let pdfMetadataTitle: string | undefined;
 
@@ -132,14 +143,22 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       "extract-text",
       `Extracting text from PDF (${pdfBuffer.byteLength} bytes)`,
     );
-    const result = await extractPDFText(pdfBuffer, 150); // 限制 150 页
+    const result = await extractPDFText(pdfBuffer, 150, aiConfig); // 限制 150 页
     pageCount = result.pageCount;
-    text = result.text;
+    rawText = result.rawText;
+    text = result.mainText;
     pdfMetadataTitle = result.title;
     log(
       "extract-text",
-      `Extracted ${text.length} chars from ${pageCount} pages`,
+      `Extracted ${rawText.length} chars from ${pageCount} pages, kept ${text.length} chars for downstream processing`,
     );
+
+    if (result.tailTrim.applied) {
+      log(
+        "trim-paper-tail",
+        `Trimmed paper tail from page ${result.tailTrim.cutFromPage || "unknown"} with confidence ${result.tailTrim.confidence ?? 0}`,
+      );
+    }
 
     if (!text || text.trim().length === 0) {
       throw new Error("Extracted text is empty");
@@ -156,15 +175,6 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   }
 
   // Step 3: 提取标题
-  const aiConfig: AIConfig = {
-    openaiApiKey: env.OPENAI_API_KEY,
-    openaiBaseUrl: env.OPENAI_BASE_URL,
-    openaiModel: env.OPENAI_MODEL,
-    geminiApiKey: env.GEMINI_API_KEY,
-    geminiBaseUrl: env.GEMINI_BASE_URL,
-    geminiModel: env.GEMINI_MODEL,
-    cfApiToken: env.CF_API_TOKEN,
-  };
 
   // 准备 fallback 标题
   const getFallbackTitle = (): string => {
@@ -195,7 +205,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     paperTitle = pdfMetadataTitle;
     log("extract-title", `Using PDF metadata title: ${paperTitle}`);
   } else {
-    const textForTitleExtraction = text.substring(0, 3000);
+    const textForTitleExtraction = rawText.substring(0, 3000);
 
     if (textForTitleExtraction.trim().length < 50) {
       logWarn(
@@ -250,9 +260,10 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     );
   } catch (error) {
     // 判断是哪个步骤失败了
-    const stepName = error instanceof Error && error.message.includes("Summary")
-      ? "generate-summary"
-      : "generate-whiteboard";
+    const stepName =
+      error instanceof Error && error.message.includes("Summary")
+        ? "generate-summary"
+        : "generate-whiteboard";
     throw new StepError(stepName, error);
   }
 
@@ -290,15 +301,17 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       httpMetadata: { contentType: "image/png" },
     }),
     // 保存结果到数据库
-    db.insert(paperResults).values({
-      paperId: msg.paperId,
-      summaries: { [language]: summary },
-      summaryLanguage: language,
-      whiteboardStructure: whiteboardMarkdown,
-      whiteboardImageR2Key: imageR2Key,
-      imagePrompt: prompt,
-      processingTimeMs,
-    }),
+    db
+      .insert(paperResults)
+      .values({
+        paperId: msg.paperId,
+        summaries: { [language]: summary },
+        summaryLanguage: language,
+        whiteboardStructure: whiteboardMarkdown,
+        whiteboardImageR2Key: imageR2Key,
+        imagePrompt: prompt,
+        processingTimeMs,
+      }),
   ]);
 
   // Step 7: 标记完成
