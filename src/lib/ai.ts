@@ -67,6 +67,7 @@ CRITICAL - Preserve Mathematical Content:
 - Include formula numbers and references when present in the original paper
 - Preserve mathematical notation exactly as it appears (variables, operators, subscripts, superscripts)
 - For complex equations, use display mode ($$...$$) with proper formatting
+- Put display equations on their own lines with opening and closing $$ on separate lines; do not use single-line $$ equation $$
 - Include definitions of key variables and parameters
 
 CRITICAL - Preserve Important Tables:

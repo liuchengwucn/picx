@@ -58,6 +58,28 @@ export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
 });
 
+/**
+ * Normalize AI-generated math markdown before handing it to remark-math.
+ *
+ * Models sometimes emit display equations as a single indented line:
+ * `$$ ... $$`
+ * remark-math parses that as inline math, which makes KaTeX reject commands
+ * like `\tag{}` that only work in display mode. Rewriting those standalone lines
+ * into a multi-line display block keeps existing summaries renderable.
+ */
+function normalizeMathMarkdown(markdown: string): string {
+  return markdown
+    .replace(
+      /(^[ \t]*)\$\$\s*([^\n]+?)\s*\$\$(?=[ \t]*$)/gm,
+      (_match, indent, content) => {
+        return `${indent}$$\n${indent}${content}\n${indent}$$`;
+      },
+    )
+    .replace(/\\text\{([^}]*\\_[^}]*)\}/g, (_match, content) => {
+      return `\\mathrm{${content}}`;
+    });
+}
+
 const statusProgress: Record<string, number> = {
   pending: 10,
   processing_text: 40,
@@ -278,7 +300,9 @@ function PaperDetailPage() {
                         </Button>
                         <Select
                           value={result.summaryLanguage || "en"}
-                          onValueChange={(value: "en" | "zh-cn" | "zh-tw" | "ja") => {
+                          onValueChange={(
+                            value: "en" | "zh-cn" | "zh-tw" | "ja",
+                          ) => {
                             regenerateSummaryMutation.mutate({
                               paperId,
                               language: value,
@@ -338,7 +362,7 @@ function PaperDetailPage() {
                             ),
                           }}
                         >
-                          {result.summary}
+                          {normalizeMathMarkdown(result.summary)}
                         </ReactMarkdown>
                       </div>
                     </AccordionContent>
