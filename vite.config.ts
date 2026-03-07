@@ -15,7 +15,7 @@ const config = defineConfig({
     paraglideVitePlugin({
       project: "./project.inlang",
       outdir: "./src/paraglide",
-      strategy: ["localStorage", "baseLocale"],
+      strategy: ["localStorage", "preferredLanguage", "baseLocale"],
     }),
     cloudflare({ viteEnvironment: { name: "ssr" } }),
     tsconfigPaths({ projects: ["./tsconfig.json"] }),

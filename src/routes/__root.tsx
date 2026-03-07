@@ -8,6 +8,7 @@ import {
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import type { TRPCRouter } from "#/integrations/trpc/router";
+import { initLocale } from "#/lib/locale-init";
 import { getLocale } from "#/paraglide/runtime";
 import Footer from "../components/Footer";
 import Header from "../components/Header";
@@ -25,6 +26,9 @@ const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getIte
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
   beforeLoad: async () => {
+    // Initialize locale based on browser language on first visit
+    initLocale();
+
     // Other redirect strategies are possible; see
     // https://github.com/TanStack/router/tree/main/examples/react/i18n-paraglide#offline-redirect
     if (typeof document !== "undefined") {
