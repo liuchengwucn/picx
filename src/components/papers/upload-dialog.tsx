@@ -42,7 +42,7 @@ function LanguageSelectors({
   onWhiteboardLanguageChange,
 }: LanguageSelectorsProps) {
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-2 gap-3">
       <div className="space-y-2">
         <Label className="text-sm text-[var(--ink-soft)]">
           {m.upload_summary_language()}
@@ -58,7 +58,7 @@ function LanguageSelectors({
           </SelectContent>
         </Select>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2 flex flex-col items-end">
         <Label className="text-sm text-[var(--ink-soft)]">
           {m.upload_whiteboard_language()}
         </Label>
