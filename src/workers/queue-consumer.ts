@@ -227,31 +227,33 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     })
     .where(eq(papers.id, msg.paperId));
 
-  // Step 4: 生成总结和白板结构
+  // Step 4: 生成总结和白板结构（并行执行）
   const language: "en" | "zh-cn" | "zh-tw" | "ja" = msg.language || "en";
 
   let summary: string;
   let whiteboardMarkdown: string;
   try {
     log(
-      "generate-summary",
-      `Generating summary (text: ${text.length} chars, lang: ${language}, model: ${aiConfig.openaiModel || "default"}, baseUrl: ${aiConfig.openaiBaseUrl || "default"})`,
+      "generate-summary-and-whiteboard",
+      `Generating summary and whiteboard structure in parallel (text: ${text.length} chars, lang: ${language})`,
     );
-    summary = await generateSummary(text, aiConfig, language);
-    log("generate-summary", `Summary generated: ${summary.length} chars`);
-  } catch (error) {
-    throw new StepError("generate-summary", error);
-  }
 
-  try {
-    log("generate-whiteboard", "Generating whiteboard structure");
-    whiteboardMarkdown = await generateWhiteboardStructure(text, aiConfig);
+    // 并行执行摘要生成和白板结构生成
+    [summary, whiteboardMarkdown] = await Promise.all([
+      generateSummary(text, aiConfig, language),
+      generateWhiteboardStructure(text, aiConfig),
+    ]);
+
     log(
-      "generate-whiteboard",
-      `Whiteboard structure generated: ${whiteboardMarkdown.length} chars`,
+      "generate-summary-and-whiteboard",
+      `Summary (${summary.length} chars) and whiteboard structure (${whiteboardMarkdown.length} chars) generated`,
     );
   } catch (error) {
-    throw new StepError("generate-whiteboard", error);
+    // 判断是哪个步骤失败了
+    const stepName = error instanceof Error && error.message.includes("Summary")
+      ? "generate-summary"
+      : "generate-whiteboard";
+    throw new StepError(stepName, error);
   }
 
   // Step 5: 生成白板图片
@@ -278,23 +280,26 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     throw new StepError("generate-image", error);
   }
 
-  // 上传图片到 R2
+  // Step 6: 上传图片到 R2 和保存结果到数据库（并行执行）
   const imageR2Key = `whiteboards/${msg.userId}/${msg.paperId}.png`;
-  await env.PAPERS_BUCKET.put(imageR2Key, imageData, {
-    httpMetadata: { contentType: "image/png" },
-  });
-
-  // Step 6: 保存结果
   const processingTimeMs = Date.now() - startTime;
-  await db.insert(paperResults).values({
-    paperId: msg.paperId,
-    summaries: { [language]: summary },
-    summaryLanguage: language,
-    whiteboardStructure: whiteboardMarkdown,
-    whiteboardImageR2Key: imageR2Key,
-    imagePrompt: prompt,
-    processingTimeMs,
-  });
+
+  await Promise.all([
+    // 上传图片到 R2
+    env.PAPERS_BUCKET.put(imageR2Key, imageData, {
+      httpMetadata: { contentType: "image/png" },
+    }),
+    // 保存结果到数据库
+    db.insert(paperResults).values({
+      paperId: msg.paperId,
+      summaries: { [language]: summary },
+      summaryLanguage: language,
+      whiteboardStructure: whiteboardMarkdown,
+      whiteboardImageR2Key: imageR2Key,
+      imagePrompt: prompt,
+      processingTimeMs,
+    }),
+  ]);
 
   // Step 7: 标记完成
   await updatePaperStatus(msg.paperId, "completed", null, env);
