@@ -87,11 +87,11 @@ Edit `.dev.vars` and configure the following:
 - `GITHUB_CLIENT_SECRET`: Your GitHub OAuth app client secret
 
 **Required for AI features:**
-- `OPENAI_API_KEY`: Your OpenAI API key
+- `OPENAI_API_KEY`: Your OpenAI API key (for paper summarization)
 - `OPENAI_BASE_URL`: OpenAI API endpoint (default: `https://api.openai.com/v1`)
-- `OPENAI_MODEL`: Model to use (e.g., `gpt-4o-mini`)
-- `GEMINI_API_KEY`: Your Google Gemini API key
-- `GEMINI_BASE_URL`: Gemini API endpoint
+- `OPENAI_MODEL`: Model to use (e.g., `gpt-5.2-instant`, `gpt-5.2-thinking`)
+- `GEMINI_API_KEY`: Your Google Gemini API key (for whiteboard generation)
+- `GEMINI_BASE_URL`: Gemini API endpoint (default: `https://generativelanguage.googleapis.com/v1beta`)
 - `GEMINI_MODEL`: Model to use (e.g., `gemini-3.1-flash-image-preview`)
 
 **Required for production deployment:**
@@ -103,12 +103,13 @@ Edit `.dev.vars` and configure the following:
 - `CF_API_TOKEN`: For using Cloudflare AI Gateway
 
 4. Set up the database:
+
 ```bash
 # Generate migration files
 npm run db:generate
 
-# Apply migrations locally
-npx wrangler d1 migrations apply <DATABASE_NAME> --local
+# Apply migrations locally (using the database name from wrangler.jsonc)
+npx wrangler d1 migrations apply picx-db --local
 ```
 
 ### Running the Development Server
@@ -133,7 +134,34 @@ Deploy to Cloudflare Workers:
 npm run deploy
 ```
 
-Make sure you have configured `wrangler.toml` with your Cloudflare account details and bindings.
+Make sure you have configured `wrangler.jsonc` with your Cloudflare account details and bindings.
+
+**Setting up production secrets:**
+
+For security, sensitive environment variables (API keys, secrets) should be set using Wrangler secrets instead of storing them in files:
+
+```bash
+# Set Better Auth secret
+npx wrangler secret put BETTER_AUTH_SECRET
+
+# Set OAuth credentials
+npx wrangler secret put GITHUB_CLIENT_ID
+npx wrangler secret put GITHUB_CLIENT_SECRET
+
+# Set AI API keys
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put GEMINI_API_KEY
+
+# Optional: Set Cloudflare AI Gateway token
+npx wrangler secret put CF_API_TOKEN
+```
+
+You'll also need to:
+1. Create a D1 database: `npx wrangler d1 create picx-db`
+2. Update the `database_id` in `wrangler.jsonc` with the ID from step 1
+3. Apply migrations to production: `npx wrangler d1 migrations apply picx-db`
+4. Create an R2 bucket: `npx wrangler r2 bucket create picx-papers`
+5. Create a Queue: `npx wrangler queues create paper-processing`
 
 ### Testing
 
@@ -162,12 +190,15 @@ picx/
 ├── src/
 │   ├── routes/          # File-based routing
 │   ├── components/      # React components
-│   ├── lib/            # Utilities and configurations
-│   ├── server/         # Server-side code
-│   └── paraglide/      # Generated i18n files
-├── drizzle/            # Database migrations
-├── public/             # Static assets
-└── wrangler.toml       # Cloudflare Workers configuration
+│   ├── lib/             # Utilities and configurations
+│   ├── workers/         # Cloudflare Workers code
+│   ├── db/              # Database schema and queries
+│   ├── hooks/           # React hooks
+│   ├── types/           # TypeScript type definitions
+│   └── paraglide/       # Generated i18n files
+├── drizzle/             # Database migrations
+├── public/              # Static assets
+└── wrangler.jsonc       # Cloudflare Workers configuration
 ```
 
 ## License

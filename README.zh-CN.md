@@ -87,11 +87,11 @@ cp .dev.vars.example .dev.vars
 - `GITHUB_CLIENT_SECRET`：你的 GitHub OAuth 应用客户端密钥
 
 **AI 功能必需：**
-- `OPENAI_API_KEY`：你的 OpenAI API 密钥
+- `OPENAI_API_KEY`：你的 OpenAI API 密钥（用于论文总结）
 - `OPENAI_BASE_URL`：OpenAI API 端点（默认：`https://api.openai.com/v1`）
-- `OPENAI_MODEL`：使用的模型（例如：`gpt-4o-mini`）
-- `GEMINI_API_KEY`：你的 Google Gemini API 密钥
-- `GEMINI_BASE_URL`：Gemini API 端点
+- `OPENAI_MODEL`：使用的模型（例如：`gpt-5.2-instant`、`gpt-5.2-thinking`）
+- `GEMINI_API_KEY`：你的 Google Gemini API 密钥（用于白板图生成）
+- `GEMINI_BASE_URL`：Gemini API 端点（默认：`https://generativelanguage.googleapis.com/v1beta`）
 - `GEMINI_MODEL`：使用的模型（例如：`gemini-3.1-flash-image-preview`）
 
 **生产部署必需：**
@@ -103,12 +103,13 @@ cp .dev.vars.example .dev.vars
 - `CF_API_TOKEN`：用于使用 Cloudflare AI Gateway
 
 4. 设置数据库：
+
 ```bash
 # 生成迁移文件
 npm run db:generate
 
-# 在本地应用迁移
-npx wrangler d1 migrations apply <DATABASE_NAME> --local
+# 在本地应用迁移（使用 wrangler.jsonc 中的数据库名称）
+npx wrangler d1 migrations apply picx-db --local
 ```
 
 ### 运行开发服务器
@@ -133,7 +134,34 @@ npm run build
 npm run deploy
 ```
 
-确保你已在 `wrangler.toml` 中配置了 Cloudflare 账号详情和绑定。
+确保你已在 `wrangler.jsonc` 中配置了 Cloudflare 账号详情和绑定。
+
+**设置生产环境密钥：**
+
+为了安全起见，敏感的环境变量（API 密钥、密钥）应该使用 Wrangler secrets 设置，而不是存储在文件中：
+
+```bash
+# 设置 Better Auth 密钥
+npx wrangler secret put BETTER_AUTH_SECRET
+
+# 设置 OAuth 凭证
+npx wrangler secret put GITHUB_CLIENT_ID
+npx wrangler secret put GITHUB_CLIENT_SECRET
+
+# 设置 AI API 密钥
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put GEMINI_API_KEY
+
+# 可选：设置 Cloudflare AI Gateway 令牌
+npx wrangler secret put CF_API_TOKEN
+```
+
+你还需要：
+1. 创建 D1 数据库：`npx wrangler d1 create picx-db`
+2. 将步骤 1 中的 ID 更新到 `wrangler.jsonc` 的 `database_id` 字段
+3. 将迁移应用到生产环境：`npx wrangler d1 migrations apply picx-db`
+4. 创建 R2 存储桶：`npx wrangler r2 bucket create picx-papers`
+5. 创建队列：`npx wrangler queues create paper-processing`
 
 ### 测试
 
@@ -162,12 +190,15 @@ picx/
 ├── src/
 │   ├── routes/          # 基于文件的路由
 │   ├── components/      # React 组件
-│   ├── lib/            # 工具函数和配置
-│   ├── server/         # 服务端代码
-│   └── paraglide/      # 生成的国际化文件
-├── drizzle/            # 数据库迁移
-├── public/             # 静态资源
-└── wrangler.toml       # Cloudflare Workers 配置
+│   ├── lib/             # 工具函数和配置
+│   ├── workers/         # Cloudflare Workers 代码
+│   ├── db/              # 数据库模式和查询
+│   ├── hooks/           # React hooks
+│   ├── types/           # TypeScript 类型定义
+│   └── paraglide/       # 生成的国际化文件
+├── drizzle/             # 数据库迁移
+├── public/              # 静态资源
+└── wrangler.jsonc       # Cloudflare Workers 配置
 ```
 
 ## 许可证

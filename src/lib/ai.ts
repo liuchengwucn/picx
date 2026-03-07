@@ -27,7 +27,7 @@ export async function generateSummary(
   language: "en" | "zh" = "en",
 ): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
-  const model = config.openaiModel || "gpt-5-mini";
+  const model = config.openaiModel || "gpt-5.2-instant";
 
   const languageInstruction =
     language === "zh"
@@ -159,7 +159,7 @@ export async function generateWhiteboardStructure(
   config: AIConfig,
 ): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
-  const model = config.openaiModel || "gpt-5-mini";
+  const model = config.openaiModel || "gpt-5.2-instant";
 
   try {
     const headers: Record<string, string> = {
@@ -486,7 +486,7 @@ export async function translateSummary(
   config: AIConfig,
 ): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
-  const model = config.openaiModel || "gpt-5-mini";
+  const model = config.openaiModel || "gpt-5.2-instant";
 
   const languageInstruction =
     targetLanguage === "zh"
@@ -605,7 +605,7 @@ export async function extractPaperTitle(
   }
 
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
-  const model = config.openaiModel || "gpt-5-mini";
+  const model = config.openaiModel || "gpt-5.2-instant";
 
   const systemPrompt = `You are an expert at extracting paper titles from academic papers.
 Extract the main title of the paper from the given text.
