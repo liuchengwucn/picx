@@ -257,3 +257,177 @@ a:hover { color: var(--academic-brown-deep); }
   * { @apply border-border outline-ring/50; }
   body { background-color: var(--background); color: var(--foreground); }
 }
+
+/* Prose/Markdown styles */
+.prose {
+  color: var(--ink);
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: var(--ink);
+}
+
+.prose p {
+  color: var(--ink);
+}
+
+.prose strong {
+  color: var(--ink);
+}
+
+.prose a {
+  color: var(--academic-brown);
+}
+
+.prose a:hover {
+  color: var(--academic-brown-deep);
+}
+
+.prose ul,
+.prose ol {
+  color: var(--ink);
+}
+
+.prose li {
+  color: var(--ink);
+}
+
+.prose blockquote {
+  color: var(--ink-soft);
+  border-left-color: var(--line);
+}
+
+.prose table {
+  color: var(--ink);
+}
+
+.prose thead {
+  color: var(--ink);
+  border-bottom-color: var(--line);
+}
+
+.prose thead th {
+  color: var(--ink);
+}
+
+.prose tbody tr {
+  border-bottom-color: var(--line);
+}
+
+.prose tbody td {
+  color: var(--ink);
+}
+
+.prose pre {
+  background-color: var(--neutral-light);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.prose code {
+  color: var(--ink);
+  background-color: var(--neutral-light);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+  color: var(--ink);
+}
+
+/* Highlight.js syntax highlighting */
+.hljs {
+  color: var(--ink);
+  background: transparent;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: var(--sienna);
+  font-weight: 600;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag .hljs-attr {
+  color: var(--academic-brown-deep);
+}
+
+.hljs-string,
+.hljs-doctag {
+  color: var(--olive);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: var(--academic-brown);
+  font-weight: 600;
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-attribute {
+  color: var(--academic-brown);
+  font-weight: normal;
+}
+
+.hljs-regexp,
+.hljs-link {
+  color: var(--amber);
+}
+
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--gold);
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  color: var(--academic-brown-deep);
+}
+
+.hljs-meta {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.hljs-deletion {
+  background: rgba(160, 82, 45, 0.1);
+}
+
+.hljs-addition {
+  background: rgba(107, 142, 35, 0.1);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}

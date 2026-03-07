@@ -31,8 +31,10 @@ function HomePage() {
                 alt="PicX Logo"
                 className="w-full max-w-4xl"
                 style={{
-                  maskImage: "linear-gradient(to right, transparent, black 20%, black 80%, transparent)",
-                  WebkitMaskImage: "linear-gradient(to right, transparent, black 20%, black 80%, transparent)"
+                  maskImage: "linear-gradient(to right, transparent, black 20%, black 80%, transparent), linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)",
+                  WebkitMaskImage: "linear-gradient(to right, transparent, black 20%, black 80%, transparent), linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)",
+                  maskComposite: "intersect",
+                  WebkitMaskComposite: "source-in"
                 }}
               />
             </div>
@@ -176,7 +178,7 @@ function HomePage() {
                 desc: m.home_feature_credits_desc(),
                 delay: "240ms",
               },
-            ].map((feature, index) => (
+            ].map((feature) => (
               <div
                 key={feature.title}
                 className="rise-in group rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-6 shadow-[0_2px_16px_rgba(45,42,36,0.06)] transition-all hover:-translate-y-2 hover:shadow-[0_8px_24px_rgba(45,42,36,0.12)]"
