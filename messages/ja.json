@@ -97,6 +97,7 @@
   "home_credits_cost": "1回の処理で1クレジット消費",
   "home_credits_opensource": "完全オープンソース - セルフデプロイで無制限使用、カスタムプロンプト、モデルパラメータを自由に調整",
   "home_credits_github": "GitHubで見る",
+  "home_credits_see_also": "関連：Emergent Mind から着想を得ています。",
   "home_showcase_title": "機能紹介",
   "home_showcase_paper_badge": "AI分析",
   "home_showcase_paper_title": "インテリジェント論文処理",

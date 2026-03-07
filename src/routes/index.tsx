@@ -291,6 +291,16 @@ function HomePage() {
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </div>
+                <p className="mt-4 text-sm text-[var(--ink-soft)]">
+                  <a
+                    href="https://www.emergentmind.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline decoration-[var(--academic-brown)] underline-offset-4 transition-opacity hover:opacity-80"
+                  >
+                    {m.home_credits_see_also()}
+                  </a>
+                </p>
               </div>
             </div>
           </div>
