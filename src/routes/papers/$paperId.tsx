@@ -10,11 +10,11 @@ import {
   ImageIcon,
   Languages,
   Loader2,
-  Network,
+  Maximize2,
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -40,6 +40,7 @@ import {
 } from "#/components/ui/alert-dialog";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "#/components/ui/dialog";
 import { Progress } from "#/components/ui/progress";
 import {
   Select,
@@ -94,6 +95,8 @@ function PaperDetailPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const [isWhiteboardPreviewOpen, setIsWhiteboardPreviewOpen] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(true);
 
   const { session, isSessionPending } = useRequireAuth("/papers");
 
@@ -123,6 +126,28 @@ function PaperDetailPage() {
     }),
   );
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia("(min-width: 1024px)");
+
+    const syncViewport = (matches: boolean) => {
+      setIsDesktopViewport(matches);
+      if (!matches) {
+        setIsWhiteboardPreviewOpen(false);
+      }
+    };
+
+    syncViewport(mediaQuery.matches);
+
+    const handleChange = (event: MediaQueryListEvent) => {
+      syncViewport(event.matches);
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
   const handleCopyMarkdown = async () => {
     if (!result?.summary) return;
     try {
@@ -142,6 +167,9 @@ function PaperDetailPage() {
 
   const { paper, result } = data;
   const progress = statusProgress[paper.status] ?? 0;
+  const whiteboardImageUrl = result?.whiteboardImageR2Key
+    ? `/api/r2/${result.whiteboardImageR2Key}`
+    : null;
 
   return (
     <main className="page-wrap py-8">
@@ -157,10 +185,8 @@ function PaperDetailPage() {
           </span>
         </nav>
 
-        {/* Two-column layout */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-[360px_1fr]">
-          {/* Left: Paper info */}
-          <div className="space-y-4">
+        <div className="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">
+          <aside className="space-y-4 lg:sticky lg:top-24">
             <div className="paper-card p-6">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
@@ -176,7 +202,6 @@ function PaperDetailPage() {
                 </div>
               </div>
 
-              {/* Status + Progress */}
               <div className="mt-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-[var(--ink-soft)]">
@@ -194,44 +219,36 @@ function PaperDetailPage() {
                 )}
               </div>
 
-              {/* Meta info */}
               <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-4 text-sm">
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <span className="text-[var(--ink-soft)]">
                     {m.paper_source()}
                   </span>
-                  <span>
+                  <span className="text-right">
                     {paper.sourceType === "arxiv"
                       ? "arXiv"
                       : m.paper_source_upload()}
                   </span>
                 </div>
                 {paper.pageCount && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-4">
                     <span className="text-[var(--ink-soft)]">
                       {m.paper_pages()}
                     </span>
-                    <span>{paper.pageCount}</span>
+                    <span className="text-right">{paper.pageCount}</span>
                   </div>
                 )}
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <span className="text-[var(--ink-soft)]">
                     {m.paper_size()}
                   </span>
-                  <span>{(paper.fileSize / 1024 / 1024).toFixed(2)} MB</span>
+                  <span className="text-right">
+                    {(paper.fileSize / 1024 / 1024).toFixed(2)} MB
+                  </span>
                 </div>
               </div>
 
-              {/* Actions */}
               <div className="mt-4 flex gap-2 border-t border-[var(--line)] pt-4">
-                {result?.whiteboardImageR2Key && (
-                  <Button variant="outline" size="sm" asChild>
-                    <a href="#whiteboard">
-                      <Network className="mr-1.5 h-4 w-4" />
-                      {m.paper_whiteboard()}
-                    </a>
-                  </Button>
-                )}
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -265,137 +282,160 @@ function PaperDetailPage() {
                 </AlertDialog>
               </div>
             </div>
-          </div>
 
-          {/* Right: Results */}
-          <div className="space-y-4">
-            {result ? (
-              <>
-                <Accordion type="single" collapsible defaultValue="summary">
-                  <AccordionItem value="summary" className="paper-card px-6">
-                    <div className="flex items-center justify-between py-4">
-                      <AccordionTrigger className="font-serif text-lg font-semibold flex-1 py-0 hover:no-underline">
-                        <span className="hover:underline">
-                          {m.paper_summary()}
-                        </span>
-                      </AccordionTrigger>
-                      <div className="flex items-center gap-2 ml-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleCopyMarkdown}
-                          className="gap-1.5"
-                        >
-                          {copied ? (
-                            <>
-                              <CheckCircle2 className="h-4 w-4" />
-                              {m.paper_summary_copied()}
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-4 w-4" />
-                              {m.paper_summary_copy()}
-                            </>
-                          )}
-                        </Button>
-                        <Select
-                          value={result.summaryLanguage || "en"}
-                          onValueChange={(
-                            value: "en" | "zh-cn" | "zh-tw" | "ja",
-                          ) => {
-                            regenerateSummaryMutation.mutate({
-                              paperId,
-                              language: value,
-                            });
-                          }}
-                          disabled={regenerateSummaryMutation.isPending}
-                        >
-                          <SelectTrigger className="w-[140px] h-9">
-                            <div className="flex items-center gap-1.5 w-full">
-                              {regenerateSummaryMutation.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                              ) : (
-                                <Languages className="h-4 w-4 shrink-0" />
-                              )}
-                              <SelectValue />
-                            </div>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="en">
-                              {m.upload_language_en()}
-                            </SelectItem>
-                            <SelectItem value="zh-cn">
-                              {m.upload_language_zh()}
-                            </SelectItem>
-                            <SelectItem value="zh-tw">
-                              {m.upload_language_zh_tw()}
-                            </SelectItem>
-                            <SelectItem value="ja">
-                              {m.upload_language_ja()}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <AccordionContent>
-                      <div className="prose prose-sm max-w-none text-[var(--ink)] break-words overflow-hidden">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm, remarkMath]}
-                          rehypePlugins={[rehypeKatex, rehypeHighlight]}
-                          components={{
-                            pre: ({ children }) => (
-                              <pre className="overflow-x-auto max-w-full">
-                                {children}
-                              </pre>
-                            ),
-                            code: ({ children, className }) => (
-                              <code
-                                className={`${className || ""} break-words`}
-                              >
-                                {children}
-                              </code>
-                            ),
-                            table: ({ children }) => (
-                              <div className="overflow-x-auto">
-                                <table>{children}</table>
-                              </div>
-                            ),
-                          }}
-                        >
-                          {normalizeMathMarkdown(result.summary)}
-                        </ReactMarkdown>
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
+            {whiteboardImageUrl && (
+              <div className="paper-card p-4 sm:p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
+                      {m.paper_whiteboard()}
+                    </h2>
+                  </div>
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={whiteboardImageUrl}
+                      download={`${paper.title}-whiteboard.png`}
+                      className="gap-1.5"
+                    >
+                      <Download className="h-4 w-4" />
+                      {m.paper_whiteboard_download()}
+                    </a>
+                  </Button>
+                </div>
 
-                {result.whiteboardImageR2Key && (
-                  <div id="whiteboard" className="paper-card p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
-                        {m.paper_whiteboard()}
-                      </h2>
-                      <Button variant="outline" size="sm" asChild>
-                        <a
-                          href={`/api/r2/${result.whiteboardImageR2Key}`}
-                          download={`${paper.title}-whiteboard.png`}
-                          className="gap-1.5"
-                        >
-                          <Download className="h-4 w-4" />
-                          {m.paper_whiteboard_download()}
-                        </a>
-                      </Button>
-                    </div>
-                    <div className="overflow-hidden rounded-lg">
-                      <img
-                        src={`/api/r2/${result.whiteboardImageR2Key}`}
-                        alt="Whiteboard"
-                        className="w-full h-auto cursor-zoom-in"
-                      />
+                <div className="rounded-2xl border border-[var(--line)] bg-[var(--parchment-warm)] p-3 lg:hidden">
+                  <div className="overflow-hidden rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(245,237,223,0.95))]">
+                    <img
+                      src={whiteboardImageUrl}
+                      alt={`${paper.title} ${m.paper_whiteboard()}`}
+                      className="mx-auto h-auto max-h-[420px] w-full object-contain"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isDesktopViewport) {
+                      setIsWhiteboardPreviewOpen(true);
+                    }
+                  }}
+                  className="group hidden w-full rounded-2xl border border-[var(--line)] bg-[var(--parchment-warm)] p-3 text-left transition hover:border-[var(--academic-brown)]/30 hover:shadow-[0_18px_50px_rgba(87,61,38,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/35 lg:block"
+                  aria-label={m.paper_whiteboard()}
+                >
+                  <div className="relative overflow-hidden rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(245,237,223,0.95))]">
+                    <img
+                      src={whiteboardImageUrl}
+                      alt={`${paper.title} ${m.paper_whiteboard()}`}
+                      className="mx-auto h-auto max-h-[360px] w-full object-contain transition duration-300 group-hover:scale-[1.015]"
+                    />
+                    <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1.5 rounded-full border border-white/80 bg-white/88 px-3 py-1.5 text-xs font-medium text-[var(--ink)] shadow-sm backdrop-blur-sm">
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      <span>{m.paper_whiteboard()}</span>
                     </div>
                   </div>
-                )}
-              </>
+                </button>
+              </div>
+            )}
+          </aside>
+
+          <section className="space-y-4 min-w-0">
+            {result ? (
+              <Accordion type="single" collapsible defaultValue="summary">
+                <AccordionItem value="summary" className="paper-card px-6">
+                  <div className="flex items-center justify-between py-4">
+                    <AccordionTrigger className="font-serif text-lg font-semibold flex-1 py-0 hover:no-underline">
+                      <span className="hover:underline">
+                        {m.paper_summary()}
+                      </span>
+                    </AccordionTrigger>
+                    <div className="flex items-center gap-2 ml-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCopyMarkdown}
+                        className="gap-1.5"
+                      >
+                        {copied ? (
+                          <>
+                            <CheckCircle2 className="h-4 w-4" />
+                            {m.paper_summary_copied()}
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-4 w-4" />
+                            {m.paper_summary_copy()}
+                          </>
+                        )}
+                      </Button>
+                      <Select
+                        value={result.summaryLanguage || "en"}
+                        onValueChange={(
+                          value: "en" | "zh-cn" | "zh-tw" | "ja",
+                        ) => {
+                          regenerateSummaryMutation.mutate({
+                            paperId,
+                            language: value,
+                          });
+                        }}
+                        disabled={regenerateSummaryMutation.isPending}
+                      >
+                        <SelectTrigger className="w-[140px] h-9">
+                          <div className="flex items-center gap-1.5 w-full">
+                            {regenerateSummaryMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                            ) : (
+                              <Languages className="h-4 w-4 shrink-0" />
+                            )}
+                            <SelectValue />
+                          </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="en">
+                            {m.upload_language_en()}
+                          </SelectItem>
+                          <SelectItem value="zh-cn">
+                            {m.upload_language_zh()}
+                          </SelectItem>
+                          <SelectItem value="zh-tw">
+                            {m.upload_language_zh_tw()}
+                          </SelectItem>
+                          <SelectItem value="ja">
+                            {m.upload_language_ja()}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <AccordionContent>
+                    <div className="prose prose-sm max-w-none text-[var(--ink)] break-words overflow-hidden">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                        components={{
+                          pre: ({ children }) => (
+                            <pre className="overflow-x-auto max-w-full">
+                              {children}
+                            </pre>
+                          ),
+                          code: ({ children, className }) => (
+                            <code className={`${className || ""} break-words`}>
+                              {children}
+                            </code>
+                          ),
+                          table: ({ children }) => (
+                            <div className="overflow-x-auto">
+                              <table>{children}</table>
+                            </div>
+                          ),
+                        }}
+                      >
+                        {normalizeMathMarkdown(result.summary)}
+                      </ReactMarkdown>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             ) : paper.status !== "failed" ? (
               <div className="paper-card flex flex-col items-center justify-center p-12 text-center">
                 <Loader2 className="h-8 w-8 animate-spin text-[var(--academic-brown)]" />
@@ -404,8 +444,54 @@ function PaperDetailPage() {
                 </p>
               </div>
             ) : null}
-          </div>
+          </section>
         </div>
+
+        {whiteboardImageUrl && (
+          <Dialog
+            open={isDesktopViewport && isWhiteboardPreviewOpen}
+            onOpenChange={(open) => {
+              setIsWhiteboardPreviewOpen(open && isDesktopViewport);
+            }}
+          >
+            <DialogContent className="max-h-[96vh] max-w-[min(98vw,1440px)] rounded-[28px] border-[var(--line)] bg-[var(--parchment)] p-2 shadow-[0_30px_120px_rgba(39,29,21,0.35)] sm:max-w-[min(98vw,1440px)] sm:p-5">
+              <DialogTitle className="sr-only">
+                {paper.title} {m.paper_whiteboard()}
+              </DialogTitle>
+
+              <div className="flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-4 pr-10">
+                  <div className="min-w-0">
+                    <h2 className="font-serif text-xl font-semibold text-[var(--ink)] break-words">
+                      {m.paper_whiteboard()}
+                    </h2>
+                    <p className="mt-1 text-sm text-[var(--ink-soft)] break-words">
+                      {paper.title}
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={whiteboardImageUrl}
+                      download={`${paper.title}-whiteboard.png`}
+                      className="gap-1.5"
+                    >
+                      <Download className="h-4 w-4" />
+                      {m.paper_whiteboard_download()}
+                    </a>
+                  </Button>
+                </div>
+
+                <div className="overflow-auto rounded-[22px] border border-[var(--line)] bg-[var(--parchment-warm)]/80 p-2 sm:p-4">
+                  <img
+                    src={whiteboardImageUrl}
+                    alt={`${paper.title} ${m.paper_whiteboard()}`}
+                    className="mx-auto h-auto max-h-[calc(96vh-8rem)] w-full object-contain rounded-[18px]"
+                  />
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </main>
   );
