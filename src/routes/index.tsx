@@ -31,16 +31,21 @@ function HomePage() {
                 alt="PicX Logo"
                 className="w-full max-w-4xl"
                 style={{
-                  maskImage: "linear-gradient(to right, transparent, black 20%, black 80%, transparent), linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)",
-                  WebkitMaskImage: "linear-gradient(to right, transparent, black 20%, black 80%, transparent), linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)",
+                  maskImage:
+                    "linear-gradient(to right, transparent, black 20%, black 80%, transparent), linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)",
+                  WebkitMaskImage:
+                    "linear-gradient(to right, transparent, black 20%, black 80%, transparent), linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)",
                   maskComposite: "intersect",
-                  WebkitMaskComposite: "source-in"
+                  WebkitMaskComposite: "source-in",
                 }}
               />
             </div>
 
             {/* Badge */}
-            <div className="rise-in mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-sm font-medium text-[var(--ink-soft)] shadow-[0_2px_8px_rgba(45,42,36,0.06)]" style={{ animationDelay: "100ms" }}>
+            <div
+              className="rise-in mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-sm font-medium text-[var(--ink-soft)] shadow-[0_2px_8px_rgba(45,42,36,0.06)]"
+              style={{ animationDelay: "100ms" }}
+            >
               <Sparkles className="h-4 w-4 text-[var(--academic-brown)]" />
               <span>{m.home_hero_badge()}</span>
             </div>
@@ -111,7 +116,10 @@ function HomePage() {
               </div>
 
               {/* Arrow between cards */}
-              <div className="rise-in flex items-center justify-center -my-4 md:my-0" style={{ animationDelay: "50ms" }}>
+              <div
+                className="rise-in flex items-center justify-center -my-4 md:my-0"
+                style={{ animationDelay: "50ms" }}
+              >
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--academic-brown)] shadow-[0_4px_16px_rgba(139,111,71,0.32)]">
                   <ArrowDown className="md:hidden h-7 w-7 text-white" />
                   <ArrowRight className="hidden md:inline-block h-7 w-7 text-white" />

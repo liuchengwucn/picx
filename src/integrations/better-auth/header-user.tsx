@@ -15,7 +15,11 @@ export default function BetterAuthHeader() {
     return (
       <div className="flex items-center gap-2">
         {session.user.image ? (
-          <img src={session.user.image} alt="" className="h-8 w-8 rounded-full" />
+          <img
+            src={session.user.image}
+            alt=""
+            className="h-8 w-8 rounded-full"
+          />
         ) : (
           <div className="h-8 w-8 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center rounded-full">
             <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">

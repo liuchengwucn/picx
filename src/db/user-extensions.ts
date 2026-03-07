@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
-import { creditTransactions } from "./schema";
 import type * as schema from "./schema";
+import { creditTransactions } from "./schema";
 
 export const INITIAL_CREDITS = 10;
 

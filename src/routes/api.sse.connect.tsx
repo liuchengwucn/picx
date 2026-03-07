@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { eq, and, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { papers } from "#/db/schema";
 import { auth } from "#/lib/auth";
@@ -69,7 +69,10 @@ async function handler({ request }: { request: Request }) {
             knownStatuses.set(paperId, status);
             // Only send if we had a previous known status (skip first discovery)
             // OR if it's from activePapers (always notify active ones on first seen)
-            if (known !== undefined || activePapers.some((p) => p.id === paperId)) {
+            if (
+              known !== undefined ||
+              activePapers.some((p) => p.id === paperId)
+            ) {
               const progress =
                 status === "processing_text"
                   ? 33

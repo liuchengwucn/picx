@@ -1,10 +1,10 @@
 import { env } from "cloudflare:workers";
-import { drizzle } from "drizzle-orm/d1";
 import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
+import { drizzle } from "drizzle-orm/d1";
 import superjson from "superjson";
-import { auth } from "#/lib/auth";
 import * as schema from "#/db/schema";
+import { auth } from "#/lib/auth";
 
 export interface PaperQueueMessage {
   paperId: string;

@@ -30,14 +30,15 @@ async function handler({ request }: { request: Request }) {
     }
 
     // 从 R2 metadata 获取 content type
-    const contentType = object.httpMetadata?.contentType || "application/octet-stream";
+    const contentType =
+      object.httpMetadata?.contentType || "application/octet-stream";
 
     // 返回文件内容
     return new Response(object.body, {
       headers: {
         "Content-Type": contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
-        "ETag": object.etag,
+        ETag: object.etag,
       },
     });
   } catch (error) {
