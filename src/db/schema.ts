@@ -123,7 +123,7 @@ export const paperResults = sqliteTable(
     paperId: text("paper_id")
       .notNull()
       .references(() => papers.id, { onDelete: "cascade" }),
-    // 存储多语言摘要的 JSON 对象: { "en": "...", "zh": "...", ... }
+    // 存储多语言摘要的 JSON 对象: { "en": "...", "zh-cn": "...", "zh-tw": "...", "ja": "...", ... }
     summaries: text("summaries", { mode: "json" })
       .notNull()
       .$type<Record<string, string>>(),

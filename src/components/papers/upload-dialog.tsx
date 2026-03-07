@@ -29,10 +29,10 @@ interface UploadDialogProps {
 }
 
 interface LanguageSelectorsProps {
-  summaryLanguage: "en" | "zh-CN" | "ja";
-  whiteboardLanguage: "en" | "zh" | "ja";
-  onSummaryLanguageChange: (value: "en" | "zh-CN" | "ja") => void;
-  onWhiteboardLanguageChange: (value: "en" | "zh" | "ja") => void;
+  summaryLanguage: "en" | "zh-CN" | "zh-TW" | "ja";
+  whiteboardLanguage: "en" | "zh-cn" | "zh-tw" | "ja";
+  onSummaryLanguageChange: (value: "en" | "zh-CN" | "zh-TW" | "ja") => void;
+  onWhiteboardLanguageChange: (value: "en" | "zh-cn" | "zh-tw" | "ja") => void;
 }
 
 function LanguageSelectors({
@@ -54,6 +54,7 @@ function LanguageSelectors({
           <SelectContent>
             <SelectItem value="en">{m.upload_language_en()}</SelectItem>
             <SelectItem value="zh-CN">{m.upload_language_zh()}</SelectItem>
+            <SelectItem value="zh-TW">{m.upload_language_zh_tw()}</SelectItem>
             <SelectItem value="ja">{m.upload_language_ja()}</SelectItem>
           </SelectContent>
         </Select>
@@ -71,7 +72,8 @@ function LanguageSelectors({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="en">{m.upload_language_en()}</SelectItem>
-            <SelectItem value="zh">{m.upload_language_zh()}</SelectItem>
+            <SelectItem value="zh-cn">{m.upload_language_zh()}</SelectItem>
+            <SelectItem value="zh-tw">{m.upload_language_zh_tw()}</SelectItem>
             <SelectItem value="ja">{m.upload_language_ja()}</SelectItem>
           </SelectContent>
         </Select>
@@ -85,11 +87,11 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [arxivUrl, setArxivUrl] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [summaryLanguage, setSummaryLanguage] = useState<"en" | "zh-CN" | "ja">(
-    getLocale() as "en" | "zh-CN" | "ja",
+  const [summaryLanguage, setSummaryLanguage] = useState<"en" | "zh-CN" | "zh-TW" | "ja">(
+    getLocale() as "en" | "zh-CN" | "zh-TW" | "ja",
   );
   const [whiteboardLanguage, setWhiteboardLanguage] = useState<
-    "en" | "zh" | "ja"
+    "en" | "zh-cn" | "zh-tw" | "ja"
   >("en");
   const trpc = useTRPC();
 

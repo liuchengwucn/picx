@@ -23,8 +23,8 @@ export const paperRouter = router({
           .min(0) // Allow 0 for arxiv (will be updated after download)
           .max(50 * 1024 * 1024), // 50MB
         r2Key: z.string().min(1),
-        language: z.enum(["en", "zh-CN", "ja"]).optional(), // 摘要语言
-        whiteboardLanguage: z.enum(["en", "zh", "ja"]).optional(), // 白板图语言
+        language: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(), // 摘要语言
+        whiteboardLanguage: z.enum(["en", "zh-cn", "zh-tw", "ja"]).optional(), // 白板图语言
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -94,13 +94,15 @@ export const paperRouter = router({
       // 推送到队列进行异步处理
       try {
         // 将 Paraglide 的语言代码映射为 AI 函数使用的语言代码
-        const queueLanguage: "en" | "zh" | "ja" | undefined = input.language
+        const queueLanguage: "en" | "zh-cn" | "zh-tw" | "ja" | undefined = input.language
           ? input.language === "zh-CN"
-            ? "zh"
-            : input.language
+            ? "zh-cn"
+            : input.language === "zh-TW"
+              ? "zh-tw"
+              : input.language
           : undefined;
 
-        const queueWhiteboardLanguage: "en" | "zh" | "ja" =
+        const queueWhiteboardLanguage: "en" | "zh-cn" | "zh-tw" | "ja" =
           input.whiteboardLanguage || "en";
 
         await ctx.env.PAPER_QUEUE.send({
@@ -268,7 +270,7 @@ export const paperRouter = router({
     .input(
       z.object({
         paperId: z.string().uuid(),
-        language: z.enum(["en", "zh", "ja"]),
+        language: z.enum(["en", "zh-cn", "zh-tw", "ja"]),
       }),
     )
     .mutation(async ({ ctx, input }) => {

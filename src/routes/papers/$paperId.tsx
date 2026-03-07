@@ -278,7 +278,7 @@ function PaperDetailPage() {
                         </Button>
                         <Select
                           value={result.summaryLanguage || "en"}
-                          onValueChange={(value: "en" | "zh" | "ja") => {
+                          onValueChange={(value: "en" | "zh-cn" | "zh-tw" | "ja") => {
                             regenerateSummaryMutation.mutate({
                               paperId,
                               language: value,
@@ -300,8 +300,11 @@ function PaperDetailPage() {
                             <SelectItem value="en">
                               {m.upload_language_en()}
                             </SelectItem>
-                            <SelectItem value="zh">
+                            <SelectItem value="zh-cn">
                               {m.upload_language_zh()}
+                            </SelectItem>
+                            <SelectItem value="zh-tw">
+                              {m.upload_language_zh_tw()}
                             </SelectItem>
                             <SelectItem value="ja">
                               {m.upload_language_ja()}

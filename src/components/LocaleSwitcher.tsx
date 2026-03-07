@@ -15,6 +15,7 @@ import { getLocale, locales, setLocale } from "#/paraglide/runtime";
 const LOCALE_NAMES: Record<string, string> = {
   en: "English",
   "zh-CN": "简体中文",
+  "zh-TW": "繁體中文",
   ja: "日本語",
 };
 

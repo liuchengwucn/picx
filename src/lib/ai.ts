@@ -16,24 +16,26 @@ export interface AIConfig {
  *
  * @param paperText 论文文本内容
  * @param config AI 配置
- * @param language 生成语言 ('en' 为英文, 'zh' 为中文, 'ja' 为日文)
+ * @param language 生成语言 ('en' 为英文, 'zh-cn' 为简体中文, 'zh-tw' 为繁体中文, 'ja' 为日文)
  * @returns 论文总结文本（Markdown 格式）
  * @throws 如果生成失败则抛出错误
  */
 export async function generateSummary(
   paperText: string,
   config: AIConfig,
-  language: "en" | "zh" | "ja" = "en",
+  language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
 ): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
   const model = config.openaiModel || "gpt-5.2-instant";
 
   const languageInstruction =
-    language === "zh"
-      ? "请用中文回答。"
-      : language === "ja"
-        ? "日本語で回答してください。"
-        : "Please respond in English.";
+    language === "zh-cn"
+      ? "请用简体中文回答。"
+      : language === "zh-tw"
+        ? "請用繁體中文回答。"
+        : language === "ja"
+          ? "日本語で回答してください。"
+          : "Please respond in English.";
 
   const systemPrompt = `You are an expert at summarizing academic papers. Generate a comprehensive, well-structured summary in Markdown format.
 
@@ -261,7 +263,7 @@ ${paperText}`,
  * @param whiteboardMarkdown 白板的 Markdown 表示
  * @param paperText 原始论文文本
  * @param config AI 配置
- * @param language 白板图语言 ('en' 为英文, 'zh' 为中文)
+ * @param language 白板图语言 ('en' 为英文, 'zh-cn' 为简体中文, 'zh-tw' 为繁体中文, 'ja' 为日文)
  * @returns 图片的 ArrayBuffer 数据和用于生成的 prompt
  * @throws 如果生成失败则抛出错误
  */
@@ -269,7 +271,7 @@ export async function generateWhiteboardImage(
   whiteboardMarkdown: string,
   paperText: string,
   config: AIConfig,
-  language: "en" | "zh" | "ja" = "en",
+  language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
   const prompt = buildWhiteboardPrompt(whiteboardMarkdown, paperText, language);
 
@@ -481,25 +483,27 @@ async function generateWhiteboardImageWithGemini(
  * 翻译摘要文本
  *
  * @param summaryText 原始摘要文本（Markdown 格式）
- * @param targetLanguage 目标语言 ('en' 为英文, 'zh' 为中文)
+ * @param targetLanguage 目标语言 ('en' 为英文, 'zh-cn' 为简体中文, 'zh-tw' 为繁体中文, 'ja' 为日文)
  * @param config AI 配置
  * @returns 翻译后的摘要文本（Markdown 格式）
  * @throws 如果翻译失败则抛出错误
  */
 export async function translateSummary(
   summaryText: string,
-  targetLanguage: "en" | "zh" | "ja",
+  targetLanguage: "en" | "zh-cn" | "zh-tw" | "ja",
   config: AIConfig,
 ): Promise<string> {
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
   const model = config.openaiModel || "gpt-5.2-instant";
 
   const languageInstruction =
-    targetLanguage === "zh"
-      ? "请将以下学术论文摘要翻译成中文。"
-      : targetLanguage === "ja"
-        ? "以下の学術論文の要約を日本語に翻訳してください。"
-        : "Please translate the following academic paper summary into English.";
+    targetLanguage === "zh-cn"
+      ? "请将以下学术论文摘要翻译成简体中文。"
+      : targetLanguage === "zh-tw"
+        ? "請將以下學術論文摘要翻譯成繁體中文。"
+        : targetLanguage === "ja"
+          ? "以下の学術論文の要約を日本語に翻訳してください。"
+          : "Please translate the following academic paper summary into English.";
 
   const systemPrompt = `You are an expert translator specializing in academic papers. Translate the given summary while maintaining its structure and formatting.
 
@@ -701,14 +705,16 @@ If you cannot find a clear title, return "Untitled Paper".`;
 function buildWhiteboardPrompt(
   whiteboardMarkdown: string,
   paperText: string,
-  language: "en" | "zh" | "ja" = "en",
+  language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
 ): string {
   const languageInstruction =
-    language === "zh"
-      ? "请用中文生成白板图，包括所有文字、标注和说明。"
-      : language === "ja"
-        ? "日本語でホワイトボード図を生成してください。すべてのテキスト、ラベル、説明を含めてください。"
-        : "Generate the whiteboard in English, including all text, labels, and captions.";
+    language === "zh-cn"
+      ? "请用简体中文生成白板图，包括所有文字、标注和说明。"
+      : language === "zh-tw"
+        ? "請用繁體中文生成白板圖，包括所有文字、標註和說明。"
+        : language === "ja"
+          ? "日本語でホワイトボード図を生成してください。すべてのテキスト、ラベル、説明を含めてください。"
+          : "Generate the whiteboard in English, including all text, labels, and captions.";
 
   return `Transform this academic paper into a professor-style whiteboard image. Include diagrams, arrows, boxes, and short captions that explain the core ideas visually.
 

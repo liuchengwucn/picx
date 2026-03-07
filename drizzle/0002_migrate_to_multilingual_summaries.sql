@@ -31,5 +31,5 @@ DELETE FROM `paper_results`;
 ALTER TABLE `paper_results` DROP COLUMN `summary`;
 
 -- Step 3: Add new summaries column (JSON type)
--- This will store multiple language versions: {"en": "...", "zh": "...", ...}
+-- This will store multiple language versions: {"en": "...", "zh-cn": "...", "zh-tw": "...", "ja": "...", ...}
 ALTER TABLE `paper_results` ADD `summaries` text NOT NULL DEFAULT '{}';
