@@ -291,14 +291,11 @@ export async function generateWhiteboardImage(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    // 检查是否是 token 超限错误
-    const isTokenLimitError =
-      errorMessage.includes("token") &&
-      (errorMessage.includes("exceed") || errorMessage.includes("limit") || errorMessage.includes("INVALID_ARGUMENT"));
-
-    // 如果是 token 超限错误且有摘要，尝试使用摘要重试
-    if (isTokenLimitError && summary) {
-      console.log("Token limit exceeded with full paper text, retrying with summary");
+    // 如果有摘要，不管什么错误都尝试使用摘要重试
+    if (summary) {
+      console.log("First attempt failed, retrying with summary instead of full paper text");
+      console.log(`Original error: ${errorMessage}`);
+      console.log(`Paper text length: ${paperText.length}, Summary length: ${summary.length}`);
       const promptWithSummary = buildWhiteboardPrompt(whiteboardMarkdown, summary, language);
 
       if (isOpenRouter) {
@@ -307,7 +304,7 @@ export async function generateWhiteboardImage(
       return await generateWhiteboardImageWithGemini(promptWithSummary, config);
     }
 
-    // 其他错误或没有摘要，直接抛出
+    // 没有摘要，直接抛出原始错误
     throw error;
   }
 }
@@ -365,10 +362,22 @@ async function generateWhiteboardImageWithOpenRouter(
           }>;
         };
       }>;
+      error?: {
+        message?: string;
+        code?: number;
+      };
     };
 
+    // 记录完整响应以便调试
+    console.log("OpenRouter API response:", JSON.stringify(data).substring(0, 500));
+
+    // 检查是否有错误信息
+    if (data.error) {
+      throw new Error(`OpenRouter API error: ${data.error.message || 'Unknown error'}`);
+    }
+
     if (!data.choices || data.choices.length === 0) {
-      throw new Error("No response from OpenRouter API");
+      throw new Error("No response from OpenRouter API (empty choices array)");
     }
 
     const message = data.choices[0].message;
