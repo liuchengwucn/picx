@@ -6,15 +6,31 @@ export interface PDFMetadata {
   title?: string;
 }
 
+export class PDFPageLimitError extends Error {
+  readonly pageCount: number;
+  readonly maxPages: number;
+
+  constructor(pageCount: number, maxPages: number) {
+    super(
+      `PDF has ${pageCount} pages, exceeding the limit of ${maxPages} pages`,
+    );
+    this.name = "PDFPageLimitError";
+    this.pageCount = pageCount;
+    this.maxPages = maxPages;
+  }
+}
+
 /**
  * 从 PDF 文件中提取文本内容
  *
  * @param pdfData PDF 文件的 ArrayBuffer 数据
+ * @param maxPages 最大页数限制，默认 150 页
  * @returns 包含页数和文本内容的对象
- * @throws 如果提取失败则抛出错误
+ * @throws 如果提取失败或超出页数限制则抛出错误
  */
 export async function extractPDFText(
   pdfData: ArrayBuffer,
+  maxPages = 150,
 ): Promise<PDFMetadata> {
   try {
     const pdf = await getDocument({
@@ -24,6 +40,11 @@ export async function extractPDFText(
 
     const textParts: string[] = [];
     const numPages = pdf.numPages;
+
+    // 检查页数限制
+    if (numPages > maxPages) {
+      throw new PDFPageLimitError(numPages, maxPages);
+    }
 
     // 尝试从PDF元数据获取标题
     let title: string | undefined;

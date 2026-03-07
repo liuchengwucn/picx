@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { paperResults, papers } from "#/db/schema";
+import { creditTransactions, paperResults, papers, user } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import {
   extractPaperTitle,
@@ -8,7 +8,7 @@ import {
   generateWhiteboardImage,
   generateWhiteboardStructure,
 } from "#/lib/ai";
-import { downloadArxivPDF, extractPDFText } from "#/lib/pdf";
+import { downloadArxivPDF, extractPDFText, PDFPageLimitError } from "#/lib/pdf";
 import type { Env } from "#/types/env";
 
 type PaperStatus =
@@ -48,13 +48,18 @@ export default {
           `[paper:${paperId}] Failed on attempt ${attempt}/${MAX_RETRIES}: ${errorDetail}`,
         );
 
-        // 最后一次重试也失败了，或者是不可重试的错误 → 标记 failed
+        // 最后一次重试也失败了，或者是不可重试的错误 → 标记 failed 并返还 credit
         if (attempt >= MAX_RETRIES || !isRetryableError(error)) {
           const reason =
             attempt >= MAX_RETRIES
               ? `Exhausted ${MAX_RETRIES} retries. Last error: ${errorDetail}`
               : errorDetail;
-          await markPaperFailed(paperId, reason, env);
+          await markPaperFailedAndRefund(
+            paperId,
+            message.body.userId,
+            reason,
+            env,
+          );
           message.ack();
         } else {
           console.log(
@@ -127,7 +132,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       "extract-text",
       `Extracting text from PDF (${pdfBuffer.byteLength} bytes)`,
     );
-    const result = await extractPDFText(pdfBuffer);
+    const result = await extractPDFText(pdfBuffer, 150); // 限制 150 页
     pageCount = result.pageCount;
     text = result.text;
     pdfMetadataTitle = result.title;
@@ -140,6 +145,13 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       throw new Error("Extracted text is empty");
     }
   } catch (error) {
+    // 如果是页数超限错误，返还 credit 并标记失败
+    if (error instanceof PDFPageLimitError) {
+      const errorMsg = `PDF has ${error.pageCount} pages, exceeding the limit of ${error.maxPages} pages`;
+      log("extract-text", `Page limit exceeded: ${errorMsg}`);
+      await markPaperFailedAndRefund(msg.paperId, msg.userId, errorMsg, env);
+      throw new StepError("extract-text", error);
+    }
     throw new StepError("extract-text", error);
   }
 
@@ -334,22 +346,57 @@ async function updatePaperStatus(
     .where(eq(papers.id, paperId));
 }
 
-async function markPaperFailed(
+/**
+ * 标记论文失败并返还 credit
+ */
+async function markPaperFailedAndRefund(
   paperId: string,
+  userId: string,
   errorMessage: string,
   env: Env,
 ): Promise<void> {
-  // 截断过长的错误信息，D1 TEXT 字段没有硬限制但保持合理长度
+  const db = drizzle(env.DB);
+
+  // 截断过长的错误信息
   const truncated =
     errorMessage.length > 1000
       ? `${errorMessage.substring(0, 997)}...`
       : errorMessage;
-  console.error(`[paper:${paperId}] Marking as failed: ${truncated}`);
+
+  console.log(
+    `[paper:${paperId}] Marking as failed and refunding credit to user ${userId}`,
+  );
+
+  // 标记论文失败
   await updatePaperStatus(paperId, "failed", truncated, env);
+
+  // 返还 1 credit
+  await db
+    .update(user)
+    .set({
+      credits: sql`${user.credits} + 1`,
+    })
+    .where(eq(user.id, userId));
+
+  // 记录 credit 交易
+  await db.insert(creditTransactions).values({
+    userId: userId,
+    amount: 1,
+    type: "refund",
+    relatedPaperId: paperId,
+    description: `Refund for failed paper processing: ${truncated}`,
+  });
+
+  console.log(`[paper:${paperId}] Credit refunded successfully`);
 }
 
 function isRetryableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
+
+  // 页数超限错误不可重试
+  if (error instanceof StepError && error.cause instanceof PDFPageLimitError) {
+    return false;
+  }
 
   // 网络超时
   if (message.includes("timeout") || message.includes("ETIMEDOUT")) {

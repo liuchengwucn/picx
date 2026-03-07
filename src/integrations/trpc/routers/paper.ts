@@ -94,13 +94,14 @@ export const paperRouter = router({
       // 推送到队列进行异步处理
       try {
         // 将 Paraglide 的语言代码映射为 AI 函数使用的语言代码
-        const queueLanguage: "en" | "zh-cn" | "zh-tw" | "ja" | undefined = input.language
-          ? input.language === "zh-CN"
-            ? "zh-cn"
-            : input.language === "zh-TW"
-              ? "zh-tw"
-              : input.language
-          : undefined;
+        const queueLanguage: "en" | "zh-cn" | "zh-tw" | "ja" | undefined =
+          input.language
+            ? input.language === "zh-CN"
+              ? "zh-cn"
+              : input.language === "zh-TW"
+                ? "zh-tw"
+                : input.language
+            : undefined;
 
         const queueWhiteboardLanguage: "en" | "zh-cn" | "zh-tw" | "ja" =
           input.whiteboardLanguage || "en";

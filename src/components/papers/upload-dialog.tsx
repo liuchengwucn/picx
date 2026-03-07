@@ -87,9 +87,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [arxivUrl, setArxivUrl] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [summaryLanguage, setSummaryLanguage] = useState<"en" | "zh-CN" | "zh-TW" | "ja">(
-    getLocale() as "en" | "zh-CN" | "zh-TW" | "ja",
-  );
+  const [summaryLanguage, setSummaryLanguage] = useState<
+    "en" | "zh-CN" | "zh-TW" | "ja"
+  >(getLocale() as "en" | "zh-CN" | "zh-TW" | "ja");
   const [whiteboardLanguage, setWhiteboardLanguage] = useState<
     "en" | "zh-cn" | "zh-tw" | "ja"
   >("en");
