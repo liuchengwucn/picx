@@ -83,27 +83,10 @@ export function ConfigDialog({
     onSubmit: async ({ value }) => {
       try {
         if (configId) {
-          // When updating, only send API keys if they were actually changed
-          // (not masked values like "sk-***" or "AIza***")
-          const updatePayload: Record<string, unknown> = {
+          await updateMutation.mutateAsync({
             id: configId,
-            name: value.name,
-            openaiBaseUrl: value.openaiBaseUrl,
-            openaiModel: value.openaiModel,
-            geminiBaseUrl: value.geminiBaseUrl,
-            geminiModel: value.geminiModel,
-            isDefault: value.isDefault,
-          };
-
-          // Only include API keys if they don't look like masked values
-          if (value.openaiApiKey && !value.openaiApiKey.includes("***")) {
-            updatePayload.openaiApiKey = value.openaiApiKey;
-          }
-          if (value.geminiApiKey && !value.geminiApiKey.includes("***")) {
-            updatePayload.geminiApiKey = value.geminiApiKey;
-          }
-
-          await updateMutation.mutateAsync(updatePayload);
+            ...value,
+          });
           toast.success(m.api_config_updated());
         } else {
           await createMutation.mutateAsync(value);

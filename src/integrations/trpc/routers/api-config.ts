@@ -150,7 +150,7 @@ export const apiConfigRouter = router({
 
   /**
    * Get a single API configuration by ID
-   * Verifies ownership and masks API keys
+   * Returns decrypted (unmasked) API keys for editing
    */
   getById: protectedProcedure
     .input(z.string().uuid())
@@ -191,18 +191,18 @@ export const apiConfigRouter = router({
           encryptionSecret,
         );
 
+        // Return full decrypted keys for editing (not masked)
         return {
           ...config,
-          openaiApiKey: maskApiKey(decryptedOpenaiKey),
-          geminiApiKey: maskApiKey(decryptedGeminiKey),
+          openaiApiKey: decryptedOpenaiKey,
+          geminiApiKey: decryptedGeminiKey,
         };
       } catch (error) {
         console.error(`Failed to decrypt keys for config ${config.id}:`, error);
-        return {
-          ...config,
-          openaiApiKey: "***",
-          geminiApiKey: "***",
-        };
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to decrypt API keys",
+        });
       }
     }),
 
@@ -427,16 +427,18 @@ export const apiConfigRouter = router({
             encryptionSecret,
           );
 
+          // Use provided values if available, otherwise use saved config
+          // This allows testing modified values before saving
           openaiConfig = {
-            apiKey: decryptedOpenaiKey,
-            baseUrl: config.openaiBaseUrl,
-            model: config.openaiModel,
+            apiKey: input.openaiApiKey || decryptedOpenaiKey,
+            baseUrl: input.openaiBaseUrl || config.openaiBaseUrl,
+            model: input.openaiModel || config.openaiModel,
           };
 
           geminiConfig = {
-            apiKey: decryptedGeminiKey,
-            baseUrl: config.geminiBaseUrl,
-            model: config.geminiModel,
+            apiKey: input.geminiApiKey || decryptedGeminiKey,
+            baseUrl: input.geminiBaseUrl || config.geminiBaseUrl,
+            model: input.geminiModel || config.geminiModel,
           };
         } catch (error) {
           console.error("Failed to decrypt API keys:", error);
