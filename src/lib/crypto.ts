@@ -178,16 +178,9 @@ export async function decrypt(
 /**
  * Mask an API key for display purposes
  * @param apiKey - The API key to mask
- * @returns Masked API key in format: "abc..." + last 6 characters
- * @example maskApiKey("sk-proj-abc123xyz789") => "sk-..." + "xyz789"
+ * @returns Masked API key as "***"
+ * @example maskApiKey("sk-proj-abc123xyz789") => "***"
  */
 export function maskApiKey(apiKey: string): string {
-  if (!apiKey || apiKey.length <= 9) {
-    return "***";
-  }
-
-  const prefix = apiKey.slice(0, 3);
-  const suffix = apiKey.slice(-6);
-
-  return `${prefix}...${suffix}`;
+  return "***";
 }
