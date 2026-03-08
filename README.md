@@ -163,7 +163,9 @@ You'll also need to:
 1. Create a D1 database: `npx wrangler d1 create picx-db`
 2. Update the `database_id` in `wrangler.jsonc` with the ID from step 1
 3. Apply migrations to production: `npx wrangler d1 migrations apply picx-db`
-4. Create an R2 bucket: `npx wrangler r2 bucket create picx-papers`
+4. Create production and preview R2 buckets:
+   - `npx wrangler r2 bucket create picx-papers-apac --location apac`
+   - `npx wrangler r2 bucket create picx-papers-apac-preview --location apac`
 5. Create a Queue: `npx wrangler queues create paper-processing`
 
 ### Testing

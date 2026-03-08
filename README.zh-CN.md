@@ -163,7 +163,9 @@ npx wrangler secret put CF_API_TOKEN
 1. 创建 D1 数据库：`npx wrangler d1 create picx-db`
 2. 将步骤 1 中的 ID 更新到 `wrangler.jsonc` 的 `database_id` 字段
 3. 将迁移应用到生产环境：`npx wrangler d1 migrations apply picx-db`
-4. 创建 R2 存储桶：`npx wrangler r2 bucket create picx-papers`
+4. 创建生产和预览 R2 存储桶：
+   - `npx wrangler r2 bucket create picx-papers-apac --location apac`
+   - `npx wrangler r2 bucket create picx-papers-apac-preview --location apac`
 5. 创建队列：`npx wrangler queues create paper-processing`
 
 ### 测试

@@ -26,8 +26,8 @@
   "r2_buckets": [
     {
       "binding": "PAPERS_BUCKET",
-      "bucket_name": "picx-papers",
-      "preview_bucket_name": "picx-papers-preview"
+      "bucket_name": "picx-papers-apac",
+      "preview_bucket_name": "picx-papers-apac-preview"
     }
   ],
 
