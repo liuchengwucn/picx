@@ -96,6 +96,10 @@ export const papers = sqliteTable(
       .notNull()
       .default("pending"),
     errorMessage: text("error_message"),
+    isPublic: integer("is_public", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
     deletedAt: integer("deleted_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
@@ -111,6 +115,10 @@ export const papers = sqliteTable(
       table.createdAt,
     ),
     statusIdx: index("papers_status_idx").on(table.status, table.deletedAt),
+    publicIdx: index("papers_public_idx").on(
+      table.isPublic,
+      table.publishedAt,
+    ),
   }),
 );
 
