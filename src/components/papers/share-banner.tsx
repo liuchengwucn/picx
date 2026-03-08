@@ -47,7 +47,7 @@ export function ShareBanner({ paperId, isPublic, canShare }: ShareBannerProps) {
   if (isPublic) {
     // Already shared - show success banner
     return (
-      <div className="rise-in mb-6 overflow-hidden rounded-2xl border-2 border-[var(--olive)] bg-gradient-to-br from-[var(--olive)]/5 via-[var(--parchment-warm)] to-[var(--olive)]/5 shadow-[0_4px_20px_rgba(107,142,35,0.12)]">
+      <div className="rise-in mt-3 mb-6 overflow-hidden rounded-2xl border border-[var(--olive)]/30 bg-gradient-to-br from-[var(--olive)]/5 via-[var(--parchment-warm)] to-[var(--olive)]/5 shadow-[0_2px_12px_rgba(107,142,35,0.06)]">
         <div className="relative p-6">
           {/* Decorative elements */}
           <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-[radial-gradient(circle,rgba(107,142,35,0.15),transparent_70%)] blur-2xl" />
@@ -117,7 +117,7 @@ export function ShareBanner({ paperId, isPublic, canShare }: ShareBannerProps) {
 
   // Not shared yet - show invitation banner
   return (
-    <div className="rise-in mb-6 overflow-hidden rounded-2xl border-2 border-[var(--academic-brown)]/30 bg-gradient-to-br from-[var(--academic-brown)]/5 via-[var(--parchment-warm)] to-[var(--gold)]/5 shadow-[0_4px_20px_rgba(139,111,71,0.12)]">
+    <div className="rise-in mt-3 mb-6 overflow-hidden rounded-2xl border border-[var(--academic-brown)]/18 bg-gradient-to-br from-[var(--academic-brown)]/5 via-[var(--parchment-warm)] to-[var(--gold)]/5 shadow-[0_2px_12px_rgba(139,111,71,0.06)]">
       <div className="relative p-6">
         {/* Decorative elements */}
         <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-[radial-gradient(circle,rgba(139,111,71,0.15),transparent_70%)] blur-2xl" />
