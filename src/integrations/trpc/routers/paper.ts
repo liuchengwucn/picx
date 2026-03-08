@@ -5,7 +5,7 @@ import { creditTransactions, paperResults, papers, user } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
-import { protectedProcedure, router } from "../init";
+import { protectedProcedure, publicProcedure, router } from "../init";
 
 function assertGuestWriteAllowed(session: { user: { id: string } }) {
   if (isReviewGuestReadOnlySession(session)) {
@@ -467,6 +467,58 @@ export const paperRouter = router({
       return {
         success: true,
         isPublic: updatedPaper.isPublic,
+      };
+    }),
+
+  /**
+   * List public papers for gallery
+   * Accessible by everyone (no auth required)
+   */
+  listPublic: publicProcedure
+    .input(
+      z.object({
+        page: z.number().int().min(1).default(1),
+        limit: z.number().int().min(1).max(100).default(20),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const offset = (input.page - 1) * input.limit;
+
+      // Query public papers with results
+      const publicPapers = await ctx.db
+        .select({
+          id: papers.id,
+          title: papers.title,
+          publishedAt: papers.publishedAt,
+          whiteboardImageR2Key: paperResults.whiteboardImageR2Key,
+        })
+        .from(papers)
+        .innerJoin(paperResults, eq(papers.id, paperResults.paperId))
+        .where(
+          and(
+            eq(papers.isPublic, true),
+            eq(papers.status, "completed"),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .orderBy(desc(papers.publishedAt))
+        .limit(input.limit)
+        .offset(offset);
+
+      const [totalResult] = await ctx.db
+        .select({ count: count() })
+        .from(papers)
+        .where(
+          and(
+            eq(papers.isPublic, true),
+            eq(papers.status, "completed"),
+            isNull(papers.deletedAt),
+          ),
+        );
+
+      return {
+        papers: publicPapers,
+        total: totalResult.count,
       };
     }),
 });
