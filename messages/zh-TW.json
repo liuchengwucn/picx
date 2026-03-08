@@ -120,7 +120,7 @@
   "home_credits_title": "免費公益 · 開源透明",
   "home_credits_new_user": "這是一個免費公益專案，沒有充值入口",
   "home_credits_daily_bonus": "註冊即可開始使用，面向日常論文閱讀與整理開放",
-  "home_credits_cost": "專案完全開源，也支援自部署無限使用",
+  "home_credits_cost": "專案完全開源，支援使用自己的 API Key 或自部署無限使用",
   "home_credits_opensource": "原始碼公開透明，可自部署無限使用，也歡迎依照自己的研究流程持續擴充",
   "home_credits_github": "查看 GitHub",
   "home_credits_see_also": "靈感來源：Emergent Mind。",
