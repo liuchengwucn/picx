@@ -128,5 +128,8 @@
   "time_days_ago": "{days}日前",
   "time_weeks_ago": "{weeks}週間前",
   "time_months_ago": "{months}ヶ月前",
-  "time_years_ago": "{years}年前"
+  "time_years_ago": "{years}年前",
+  "not_found_title": "ページが見つかりません",
+  "not_found_description": "申し訳ございません。お探しのページは存在しません",
+  "not_found_back_home": "ホームに戻る"
 }

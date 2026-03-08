@@ -128,5 +128,8 @@
   "time_days_ago": "{days}天前",
   "time_weeks_ago": "{weeks}周前",
   "time_months_ago": "{months}月前",
-  "time_years_ago": "{years}年前"
+  "time_years_ago": "{years}年前",
+  "not_found_title": "页面未找到",
+  "not_found_description": "抱歉，您访问的页面不存在",
+  "not_found_back_home": "返回首页"
 }

@@ -12,6 +12,7 @@ import DailyBonusClaim from "#/components/DailyBonusClaim";
 import { Toaster } from "#/components/ui/sonner";
 import { initLocale } from "#/lib/locale-init";
 import { getLocale } from "#/paraglide/runtime";
+import { m } from "#/paraglide/messages";
 import Footer from "../components/Footer";
 import Header from "../components/Header";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
@@ -46,13 +47,13 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
             404
           </h1>
           <p className="mb-6 text-lg text-[var(--ink-soft)]">
-            页面未找到
+            {m.not_found_description()}
           </p>
           <a
             href="/"
             className="inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)] no-underline"
           >
-            返回首页
+            {m.not_found_back_home()}
           </a>
         </div>
       </div>
