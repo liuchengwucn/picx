@@ -8,6 +8,10 @@ import { INITIAL_CREDITS, initializeUserCredits } from "#/db/user-extensions";
 
 interface AppEnvBindings {
   DB: D1Database;
+  BETTER_AUTH_URL?: string;
+  BETTER_AUTH_SECRET?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
 }
 
 // 获取 D1 数据库实例
@@ -16,11 +20,12 @@ const db = drizzle(appEnv.DB, { schema });
 
 export const auth = betterAuth({
   database: appEnv.DB, // D1 原生支持，自动检测
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  baseURL: appEnv.BETTER_AUTH_URL || "http://localhost:3000",
+  secret: appEnv.BETTER_AUTH_SECRET || "",
   socialProviders: {
     github: {
-      clientId: process.env.GITHUB_CLIENT_ID || "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
+      clientId: appEnv.GITHUB_CLIENT_ID || "",
+      clientSecret: appEnv.GITHUB_CLIENT_SECRET || "",
     },
   },
   user: {
