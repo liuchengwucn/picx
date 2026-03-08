@@ -27,6 +27,8 @@ import {
 import { Skeleton } from "#/components/ui/skeleton";
 import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient } from "#/lib/auth-client";
+import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
 import styles from "./styles.module.css";
 
@@ -93,11 +95,25 @@ function ApiConfigsPage() {
   };
 
   const handleCreate = () => {
+    if (isReadOnly) {
+      void authClient.signIn.social({
+        provider: "github",
+        callbackURL: "/api-configs",
+      });
+      return;
+    }
     setEditingConfigId(undefined);
     setConfigDialogOpen(true);
   };
 
   const handleEdit = (id: string) => {
+    if (isReadOnly) {
+      void authClient.signIn.social({
+        provider: "github",
+        callbackURL: "/api-configs",
+      });
+      return;
+    }
     setEditingConfigId(id);
     setConfigDialogOpen(true);
   };
@@ -126,6 +142,8 @@ function ApiConfigsPage() {
   if (!session) {
     return null;
   }
+
+  const isReadOnly = isReviewGuestReadOnlySession(session);
 
   return (
     <main className="page-wrap py-8">
