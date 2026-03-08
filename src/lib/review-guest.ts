@@ -56,7 +56,7 @@ export type ReviewGuestSession = {
 
 export function isReviewGuestModeEnabled() {
   return reviewEnv.VITE_ENABLE_REVIEW_GUEST === undefined
-    ? true
+    ? false
     : isTruthy(reviewEnv.VITE_ENABLE_REVIEW_GUEST);
 }
 

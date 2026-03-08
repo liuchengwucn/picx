@@ -86,6 +86,9 @@ Edit `.dev.vars` and configure the following:
 - `GITHUB_CLIENT_ID`: Your GitHub OAuth app client ID
 - `GITHUB_CLIENT_SECRET`: Your GitHub OAuth app client secret
 
+**Optional for review guest mode:**
+- `VITE_ENABLE_REVIEW_GUEST`: Set to `true` only when you explicitly want guest review mode in local development. Defaults to disabled.
+
 **Required for AI features:**
 - `OPENAI_API_KEY`: Your OpenAI API key (for paper summarization)
 - `OPENAI_BASE_URL`: OpenAI API endpoint (default: `https://api.openai.com/v1`)

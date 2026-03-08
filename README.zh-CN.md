@@ -86,6 +86,9 @@ cp .dev.vars.example .dev.vars
 - `GITHUB_CLIENT_ID`：你的 GitHub OAuth 应用客户端 ID
 - `GITHUB_CLIENT_SECRET`：你的 GitHub OAuth 应用客户端密钥
 
+**试用访客模式（可选）：**
+- `VITE_ENABLE_REVIEW_GUEST`：仅当你明确希望在本地开发时启用试用访客模式时设置为 `true`。默认关闭。
+
 **AI 功能必需：**
 - `OPENAI_API_KEY`：你的 OpenAI API 密钥（用于论文总结）
 - `OPENAI_BASE_URL`：OpenAI API 端点（默认：`https://api.openai.com/v1`）

@@ -24,6 +24,10 @@ BETTER_AUTH_URL=http://localhost:3000
 GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
 
+# ===== Review Guest (Optional) =====
+# Set to true only when you explicitly want guest review mode in local dev
+VITE_ENABLE_REVIEW_GUEST=false
+
 # ===== AI API Keys =====
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_BASE_URL=https://api.openai.com/v1
