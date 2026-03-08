@@ -3,6 +3,7 @@ import { count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { creditTransactions, user } from "#/db/schema";
 import { claimDailyBonusIfEligible } from "#/db/user-extensions";
+import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { protectedProcedure, router } from "../init";
 
 export const userRouter = router({
@@ -75,6 +76,13 @@ export const userRouter = router({
     }),
 
   claimDailyBonus: protectedProcedure.mutation(async ({ ctx }) => {
+    if (isReviewGuestReadOnlySession(ctx.session)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Review guest mode is read-only",
+      });
+    }
+
     return claimDailyBonusIfEligible(ctx.session.user.id, ctx.db);
   }),
 });

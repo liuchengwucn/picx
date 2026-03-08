@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { protectedProcedure, router } from "../init";
 
 export const uploadRouter = router({
@@ -19,6 +20,13 @@ export const uploadRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (isReviewGuestReadOnlySession(ctx.session)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Review guest mode is read-only",
+        });
+      }
+
       const timestamp = Date.now();
       const r2Key = `papers/${ctx.session.user.id}/${timestamp}-${input.filename}`;
 

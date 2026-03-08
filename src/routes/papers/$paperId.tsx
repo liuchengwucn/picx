@@ -14,7 +14,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -52,6 +52,8 @@ import {
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useRequireAuth } from "#/hooks/use-require-auth";
+import { authClient } from "#/lib/auth-client";
+import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 
@@ -99,6 +101,14 @@ function PaperDetailPage() {
   const [isDesktopViewport, setIsDesktopViewport] = useState(true);
 
   const { session, isSessionPending } = useRequireAuth("/papers");
+  const isReadOnlyGuest = isReviewGuestReadOnlySession(session);
+
+  const startGitHubSignIn = useCallback(() => {
+    void authClient.signIn.social({
+      provider: "github",
+      callbackURL: `/papers/${paperId}`,
+    });
+  }, [paperId]);
 
   const profile = useQuery(trpc.user.getProfile.queryOptions());
   usePaperSSE(profile.data?.id);
@@ -258,37 +268,49 @@ function PaperDetailPage() {
                     {m.paper_download_pdf()}
                   </a>
                 </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-[var(--sienna)]"
-                    >
-                      <Trash2 className="mr-1.5 h-4 w-4" />
-                      {m.paper_delete()}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        {m.paper_delete_confirm_title()}
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {m.paper_delete_confirm_description()}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{m.cancel()}</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => deleteMutation.mutate(paperId)}
-                        className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
+                {isReadOnlyGuest ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-[var(--sienna)]"
+                    onClick={startGitHubSignIn}
+                  >
+                    <Trash2 className="mr-1.5 h-4 w-4" />
+                    {m.paper_delete()}
+                  </Button>
+                ) : (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-[var(--sienna)]"
                       >
+                        <Trash2 className="mr-1.5 h-4 w-4" />
                         {m.paper_delete()}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          {m.paper_delete_confirm_title()}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {m.paper_delete_confirm_description()}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>{m.cancel()}</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => deleteMutation.mutate(paperId)}
+                          className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
+                        >
+                          {m.paper_delete()}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
               </div>
             </div>
 
@@ -382,6 +404,10 @@ function PaperDetailPage() {
                         onValueChange={(
                           value: "en" | "zh-cn" | "zh-tw" | "ja",
                         ) => {
+                          if (isReadOnlyGuest) {
+                            startGitHubSignIn();
+                            return;
+                          }
                           regenerateSummaryMutation.mutate({
                             paperId,
                             language: value,

@@ -2,6 +2,12 @@ import { useMutation } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
+import { authClient } from "#/lib/auth-client";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+  isReviewGuestReadOnlySession,
+} from "#/lib/review-guest";
 import {
   Dialog,
   DialogContent,
@@ -94,11 +100,27 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     "en" | "zh-cn" | "zh-tw" | "ja"
   >("en");
   const trpc = useTRPC();
+  const { data: session } = authClient.useSession();
+  const effectiveSession =
+    session ??
+    (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
+  const isReadOnlyGuest = isReviewGuestReadOnlySession(effectiveSession);
+
+  const startGitHubSignIn = useCallback(() => {
+    void authClient.signIn.social({
+      provider: "github",
+      callbackURL: "/papers",
+    });
+  }, []);
 
   const uploadFile = useMutation(trpc.upload.uploadFile.mutationOptions());
   const createPaper = useMutation(trpc.paper.create.mutationOptions());
 
   const handleFileUpload = useCallback(async () => {
+    if (isReadOnlyGuest) {
+      startGitHubSignIn();
+      return;
+    }
     if (!file) return;
     setUploading(true);
     try {
@@ -132,9 +154,22 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     } finally {
       setUploading(false);
     }
-  }, [file, uploadFile, createPaper, onSuccess]);
+  }, [
+    createPaper,
+    file,
+    isReadOnlyGuest,
+    onSuccess,
+    startGitHubSignIn,
+    summaryLanguage,
+    uploadFile,
+    whiteboardLanguage,
+  ]);
 
   const handleArxivSubmit = useCallback(async () => {
+    if (isReadOnlyGuest) {
+      startGitHubSignIn();
+      return;
+    }
     if (!arxivUrl) return;
     setUploading(true);
     try {
@@ -155,9 +190,25 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     } finally {
       setUploading(false);
     }
-  }, [arxivUrl, createPaper, onSuccess]);
+  }, [
+    arxivUrl,
+    createPaper,
+    isReadOnlyGuest,
+    onSuccess,
+    startGitHubSignIn,
+    summaryLanguage,
+    whiteboardLanguage,
+  ]);
 
   const insufficientCredits = credits < 1;
+
+  const handleDialogOpenChange = useCallback((nextOpen: boolean) => {
+    if (nextOpen && isReadOnlyGuest) {
+      startGitHubSignIn();
+      return;
+    }
+    setOpen(nextOpen);
+  }, [isReadOnlyGuest, startGitHubSignIn]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -168,7 +219,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   }, []);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogTrigger asChild>
         <Button className="bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white">
           <Upload className="mr-2 h-4 w-4" />
@@ -195,6 +246,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 
           <TabsContent value="file" className="mt-4">
             <div
+              role="presentation"
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
               className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--neutral-mid)] p-8 transition-colors hover:border-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/5"

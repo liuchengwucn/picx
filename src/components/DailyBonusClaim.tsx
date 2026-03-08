@@ -2,12 +2,21 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { authClient } from "#/lib/auth-client";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+  isReviewGuestReadOnlySession,
+} from "#/lib/review-guest";
 import { useTRPC } from "#/integrations/trpc/react";
 import { getBeijingDateString } from "#/lib/beijing-date";
 import { m } from "#/paraglide/messages";
 
 export default function DailyBonusClaim() {
   const { data: session } = authClient.useSession();
+  const effectiveSession =
+    session ??
+    (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
+  const isReadOnlyGuest = isReviewGuestReadOnlySession(effectiveSession);
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const lastAttemptKeyRef = useRef<string | null>(null);
@@ -37,7 +46,10 @@ export default function DailyBonusClaim() {
   );
 
   const maybeClaimDailyBonus = useCallback(() => {
-    const userId = session?.user?.id;
+    const userId = effectiveSession?.user?.id;
+    if (isReadOnlyGuest) {
+      return;
+    }
     if (!userId || claimDailyBonus.isPending) {
       return;
     }
@@ -49,19 +61,19 @@ export default function DailyBonusClaim() {
 
     lastAttemptKeyRef.current = attemptKey;
     claimDailyBonus.mutate();
-  }, [claimDailyBonus, session?.user?.id]);
+  }, [claimDailyBonus, effectiveSession?.user?.id, isReadOnlyGuest]);
 
   useEffect(() => {
-    if (!session?.user?.id) {
+    if (!effectiveSession?.user?.id || isReadOnlyGuest) {
       lastAttemptKeyRef.current = null;
       return;
     }
 
     maybeClaimDailyBonus();
-  }, [maybeClaimDailyBonus, session?.user?.id]);
+  }, [effectiveSession?.user?.id, isReadOnlyGuest, maybeClaimDailyBonus]);
 
   useEffect(() => {
-    if (!session?.user?.id) {
+    if (!effectiveSession?.user?.id || isReadOnlyGuest) {
       return;
     }
 
@@ -82,7 +94,7 @@ export default function DailyBonusClaim() {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [maybeClaimDailyBonus, session?.user?.id]);
+  }, [effectiveSession?.user?.id, isReadOnlyGuest, maybeClaimDailyBonus]);
 
   return null;
 }

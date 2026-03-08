@@ -4,7 +4,17 @@ import { z } from "zod";
 import { creditTransactions, paperResults, papers, user } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
+import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { protectedProcedure, router } from "../init";
+
+function assertGuestWriteAllowed(session: { user: { id: string } }) {
+  if (isReviewGuestReadOnlySession(session)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Review guest mode is read-only",
+    });
+  }
+}
 
 export const paperRouter = router({
   /**
@@ -28,6 +38,7 @@ export const paperRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
       let paper: typeof papers.$inferSelect;
 
       // D1 不支持事务，所以直接执行操作
@@ -244,6 +255,7 @@ export const paperRouter = router({
   delete: protectedProcedure
     .input(z.string().uuid())
     .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
       const result = await ctx.db
         .update(papers)
         .set({ deletedAt: new Date() })
@@ -275,6 +287,7 @@ export const paperRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
       const userId = ctx.session.user.id;
 
       // Step 1: Check if paper exists and belongs to user
