@@ -30,7 +30,7 @@ import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 import styles from "./styles.module.css";
 
-export const Route = createFileRoute("/settings/api-configs/")({
+export const Route = createFileRoute("/api-configs/")({
   component: ApiConfigsPage,
 });
 
@@ -57,7 +57,7 @@ function ApiConfigsPage() {
   const [editingConfigId, setEditingConfigId] = useState<string | undefined>();
   const trpc = useTRPC();
 
-  const { session, isSessionPending } = useRequireAuth("/settings/api-configs");
+  const { session, isSessionPending } = useRequireAuth("/api-configs");
 
   const configsQuery = useQuery(trpc.apiConfig.list.queryOptions());
 

@@ -164,7 +164,7 @@ input: {
 
 ## UI 设计
 
-### 1. 设置页面（/settings/api-configs）
+### 1. 设置页面（/api-configs）
 
 **功能：**
 - 显示用户的所有 API 配置列表
