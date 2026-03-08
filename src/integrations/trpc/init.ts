@@ -5,6 +5,10 @@ import { drizzle } from "drizzle-orm/d1";
 import superjson from "superjson";
 import * as schema from "#/db/schema";
 import { auth } from "#/lib/auth";
+import {
+  getReviewGuestServerSession,
+  isReviewGuestModeEnabled,
+} from "#/lib/review-guest";
 
 export interface PaperQueueMessage {
   paperId: string;
@@ -12,8 +16,8 @@ export interface PaperQueueMessage {
   sourceType: "upload" | "arxiv";
   arxivUrl?: string;
   r2Key: string;
-  language?: "en" | "zh-cn" | "zh-tw" | "ja"; // 用户偏好的语言
-  whiteboardLanguage?: "en" | "zh-cn" | "zh-tw" | "ja"; // 白板图语言
+  language?: "en" | "zh-cn" | "zh-tw" | "ja";
+  whiteboardLanguage?: "en" | "zh-cn" | "zh-tw" | "ja";
 }
 
 interface AppEnvBindings {
@@ -49,15 +53,20 @@ export const router = t.router;
 export const publicProcedure = t.procedure;
 export const createTRPCRouter = t.router;
 
-// Authentication middleware
 const isAuthed = t.middleware(async ({ ctx, next }) => {
-  const session = await ctx.auth.api.getSession({ headers: ctx.headers });
+  const session =
+    (await ctx.auth.api.getSession({ headers: ctx.headers })) ??
+    (isReviewGuestModeEnabled()
+      ? await getReviewGuestServerSession(ctx.db)
+      : null);
+
   if (!session) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message: "You must be logged in to access this resource",
     });
   }
+
   return next({
     ctx: {
       ...ctx,
@@ -66,5 +75,4 @@ const isAuthed = t.middleware(async ({ ctx, next }) => {
   });
 });
 
-// Protected procedure with authentication
 export const protectedProcedure = t.procedure.use(isAuthed);

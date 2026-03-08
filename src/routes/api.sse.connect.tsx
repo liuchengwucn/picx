@@ -2,30 +2,34 @@ import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
 import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
+import * as schema from "#/db/schema";
 import { papers } from "#/db/schema";
 import { auth } from "#/lib/auth";
+import {
+  getReviewGuestServerSession,
+  isReviewGuestModeEnabled,
+} from "#/lib/review-guest";
 
 const POLL_INTERVAL_MS = 3000;
 
 async function handler({ request }: { request: Request }) {
-  const session = await auth.api.getSession({ headers: request.headers });
+  const db = drizzle((env as typeof env & { DB: D1Database }).DB, { schema });
+  const session =
+    (await auth.api.getSession({ headers: request.headers })) ??
+    (isReviewGuestModeEnabled() ? await getReviewGuestServerSession(db) : null);
+
   if (!session) {
     return new Response("Unauthorized", { status: 401 });
   }
 
   const userId = session.user.id;
-  const db = drizzle((env as typeof env & { DB: D1Database }).DB);
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
 
-  // Send initial connected message
   writer.write(encoder.encode('data: {"type":"connected"}\n\n'));
 
-  // Track known statuses to detect changes
   const knownStatuses = new Map<string, string>();
-
-  // Poll for status changes in background
   const abortController = new AbortController();
   (async () => {
     try {
@@ -33,7 +37,6 @@ async function handler({ request }: { request: Request }) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
         if (abortController.signal.aborted) break;
 
-        // Query active papers (non-terminal statuses)
         const activePapers = await db
           .select({ id: papers.id, status: papers.status })
           .from(papers)
@@ -48,7 +51,6 @@ async function handler({ request }: { request: Request }) {
             ),
           );
 
-        // Also check recently completed/failed ones we were tracking
         const trackingIds = [...knownStatuses.keys()];
         let trackedPapers: { id: string; status: string }[] = [];
         if (trackingIds.length > 0) {
@@ -59,19 +61,17 @@ async function handler({ request }: { request: Request }) {
         }
 
         const allPapers = new Map<string, string>();
-        for (const p of [...activePapers, ...trackedPapers]) {
-          allPapers.set(p.id, p.status);
+        for (const paper of [...activePapers, ...trackedPapers]) {
+          allPapers.set(paper.id, paper.status);
         }
 
         for (const [paperId, status] of allPapers) {
           const known = knownStatuses.get(paperId);
           if (known !== status) {
             knownStatuses.set(paperId, status);
-            // Only send if we had a previous known status (skip first discovery)
-            // OR if it's from activePapers (always notify active ones on first seen)
             if (
               known !== undefined ||
-              activePapers.some((p) => p.id === paperId)
+              activePapers.some((paper) => paper.id === paperId)
             ) {
               const progress =
                 status === "processing_text"
@@ -85,12 +85,11 @@ async function handler({ request }: { request: Request }) {
               try {
                 await writer.write(encoder.encode(msg));
               } catch {
-                return; // Connection closed
+                return;
               }
             }
           }
 
-          // Stop tracking terminal statuses
           if (status === "completed" || status === "failed") {
             knownStatuses.delete(paperId);
           }
@@ -101,7 +100,6 @@ async function handler({ request }: { request: Request }) {
     }
   })();
 
-  // Clean up when the request is aborted (client disconnects)
   request.signal.addEventListener("abort", () => {
     abortController.abort();
     writer.close().catch(() => {});

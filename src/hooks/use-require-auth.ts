@@ -1,5 +1,9 @@
 import { useEffect } from "react";
 import { authClient } from "#/lib/auth-client";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+} from "#/lib/review-guest";
 
 /**
  * Redirect to GitHub login if user is not authenticated
@@ -9,14 +13,22 @@ export function useRequireAuth(callbackURL = "/papers") {
   const { data: session, isPending: isSessionPending } =
     authClient.useSession();
 
+  const guestSession =
+    !session && isReviewGuestModeEnabled()
+      ? getReviewGuestClientSession()
+      : null;
+
   useEffect(() => {
-    if (!isSessionPending && !session) {
+    if (!isSessionPending && !session && !guestSession) {
       void authClient.signIn.social({
         provider: "github",
         callbackURL,
       });
     }
-  }, [session, isSessionPending, callbackURL]);
+  }, [session, isSessionPending, guestSession, callbackURL]);
 
-  return { session, isSessionPending };
+  return {
+    session: session ?? guestSession,
+    isSessionPending,
+  };
 }
