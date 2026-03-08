@@ -5,7 +5,7 @@ import type * as schema from "./schema";
 import { creditTransactions, user } from "./schema";
 
 export const INITIAL_CREDITS = 10;
-export const DAILY_BONUS_CREDITS = 1;
+export const DAILY_BONUS_CREDITS = 3;
 export const MAX_CREDITS = 20;
 
 export type DailyBonusClaimResult = {
