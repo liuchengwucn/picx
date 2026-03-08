@@ -56,6 +56,8 @@ import { authClient } from "#/lib/auth-client";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
+import { ShareBanner } from "#/components/papers/share-banner";
+import { PublicBadge } from "#/components/papers/public-badge";
 
 export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
@@ -195,6 +197,17 @@ function PaperDetailPage() {
           </span>
         </nav>
 
+        {/* Share Banner - only show to owner */}
+        {paper.userId === profile.data?.id && (
+          <ShareBanner
+            paperId={paper.id}
+            isPublic={paper.isPublic}
+            canShare={
+              paper.status === "completed" && !!result?.whiteboardImageR2Key
+            }
+          />
+        )}
+
         <div className="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">
           <aside className="space-y-4 lg:sticky lg:top-24">
             <div className="paper-card p-6">
@@ -228,6 +241,12 @@ function PaperDetailPage() {
                   </p>
                 )}
               </div>
+
+              {paper.isPublic && (
+                <div className="mt-2">
+                  <PublicBadge />
+                </div>
+              )}
 
               <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-4 text-sm">
                 <div className="flex justify-between gap-4">
