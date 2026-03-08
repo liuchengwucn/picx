@@ -104,19 +104,27 @@ export function ConfigDialog({
     },
   });
 
-  // Load config data when editing
+  // Load config data when editing, or reset to defaults when creating
   useEffect(() => {
-    if (configQuery.data) {
-      form.setFieldValue("name", configQuery.data.name);
-      form.setFieldValue("openaiApiKey", configQuery.data.openaiApiKey);
-      form.setFieldValue("openaiBaseUrl", configQuery.data.openaiBaseUrl);
-      form.setFieldValue("openaiModel", configQuery.data.openaiModel);
-      form.setFieldValue("geminiApiKey", configQuery.data.geminiApiKey);
-      form.setFieldValue("geminiBaseUrl", configQuery.data.geminiBaseUrl);
-      form.setFieldValue("geminiModel", configQuery.data.geminiModel);
-      form.setFieldValue("isDefault", configQuery.data.isDefault);
+    if (open) {
+      if (configQuery.data) {
+        // Editing: load saved config
+        form.setFieldValue("name", configQuery.data.name);
+        form.setFieldValue("openaiApiKey", configQuery.data.openaiApiKey);
+        form.setFieldValue("openaiBaseUrl", configQuery.data.openaiBaseUrl);
+        form.setFieldValue("openaiModel", configQuery.data.openaiModel);
+        form.setFieldValue("geminiApiKey", configQuery.data.geminiApiKey);
+        form.setFieldValue("geminiBaseUrl", configQuery.data.geminiBaseUrl);
+        form.setFieldValue("geminiModel", configQuery.data.geminiModel);
+        form.setFieldValue("isDefault", configQuery.data.isDefault);
+      } else if (!configId) {
+        // Creating: reset to defaults
+        form.reset();
+      }
+      // Clear test status when dialog opens
+      setTestStatus({});
     }
-  }, [configQuery.data, form]);
+  }, [open, configQuery.data, configId, form]);
 
   const handleTest = async () => {
     const values = form.state.values;
