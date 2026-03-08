@@ -106,7 +106,7 @@ function PaperDetailPage() {
   const startGitHubSignIn = useCallback(() => {
     void authClient.signIn.social({
       provider: "github",
-      callbackURL: `/papers/${paperId}`,
+      callbackURL: "/",
     });
   }, [paperId]);
 
