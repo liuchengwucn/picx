@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
+  AlertCircle,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -13,7 +14,6 @@ import {
   Maximize2,
   Trash2,
   XCircle,
-  AlertCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -56,7 +56,10 @@ import {
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
-import { authClient, startGitHubSignIn as beginGitHubSignIn } from "#/lib/auth-client";
+import {
+  authClient,
+  startGitHubSignIn as beginGitHubSignIn,
+} from "#/lib/auth-client";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
 
@@ -104,7 +107,8 @@ function PaperDetailPage() {
   const [isDesktopViewport, setIsDesktopViewport] = useState(true);
 
   // Use optional auth - allow viewing public papers without login
-  const { data: session, isPending: isSessionPending } = authClient.useSession();
+  const { data: session, isPending: isSessionPending } =
+    authClient.useSession();
   const isReadOnlyGuest = isReviewGuestReadOnlySession(session);
 
   const startGitHubSignIn = useCallback(() => {
@@ -179,13 +183,14 @@ function PaperDetailPage() {
 
   // Handle errors
   if (error) {
-    const isForbidden = error.message?.includes("permission") || error.message?.includes("FORBIDDEN");
-    const isNotFound = error.message?.includes("not found") || error.message?.includes("NOT_FOUND");
+    const isForbidden =
+      error.message?.includes("permission") ||
+      error.message?.includes("FORBIDDEN");
+    const isNotFound =
+      error.message?.includes("not found") ||
+      error.message?.includes("NOT_FOUND");
 
-    return <PaperErrorPage
-      isNotFound={isNotFound}
-      isForbidden={isForbidden}
-    />;
+    return <PaperErrorPage isNotFound={isNotFound} isForbidden={isForbidden} />;
   }
 
   if (!data) return null;
@@ -304,53 +309,50 @@ function PaperDetailPage() {
                   </a>
                 </Button>
                 {/* Only show delete button to paper owner */}
-                {paper.userId === profile.data?.id && (
-                  <>
-                    {isReadOnlyGuest ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-[var(--sienna)]"
-                        onClick={startGitHubSignIn}
-                      >
-                        <Trash2 className="mr-1.5 h-4 w-4" />
-                        {m.paper_delete()}
-                      </Button>
-                    ) : (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-[var(--sienna)]"
+                {paper.userId === profile.data?.id &&
+                  (isReadOnlyGuest ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-[var(--sienna)]"
+                      onClick={startGitHubSignIn}
+                    >
+                      <Trash2 className="mr-1.5 h-4 w-4" />
+                      {m.paper_delete()}
+                    </Button>
+                  ) : (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-[var(--sienna)]"
+                        >
+                          <Trash2 className="mr-1.5 h-4 w-4" />
+                          {m.paper_delete()}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {m.paper_delete_confirm_title()}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {m.paper_delete_confirm_description()}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>{m.cancel()}</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => deleteMutation.mutate(paperId)}
+                            className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
                           >
-                            <Trash2 className="mr-1.5 h-4 w-4" />
                             {m.paper_delete()}
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              {m.paper_delete_confirm_title()}
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {m.paper_delete_confirm_description()}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>{m.cancel()}</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => deleteMutation.mutate(paperId)}
-                              className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
-                            >
-                              {m.paper_delete()}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                  </>
-                )}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  ))}
               </div>
             </div>
 
@@ -629,7 +631,13 @@ function DetailSkeleton() {
   );
 }
 
-function PaperErrorPage({ isNotFound, isForbidden }: { isNotFound: boolean; isForbidden: boolean }) {
+function PaperErrorPage({
+  isNotFound,
+  isForbidden,
+}: {
+  isNotFound: boolean;
+  isForbidden: boolean;
+}) {
   const title = isNotFound
     ? m.paper_not_found_title()
     : isForbidden
@@ -653,9 +661,7 @@ function PaperErrorPage({ isNotFound, isForbidden }: { isNotFound: boolean; isFo
         <h2 className="mb-3 font-serif text-2xl font-bold text-[var(--ink)]">
           {title}
         </h2>
-        <p className="mb-6 text-base text-[var(--ink-soft)]">
-          {description}
-        </p>
+        <p className="mb-6 text-base text-[var(--ink-soft)]">{description}</p>
         <Link
           to="/papers"
           className="inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold !text-white shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)] no-underline"

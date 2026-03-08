@@ -181,6 +181,6 @@ export async function decrypt(
  * @returns Masked API key as "***"
  * @example maskApiKey("sk-proj-abc123xyz789") => "***"
  */
-export function maskApiKey(apiKey: string): string {
+export function maskApiKey(_apiKey: string): string {
   return "***";
 }

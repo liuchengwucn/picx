@@ -96,7 +96,9 @@ export function ConfigDialog({
         onSuccess?.();
       } catch {
         toast.error(
-          configId ? m.api_config_update_failed() : m.api_config_create_failed(),
+          configId
+            ? m.api_config_update_failed()
+            : m.api_config_create_failed(),
         );
       }
     },

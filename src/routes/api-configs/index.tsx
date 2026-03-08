@@ -35,6 +35,12 @@ export const Route = createFileRoute("/api-configs/")({
   component: ApiConfigsPage,
 });
 
+const configSkeletonKeys = [
+  "config-skeleton-1",
+  "config-skeleton-2",
+  "config-skeleton-3",
+];
+
 type ApiConfig = {
   id: string;
   name: string;
@@ -117,8 +123,8 @@ function ApiConfigsPage() {
         <div className="stagger-in">
           <div className="h-8 w-32 bg-neutral-100 dark:bg-neutral-800 animate-pulse mb-6" />
           <div className="space-y-4">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <ConfigCardSkeleton key={i} />
+            {configSkeletonKeys.map((skeletonKey) => (
+              <ConfigCardSkeleton key={skeletonKey} />
             ))}
           </div>
         </div>
@@ -159,8 +165,8 @@ function ApiConfigsPage() {
         {/* Config List */}
         <div className="mt-6 space-y-4">
           {configsQuery.isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <ConfigCardSkeleton key={i} />
+            configSkeletonKeys.map((skeletonKey) => (
+              <ConfigCardSkeleton key={skeletonKey} />
             ))
           ) : configsQuery.data?.length === 0 ? (
             <EmptyState />

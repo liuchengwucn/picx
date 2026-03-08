@@ -105,10 +105,7 @@ export function PaperCard({ paper }: { paper: Paper }) {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {paper.isPublic && <PublicBadge />}
-          <Badge
-            variant="outline"
-            className={`gap-1 ${config.className}`}
-          >
+          <Badge variant="outline" className={`gap-1 ${config.className}`}>
             <StatusIcon
               className={`h-3 w-3 ${isProcessing ? "animate-spin" : ""}`}
             />

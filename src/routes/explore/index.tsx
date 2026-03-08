@@ -11,6 +11,21 @@ export const Route = createFileRoute("/explore/")({
   component: ExplorePage,
 });
 
+const gallerySkeletonKeys = [
+  "gallery-skeleton-1",
+  "gallery-skeleton-2",
+  "gallery-skeleton-3",
+  "gallery-skeleton-4",
+  "gallery-skeleton-5",
+  "gallery-skeleton-6",
+  "gallery-skeleton-7",
+  "gallery-skeleton-8",
+  "gallery-skeleton-9",
+  "gallery-skeleton-10",
+  "gallery-skeleton-11",
+  "gallery-skeleton-12",
+];
+
 function ExplorePage() {
   const [page, setPage] = useState(1);
   const trpc = useTRPC();
@@ -40,8 +55,8 @@ function ExplorePage() {
         {/* Gallery Grid */}
         {galleryQuery.isLoading ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <GalleryCardSkeleton key={i} />
+            {gallerySkeletonKeys.map((skeletonKey) => (
+              <GalleryCardSkeleton key={skeletonKey} />
             ))}
           </div>
         ) : galleryQuery.data?.papers.length === 0 ? (
@@ -196,7 +211,9 @@ function getTimeAgo(date: Date | null): string {
   if (diffDays === 0) return m.time_today();
   if (diffDays === 1) return m.time_days_ago({ days: "1" });
   if (diffDays < 7) return m.time_days_ago({ days: diffDays.toString() });
-  if (diffDays < 30) return m.time_weeks_ago({ weeks: Math.floor(diffDays / 7).toString() });
-  if (diffDays < 365) return m.time_months_ago({ months: Math.floor(diffDays / 30).toString() });
+  if (diffDays < 30)
+    return m.time_weeks_ago({ weeks: Math.floor(diffDays / 7).toString() });
+  if (diffDays < 365)
+    return m.time_months_ago({ months: Math.floor(diffDays / 30).toString() });
   return m.time_years_ago({ years: Math.floor(diffDays / 365).toString() });
 }

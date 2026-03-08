@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -166,6 +166,7 @@ function ApiConfigSelector({
 }
 
 export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
+  const fileInputId = useId();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [arxivUrl, setArxivUrl] = useState("");
@@ -180,6 +181,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [selectedApiConfigId, setSelectedApiConfigId] = useState<
     string | undefined
   >(undefined);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const trpc = useTRPC();
   const { data: session } = authClient.useSession();
   const effectiveSession =
@@ -311,6 +313,10 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     }
   }, []);
 
+  const openFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogTrigger asChild>
@@ -338,8 +344,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
           </TabsList>
 
           <TabsContent value="file" className="mt-4">
-            <div
-              role="presentation"
+            <label
+              htmlFor={fileInputId}
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
               className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--neutral-mid)] p-8 transition-colors hover:border-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/5"
@@ -354,7 +360,12 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setFile(null)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setFile(null);
+                      openFilePicker();
+                    }}
                     className="mt-2"
                   >
                     {m.upload_change_file()}
@@ -366,21 +377,23 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                   <p className="mt-3 text-sm text-[var(--ink-soft)]">
                     {m.upload_drag_hint()}
                   </p>
-                  <label className="mt-2 cursor-pointer text-sm font-medium text-[var(--academic-brown)] hover:underline">
+                  <span className="mt-2 cursor-pointer text-sm font-medium text-[var(--academic-brown)] hover:underline">
                     {m.upload_select_file()}
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      className="hidden"
-                      onChange={(e) => setFile(e.target.files?.[0] || null)}
-                    />
-                  </label>
+                  </span>
+                  <input
+                    ref={fileInputRef}
+                    id={fileInputId}
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  />
                   <p className="mt-1 text-xs text-[var(--neutral-mid)]">
                     {m.upload_file_size_limit()}
                   </p>
                 </>
               )}
-            </div>
+            </label>
             <div className="mt-4">
               <LanguageSelectors
                 summaryLanguage={summaryLanguage}

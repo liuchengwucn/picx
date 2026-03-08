@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   EmptyState,
   PaperCard,
@@ -26,6 +26,14 @@ type StatusFilter =
 export const Route = createFileRoute("/papers/")({
   component: PapersPage,
 });
+
+const paperSkeletonKeys = [
+  "paper-skeleton-1",
+  "paper-skeleton-2",
+  "paper-skeleton-3",
+  "paper-skeleton-4",
+  "paper-skeleton-5",
+];
 
 function PapersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -54,8 +62,8 @@ function PapersPage() {
         <div className="stagger-in">
           <div className="h-8 w-32 bg-neutral-100 dark:bg-neutral-800 animate-pulse mb-6" />
           <div className="space-y-3">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <PaperCardSkeleton key={i} />
+            {paperSkeletonKeys.map((skeletonKey) => (
+              <PaperCardSkeleton key={skeletonKey} />
             ))}
           </div>
         </div>
@@ -106,8 +114,8 @@ function PapersPage() {
         {/* Paper list */}
         <div className="mt-6 space-y-3">
           {papersQuery.isLoading ? (
-            Array.from({ length: 5 }).map((_, i) => (
-              <PaperCardSkeleton key={i} />
+            paperSkeletonKeys.map((skeletonKey) => (
+              <PaperCardSkeleton key={skeletonKey} />
             ))
           ) : papersQuery.data?.papers.length === 0 ? (
             <EmptyState />

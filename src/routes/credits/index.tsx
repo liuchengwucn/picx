@@ -8,7 +8,7 @@ import {
   Coins,
   Gift,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import {
@@ -26,6 +26,14 @@ import { m } from "#/paraglide/messages";
 export const Route = createFileRoute("/credits/")({
   component: CreditsPage,
 });
+
+const creditHistorySkeletonKeys = [
+  "credit-history-skeleton-1",
+  "credit-history-skeleton-2",
+  "credit-history-skeleton-3",
+  "credit-history-skeleton-4",
+  "credit-history-skeleton-5",
+];
 
 const typeIcons: Record<string, React.ElementType> = {
   initial: Gift,
@@ -116,8 +124,8 @@ function CreditsPage() {
             </TableHeader>
             <TableBody>
               {history.isLoading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}>
+                creditHistorySkeletonKeys.map((skeletonKey) => (
+                  <TableRow key={skeletonKey}>
                     <TableCell>
                       <Skeleton className="h-4 w-24" />
                     </TableCell>

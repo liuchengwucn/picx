@@ -5,10 +5,12 @@
 
 import { locales, localStorageKey } from "#/paraglide/runtime";
 
+type AppLocale = (typeof locales)[number];
+
 /**
  * Map browser language codes to our supported locales
  */
-const LANGUAGE_MAP: Record<string, string> = {
+const LANGUAGE_MAP: Record<string, AppLocale> = {
   zh: "zh-CN",
   "zh-cn": "zh-CN",
   "zh-hans": "zh-CN",
@@ -50,7 +52,7 @@ export function initLocale() {
 
     // Try exact match first
     const mapped = LANGUAGE_MAP[normalizedLang];
-    if (mapped && locales.includes(mapped as any)) {
+    if (mapped && locales.includes(mapped)) {
       localStorage.setItem(localStorageKey, mapped);
       return;
     }
@@ -58,7 +60,7 @@ export function initLocale() {
     // Try base language (e.g., "zh" from "zh-TW")
     const baseLang = normalizedLang.split("-")[0];
     const baseMapped = LANGUAGE_MAP[baseLang];
-    if (baseMapped && locales.includes(baseMapped as any)) {
+    if (baseMapped && locales.includes(baseMapped)) {
       localStorage.setItem(localStorageKey, baseMapped);
       return;
     }

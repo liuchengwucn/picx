@@ -11,8 +11,8 @@ import DailyBonusClaim from "#/components/DailyBonusClaim";
 import { Toaster } from "#/components/ui/sonner";
 import type { TRPCRouter } from "#/integrations/trpc/router";
 import { initLocale } from "#/lib/locale-init";
-import { getLocale } from "#/paraglide/runtime";
 import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
 import Footer from "../components/Footer";
 import Header from "../components/Header";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
@@ -87,7 +87,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang={getLocale()} suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script suppressHydrationWarning>{THEME_INIT_SCRIPT}</script>
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
