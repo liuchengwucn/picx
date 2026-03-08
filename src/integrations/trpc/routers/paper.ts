@@ -400,4 +400,73 @@ export const paperRouter = router({
         cached: false,
       };
     }),
+
+  /**
+   * Toggle paper public status
+   * Only owner can toggle, and paper must be completed with whiteboard
+   */
+  togglePublic: protectedProcedure
+    .input(z.object({ paperId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
+      const userId = ctx.session.user.id;
+
+      // Check if paper exists and belongs to user
+      const [paper] = await ctx.db
+        .select()
+        .from(papers)
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.userId, userId),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      // Check if paper is completed
+      if (paper.status !== "completed") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Paper must be completed before sharing",
+        });
+      }
+
+      // Check if whiteboard image exists
+      const [result] = await ctx.db
+        .select()
+        .from(paperResults)
+        .where(eq(paperResults.paperId, input.paperId))
+        .limit(1);
+
+      if (!result?.whiteboardImageR2Key) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Paper must have whiteboard image before sharing",
+        });
+      }
+
+      // Toggle public status
+      const newIsPublic = !paper.isPublic;
+      const [updatedPaper] = await ctx.db
+        .update(papers)
+        .set({
+          isPublic: newIsPublic,
+          publishedAt: newIsPublic ? new Date() : null,
+        })
+        .where(eq(papers.id, input.paperId))
+        .returning();
+
+      return {
+        success: true,
+        isPublic: updatedPaper.isPublic,
+      };
+    }),
 });
