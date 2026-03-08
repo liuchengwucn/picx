@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Coins, FileText, Globe } from "lucide-react";
+import { Coins, FileText, Globe, Key } from "lucide-react";
 import { m } from "#/paraglide/messages";
 import BetterAuthHeader from "../integrations/better-auth/header-user.tsx";
 import ParaglideLocaleSwitcher from "./LocaleSwitcher.tsx";
@@ -43,6 +43,14 @@ export default function Header() {
           >
             <Coins className="h-4 w-4" />
             <span className="hidden sm:inline">{m.nav_credits()}</span>
+          </Link>
+          <Link
+            to="/api-configs"
+            className="nav-link inline-flex items-center gap-1.5"
+            activeProps={{ className: "nav-link is-active" }}
+          >
+            <Key className="h-4 w-4" />
+            <span className="hidden sm:inline">{m.nav_api_configs()}</span>
           </Link>
         </div>
 

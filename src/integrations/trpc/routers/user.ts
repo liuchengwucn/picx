@@ -8,10 +8,10 @@ import { protectedProcedure, router } from "../init";
 
 export const userRouter = router({
   /**
-  * Get current user's profile information
-  * @returns User profile with id, email, name, and credits
-  * @throws UNAUTHORIZED if user is not logged in
-  */
+   * Get current user's profile information
+   * @returns User profile with id, email, name, and credits
+   * @throws UNAUTHORIZED if user is not logged in
+   */
   getProfile: protectedProcedure.query(async ({ ctx }) => {
     const [currentUser] = await ctx.db
       .select({
