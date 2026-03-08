@@ -29,10 +29,6 @@ function ExplorePage() {
       <div className="page-wrap">
         {/* Header */}
         <div className="rise-in mb-8 text-center">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-sm font-medium text-[var(--ink-soft)] shadow-[0_2px_8px_rgba(45,42,36,0.06)]">
-            <Globe className="h-4 w-4 text-[var(--academic-brown)]" />
-            <span>{m.explore_title()}</span>
-          </div>
           <h1 className="mb-3 font-serif text-4xl font-bold text-[var(--ink)] sm:text-5xl">
             {m.explore_title()}
           </h1>
