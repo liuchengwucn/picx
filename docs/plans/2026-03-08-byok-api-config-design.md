@@ -360,8 +360,8 @@ export function maskApiKey(apiKey: string): string {
 
 **OpenAI 默认配置：**
 - Base URL: `https://api.openai.com/v1`
-- Model: `gpt-4o`
+- Model: `gpt-4o-mini`
 
 **Gemini 默认配置：**
 - Base URL: `https://generativelanguage.googleapis.com/v1beta`
-- Model: `gemini-2.0-flash-exp`
+- Model: `gemini-3.1-flash-image-preview`

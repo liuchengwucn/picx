@@ -74,10 +74,10 @@ export function ConfigDialog({
       name: "",
       openaiApiKey: "",
       openaiBaseUrl: "https://api.openai.com/v1",
-      openaiModel: "gpt-4o",
+      openaiModel: "gpt-4o-mini",
       geminiApiKey: "",
       geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
-      geminiModel: "gemini-2.0-flash-exp",
+      geminiModel: "gemini-3.1-flash-image-preview",
       isDefault: false,
     },
     onSubmit: async ({ value }) => {
@@ -167,7 +167,7 @@ export function ConfigDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={`sm:max-w-[680px] rounded-3xl border-[var(--line)] bg-[var(--parchment)] ${styles.dialogContent}`}
+        className={`sm:max-w-[680px] max-h-[90vh] overflow-y-auto rounded-3xl border-[var(--line)] bg-[var(--parchment)] ${styles.dialogContent}`}
       >
         <DialogHeader>
           <DialogTitle className="font-serif text-2xl text-[var(--ink)] flex items-center gap-3">
@@ -282,7 +282,7 @@ export function ConfigDialog({
                     <Input
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder="gpt-4o"
+                      placeholder="gpt-4o-mini"
                       className="border-[var(--line)] font-mono text-sm"
                     />
                   </div>
@@ -368,7 +368,7 @@ export function ConfigDialog({
                     <Input
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder="gemini-2.0-flash-exp"
+                      placeholder="gemini-3.1-flash-image-preview"
                       className="border-[var(--line)] font-mono text-sm"
                     />
                   </div>
@@ -444,7 +444,7 @@ export function ConfigDialog({
             <Button
               type="submit"
               disabled={isLoading}
-              className="gap-2 bg-gradient-to-r from-[var(--academic-brown)] to-[var(--gold)] hover:from-[var(--academic-brown-deep)] hover:to-[var(--academic-brown)] text-white transition-all duration-300"
+              className="gap-2 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] transition-all duration-300"
             >
               {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
               {m.api_config_save()}

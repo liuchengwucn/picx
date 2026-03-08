@@ -143,7 +143,7 @@ function ApiConfigsPage() {
           <Button
             size="sm"
             onClick={handleCreate}
-            className="shrink-0 gap-2 bg-gradient-to-r from-[var(--academic-brown)] to-[var(--gold)] hover:from-[var(--academic-brown-deep)] hover:to-[var(--academic-brown)] transition-all duration-300"
+            className="shrink-0 gap-2 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] shadow-[0_4px_16px_rgba(139,111,71,0.24)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] transition-all duration-300"
           >
             <Plus className="h-4 w-4" />
             {m.api_config_create()}
