@@ -10,6 +10,7 @@ import {
 import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import { m } from "#/paraglide/messages";
+import { PublicBadge } from "./public-badge";
 
 type PaperStatus =
   | "pending"
@@ -26,6 +27,7 @@ interface Paper {
   fileSize: number;
   pageCount: number | null;
   createdAt: Date;
+  isPublic?: boolean;
 }
 
 const statusConfig: Record<
@@ -101,15 +103,18 @@ export function PaperCard({ paper }: { paper: Paper }) {
             <span>· {(paper.fileSize / 1024 / 1024).toFixed(1)} MB</span>
           </div>
         </div>
-        <Badge
-          variant="outline"
-          className={`shrink-0 gap-1 ${config.className}`}
-        >
-          <StatusIcon
-            className={`h-3 w-3 ${isProcessing ? "animate-spin" : ""}`}
-          />
-          {config.label()}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          {paper.isPublic && <PublicBadge />}
+          <Badge
+            variant="outline"
+            className={`gap-1 ${config.className}`}
+          >
+            <StatusIcon
+              className={`h-3 w-3 ${isProcessing ? "animate-spin" : ""}`}
+            />
+            {config.label()}
+          </Badge>
+        </div>
       </div>
     </Link>
   );
