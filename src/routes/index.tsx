@@ -2,9 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowRight,
-  Coins,
   FileText,
   Github,
+  Heart,
   Network,
   Sparkles,
   Upload,
@@ -75,6 +75,13 @@ function HomePage() {
               {m.home_cta_start()}
               <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
             </Link>
+
+            <p
+              className="rise-in mt-4 text-sm text-[var(--ink-soft)]"
+              style={{ animationDelay: "500ms" }}
+            >
+              {m.home_hero_trust_note()}
+            </p>
           </div>
         </div>
       </section>
@@ -181,7 +188,7 @@ function HomePage() {
                 delay: "160ms",
               },
               {
-                icon: Coins,
+                icon: Heart,
                 title: m.home_feature_credits_title(),
                 desc: m.home_feature_credits_desc(),
                 delay: "240ms",
@@ -237,13 +244,13 @@ function HomePage() {
         </div>
       </section>
 
-      {/* Credits Info Section */}
+      {/* Trust Section */}
       <section className="px-4 py-16 pb-24 sm:px-6">
         <div className="page-wrap">
           <div className="mx-auto max-w-2xl rounded-3xl border border-[var(--line)] bg-[var(--surface-strong)] p-8 shadow-[0_4px_24px_rgba(45,42,36,0.08)] sm:p-12">
             <div className="mb-6 flex items-center justify-center gap-3">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] shadow-[0_4px_16px_rgba(139,111,71,0.24)]">
-                <Coins className="h-8 w-8 text-white" />
+                <Heart className="h-8 w-8 text-white" />
               </div>
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--academic-brown)] shadow-[0_4px_16px_rgba(139,111,71,0.24)]">
                 <Github className="h-8 w-8 text-white" />
