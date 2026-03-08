@@ -19,7 +19,7 @@ English | [简体中文](README.zh-CN.md)
 - **PDF Processing**: Upload and process PDF documents with advanced parsing capabilities
 - **Intuitive Whiteboard**: Visualize and organize ideas with an intuitive whiteboard interface
 - **Authentication**: Secure user authentication powered by Better Auth
-- **Internationalization**: Full support for English and Simplified Chinese
+- **Internationalization**: Full support for English, Simplified Chinese, Traditional Chinese, and Japanese
 - **Modern UI**: Responsive design with Tailwind CSS and Shadcn components
 - **Real-time Updates**: Optimistic UI updates with TanStack Query
 - **Type-safe API**: End-to-end type safety with tRPC
