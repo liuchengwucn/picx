@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { authClient } from "#/lib/auth-client";
+import { authClient, startGitHubSignIn } from "#/lib/auth-client";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -20,10 +20,7 @@ export function useRequireAuth(callbackURL = "/papers") {
 
   useEffect(() => {
     if (!isSessionPending && !session && !guestSession) {
-      void authClient.signIn.social({
-        provider: "github",
-        callbackURL,
-      });
+      void startGitHubSignIn(callbackURL);
     }
   }, [session, isSessionPending, guestSession, callbackURL]);
 

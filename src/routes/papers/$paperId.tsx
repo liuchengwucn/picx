@@ -52,7 +52,7 @@ import {
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useRequireAuth } from "#/hooks/use-require-auth";
-import { authClient } from "#/lib/auth-client";
+import { startGitHubSignIn as beginGitHubSignIn } from "#/lib/auth-client";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
@@ -106,11 +106,8 @@ function PaperDetailPage() {
   const isReadOnlyGuest = isReviewGuestReadOnlySession(session);
 
   const startGitHubSignIn = useCallback(() => {
-    void authClient.signIn.social({
-      provider: "github",
-      callbackURL: "/",
-    });
-  }, [paperId]);
+    void beginGitHubSignIn("/");
+  }, []);
 
   const profile = useQuery(trpc.user.getProfile.queryOptions());
   usePaperSSE(profile.data?.id);

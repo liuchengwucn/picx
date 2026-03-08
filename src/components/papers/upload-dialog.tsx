@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
 import { useCallback, useState } from "react";
 import { Button } from "#/components/ui/button";
-import { authClient } from "#/lib/auth-client";
+import { authClient, startGitHubSignIn } from "#/lib/auth-client";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -106,19 +106,12 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
   const isReadOnlyGuest = isReviewGuestReadOnlySession(effectiveSession);
 
-  const startGitHubSignIn = useCallback(() => {
-    void authClient.signIn.social({
-      provider: "github",
-      callbackURL: "/",
-    });
-  }, []);
-
   const uploadFile = useMutation(trpc.upload.uploadFile.mutationOptions());
   const createPaper = useMutation(trpc.paper.create.mutationOptions());
 
   const handleFileUpload = useCallback(async () => {
     if (isReadOnlyGuest) {
-      startGitHubSignIn();
+      void startGitHubSignIn("/");
       return;
     }
     if (!file) return;
@@ -159,7 +152,6 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     file,
     isReadOnlyGuest,
     onSuccess,
-    startGitHubSignIn,
     summaryLanguage,
     uploadFile,
     whiteboardLanguage,
@@ -167,7 +159,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 
   const handleArxivSubmit = useCallback(async () => {
     if (isReadOnlyGuest) {
-      startGitHubSignIn();
+      void startGitHubSignIn("/");
       return;
     }
     if (!arxivUrl) return;
@@ -195,7 +187,6 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     createPaper,
     isReadOnlyGuest,
     onSuccess,
-    startGitHubSignIn,
     summaryLanguage,
     whiteboardLanguage,
   ]);
