@@ -189,5 +189,10 @@
   "upload_file_size_limit": "PDF 檔案，最大 50MB",
   "label_api_key": "API Key",
   "label_base_url": "Base URL",
-  "label_model": "Model"
+  "label_model": "Model",
+  "paper_not_found_title": "論文不存在",
+  "paper_not_found_description": "該論文不存在或已被刪除",
+  "paper_not_public_title": "論文未公開",
+  "paper_not_public_description": "該論文未公開分享，您無權訪問",
+  "paper_error_back": "返回論文列表"
 }

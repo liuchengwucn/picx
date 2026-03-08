@@ -4,7 +4,11 @@ import { z } from "zod";
 import { creditTransactions, paperResults, papers, user } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
-import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
+import {
+  getReviewGuestServerSession,
+  isReviewGuestModeEnabled,
+  isReviewGuestReadOnlySession,
+} from "#/lib/review-guest";
 import { protectedProcedure, publicProcedure, router } from "../init";
 
 function assertGuestWriteAllowed(session: { user: { id: string } }) {
@@ -205,10 +209,18 @@ export const paperRouter = router({
 
   /**
    * Get paper by ID with results
+   * Public endpoint - allows viewing public papers without auth
    */
-  getById: protectedProcedure
+  getById: publicProcedure
     .input(z.string().uuid())
     .query(async ({ ctx, input }) => {
+      // Try to get session (optional for public papers)
+      const session =
+        (await ctx.auth.api.getSession({ headers: ctx.headers })) ??
+        (isReviewGuestModeEnabled()
+          ? await getReviewGuestServerSession(ctx.db)
+          : null);
+
       const [paper] = await ctx.db
         .select()
         .from(papers)
@@ -223,7 +235,8 @@ export const paperRouter = router({
       }
 
       // Check permission: owner or public paper
-      if (paper.userId !== ctx.session.user.id && !paper.isPublic) {
+      const isOwner = session && paper.userId === session.user.id;
+      if (!isOwner && !paper.isPublic) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "You don't have permission to view this paper",

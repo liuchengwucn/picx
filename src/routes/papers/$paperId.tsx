@@ -13,6 +13,7 @@ import {
   Maximize2,
   Trash2,
   XCircle,
+  AlertCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -54,9 +55,8 @@ import {
 } from "#/components/ui/select";
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
-import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
-import { startGitHubSignIn as beginGitHubSignIn } from "#/lib/auth-client";
+import { authClient, startGitHubSignIn as beginGitHubSignIn } from "#/lib/auth-client";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
 
@@ -103,17 +103,21 @@ function PaperDetailPage() {
   const [isWhiteboardPreviewOpen, setIsWhiteboardPreviewOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(true);
 
-  const { session, isSessionPending } = useRequireAuth("/papers");
+  // Use optional auth - allow viewing public papers without login
+  const { data: session, isPending: isSessionPending } = authClient.useSession();
   const isReadOnlyGuest = isReviewGuestReadOnlySession(session);
 
   const startGitHubSignIn = useCallback(() => {
     void beginGitHubSignIn("/");
   }, []);
 
-  const profile = useQuery(trpc.user.getProfile.queryOptions());
+  const profile = useQuery({
+    ...trpc.user.getProfile.queryOptions(),
+    enabled: !!session,
+  });
   usePaperSSE(profile.data?.id);
 
-  const { data, isLoading } = useQuery(
+  const { data, isLoading, error } = useQuery(
     trpc.paper.getById.queryOptions(paperId),
   );
 
@@ -171,8 +175,19 @@ function PaperDetailPage() {
 
   // Show loading while checking session
   if (isSessionPending) return <DetailSkeleton />;
-  if (!session) return null;
   if (isLoading) return <DetailSkeleton />;
+
+  // Handle errors
+  if (error) {
+    const isForbidden = error.message?.includes("permission") || error.message?.includes("FORBIDDEN");
+    const isNotFound = error.message?.includes("not found") || error.message?.includes("NOT_FOUND");
+
+    return <PaperErrorPage
+      isNotFound={isNotFound}
+      isForbidden={isForbidden}
+    />;
+  }
+
   if (!data) return null;
 
   const { paper, result } = data;
@@ -288,48 +303,53 @@ function PaperDetailPage() {
                     {m.paper_download_pdf()}
                   </a>
                 </Button>
-                {isReadOnlyGuest ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-[var(--sienna)]"
-                    onClick={startGitHubSignIn}
-                  >
-                    <Trash2 className="mr-1.5 h-4 w-4" />
-                    {m.paper_delete()}
-                  </Button>
-                ) : (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
+                {/* Only show delete button to paper owner */}
+                {paper.userId === profile.data?.id && (
+                  <>
+                    {isReadOnlyGuest ? (
                       <Button
                         variant="outline"
                         size="sm"
                         className="text-[var(--sienna)]"
+                        onClick={startGitHubSignIn}
                       >
                         <Trash2 className="mr-1.5 h-4 w-4" />
                         {m.paper_delete()}
                       </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          {m.paper_delete_confirm_title()}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {m.paper_delete_confirm_description()}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>{m.cancel()}</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => deleteMutation.mutate(paperId)}
-                          className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
-                        >
-                          {m.paper_delete()}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                    ) : (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-[var(--sienna)]"
+                          >
+                            <Trash2 className="mr-1.5 h-4 w-4" />
+                            {m.paper_delete()}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              {m.paper_delete_confirm_title()}
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {m.paper_delete_confirm_description()}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>{m.cancel()}</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => deleteMutation.mutate(paperId)}
+                              className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
+                            >
+                              {m.paper_delete()}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -419,47 +439,50 @@ function PaperDetailPage() {
                           </>
                         )}
                       </Button>
-                      <Select
-                        value={result.summaryLanguage || "en"}
-                        onValueChange={(
-                          value: "en" | "zh-cn" | "zh-tw" | "ja",
-                        ) => {
-                          if (isReadOnlyGuest) {
-                            startGitHubSignIn();
-                            return;
-                          }
-                          regenerateSummaryMutation.mutate({
-                            paperId,
-                            language: value,
-                          });
-                        }}
-                        disabled={regenerateSummaryMutation.isPending}
-                      >
-                        <SelectTrigger className="w-[140px] h-9">
-                          <div className="flex items-center gap-1.5 w-full">
-                            {regenerateSummaryMutation.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                            ) : (
-                              <Languages className="h-4 w-4 shrink-0" />
-                            )}
-                            <SelectValue />
-                          </div>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="en">
-                            {m.upload_language_en()}
-                          </SelectItem>
-                          <SelectItem value="zh-cn">
-                            {m.upload_language_zh()}
-                          </SelectItem>
-                          <SelectItem value="zh-tw">
-                            {m.upload_language_zh_tw()}
-                          </SelectItem>
-                          <SelectItem value="ja">
-                            {m.upload_language_ja()}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                      {/* Only show language selector to paper owner */}
+                      {paper.userId === profile.data?.id && (
+                        <Select
+                          value={result.summaryLanguage || "en"}
+                          onValueChange={(
+                            value: "en" | "zh-cn" | "zh-tw" | "ja",
+                          ) => {
+                            if (isReadOnlyGuest) {
+                              startGitHubSignIn();
+                              return;
+                            }
+                            regenerateSummaryMutation.mutate({
+                              paperId,
+                              language: value,
+                            });
+                          }}
+                          disabled={regenerateSummaryMutation.isPending}
+                        >
+                          <SelectTrigger className="w-[140px] h-9">
+                            <div className="flex items-center gap-1.5 w-full">
+                              {regenerateSummaryMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                              ) : (
+                                <Languages className="h-4 w-4 shrink-0" />
+                              )}
+                              <SelectValue />
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="en">
+                              {m.upload_language_en()}
+                            </SelectItem>
+                            <SelectItem value="zh-cn">
+                              {m.upload_language_zh()}
+                            </SelectItem>
+                            <SelectItem value="zh-tw">
+                              {m.upload_language_zh_tw()}
+                            </SelectItem>
+                            <SelectItem value="ja">
+                              {m.upload_language_ja()}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   </div>
                   <AccordionContent>
@@ -601,6 +624,45 @@ function DetailSkeleton() {
       <div className="mt-6 grid gap-6 lg:grid-cols-[360px_1fr]">
         <Skeleton className="h-80 rounded-xl" />
         <Skeleton className="h-60 rounded-xl" />
+      </div>
+    </main>
+  );
+}
+
+function PaperErrorPage({ isNotFound, isForbidden }: { isNotFound: boolean; isForbidden: boolean }) {
+  const title = isNotFound
+    ? m.paper_not_found_title()
+    : isForbidden
+      ? m.paper_not_public_title()
+      : m.paper_not_found_title();
+
+  const description = isNotFound
+    ? m.paper_not_found_description()
+    : isForbidden
+      ? m.paper_not_public_description()
+      : m.paper_not_found_description();
+
+  return (
+    <main className="page-wrap py-8">
+      <div className="rise-in mx-auto max-w-md py-16 text-center">
+        <div className="mb-6 flex justify-center">
+          <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-[var(--sienna)]/10 shadow-[0_8px_24px_rgba(139,111,71,0.12)]">
+            <AlertCircle className="h-12 w-12 text-[var(--sienna)]" />
+          </div>
+        </div>
+        <h2 className="mb-3 font-serif text-2xl font-bold text-[var(--ink)]">
+          {title}
+        </h2>
+        <p className="mb-6 text-base text-[var(--ink-soft)]">
+          {description}
+        </p>
+        <Link
+          to="/papers"
+          className="inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold !text-white shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)] no-underline"
+        >
+          <FileText className="h-4 w-4" />
+          {m.paper_error_back()}
+        </Link>
       </div>
     </main>
   );

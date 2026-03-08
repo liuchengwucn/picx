@@ -189,5 +189,10 @@
   "upload_file_size_limit": "PDF, max 50MB",
   "label_api_key": "API Key",
   "label_base_url": "Base URL",
-  "label_model": "Model"
+  "label_model": "Model",
+  "paper_not_found_title": "Paper Not Found",
+  "paper_not_found_description": "This paper does not exist or has been deleted",
+  "paper_not_public_title": "Paper Not Public",
+  "paper_not_public_description": "This paper is not publicly shared and you don't have permission to access it",
+  "paper_error_back": "Back to Papers"
 }

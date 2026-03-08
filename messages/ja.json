@@ -191,5 +191,10 @@
   "upload_file_size_limit": "PDF、最大 50MB",
   "label_api_key": "API Key",
   "label_base_url": "Base URL",
-  "label_model": "Model"
+  "label_model": "Model",
+  "paper_not_found_title": "論文が見つかりません",
+  "paper_not_found_description": "この論文は存在しないか、削除されました",
+  "paper_not_public_title": "論文は非公開です",
+  "paper_not_public_description": "この論文は公開されておらず、アクセス権限がありません",
+  "paper_error_back": "論文リストに戻る"
 }
