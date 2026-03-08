@@ -207,7 +207,6 @@ export const paperRouter = router({
         .where(
           and(
             eq(papers.id, input),
-            eq(papers.userId, ctx.session.user.id),
             isNull(papers.deletedAt),
           ),
         )
@@ -217,6 +216,14 @@ export const paperRouter = router({
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Paper not found",
+        });
+      }
+
+      // Check permission: owner or public paper
+      if (paper.userId !== ctx.session.user.id && !paper.isPublic) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to view this paper",
         });
       }
 
