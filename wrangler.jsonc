@@ -6,10 +6,6 @@
   "compatibility_flags": ["nodejs_compat"],
   "keep_vars": true,
 
-  // Cron triggers
-  "triggers": {
-    "crons": ["0 16 * * *"] // Daily at 00:00 Beijing Time (16:00 UTC)
-  },
 
   // Environment variables
   "vars": {

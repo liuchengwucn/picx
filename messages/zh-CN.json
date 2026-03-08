@@ -72,6 +72,8 @@
   "credits_type_refund": "退款",
   "credits_type_purchase": "购买积分",
   "credits_type_daily_bonus": "每日奖励",
+  "daily_bonus_toast_title": "今日奖励已到账",
+  "daily_bonus_toast_desc": "今日首次访问，已自动补充 1 积分",
   "credits_empty": "暂无交易记录",
   "cancel": "取消",
   "error_insufficient_credits": "积分不足，至少需要 1 积分。",

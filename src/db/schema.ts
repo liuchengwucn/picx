@@ -12,6 +12,7 @@ export const user = sqliteTable("user", {
   emailVerified: integer("emailVerified"),
   image: text("image"),
   credits: integer("credits").notNull().default(10),
+  lastDailyBonusDate: text("last_daily_bonus_date"),
   createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
 });

@@ -72,6 +72,8 @@
   "credits_type_refund": "返金",
   "credits_type_purchase": "クレジット購入",
   "credits_type_daily_bonus": "デイリーボーナス",
+  "daily_bonus_toast_title": "本日のボーナスを受け取りました",
+  "daily_bonus_toast_desc": "本日最初のアクセスとして、1 クレジットを追加しました",
   "credits_empty": "取引履歴がありません",
   "cancel": "キャンセル",
   "error_insufficient_credits": "クレジットが不足しています。最低1クレジットが必要です。",

@@ -1,9 +1,19 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
+import { getBeijingDateString } from "#/lib/beijing-date";
 import type * as schema from "./schema";
-import { creditTransactions } from "./schema";
+import { creditTransactions, user } from "./schema";
 
 export const INITIAL_CREDITS = 10;
+export const DAILY_BONUS_CREDITS = 1;
+export const MAX_CREDITS = 20;
+
+export type DailyBonusClaimResult = {
+  granted: boolean;
+  amount: number;
+  newCredits: number;
+  reason: "granted" | "already_claimed" | "at_cap";
+};
 
 export async function initializeUserCredits(
   userId: string,
@@ -42,4 +52,105 @@ export async function initializeUserCredits(
     console.error(`Failed to initialize credits for user ${userId}:`, error);
     return false;
   }
+}
+
+export async function claimDailyBonusIfEligible(
+  userId: string,
+  db: DrizzleD1Database<typeof schema>,
+): Promise<DailyBonusClaimResult> {
+  const today = getBeijingDateString();
+
+  const [currentUser] = await db
+    .select({
+      credits: user.credits,
+      lastDailyBonusDate: user.lastDailyBonusDate,
+    })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+
+  if (!currentUser) {
+    throw new Error(`User ${userId} not found`);
+  }
+
+  if (currentUser.credits >= MAX_CREDITS) {
+    return {
+      granted: false,
+      amount: 0,
+      newCredits: currentUser.credits,
+      reason: "at_cap",
+    };
+  }
+
+  if (currentUser.lastDailyBonusDate === today) {
+    return {
+      granted: false,
+      amount: 0,
+      newCredits: currentUser.credits,
+      reason: "already_claimed",
+    };
+  }
+
+  const [updatedUser] = await db
+    .update(user)
+    .set({
+      credits: sql`min(${user.credits} + ${DAILY_BONUS_CREDITS}, ${MAX_CREDITS})`,
+      lastDailyBonusDate: today,
+    })
+    .where(
+      and(
+        eq(user.id, userId),
+        lt(user.credits, MAX_CREDITS),
+        or(
+          isNull(user.lastDailyBonusDate),
+          sql`${user.lastDailyBonusDate} <> ${today}`,
+        ),
+      ),
+    )
+    .returning({
+      credits: user.credits,
+    });
+
+  if (!updatedUser) {
+    const [latestUser] = await db
+      .select({
+        credits: user.credits,
+        lastDailyBonusDate: user.lastDailyBonusDate,
+      })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+
+    if (!latestUser) {
+      throw new Error(`User ${userId} not found after daily bonus update`);
+    }
+
+    return latestUser.credits >= MAX_CREDITS
+      ? {
+          granted: false,
+          amount: 0,
+          newCredits: latestUser.credits,
+          reason: "at_cap",
+        }
+      : {
+          granted: false,
+          amount: 0,
+          newCredits: latestUser.credits,
+          reason: "already_claimed",
+        };
+  }
+
+  await db.insert(creditTransactions).values({
+    userId,
+    amount: DAILY_BONUS_CREDITS,
+    type: "daily_bonus",
+    description: `Daily active bonus: ${updatedUser.credits - DAILY_BONUS_CREDITS} → ${updatedUser.credits}`,
+  });
+
+  return {
+    granted: true,
+    amount: DAILY_BONUS_CREDITS,
+    newCredits: updatedUser.credits,
+    reason: "granted",
+  };
 }
