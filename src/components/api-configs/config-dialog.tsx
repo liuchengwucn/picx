@@ -83,10 +83,27 @@ export function ConfigDialog({
     onSubmit: async ({ value }) => {
       try {
         if (configId) {
-          await updateMutation.mutateAsync({
+          // When updating, only send API keys if they were actually changed
+          // (not masked values like "sk-***" or "AIza***")
+          const updatePayload: Record<string, unknown> = {
             id: configId,
-            ...value,
-          });
+            name: value.name,
+            openaiBaseUrl: value.openaiBaseUrl,
+            openaiModel: value.openaiModel,
+            geminiBaseUrl: value.geminiBaseUrl,
+            geminiModel: value.geminiModel,
+            isDefault: value.isDefault,
+          };
+
+          // Only include API keys if they don't look like masked values
+          if (value.openaiApiKey && !value.openaiApiKey.includes("***")) {
+            updatePayload.openaiApiKey = value.openaiApiKey;
+          }
+          if (value.geminiApiKey && !value.geminiApiKey.includes("***")) {
+            updatePayload.geminiApiKey = value.geminiApiKey;
+          }
+
+          await updateMutation.mutateAsync(updatePayload);
           toast.success(m.api_config_updated());
         } else {
           await createMutation.mutateAsync(value);
@@ -108,8 +125,10 @@ export function ConfigDialog({
   useEffect(() => {
     if (configQuery.data) {
       form.setFieldValue("name", configQuery.data.name);
+      form.setFieldValue("openaiApiKey", configQuery.data.openaiApiKey);
       form.setFieldValue("openaiBaseUrl", configQuery.data.openaiBaseUrl);
       form.setFieldValue("openaiModel", configQuery.data.openaiModel);
+      form.setFieldValue("geminiApiKey", configQuery.data.geminiApiKey);
       form.setFieldValue("geminiBaseUrl", configQuery.data.geminiBaseUrl);
       form.setFieldValue("geminiModel", configQuery.data.geminiModel);
       form.setFieldValue("isDefault", configQuery.data.isDefault);
