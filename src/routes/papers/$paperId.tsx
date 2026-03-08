@@ -58,6 +58,7 @@ import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 import { ShareBanner } from "#/components/papers/share-banner";
 import { PublicBadge } from "#/components/papers/public-badge";
+import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 
 export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
@@ -573,7 +574,7 @@ function StatusBadge({ status }: { status: string }) {
     completed: {
       label: () => m.papers_status_completed(),
       icon: CheckCircle2,
-      className: "bg-[var(--olive)]/10 text-[var(--olive)]",
+      className: paperCompletedBadgeToneClassName,
     },
     failed: {
       label: () => m.papers_status_failed(),
