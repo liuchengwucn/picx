@@ -204,12 +204,7 @@ export const paperRouter = router({
       const [paper] = await ctx.db
         .select()
         .from(papers)
-        .where(
-          and(
-            eq(papers.id, input),
-            isNull(papers.deletedAt),
-          ),
-        )
+        .where(and(eq(papers.id, input), isNull(papers.deletedAt)))
         .limit(1);
 
       if (!paper) {
@@ -466,7 +461,9 @@ export const paperRouter = router({
         .update(papers)
         .set({
           isPublic: newIsPublic,
-          publishedAt: newIsPublic ? new Date() : null,
+          isListedInGallery: newIsPublic ? paper.isListedInGallery : false,
+          publishedAt:
+            newIsPublic && paper.isListedInGallery ? paper.publishedAt : null,
         })
         .where(eq(papers.id, input.paperId))
         .returning();
@@ -474,6 +471,80 @@ export const paperRouter = router({
       return {
         success: true,
         isPublic: updatedPaper.isPublic,
+        isListedInGallery: updatedPaper.isListedInGallery,
+      };
+    }),
+
+  /**
+   * Toggle paper gallery listing status
+   * Only owner can toggle after paper is public and completed with whiteboard
+   */
+  toggleGalleryListing: protectedProcedure
+    .input(z.object({ paperId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
+      const userId = ctx.session.user.id;
+
+      const [paper] = await ctx.db
+        .select()
+        .from(papers)
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.userId, userId),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      if (!paper.isPublic) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Paper must be public before listing in gallery",
+        });
+      }
+
+      if (paper.status !== "completed") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Paper must be completed before listing in gallery",
+        });
+      }
+
+      const [result] = await ctx.db
+        .select()
+        .from(paperResults)
+        .where(eq(paperResults.paperId, input.paperId))
+        .limit(1);
+
+      if (!result?.whiteboardImageR2Key) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Paper must have whiteboard image before listing in gallery",
+        });
+      }
+
+      const newIsListedInGallery = !paper.isListedInGallery;
+      const [updatedPaper] = await ctx.db
+        .update(papers)
+        .set({
+          isListedInGallery: newIsListedInGallery,
+          publishedAt: newIsListedInGallery ? new Date() : null,
+        })
+        .where(eq(papers.id, input.paperId))
+        .returning();
+
+      return {
+        success: true,
+        isPublic: updatedPaper.isPublic,
+        isListedInGallery: updatedPaper.isListedInGallery,
       };
     }),
 
@@ -504,6 +575,7 @@ export const paperRouter = router({
         .where(
           and(
             eq(papers.isPublic, true),
+            eq(papers.isListedInGallery, true),
             eq(papers.status, "completed"),
             isNull(papers.deletedAt),
           ),
@@ -518,6 +590,7 @@ export const paperRouter = router({
         .where(
           and(
             eq(papers.isPublic, true),
+            eq(papers.isListedInGallery, true),
             eq(papers.status, "completed"),
             isNull(papers.deletedAt),
           ),

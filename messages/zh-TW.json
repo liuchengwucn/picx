@@ -110,10 +110,10 @@
   "home_showcase_whiteboard_title": "想法視覺化",
   "home_showcase_whiteboard_desc": "深度總結論文內容並形成洞察，AI 自動生成視覺化白板圖，呈現研究核心思想。",
   "paper_download_pdf": "下載 PDF",
-  "paper_share_to_gallery": "分享到公開畫廊",
-  "paper_share_description": "讓更多人看到你的論文總結",
-  "paper_share_button": "分享到畫廊",
-  "paper_share_requirement": "需要完成處理並生成白板圖才能分享",
+  "paper_share_to_gallery": "提交到公開畫廊",
+  "paper_share_description": "讓其他人也可以存取",
+  "paper_share_button": "公開論文",
+  "paper_share_requirement": "需要完成處理並生成白板圖後才能公開分享",
   "paper_shared_notice": "此論文已公開分享",
   "paper_share_link": "分享連結",
   "paper_copy_link": "複製連結",
@@ -132,5 +132,12 @@
   "time_years_ago": "{years}年前",
   "not_found_title": "頁面未找到",
   "not_found_description": "抱歉，您訪問的頁面不存在",
-  "not_found_back_home": "返回首頁"
+  "not_found_back_home": "返回首頁",
+  "paper_share_title": "公開分享論文",
+  "paper_gallery_title": "提交到畫廊",
+  "paper_gallery_description": "讓這篇已公開的論文出現在畫廊中，方便更多人發現。",
+  "paper_gallery_add": "提交到畫廊",
+  "paper_gallery_remove": "從畫廊撤回",
+  "paper_gallery_listed_title": "已提交到畫廊",
+  "paper_gallery_listed_description": "這篇公開論文目前已展示在畫廊中。"
 }

@@ -99,6 +99,9 @@ export const papers = sqliteTable(
     isPublic: integer("is_public", { mode: "boolean" })
       .notNull()
       .default(false),
+    isListedInGallery: integer("is_listed_in_gallery", { mode: "boolean" })
+      .notNull()
+      .default(false),
     publishedAt: integer("published_at", { mode: "timestamp" }),
     deletedAt: integer("deleted_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -117,6 +120,7 @@ export const papers = sqliteTable(
     statusIdx: index("papers_status_idx").on(table.status, table.deletedAt),
     publicIdx: index("papers_public_idx").on(
       table.isPublic,
+      table.isListedInGallery,
       table.publishedAt,
     ),
   }),

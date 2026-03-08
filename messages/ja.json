@@ -110,10 +110,10 @@
   "home_showcase_whiteboard_title": "アイデアの視覚化",
   "home_showcase_whiteboard_desc": "論文内容を深く要約して洞察を形成し、AIが自動的に視覚化ホワイトボードを生成して、研究の核心思想を提示。",
   "paper_download_pdf": "PDF をダウンロード",
-  "paper_share_to_gallery": "公開ギャラリーに共有",
-  "paper_share_description": "あなたの論文要約をもっと多くの人に見てもらいましょう",
-  "paper_share_button": "ギャラリーに共有",
-  "paper_share_requirement": "共有するには処理が完了し、ホワイトボード画像が生成されている必要があります",
+  "paper_share_to_gallery": "公開ギャラリーに掲載",
+  "paper_share_description": "ほかの人もアクセスできるようにします。",
+  "paper_share_button": "公開する",
+  "paper_share_requirement": "公開共有するには処理が完了し、ホワイトボード画像が生成されている必要があります",
   "paper_shared_notice": "この論文は公開共有されています",
   "paper_share_link": "共有リンク",
   "paper_copy_link": "リンクをコピー",
@@ -132,5 +132,12 @@
   "time_years_ago": "{years}年前",
   "not_found_title": "ページが見つかりません",
   "not_found_description": "申し訳ございません。お探しのページは存在しません",
-  "not_found_back_home": "ホームに戻る"
+  "not_found_back_home": "ホームに戻る",
+  "paper_share_title": "公開共有",
+  "paper_gallery_title": "ギャラリーに掲載",
+  "paper_gallery_description": "この公開済み論文をギャラリーに表示して、より多くの人に見つけてもらいます。",
+  "paper_gallery_add": "ギャラリーに掲載",
+  "paper_gallery_remove": "ギャラリーから外す",
+  "paper_gallery_listed_title": "ギャラリーに掲載中",
+  "paper_gallery_listed_description": "この公開論文は現在ギャラリーに表示されています。"
 }

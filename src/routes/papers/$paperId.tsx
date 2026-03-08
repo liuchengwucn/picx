@@ -21,6 +21,9 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
+import { PublicBadge } from "#/components/papers/public-badge";
+import { ShareBanner } from "#/components/papers/share-banner";
 import {
   Accordion,
   AccordionContent,
@@ -52,13 +55,10 @@ import {
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useRequireAuth } from "#/hooks/use-require-auth";
+import { useTRPC } from "#/integrations/trpc/react";
 import { startGitHubSignIn as beginGitHubSignIn } from "#/lib/auth-client";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
-import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
-import { ShareBanner } from "#/components/papers/share-banner";
-import { PublicBadge } from "#/components/papers/public-badge";
-import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 
 export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
@@ -200,6 +200,7 @@ function PaperDetailPage() {
           <ShareBanner
             paperId={paper.id}
             isPublic={paper.isPublic}
+            isListedInGallery={paper.isListedInGallery}
             canShare={
               paper.status === "completed" && !!result?.whiteboardImageR2Key
             }
