@@ -414,13 +414,13 @@ function PaperDetailPage() {
             {result ? (
               <Accordion type="single" collapsible defaultValue="summary">
                 <AccordionItem value="summary" className="paper-card px-6">
-                  <div className="flex items-center justify-between py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 py-4">
                     <AccordionTrigger className="font-serif text-lg font-semibold flex-1 py-0 hover:no-underline">
                       <span className="hover:underline">
                         {m.paper_summary()}
                       </span>
                     </AccordionTrigger>
-                    <div className="flex items-center gap-2 ml-4">
+                    <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
                       <Button
                         variant="outline"
                         size="sm"
@@ -457,7 +457,7 @@ function PaperDetailPage() {
                           }}
                           disabled={regenerateSummaryMutation.isPending}
                         >
-                          <SelectTrigger className="w-[140px] h-9">
+                          <SelectTrigger className="h-9 w-auto min-w-0 max-w-full">
                             <div className="flex items-center gap-1.5 w-full">
                               {regenerateSummaryMutation.isPending ? (
                                 <Loader2 className="h-4 w-4 animate-spin shrink-0" />
