@@ -35,6 +35,7 @@ export const paperRouter = router({
         r2Key: z.string().min(1),
         language: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(), // 摘要语言
         whiteboardLanguage: z.enum(["en", "zh-cn", "zh-tw", "ja"]).optional(), // 白板图语言
+        apiConfigId: z.string().uuid().optional(), // 用户提供的 API 配置
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -47,21 +48,25 @@ export const paperRouter = router({
         // Better Auth 已经管理用户，直接使用 session 中的 user ID
         const userId = ctx.session.user.id;
 
-        // 先扣除积分，使用条件更新确保积分足够
-        const [updatedUser] = await ctx.db
-          .update(user)
-          .set({
-            credits: sql`${user.credits} - 1`,
-          })
-          .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
-          .returning();
+        // 如果提供了 apiConfigId，使用用户 API，不扣除 credit
+        // 如果没有提供，使用系统 API，扣除 credit
+        if (!input.apiConfigId) {
+          // 先扣除积分，使用条件更新确保积分足够
+          const [updatedUser] = await ctx.db
+            .update(user)
+            .set({
+              credits: sql`${user.credits} - 1`,
+            })
+            .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
+            .returning();
 
-        // 如果没有更新任何行，说明积分不足
-        if (!updatedUser) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Insufficient credits. You need at least 1 credit.",
-          });
+          // 如果没有更新任何行，说明积分不足
+          if (!updatedUser) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Insufficient credits. You need at least 1 credit.",
+            });
+          }
         }
 
         // 创建论文记录
@@ -78,14 +83,16 @@ export const paperRouter = router({
           })
           .returning();
 
-        // 记录积分交易
-        await ctx.db.insert(creditTransactions).values({
-          userId: userId,
-          amount: -1,
-          type: "consume",
-          relatedPaperId: newPaper.id,
-          description: "Paper processing",
-        });
+        // 只有在扣除了 credit 的情况下才记录积分交易
+        if (!input.apiConfigId) {
+          await ctx.db.insert(creditTransactions).values({
+            userId: userId,
+            amount: -1,
+            type: "consume",
+            relatedPaperId: newPaper.id,
+            description: "Paper processing",
+          });
+        }
 
         paper = newPaper;
       } catch (error) {
@@ -125,6 +132,7 @@ export const paperRouter = router({
           r2Key: input.r2Key,
           language: queueLanguage,
           whiteboardLanguage: queueWhiteboardLanguage,
+          apiConfigId: input.apiConfigId,
         });
       } catch (error) {
         await ctx.db

@@ -1,13 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "#/components/ui/button";
-import { authClient } from "#/lib/auth-client";
-import {
-  getReviewGuestClientSession,
-  isReviewGuestModeEnabled,
-  isReviewGuestReadOnlySession,
-} from "#/lib/review-guest";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +11,7 @@ import {
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "#/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -26,6 +21,12 @@ import {
 } from "#/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient } from "#/lib/auth-client";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+  isReviewGuestReadOnlySession,
+} from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -88,6 +89,82 @@ function LanguageSelectors({
   );
 }
 
+interface ApiConfigSelectorProps {
+  apiSource: "system" | "user";
+  selectedApiConfigId: string | undefined;
+  apiConfigs:
+    | Array<{ id: string; name: string; isDefault: boolean }>
+    | undefined;
+  onApiSourceChange: (value: "system" | "user") => void;
+  onApiConfigChange: (value: string) => void;
+}
+
+function ApiConfigSelector({
+  apiSource,
+  selectedApiConfigId,
+  apiConfigs,
+  onApiSourceChange,
+  onApiConfigChange,
+}: ApiConfigSelectorProps) {
+  const hasApiConfigs = apiConfigs && apiConfigs.length > 0;
+  const systemApiId = useId();
+  const userApiId = useId();
+
+  return (
+    <div className="space-y-3">
+      <Label className="text-sm text-[var(--ink-soft)]">
+        {m.upload_select_api_config()}
+      </Label>
+      <RadioGroup value={apiSource} onValueChange={onApiSourceChange}>
+        <div className="flex items-center space-x-2">
+          <RadioGroupItem value="system" id={systemApiId} />
+          <Label htmlFor={systemApiId} className="text-sm cursor-pointer">
+            {m.upload_use_system_api()}
+          </Label>
+        </div>
+        {hasApiConfigs && (
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="user" id={userApiId} />
+            <Label htmlFor={userApiId} className="text-sm cursor-pointer">
+              {m.upload_use_user_api()}
+            </Label>
+          </div>
+        )}
+      </RadioGroup>
+
+      {apiSource === "user" && hasApiConfigs && (
+        <Select value={selectedApiConfigId} onValueChange={onApiConfigChange}>
+          <SelectTrigger className="border-[var(--line)]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {apiConfigs.map((config) => (
+              <SelectItem key={config.id} value={config.id}>
+                {config.name}
+                {config.isDefault && ` (${m.api_config_default()})`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+      {apiSource === "user" && !hasApiConfigs && (
+        <div className="rounded-lg border border-[var(--line)] bg-[var(--academic-brown)]/5 p-3">
+          <p className="text-sm text-[var(--ink-soft)]">
+            {m.upload_no_api_config()}
+          </p>
+          <a
+            href="/settings"
+            className="mt-2 inline-block text-sm font-medium text-[var(--academic-brown)] hover:underline"
+          >
+            {m.upload_go_to_settings()}
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -99,12 +176,34 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [whiteboardLanguage, setWhiteboardLanguage] = useState<
     "en" | "zh-cn" | "zh-tw" | "ja"
   >("en");
+  const [apiSource, setApiSource] = useState<"system" | "user">("system");
+  const [selectedApiConfigId, setSelectedApiConfigId] = useState<
+    string | undefined
+  >(undefined);
   const trpc = useTRPC();
   const { data: session } = authClient.useSession();
   const effectiveSession =
     session ??
     (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
   const isReadOnlyGuest = isReviewGuestReadOnlySession(effectiveSession);
+
+  // Fetch user's API configurations
+  const { data: apiConfigs } = trpc.apiConfig.list.useQuery(undefined, {
+    enabled: !!session,
+  });
+
+  // Set default API source and config when apiConfigs are loaded
+  useEffect(() => {
+    if (apiConfigs && apiConfigs.length > 0) {
+      setApiSource("user");
+      const defaultConfig = apiConfigs.find((config) => config.isDefault);
+      if (defaultConfig) {
+        setSelectedApiConfigId(defaultConfig.id);
+      } else {
+        setSelectedApiConfigId(apiConfigs[0].id);
+      }
+    }
+  }, [apiConfigs]);
 
   const startGitHubSignIn = useCallback(() => {
     void authClient.signIn.social({
@@ -145,6 +244,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         r2Key,
         language: summaryLanguage,
         whiteboardLanguage,
+        apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
       });
       setOpen(false);
       setFile(null);
@@ -163,6 +263,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     summaryLanguage,
     uploadFile,
     whiteboardLanguage,
+    apiSource,
+    selectedApiConfigId,
   ]);
 
   const handleArxivSubmit = useCallback(async () => {
@@ -181,6 +283,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         r2Key: `arxiv/${Date.now()}`,
         language: summaryLanguage,
         whiteboardLanguage,
+        apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
       });
       setOpen(false);
       setArxivUrl("");
@@ -198,6 +301,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     startGitHubSignIn,
     summaryLanguage,
     whiteboardLanguage,
+    apiSource,
+    selectedApiConfigId,
   ]);
 
   const insufficientCredits = credits < 1;
@@ -294,23 +399,39 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 }
               />
             </div>
+            <div className="mt-4">
+              <ApiConfigSelector
+                apiSource={apiSource}
+                selectedApiConfigId={selectedApiConfigId}
+                apiConfigs={apiConfigs}
+                onApiSourceChange={(value) => setApiSource(value)}
+                onApiConfigChange={(value) => setSelectedApiConfigId(value)}
+              />
+            </div>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-[var(--ink-soft)]">
                 {m.credits_balance()}: {credits}
               </span>
-              <span className="text-[var(--ink-soft)]">
-                {m.upload_cost()}: 1
-              </span>
+              {apiSource === "system" && (
+                <span className="text-[var(--ink-soft)]">
+                  {m.upload_cost()}: 1
+                </span>
+              )}
             </div>
             <Button
               onClick={handleFileUpload}
-              disabled={!file || uploading || insufficientCredits}
+              disabled={
+                !file ||
+                uploading ||
+                (apiSource === "system" && insufficientCredits) ||
+                (apiSource === "user" && !selectedApiConfigId)
+              }
               className="mt-3 w-full bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
             >
               {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {m.upload_start()}
             </Button>
-            {insufficientCredits && (
+            {apiSource === "system" && insufficientCredits && (
               <p className="mt-2 text-center text-xs text-[var(--sienna)]">
                 {m.error_insufficient_credits()}
               </p>
@@ -337,17 +458,33 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 }
               />
             </div>
+            <div className="mt-4">
+              <ApiConfigSelector
+                apiSource={apiSource}
+                selectedApiConfigId={selectedApiConfigId}
+                apiConfigs={apiConfigs}
+                onApiSourceChange={(value) => setApiSource(value)}
+                onApiConfigChange={(value) => setSelectedApiConfigId(value)}
+              />
+            </div>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-[var(--ink-soft)]">
                 {m.credits_balance()}: {credits}
               </span>
-              <span className="text-[var(--ink-soft)]">
-                {m.upload_cost()}: 1
-              </span>
+              {apiSource === "system" && (
+                <span className="text-[var(--ink-soft)]">
+                  {m.upload_cost()}: 1
+                </span>
+              )}
             </div>
             <Button
               onClick={handleArxivSubmit}
-              disabled={!arxivUrl || uploading || insufficientCredits}
+              disabled={
+                !arxivUrl ||
+                uploading ||
+                (apiSource === "system" && insufficientCredits) ||
+                (apiSource === "user" && !selectedApiConfigId)
+              }
               className="mt-3 w-full bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
             >
               {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

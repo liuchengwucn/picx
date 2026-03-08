@@ -171,3 +171,46 @@ export const creditTransactions = sqliteTable(
     ),
   }),
 );
+
+// 用户 API 配置表 (BYOK - Bring Your Own Key)
+export const userApiConfigs = sqliteTable(
+  "user_api_configs",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    openaiApiKey: text("openai_api_key").notNull(),
+    openaiBaseUrl: text("openai_base_url").notNull(),
+    openaiModel: text("openai_model").notNull(),
+    geminiApiKey: text("gemini_api_key").notNull(),
+    geminiBaseUrl: text("gemini_base_url").notNull(),
+    geminiModel: text("gemini_model").notNull(),
+    isDefault: integer("is_default", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    lastTestedAt: integer("last_tested_at", { mode: "timestamp" }),
+    openaiTestStatus: text("openai_test_status", {
+      enum: ["success", "failed", "untested"],
+    }).default("untested"),
+    geminiTestStatus: text("gemini_test_status", {
+      enum: ["success", "failed", "untested"],
+    }).default("untested"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userIdIdx: index("idx_user_api_configs_user_id").on(table.userId),
+    userDefaultIdx: index("idx_user_api_configs_user_default").on(
+      table.userId,
+      table.isDefault,
+    ),
+  }),
+);

@@ -7,9 +7,9 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
-import type { TRPCRouter } from "#/integrations/trpc/router";
 import DailyBonusClaim from "#/components/DailyBonusClaim";
 import { Toaster } from "#/components/ui/sonner";
+import type { TRPCRouter } from "#/integrations/trpc/router";
 import { initLocale } from "#/lib/locale-init";
 import { getLocale } from "#/paraglide/runtime";
 import Footer from "../components/Footer";

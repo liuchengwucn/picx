@@ -1,6 +1,12 @@
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { creditTransactions, paperResults, papers, user } from "#/db/schema";
+import {
+  creditTransactions,
+  paperResults,
+  papers,
+  user,
+  userApiConfigs,
+} from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import {
   extractPaperTitle,
@@ -8,6 +14,7 @@ import {
   generateWhiteboardImage,
   generateWhiteboardStructure,
 } from "#/lib/ai";
+import { decrypt } from "#/lib/crypto";
 import { downloadArxivPDF, extractPDFText, PDFPageLimitError } from "#/lib/pdf";
 import type { Env } from "#/types/env";
 
@@ -26,6 +33,7 @@ interface QueueMessage {
   r2Key?: string;
   language?: "en" | "zh-cn" | "zh-tw" | "ja"; // 摘要语言
   whiteboardLanguage?: "en" | "zh-cn" | "zh-tw" | "ja"; // 白板图语言
+  apiConfigId?: string; // 用户提供的 API 配置 ID
 }
 
 const MAX_RETRIES = 3;
@@ -47,6 +55,13 @@ export default {
         console.error(
           `[paper:${paperId}] Failed on attempt ${attempt}/${MAX_RETRIES}: ${errorDetail}`,
         );
+
+        // 用户 API 配置错误：不重试，不退还 credit
+        if (error instanceof UserApiConfigError) {
+          await markPaperFailed(paperId, errorDetail, env);
+          message.ack();
+          continue;
+        }
 
         // 最后一次重试也失败了，或者是不可重试的错误 → 标记 failed 并返还 credit
         if (attempt >= MAX_RETRIES || !isRetryableError(error)) {
@@ -79,6 +94,64 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     console.log(`[paper:${msg.paperId}][${step}] ${message}`);
   const logWarn = (step: string, message: string, error?: unknown) =>
     console.warn(`[paper:${msg.paperId}][${step}] ${message}`, error ?? "");
+
+  // Step 0: 读取 AI 配置（用户配置或系统配置）
+  let aiConfig: AIConfig;
+
+  if (msg.apiConfigId) {
+    try {
+      log("load-config", `Loading user API configuration: ${msg.apiConfigId}`);
+
+      // 从数据库读取用户配置
+      const [config] = await db
+        .select()
+        .from(userApiConfigs)
+        .where(eq(userApiConfigs.id, msg.apiConfigId))
+        .limit(1);
+
+      if (!config) {
+        throw new UserApiConfigError(
+          `User API configuration not found: ${msg.apiConfigId}`,
+        );
+      }
+
+      // 解密 API keys
+      const secret = env.API_KEY_ENCRYPTION_SECRET;
+      if (!secret) {
+        throw new Error("API_KEY_ENCRYPTION_SECRET is not configured");
+      }
+
+      aiConfig = {
+        openaiApiKey: await decrypt(config.openaiApiKey, secret),
+        openaiBaseUrl: config.openaiBaseUrl,
+        openaiModel: config.openaiModel,
+        geminiApiKey: await decrypt(config.geminiApiKey, secret),
+        geminiBaseUrl: config.geminiBaseUrl,
+        geminiModel: config.geminiModel,
+      };
+
+      log("load-config", `User API configuration loaded successfully`);
+    } catch (error) {
+      if (error instanceof UserApiConfigError) {
+        throw error;
+      }
+      throw new UserApiConfigError(
+        `Failed to load user API configuration: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  } else {
+    // 使用系统配置（现有逻辑）
+    log("load-config", "Using system API configuration");
+    aiConfig = {
+      openaiApiKey: env.OPENAI_API_KEY,
+      openaiBaseUrl: env.OPENAI_BASE_URL,
+      openaiModel: env.OPENAI_MODEL,
+      geminiApiKey: env.GEMINI_API_KEY,
+      geminiBaseUrl: env.GEMINI_BASE_URL,
+      geminiModel: env.GEMINI_MODEL,
+      cfApiToken: env.CF_API_TOKEN,
+    };
+  }
 
   // Step 1: 获取 PDF
   let pdfBuffer: ArrayBuffer;
@@ -120,16 +193,6 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   } catch (error) {
     throw new StepError("fetch-pdf", error);
   }
-
-  const aiConfig: AIConfig = {
-    openaiApiKey: env.OPENAI_API_KEY,
-    openaiBaseUrl: env.OPENAI_BASE_URL,
-    openaiModel: env.OPENAI_MODEL,
-    geminiApiKey: env.GEMINI_API_KEY,
-    geminiBaseUrl: env.GEMINI_BASE_URL,
-    geminiModel: env.GEMINI_MODEL,
-    cfApiToken: env.CF_API_TOKEN,
-  };
 
   // Step 2: 提取文本
   await updatePaperStatus(msg.paperId, "processing_text", null, env);
@@ -336,6 +399,16 @@ class StepError extends Error {
 }
 
 /**
+ * 用户 API 配置错误，不应退还 credit
+ */
+class UserApiConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserApiConfigError";
+  }
+}
+
+/**
  * 格式化错误详情，包含 step 信息和 cause 链
  */
 function formatErrorDetail(error: unknown): string {
@@ -363,6 +436,27 @@ async function updatePaperStatus(
       updatedAt: new Date(),
     })
     .where(eq(papers.id, paperId));
+}
+
+/**
+ * 标记论文失败（不退还 credit）
+ * 用于用户 API 配置错误等不应退还 credit 的情况
+ */
+async function markPaperFailed(
+  paperId: string,
+  errorMessage: string,
+  env: Env,
+): Promise<void> {
+  // 截断过长的错误信息
+  const truncated =
+    errorMessage.length > 1000
+      ? `${errorMessage.substring(0, 997)}...`
+      : errorMessage;
+
+  console.log(`[paper:${paperId}] Marking as failed (no refund): ${truncated}`);
+
+  // 标记论文失败
+  await updatePaperStatus(paperId, "failed", truncated, env);
 }
 
 /**
@@ -411,6 +505,11 @@ async function markPaperFailedAndRefund(
 
 function isRetryableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
+
+  // 用户 API 配置错误不可重试
+  if (error instanceof UserApiConfigError) {
+    return false;
+  }
 
   // 页数超限错误不可重试
   if (error instanceof StepError && error.cause instanceof PDFPageLimitError) {

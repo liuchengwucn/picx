@@ -52,9 +52,9 @@ import {
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useRequireAuth } from "#/hooks/use-require-auth";
+import { useTRPC } from "#/integrations/trpc/react";
 import { authClient } from "#/lib/auth-client";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
-import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/papers/$paperId")({

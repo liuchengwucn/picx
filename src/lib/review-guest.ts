@@ -6,11 +6,14 @@ import { creditTransactions, user } from "#/db/schema";
 const reviewEnv = import.meta.env as ImportMetaEnv &
   Record<string, string | undefined>;
 
-type SessionLike = {
-  user?: {
-    id?: string | null;
-  } | null;
-} | null | undefined;
+type SessionLike =
+  | {
+      user?: {
+        id?: string | null;
+      } | null;
+    }
+  | null
+  | undefined;
 
 function isTruthy(value: string | undefined) {
   return value === "1" || value === "true";
@@ -65,7 +68,9 @@ export function isReviewGuestMutationsEnabled() {
 }
 
 export function isReviewGuestSession(session: SessionLike) {
-  return isReviewGuestModeEnabled() && session?.user?.id === REVIEW_GUEST_USER_ID;
+  return (
+    isReviewGuestModeEnabled() && session?.user?.id === REVIEW_GUEST_USER_ID
+  );
 }
 
 export function isReviewGuestReadOnlySession(session: SessionLike) {
