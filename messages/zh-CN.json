@@ -121,7 +121,7 @@
   "home_credits_new_user": "这是一个免费公益项目，没有充值入口",
   "home_credits_daily_bonus": "注册即可开始使用，面向日常论文阅读与整理开放",
   "home_credits_cost": "项目完全开源，支持使用自己的 API Key 或自部署无限使用",
-  "home_credits_opensource": "源码公开透明，可自部署无限使用，也欢迎按自己的研究流程继续扩展",
+  "home_credits_opensource": "源码公开透明，欢迎按自己的研究流程继续扩展",
   "home_credits_github": "查看 GitHub",
   "home_credits_see_also": "灵感来源：Emergent Mind。",
   "home_showcase_title": "功能展示",
