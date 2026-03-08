@@ -11,7 +11,6 @@ import {
   Plus,
   Star,
   Trash2,
-  Zap,
 } from "lucide-react";
 import { useState } from "react";
 import { ConfigDialog } from "#/components/api-configs/config-dialog";
@@ -72,13 +71,6 @@ function ApiConfigsPage() {
     },
   });
 
-  const testMutation = useMutation({
-    ...trpc.apiConfig.test.mutationOptions(),
-    onSuccess: () => {
-      configsQuery.refetch();
-    },
-  });
-
   const handleDelete = (id: string) => {
     setConfigToDelete(id);
     setDeleteDialogOpen(true);
@@ -88,10 +80,6 @@ function ApiConfigsPage() {
     if (configToDelete) {
       deleteMutation.mutate(configToDelete);
     }
-  };
-
-  const handleTest = (id: string) => {
-    testMutation.mutate({ id });
   };
 
   const handleCreate = () => {
@@ -183,8 +171,6 @@ function ApiConfigsPage() {
                 config={config}
                 onDelete={handleDelete}
                 onEdit={handleEdit}
-                onTest={handleTest}
-                isTesting={testMutation.isPending}
               />
             ))
           )}
@@ -244,14 +230,10 @@ function ConfigCard({
   config,
   onDelete,
   onEdit,
-  onTest,
-  isTesting,
 }: {
   config: ApiConfig;
   onDelete: (id: string) => void;
   onEdit: (id: string) => void;
-  onTest: (id: string) => void;
-  isTesting: boolean;
 }) {
   const getStatusIcon = (status: "success" | "failed" | null) => {
     if (status === "success") {
@@ -320,15 +302,6 @@ function ConfigCard({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={() => onTest(config.id)}
-              disabled={isTesting}
-              className={`hover:bg-[var(--academic-brown)]/10 ${styles.actionButton}`}
-            >
-              <Zap className="h-4 w-4" />
-            </Button>
             <Button
               size="icon-sm"
               variant="ghost"
@@ -412,15 +385,6 @@ function ConfigCard({
             />
           </div>
         </div>
-
-        {/* Last Tested */}
-        {config.lastTestedAt && (
-          <div className="mt-4 pt-4 border-t border-[var(--line)]">
-            <p className="text-xs text-[var(--ink-soft)]">
-              Last tested: {new Date(config.lastTestedAt).toLocaleString()}
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );
