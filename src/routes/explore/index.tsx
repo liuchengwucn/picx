@@ -197,10 +197,10 @@ function getTimeAgo(date: Date | null): string {
   const diffMs = now.getTime() - new Date(date).getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return m.explore_title(); // "今天" - need to add this translation
-  if (diffDays === 1) return "1天前";
-  if (diffDays < 7) return `${diffDays}天前`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}周前`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)}月前`;
-  return `${Math.floor(diffDays / 365)}年前`;
+  if (diffDays === 0) return m.time_today();
+  if (diffDays === 1) return m.time_days_ago({ days: "1" });
+  if (diffDays < 7) return m.time_days_ago({ days: diffDays.toString() });
+  if (diffDays < 30) return m.time_weeks_ago({ weeks: Math.floor(diffDays / 7).toString() });
+  if (diffDays < 365) return m.time_months_ago({ months: Math.floor(diffDays / 30).toString() });
+  return m.time_years_ago({ years: Math.floor(diffDays / 365).toString() });
 }
