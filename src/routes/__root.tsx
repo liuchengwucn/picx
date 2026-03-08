@@ -38,6 +38,27 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
     }
   },
 
+  notFoundComponent: () => {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="text-center">
+          <h1 className="mb-4 font-serif text-4xl font-bold text-[var(--ink)]">
+            404
+          </h1>
+          <p className="mb-6 text-lg text-[var(--ink-soft)]">
+            页面未找到
+          </p>
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)] no-underline"
+          >
+            返回首页
+          </a>
+        </div>
+      </div>
+    );
+  },
+
   head: () => ({
     meta: [
       {

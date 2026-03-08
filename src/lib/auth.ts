@@ -16,6 +16,7 @@ const db = drizzle(appEnv.DB, { schema });
 
 export const auth = betterAuth({
   database: appEnv.DB, // D1 原生支持，自动检测
+  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
   socialProviders: {
     github: {
       clientId: process.env.GITHUB_CLIENT_ID || "",
