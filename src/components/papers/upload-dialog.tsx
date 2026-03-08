@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -188,7 +188,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const isReadOnlyGuest = isReviewGuestReadOnlySession(effectiveSession);
 
   // Fetch user's API configurations
-  const { data: apiConfigs } = trpc.apiConfig.list.useQuery(undefined, {
+  const { data: apiConfigs } = useQuery({
+    ...trpc.apiConfig.list.queryOptions(),
     enabled: !!session,
   });
 
