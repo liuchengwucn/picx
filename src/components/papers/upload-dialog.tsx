@@ -109,7 +109,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const startGitHubSignIn = useCallback(() => {
     void authClient.signIn.social({
       provider: "github",
-      callbackURL: "/papers",
+      callbackURL: "/",
     });
   }, []);
 
@@ -203,12 +203,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const insufficientCredits = credits < 1;
 
   const handleDialogOpenChange = useCallback((nextOpen: boolean) => {
-    if (nextOpen && isReadOnlyGuest) {
-      startGitHubSignIn();
-      return;
-    }
     setOpen(nextOpen);
-  }, [isReadOnlyGuest, startGitHubSignIn]);
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

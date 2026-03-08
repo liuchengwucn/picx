@@ -44,7 +44,7 @@ export default function BetterAuthHeader() {
             onClick={() => {
               void authClient.signIn.social({
                 provider: "github",
-                callbackURL: "/papers",
+                callbackURL: "/",
               });
             }}
             className="h-9 px-3 sm:px-4 text-sm font-medium bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors inline-flex items-center whitespace-nowrap rounded"
@@ -76,7 +76,7 @@ export default function BetterAuthHeader() {
       onClick={() => {
         void authClient.signIn.social({
           provider: "github",
-          callbackURL: "/papers",
+          callbackURL: "/",
         });
       }}
       className="h-9 px-3 sm:px-4 text-sm font-medium bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors inline-flex items-center whitespace-nowrap rounded"
