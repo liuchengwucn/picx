@@ -32,6 +32,7 @@
   "papers_empty_title": "暂无论文",
   "papers_empty_description": "上传 PDF 文件或粘贴 arXiv 链接开始使用。",
   "paper_status": "状态",
+  "paper_visibility": "可见性",
   "paper_source": "来源",
   "paper_source_upload": "文件上传",
   "paper_pages": "页数",

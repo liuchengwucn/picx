@@ -32,6 +32,7 @@
   "papers_empty_title": "暫無論文",
   "papers_empty_description": "上傳 PDF 檔案或貼上 arXiv 連結開始使用。",
   "paper_status": "狀態",
+  "paper_visibility": "可見性",
   "paper_source": "來源",
   "paper_source_upload": "檔案上傳",
   "paper_pages": "頁數",

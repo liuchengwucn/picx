@@ -225,7 +225,7 @@ function PaperDetailPage() {
                 </div>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-4 space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-[var(--ink-soft)]">
                     {m.paper_status()}
@@ -240,13 +240,15 @@ function PaperDetailPage() {
                     {paper.errorMessage}
                   </p>
                 )}
+                {paper.isPublic && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-[var(--ink-soft)]">
+                      {m.paper_visibility()}
+                    </span>
+                    <PublicBadge />
+                  </div>
+                )}
               </div>
-
-              {paper.isPublic && (
-                <div className="mt-2">
-                  <PublicBadge />
-                </div>
-              )}
 
               <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-4 text-sm">
                 <div className="flex justify-between gap-4">

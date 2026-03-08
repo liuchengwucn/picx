@@ -32,6 +32,7 @@
   "papers_empty_title": "No papers yet",
   "papers_empty_description": "Upload a PDF or paste an arXiv link to get started.",
   "paper_status": "Status",
+  "paper_visibility": "Visibility",
   "paper_source": "Source",
   "paper_source_upload": "File Upload",
   "paper_pages": "Pages",

@@ -32,6 +32,7 @@
   "papers_empty_title": "論文がありません",
   "papers_empty_description": "PDFファイルをアップロードするか、arXivリンクを貼り付けて開始してください。",
   "paper_status": "ステータス",
+  "paper_visibility": "可視性",
   "paper_source": "ソース",
   "paper_source_upload": "ファイルアップロード",
   "paper_pages": "ページ数",
