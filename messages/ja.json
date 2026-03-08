@@ -144,5 +144,19 @@
   "upload_no_api_config": "まだ API を設定していません。設定ページで設定を作成してください",
   "upload_select_api_config": "API 設定を選択",
   "upload_use_system_api": "システム API を使用（1 クレジット消費）",
-  "upload_use_user_api": "自分の API を使用（クレジット消費なし）"
+  "upload_use_user_api": "自分の API を使用（クレジット消費なし）",
+  "api_config_deleting": "削除中...",
+  "api_config_created_at": "作成日 {date}",
+  "api_config_empty_title": "API 設定がありません",
+  "api_config_empty_description": "最初の API 設定を作成して、カスタム OpenAI と Gemini エンドポイントの使用を開始してください。",
+  "api_config_create_failed": "設定の作成に失敗しました",
+  "api_config_update_failed": "設定の更新に失敗しました",
+  "api_config_default_description": "新しい論文にこの設定をデフォルトで使用",
+  "api_config_testing": "テスト中...",
+  "api_config_test_status_success": "成功",
+  "api_config_test_status_failed": "失敗",
+  "upload_file_size_limit": "PDF、最大 50MB",
+  "label_api_key": "API Key",
+  "label_base_url": "Base URL",
+  "label_model": "Model"
 }

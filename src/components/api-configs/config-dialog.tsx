@@ -96,9 +96,7 @@ export function ConfigDialog({
         onSuccess?.();
       } catch {
         toast.error(
-          configId
-            ? "Failed to update configuration"
-            : "Failed to create configuration",
+          configId ? m.api_config_update_failed() : m.api_config_create_failed(),
         );
       }
     },
@@ -410,7 +408,7 @@ export function ConfigDialog({
                     {m.api_config_set_default()}
                   </div>
                   <div className="text-xs text-[var(--ink-soft)]">
-                    Use this configuration by default for new papers
+                    {m.api_config_default_description()}
                   </div>
                 </div>
               </label>
@@ -429,7 +427,7 @@ export function ConfigDialog({
               {isTesting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Testing...
+                  {m.api_config_testing()}
                 </>
               ) : (
                 <>
@@ -475,7 +473,9 @@ function TestStatusIndicator({
     return (
       <div className={`flex items-center gap-1.5 ${styles.testIndicator}`}>
         <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
-        <span className="text-xs text-[var(--ink-soft)]">Testing...</span>
+        <span className="text-xs text-[var(--ink-soft)]">
+          {m.api_config_testing()}
+        </span>
       </div>
     );
   }
@@ -486,7 +486,9 @@ function TestStatusIndicator({
         className={`flex items-center gap-1.5 ${styles.testIndicator} ${styles.success}`}
       >
         <CheckCircle2 className="h-4 w-4 text-[var(--olive)]" />
-        <span className="text-xs text-[var(--olive)] font-medium">Success</span>
+        <span className="text-xs text-[var(--olive)] font-medium">
+          {m.api_config_test_status_success()}
+        </span>
       </div>
     );
   }
@@ -496,7 +498,9 @@ function TestStatusIndicator({
       className={`flex items-center gap-1.5 ${styles.testIndicator} ${styles.failed}`}
     >
       <AlertCircle className="h-4 w-4 text-[var(--sienna)]" />
-      <span className="text-xs text-[var(--sienna)] font-medium">Failed</span>
+      <span className="text-xs text-[var(--sienna)] font-medium">
+        {m.api_config_test_status_failed()}
+      </span>
     </div>
   );
 }

@@ -144,5 +144,19 @@
   "upload_no_api_config": "You haven't configured any API yet. Please go to settings to create a configuration",
   "upload_select_api_config": "Select API Configuration",
   "upload_use_system_api": "Use System API (costs 1 credit)",
-  "upload_use_user_api": "Use My API (no credit cost)"
+  "upload_use_user_api": "Use My API (no credit cost)",
+  "api_config_deleting": "Deleting...",
+  "api_config_created_at": "Created {date}",
+  "api_config_empty_title": "No API Configurations",
+  "api_config_empty_description": "Create your first API configuration to start using custom OpenAI and Gemini endpoints.",
+  "api_config_create_failed": "Failed to create configuration",
+  "api_config_update_failed": "Failed to update configuration",
+  "api_config_default_description": "Use this configuration by default for new papers",
+  "api_config_testing": "Testing...",
+  "api_config_test_status_success": "Success",
+  "api_config_test_status_failed": "Failed",
+  "upload_file_size_limit": "PDF, max 50MB",
+  "label_api_key": "API Key",
+  "label_base_url": "Base URL",
+  "label_model": "Model"
 }

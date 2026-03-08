@@ -209,7 +209,7 @@ function ApiConfigsPage() {
                 {deleteMutation.isPending ? (
                   <>
                     <Clock className="h-4 w-4 animate-spin" />
-                    Deleting...
+                    {m.api_config_deleting()}
                   </>
                 ) : (
                   <>
@@ -295,7 +295,9 @@ function ConfigCard({
                 )}
               </div>
               <p className="text-xs text-[var(--ink-soft)] mt-0.5">
-                Created {new Date(config.createdAt).toLocaleDateString()}
+                {m.api_config_created_at({
+                  date: new Date(config.createdAt).toLocaleDateString(),
+                })}
               </p>
             </div>
           </div>
@@ -336,19 +338,19 @@ function ConfigCard({
             </div>
             <ConfigField
               icon={<Key className="h-3 w-3" />}
-              label="API Key"
+              label={m.label_api_key()}
               value={config.openaiApiKey}
               mono
             />
             <ConfigField
               icon={<Globe className="h-3 w-3" />}
-              label="Base URL"
+              label={m.label_base_url()}
               value={config.openaiBaseUrl}
               mono
             />
             <ConfigField
               icon={<Cpu className="h-3 w-3" />}
-              label="Model"
+              label={m.label_model()}
               value={config.openaiModel}
               mono
             />
@@ -367,19 +369,19 @@ function ConfigCard({
             </div>
             <ConfigField
               icon={<Key className="h-3 w-3" />}
-              label="API Key"
+              label={m.label_api_key()}
               value={config.geminiApiKey}
               mono
             />
             <ConfigField
               icon={<Globe className="h-3 w-3" />}
-              label="Base URL"
+              label={m.label_base_url()}
               value={config.geminiBaseUrl}
               mono
             />
             <ConfigField
               icon={<Cpu className="h-3 w-3" />}
-              label="Model"
+              label={m.label_model()}
               value={config.geminiModel}
               mono
             />
@@ -452,11 +454,10 @@ function EmptyState() {
         <Key className="h-10 w-10 text-[var(--neutral-mid)]" />
       </div>
       <h3 className="mt-4 font-serif text-lg font-semibold text-[var(--ink)]">
-        No API Configurations
+        {m.api_config_empty_title()}
       </h3>
       <p className="mt-1 text-sm text-[var(--ink-soft)] max-w-sm">
-        Create your first API configuration to start using custom OpenAI and
-        Gemini endpoints.
+        {m.api_config_empty_description()}
       </p>
     </div>
   );

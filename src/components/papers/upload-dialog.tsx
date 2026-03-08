@@ -385,7 +385,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                     />
                   </label>
                   <p className="mt-1 text-xs text-[var(--neutral-mid)]">
-                    PDF, max 50MB
+                    {m.upload_file_size_limit()}
                   </p>
                 </>
               )}

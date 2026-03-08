@@ -144,5 +144,19 @@
   "upload_no_api_config": "您還沒有配置 API，請先前往設定頁面建立配置",
   "upload_select_api_config": "選擇 API 配置",
   "upload_use_system_api": "使用系統 API（消耗 1 credit）",
-  "upload_use_user_api": "使用我的 API（不消耗 credit）"
+  "upload_use_user_api": "使用我的 API（不消耗 credit）",
+  "api_config_deleting": "刪除中...",
+  "api_config_created_at": "建立於 {date}",
+  "api_config_empty_title": "暫無 API 配置",
+  "api_config_empty_description": "建立您的第一個 API 配置，開始使用自訂的 OpenAI 和 Gemini 端點。",
+  "api_config_create_failed": "配置建立失敗",
+  "api_config_update_failed": "配置更新失敗",
+  "api_config_default_description": "預設使用此配置處理新論文",
+  "api_config_testing": "測試中...",
+  "api_config_test_status_success": "成功",
+  "api_config_test_status_failed": "失敗",
+  "upload_file_size_limit": "PDF 檔案，最大 50MB",
+  "label_api_key": "API Key",
+  "label_base_url": "Base URL",
+  "label_model": "Model"
 }
