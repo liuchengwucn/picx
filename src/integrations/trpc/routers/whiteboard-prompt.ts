@@ -19,7 +19,10 @@ export const whiteboardPromptRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     const prompts = await ctx.db.query.whiteboardPrompts.findMany({
       where: eq(whiteboardPrompts.userId, ctx.session.user.id),
-      orderBy: [desc(whiteboardPrompts.isDefault), asc(whiteboardPrompts.createdAt)],
+      orderBy: [
+        desc(whiteboardPrompts.isDefault),
+        asc(whiteboardPrompts.createdAt),
+      ],
     });
     return prompts;
   }),
@@ -47,17 +50,22 @@ export const whiteboardPromptRouter = router({
         ),
       });
       if (existing) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "whiteboard_prompt_validation_name_duplicate" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "whiteboard_prompt_validation_name_duplicate",
+        });
       }
 
       if (input.isDefault) {
         await ctx.db
           .update(whiteboardPrompts)
           .set({ isDefault: false, updatedAt: new Date() })
-          .where(and(
-            eq(whiteboardPrompts.userId, ctx.session.user.id),
-            eq(whiteboardPrompts.isDefault, true),
-          ));
+          .where(
+            and(
+              eq(whiteboardPrompts.userId, ctx.session.user.id),
+              eq(whiteboardPrompts.isDefault, true),
+            ),
+          );
       }
 
       const [newPrompt] = await ctx.db
@@ -92,13 +100,19 @@ export const whiteboardPromptRouter = router({
         ),
       });
       if (!existing) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Prompt template not found" });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Prompt template not found",
+        });
       }
 
       if (input.promptTemplate) {
         const validation = validatePromptTemplate(input.promptTemplate);
         if (!validation.valid) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: validation.error });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: validation.error,
+          });
         }
       }
 
@@ -110,7 +124,10 @@ export const whiteboardPromptRouter = router({
           ),
         });
         if (duplicate) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "whiteboard_prompt_validation_name_duplicate" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "whiteboard_prompt_validation_name_duplicate",
+          });
         }
       }
 
@@ -118,10 +135,12 @@ export const whiteboardPromptRouter = router({
         await ctx.db
           .update(whiteboardPrompts)
           .set({ isDefault: false, updatedAt: new Date() })
-          .where(and(
-            eq(whiteboardPrompts.userId, ctx.session.user.id),
-            eq(whiteboardPrompts.isDefault, true),
-          ));
+          .where(
+            and(
+              eq(whiteboardPrompts.userId, ctx.session.user.id),
+              eq(whiteboardPrompts.isDefault, true),
+            ),
+          );
       }
 
       const { id, ...updateData } = input;
@@ -146,10 +165,15 @@ export const whiteboardPromptRouter = router({
         ),
       });
       if (!existing) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Prompt template not found" });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Prompt template not found",
+        });
       }
 
-      await ctx.db.delete(whiteboardPrompts).where(eq(whiteboardPrompts.id, input.id));
+      await ctx.db
+        .delete(whiteboardPrompts)
+        .where(eq(whiteboardPrompts.id, input.id));
 
       if (existing.isDefault) {
         const oldestPrompt = await ctx.db.query.whiteboardPrompts.findFirst({

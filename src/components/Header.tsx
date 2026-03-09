@@ -58,7 +58,9 @@ export default function Header() {
             activeProps={{ className: "nav-link is-active" }}
           >
             <Clipboard className="h-4 w-4" />
-            <span className="hidden sm:inline">{m.whiteboard_prompt_page_title()}</span>
+            <span className="hidden sm:inline">
+              {m.whiteboard_prompt_page_title()}
+            </span>
           </Link>
         </div>
 

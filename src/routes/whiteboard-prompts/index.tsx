@@ -1,15 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  Clock,
-  Edit3,
-  FileText,
-  Plus,
-  Star,
-  Trash2,
-} from "lucide-react";
+import { Clock, Edit3, FileText, Plus, Star, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { PromptDialog } from "#/components/whiteboard-prompts/prompt-dialog";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -20,6 +12,7 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/skeleton";
+import { PromptDialog } from "#/components/whiteboard-prompts/prompt-dialog";
 import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
 import { authClient } from "#/lib/auth-client";
@@ -193,9 +186,7 @@ function WhiteboardPromptsPage() {
                 {/* Card Header */}
                 <div className={styles.cardHeader}>
                   <div className="flex items-start justify-between gap-2 mb-3">
-                    <h3 className={styles.cardTitle}>
-                      {prompt.name}
-                    </h3>
+                    <h3 className={styles.cardTitle}>{prompt.name}</h3>
                     {prompt.isDefault && (
                       <div className={styles.defaultBadge}>
                         <Star className="h-3 w-3 fill-current" />

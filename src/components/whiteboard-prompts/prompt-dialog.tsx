@@ -65,7 +65,7 @@ export function PromptDialog({
       setIsDefault(false);
     }
     setErrors({});
-  }, [editingPromptId, promptsQuery.data, open]);
+  }, [editingPromptId, promptsQuery.data]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -83,8 +83,8 @@ export function PromptDialog({
       newErrors.promptTemplate =
         m.whiteboard_prompt_validation_content_length();
     } else {
-      const contentTextCount =
-        (promptTemplate.match(/\{contentText\}/g) || []).length;
+      const contentTextCount = (promptTemplate.match(/\{contentText\}/g) || [])
+        .length;
       if (contentTextCount === 0) {
         newErrors.promptTemplate =
           m.whiteboard_prompt_validation_content_text_required();

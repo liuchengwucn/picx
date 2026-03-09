@@ -302,7 +302,8 @@ export async function generateWhiteboardImage(
   const isOpenRouter = config.geminiBaseUrl?.includes("openrouter");
 
   // 获取 prompt 模板（自定义或默认）
-  const promptTemplate = customPromptTemplate || getSystemDefaultPromptTemplate();
+  const promptTemplate =
+    customPromptTemplate || getSystemDefaultPromptTemplate();
 
   // 先尝试使用完整论文文本
   try {
