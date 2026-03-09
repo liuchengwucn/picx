@@ -18,6 +18,8 @@ export interface PaperQueueMessage {
   r2Key: string;
   language?: "en" | "zh-cn" | "zh-tw" | "ja";
   whiteboardLanguage?: "en" | "zh-cn" | "zh-tw" | "ja";
+  apiConfigId?: string;
+  promptId?: string;
 }
 
 interface AppEnvBindings {

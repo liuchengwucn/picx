@@ -36,6 +36,7 @@
   "auth_sign_out_short": "登出",
   "papers_title": "論文列表",
   "papers_upload": "上傳論文",
+  "papers_search_placeholder": "搜尋論文標題...",
   "papers_filter_all": "全部",
   "papers_filter_processing": "處理中",
   "papers_filter_completed": "已完成",

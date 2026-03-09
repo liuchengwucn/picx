@@ -36,6 +36,7 @@
   "auth_sign_out_short": "Out",
   "papers_title": "Papers",
   "papers_upload": "Upload Paper",
+  "papers_search_placeholder": "Search paper titles...",
   "papers_filter_all": "All",
   "papers_filter_processing": "Processing",
   "papers_filter_completed": "Completed",

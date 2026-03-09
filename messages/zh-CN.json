@@ -36,6 +36,7 @@
   "auth_sign_out_short": "退出",
   "papers_title": "论文列表",
   "papers_upload": "上传论文",
+  "papers_search_placeholder": "搜索论文标题...",
   "papers_filter_all": "全部",
   "papers_filter_processing": "处理中",
   "papers_filter_completed": "已完成",

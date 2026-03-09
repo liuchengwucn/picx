@@ -176,6 +176,7 @@ export const paperRouter = router({
             "failed",
           ])
           .optional(),
+        search: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -188,6 +189,10 @@ export const paperRouter = router({
 
       if (input.status) {
         conditions.push(eq(papers.status, input.status));
+      }
+
+      if (input.search) {
+        conditions.push(sql`${papers.title} LIKE ${"%" + input.search + "%"}`);
       }
 
       const paperList = await ctx.db

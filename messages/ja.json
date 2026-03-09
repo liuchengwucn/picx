@@ -36,6 +36,7 @@
   "auth_sign_out_short": "ログアウト",
   "papers_title": "論文一覧",
   "papers_upload": "論文をアップロード",
+  "papers_search_placeholder": "論文タイトルを検索...",
   "papers_filter_all": "すべて",
   "papers_filter_processing": "処理中",
   "papers_filter_completed": "完了",

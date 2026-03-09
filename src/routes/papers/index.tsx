@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useState } from "react";
 import {
   EmptyState,
@@ -9,6 +9,7 @@ import {
 } from "#/components/papers/paper-list";
 import { UploadDialog } from "#/components/papers/upload-dialog";
 import { Button } from "#/components/ui/button";
+import { Input } from "#/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useRequireAuth } from "#/hooks/use-require-auth";
@@ -38,6 +39,7 @@ const paperSkeletonKeys = [
 function PapersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
   const trpc = useTRPC();
 
   const { session, isSessionPending } = useRequireAuth("/papers");
@@ -50,10 +52,16 @@ function PapersPage() {
       page,
       limit: 20,
       status: statusFilter === "all" ? undefined : statusFilter,
+      search: searchQuery || undefined,
     }),
   );
 
   const totalPages = Math.ceil((papersQuery.data?.total ?? 0) / 20);
+
+  const handleSearch = (value: string) => {
+    setSearchQuery(value);
+    setPage(1);
+  };
 
   // Show loading while checking session
   if (isSessionPending) {
@@ -87,6 +95,18 @@ function PapersPage() {
           <UploadDialog
             credits={profile.data?.credits ?? 0}
             onSuccess={() => papersQuery.refetch()}
+          />
+        </div>
+
+        {/* Search bar */}
+        <div className="mt-6 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-soft)]" />
+          <Input
+            type="text"
+            placeholder={m.papers_search_placeholder()}
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="pl-9"
           />
         </div>
 
