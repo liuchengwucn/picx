@@ -161,16 +161,9 @@ function WhiteboardPromptsPage() {
             <h3 className="text-lg font-semibold text-[var(--ink)] mb-2">
               {m.whiteboard_prompt_empty_state()}
             </h3>
-            <p className="text-sm text-[var(--ink-soft)] mb-6 max-w-md">
+            <p className="text-sm text-[var(--ink-soft)] max-w-md">
               {m.whiteboard_prompt_empty_hint()}
             </p>
-            <Button
-              onClick={handleCreate}
-              className="bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              {m.whiteboard_prompt_create()}
-            </Button>
           </div>
         ) : (
           /* Prompt Cards Grid */
