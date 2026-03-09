@@ -18,6 +18,7 @@ import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
@@ -416,13 +417,13 @@ export function ConfigDialog({
         </form>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-3 pt-4 border-t border-[var(--line)] flex-shrink-0">
+        <div className="flex flex-col gap-3 pt-4 border-t border-[var(--line)] flex-shrink-0 sm:flex-row sm:items-center">
           <Button
             type="button"
             variant="outline"
             onClick={handleTest}
             disabled={isTesting || isLoading}
-            className={`gap-2 border-[var(--academic-brown)] text-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/10 ${styles.testButton}`}
+            className={`w-full gap-2 border-[var(--academic-brown)] text-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/10 sm:w-auto ${styles.testButton}`}
           >
             {isTesting ? (
               <>
@@ -437,27 +438,27 @@ export function ConfigDialog({
             )}
           </Button>
 
-          <div className="flex-1" />
+          <DialogFooter className="w-full sm:ml-auto sm:w-auto">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isLoading}
+              className="w-full border-[var(--line)] sm:w-auto"
+            >
+              {m.cancel()}
+            </Button>
 
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isLoading}
-            className="border-[var(--line)]"
-          >
-            {m.cancel()}
-          </Button>
-
-          <Button
-            type="button"
-            onClick={() => form.handleSubmit()}
-            disabled={isLoading}
-            className="gap-2 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] transition-all duration-300"
-          >
-            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {m.save()}
-          </Button>
+            <Button
+              type="button"
+              onClick={() => form.handleSubmit()}
+              disabled={isLoading}
+              className="w-full gap-2 bg-[var(--academic-brown)] text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] transition-all duration-300 hover:bg-[var(--academic-brown-deep)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] sm:w-auto"
+            >
+              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {m.save()}
+            </Button>
+          </DialogFooter>
         </div>
       </DialogContent>
     </Dialog>
