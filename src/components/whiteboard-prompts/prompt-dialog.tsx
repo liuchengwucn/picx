@@ -25,6 +25,12 @@ interface PromptDialogProps {
   editingPromptId?: string;
 }
 
+const promptPlaceholderLabels = {
+  contentText: "{contentText}",
+  whiteboardMarkdown: "{whiteboardMarkdown}",
+  languageInstruction: "{languageInstruction}",
+} as const;
+
 export function PromptDialog({
   open,
   onOpenChange,
@@ -87,10 +93,14 @@ export function PromptDialog({
         .length;
       if (contentTextCount === 0) {
         newErrors.promptTemplate =
-          m.whiteboard_prompt_validation_content_text_required();
+          m.whiteboard_prompt_validation_content_text_required({
+            contentText: promptPlaceholderLabels.contentText,
+          });
       } else if (contentTextCount > 1) {
         newErrors.promptTemplate =
-          m.whiteboard_prompt_validation_content_text_once();
+          m.whiteboard_prompt_validation_content_text_once({
+            contentText: promptPlaceholderLabels.contentText,
+          });
       }
     }
 
@@ -141,7 +151,7 @@ export function PromptDialog({
               : m.whiteboard_prompt_create()}
           </DialogTitle>
           <DialogDescription className="text-[var(--ink-soft)]">
-            {m.whiteboard_prompt_variables_hint()}
+            {m.whiteboard_prompt_variables_hint(promptPlaceholderLabels)}
           </DialogDescription>
         </DialogHeader>
 
@@ -185,7 +195,11 @@ export function PromptDialog({
               <p className="text-sm text-red-500">{errors.promptTemplate}</p>
             )}
             <div className="flex items-center justify-between text-xs text-[var(--ink-soft)]">
-              <span>{m.whiteboard_prompt_content_text_required_hint()}</span>
+              <span>
+                {m.whiteboard_prompt_content_text_required_hint({
+                  contentText: promptPlaceholderLabels.contentText,
+                })}
+              </span>
               <span>{promptTemplate.length}/3000 characters</span>
             </div>
           </div>
@@ -213,7 +227,7 @@ export function PromptDialog({
             disabled={isLoading}
             className="text-[var(--ink-soft)]"
           >
-            {m.cancel?.() || "Cancel"}
+            {m.cancel()}
           </Button>
           <Button
             onClick={handleSave}
@@ -221,7 +235,7 @@ export function PromptDialog({
             className="bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
           >
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {m.save?.() || "Save"}
+            {m.save()}
           </Button>
         </DialogFooter>
       </DialogContent>
