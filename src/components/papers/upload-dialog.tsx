@@ -165,6 +165,45 @@ function ApiConfigSelector({
   );
 }
 
+interface PromptSelectorProps {
+  selectedPromptId: string | undefined;
+  prompts: Array<{ id: string; name: string; isDefault: boolean }> | undefined;
+  onPromptChange: (value: string) => void;
+}
+
+function PromptSelector({
+  selectedPromptId,
+  prompts,
+  onPromptChange,
+}: PromptSelectorProps) {
+  const hasPrompts = prompts && prompts.length > 0;
+
+  if (!hasPrompts) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-sm text-[var(--ink-soft)]">
+        {m.upload_select_prompt_template()}
+      </Label>
+      <Select value={selectedPromptId} onValueChange={onPromptChange}>
+        <SelectTrigger className="border-[var(--line)]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {prompts.map((prompt) => (
+            <SelectItem key={prompt.id} value={prompt.id}>
+              {prompt.name}
+              {prompt.isDefault && ` (${m.api_config_default()})`}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const fileInputId = useId();
   const [open, setOpen] = useState(false);
@@ -181,6 +220,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [selectedApiConfigId, setSelectedApiConfigId] = useState<
     string | undefined
   >(undefined);
+  const [selectedPromptId, setSelectedPromptId] = useState<string | undefined>(
+    undefined,
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const trpc = useTRPC();
   const { data: session } = authClient.useSession();
@@ -192,6 +234,12 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   // Fetch user's API configurations
   const { data: apiConfigs } = useQuery({
     ...trpc.apiConfig.list.queryOptions(),
+    enabled: !!session,
+  });
+
+  // Fetch user's prompt templates
+  const { data: prompts } = useQuery({
+    ...trpc.whiteboardPrompt.list.queryOptions(),
     enabled: !!session,
   });
 
@@ -207,6 +255,18 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
       }
     }
   }, [apiConfigs]);
+
+  // Set default prompt when prompts are loaded
+  useEffect(() => {
+    if (prompts && prompts.length > 0) {
+      const defaultPrompt = prompts.find((p) => p.isDefault);
+      if (defaultPrompt) {
+        setSelectedPromptId(defaultPrompt.id);
+      } else {
+        setSelectedPromptId(prompts[0].id);
+      }
+    }
+  }, [prompts]);
 
   const uploadFile = useMutation(trpc.upload.uploadFile.mutationOptions());
   const createPaper = useMutation(trpc.paper.create.mutationOptions());
@@ -241,6 +301,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         language: summaryLanguage,
         whiteboardLanguage,
         apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
+        promptId: selectedPromptId,
       });
       setOpen(false);
       setFile(null);
@@ -260,6 +321,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     whiteboardLanguage,
     apiSource,
     selectedApiConfigId,
+    selectedPromptId,
   ]);
 
   const handleArxivSubmit = useCallback(async () => {
@@ -279,6 +341,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         language: summaryLanguage,
         whiteboardLanguage,
         apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
+        promptId: selectedPromptId,
       });
       setOpen(false);
       setArxivUrl("");
@@ -297,6 +360,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     whiteboardLanguage,
     apiSource,
     selectedApiConfigId,
+    selectedPromptId,
   ]);
 
   const insufficientCredits = credits < 1;
@@ -413,6 +477,13 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 onApiConfigChange={(value) => setSelectedApiConfigId(value)}
               />
             </div>
+            <div className="mt-4">
+              <PromptSelector
+                selectedPromptId={selectedPromptId}
+                prompts={prompts}
+                onPromptChange={(value) => setSelectedPromptId(value)}
+              />
+            </div>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-[var(--ink-soft)]">
                 {m.credits_balance()}: {credits}
@@ -470,6 +541,13 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 apiConfigs={apiConfigs}
                 onApiSourceChange={(value) => setApiSource(value)}
                 onApiConfigChange={(value) => setSelectedApiConfigId(value)}
+              />
+            </div>
+            <div className="mt-4">
+              <PromptSelector
+                selectedPromptId={selectedPromptId}
+                prompts={prompts}
+                onPromptChange={(value) => setSelectedPromptId(value)}
               />
             </div>
             <div className="mt-4 flex items-center justify-between text-sm">
