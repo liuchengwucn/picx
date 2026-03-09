@@ -133,8 +133,8 @@ export function PromptDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] rounded-2xl border-[var(--line)] bg-[var(--parchment)]">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] rounded-2xl border-[var(--line)] bg-[var(--parchment)] flex flex-col">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle className="font-serif text-xl">
             {editingPromptId
               ? m.whiteboard_prompt_edit()
@@ -145,7 +145,7 @@ export function PromptDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-4 overflow-y-auto flex-1 min-h-0">
           {/* Template Name */}
           <div className="space-y-2">
             <Label htmlFor="name" className="text-[var(--ink)]">
@@ -177,8 +177,8 @@ export function PromptDialog({
               value={promptTemplate}
               onChange={(e) => setPromptTemplate(e.target.value)}
               placeholder={m.whiteboard_prompt_content_placeholder()}
-              rows={12}
-              className={`border-[var(--line)] font-mono text-sm ${errors.promptTemplate ? "border-red-500" : ""}`}
+              rows={8}
+              className={`border-[var(--line)] font-mono text-sm resize-none ${errors.promptTemplate ? "border-red-500" : ""}`}
               maxLength={3000}
             />
             {errors.promptTemplate && (
@@ -206,7 +206,7 @@ export function PromptDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 flex-shrink-0">
           <Button
             variant="ghost"
             onClick={() => onOpenChange(false)}
