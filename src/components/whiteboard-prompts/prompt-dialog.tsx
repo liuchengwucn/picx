@@ -146,8 +146,8 @@ export function PromptDialog({
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="font-serif text-xl">
             {editingPromptId
-              ? m.whiteboard_prompt_edit()
-              : m.whiteboard_prompt_create()}
+              ? m.edit()
+              : m.create()}
           </DialogTitle>
           <DialogDescription className="text-[var(--ink-soft)]">
             {m.whiteboard_prompt_variables_hint(promptPlaceholderLabels)}

@@ -102,6 +102,8 @@
   "credits_empty": "暫無交易記錄",
   "cancel": "取消",
   "save": "儲存",
+  "create": "建立",
+  "edit": "編輯",
   "error_insufficient_credits": "積分不足，至少需要 1 積分。",
   "home_hero_title": "AI 驅動的論文總結與白板圖生成",
   "home_hero_badge": "更快獲取論文 idea 與重點",

@@ -102,6 +102,8 @@
   "credits_empty": "取引履歴がありません",
   "cancel": "キャンセル",
   "save": "保存",
+  "create": "作成",
+  "edit": "編集",
   "error_insufficient_credits": "クレジットが不足しています。最低1クレジットが必要です。",
   "home_hero_title": "AI駆動の論文要約とホワイトボード生成",
   "home_hero_badge": "論文のアイデアと要点をすばやく掴む",

@@ -180,11 +180,8 @@ export function ConfigDialog({
         className={`sm:max-w-[680px] max-h-[90vh] rounded-3xl border-[var(--line)] bg-[var(--parchment)] flex flex-col ${styles.dialogContent}`}
       >
         <DialogHeader className="flex-shrink-0">
-          <DialogTitle className="font-serif text-2xl text-[var(--ink)] flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--academic-brown)] to-[var(--gold)] shadow-lg">
-              <Key className="h-5 w-5 text-white" />
-            </div>
-            {configId ? m.api_config_edit() : m.api_config_create()}
+          <DialogTitle className="font-serif text-2xl text-[var(--ink)]">
+            {configId ? m.edit() : m.create()}
           </DialogTitle>
         </DialogHeader>
 
@@ -449,7 +446,7 @@ export function ConfigDialog({
             disabled={isLoading}
             className="border-[var(--line)]"
           >
-            {m.api_config_cancel()}
+            {m.cancel()}
           </Button>
 
           <Button
@@ -459,7 +456,7 @@ export function ConfigDialog({
             className="gap-2 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] transition-all duration-300"
           >
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {m.api_config_save()}
+            {m.save()}
           </Button>
         </div>
       </DialogContent>

@@ -279,11 +279,6 @@ function ConfigCard({
   return (
     <div
       className={`paper-card p-6 relative overflow-hidden ${styles.configCard} ${config.isDefault ? styles.defaultCard : ""}`}
-      style={{
-        background: config.isDefault
-          ? "linear-gradient(135deg, rgba(139,111,71,0.08) 0%, var(--surface) 100%)"
-          : undefined,
-      }}
     >
       {/* Decorative corner accent */}
       {config.isDefault && (
@@ -296,9 +291,6 @@ function ConfigCard({
         {/* Header */}
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--academic-brown)] to-[var(--gold)] shadow-lg">
-              <Key className="h-6 w-6 text-white" />
-            </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-serif text-lg font-bold text-[var(--ink)]">
@@ -313,43 +305,41 @@ function ConfigCard({
                   </div>
                 )}
               </div>
-              <p className="text-xs text-[var(--ink-soft)] mt-0.5">
-                {m.api_config_created_at({
-                  date: new Date(config.createdAt).toLocaleDateString(),
-                })}
-              </p>
+              <div className="flex items-center gap-1.5 text-xs text-[var(--ink-soft)] mt-0.5">
+                <Clock className="h-3 w-3" />
+                <span>{new Date(config.createdAt).toLocaleDateString()}</span>
+              </div>
             </div>
           </div>
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            <Button
-              size="icon-sm"
-              variant="ghost"
+            <button
+              type="button"
               onClick={() => onEdit(config.id)}
-              className={`hover:bg-[var(--academic-brown)]/10 ${styles.actionButton}`}
+              className={styles.actionButton}
+              title={m.api_config_edit()}
             >
               <Edit3 className="h-4 w-4" />
-            </Button>
+            </button>
             {!config.isDefault && (
-              <Button
-                size="icon-sm"
-                variant="ghost"
+              <button
+                type="button"
                 onClick={() => onSetDefault(config.id)}
-                className={`hover:bg-[var(--gold)]/10 hover:text-[var(--gold)] ${styles.actionButton}`}
+                className={styles.actionButton}
                 title={m.api_config_set_default()}
               >
                 <Star className="h-4 w-4" />
-              </Button>
+              </button>
             )}
-            <Button
-              size="icon-sm"
-              variant="ghost"
+            <button
+              type="button"
               onClick={() => onDelete(config.id)}
-              className={`hover:bg-[var(--sienna)]/10 hover:text-[var(--sienna)] ${styles.actionButton}`}
+              className={`${styles.actionButton} ${styles.deleteButton}`}
+              title={m.api_config_delete()}
             >
               <Trash2 className="h-4 w-4" />
-            </Button>
+            </button>
           </div>
         </div>
 

@@ -87,30 +87,8 @@
   overflow: hidden;
 }
 
-/* Notebook Lines Background */
-.promptCard::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 31px,
-    rgba(139, 111, 71, 0.06) 31px,
-    rgba(139, 111, 71, 0.06) 32px
-  );
-  pointer-events: none;
-  opacity: 0.5;
-}
-
-/* Left Margin Line - Removed */
-.promptCard::after {
-  content: "";
-  display: none;
-}
-
 .promptCard:hover {
-  transform: translateY(-4px) rotate(-0.5deg);
+  transform: translateY(-4px);
   box-shadow:
     0 8px 24px rgba(45, 42, 36, 0.12),
     0 2px 8px rgba(45, 42, 36, 0.08);
