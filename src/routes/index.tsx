@@ -261,15 +261,12 @@ function HomePage() {
               {m.home_credits_title()}
             </h2>
 
-            <div className="space-y-3 text-center mb-8">
-              <p className="text-lg text-[var(--ink-soft)]">
-                {m.home_credits_new_user()}
+            <div className="text-center mb-8">
+              <p className="text-xl font-semibold text-[var(--academic-brown)] mb-3">
+                {m.home_credits_main()}
               </p>
-              <p className="text-lg font-semibold text-[var(--academic-brown)]">
-                ✨ {m.home_credits_daily_bonus()}
-              </p>
-              <p className="text-base text-[var(--ink-soft)]">
-                {m.home_credits_cost()}
+              <p className="text-sm text-[var(--ink-soft)]">
+                {m.home_credits_detail()}
               </p>
             </div>
 
