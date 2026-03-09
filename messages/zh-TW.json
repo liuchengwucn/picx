@@ -105,7 +105,7 @@
   "home_feature_ai_title": "AI 智慧總結",
   "home_feature_ai_desc": "先進的 AI 技術提供精準總結",
   "home_feature_whiteboard_title": "白板圖生成",
-  "home_feature_whiteboard_desc": "AI 驅動的視覺化白板圖生成",
+  "home_feature_whiteboard_desc": "AI 驅動的視覺化白板圖生成，支援自訂 Prompt",
   "home_feature_credits_title": "免費公益",
   "home_feature_credits_desc": "面向研究者免費開放使用，沒有充值入口，支援自帶 API Key 無限使用",
   "home_flow_title": "使用流程",

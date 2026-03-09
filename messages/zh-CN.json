@@ -105,7 +105,7 @@
   "home_feature_ai_title": "AI 智能总结",
   "home_feature_ai_desc": "先进的 AI 技术提供精准总结",
   "home_feature_whiteboard_title": "白板图生成",
-  "home_feature_whiteboard_desc": "AI 驱动的可视化白板图生成",
+  "home_feature_whiteboard_desc": "AI 驱动的可视化白板图生成，支持自定义 Prompt",
   "home_feature_credits_title": "免费公益",
   "home_feature_credits_desc": "面向研究者免费开放使用，没有充值入口，支持自带 API Key 无限使用",
   "home_flow_title": "使用流程",

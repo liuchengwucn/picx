@@ -105,7 +105,7 @@
   "home_feature_ai_title": "AIスマート要約",
   "home_feature_ai_desc": "先進的なAI技術による正確な要約",
   "home_feature_whiteboard_title": "ホワイトボード生成",
-  "home_feature_whiteboard_desc": "AI駆動の視覚化ホワイトボード生成",
+  "home_feature_whiteboard_desc": "AI駆動の視覚化ホワイトボード生成、カスタムプロンプト対応",
   "home_feature_credits_title": "無料の公益運営",
   "home_feature_credits_desc": "研究者向けに無料公開しており、課金チャージ導線はありません。独自の API Key で無制限に利用可能",
   "home_flow_title": "使用フロー",

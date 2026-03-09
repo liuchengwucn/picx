@@ -158,19 +158,6 @@
   overflow: hidden;
 }
 
-.emptyState::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 31px,
-    rgba(139, 111, 71, 0.03) 31px,
-    rgba(139, 111, 71, 0.03) 32px
-  );
-  pointer-events: none;
-}
 
 .emptyIcon {
   animation: float 3s ease-in-out infinite;
