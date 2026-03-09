@@ -1,0 +1,285 @@
+/* Whiteboard Prompts Page - Handwritten Notebook Aesthetic */
+
+/* Create Button with Ripple Effect */
+.createButton {
+  position: relative;
+  overflow: hidden;
+  transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.createButton::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition:
+    width 600ms,
+    height 600ms;
+}
+
+.createButton:hover::before {
+  width: 300px;
+  height: 300px;
+}
+
+/* Empty State - Floating Animation */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  margin-top: 3rem;
+  border: 2px dashed var(--line);
+  border-radius: 1.5rem;
+  background: linear-gradient(
+    135deg,
+    var(--parchment) 0%,
+    var(--parchment-warm) 100%
+  );
+  position: relative;
+  overflow: hidden;
+}
+
+.emptyState::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 31px,
+    rgba(139, 111, 71, 0.03) 31px,
+    rgba(139, 111, 71, 0.03) 32px
+  );
+  pointer-events: none;
+}
+
+.emptyIcon {
+  animation: float 3s ease-in-out infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Prompt Card - Notebook Page Style */
+.promptCard {
+  position: relative;
+  background: var(--parchment);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  transition: all 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fade-in-up 500ms ease-out backwards;
+  overflow: hidden;
+}
+
+/* Notebook Lines Background */
+.promptCard::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 31px,
+    rgba(139, 111, 71, 0.06) 31px,
+    rgba(139, 111, 71, 0.06) 32px
+  );
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Left Margin Line */
+.promptCard::after {
+  content: "";
+  position: absolute;
+  left: 3rem;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(201, 169, 97, 0.3) 10%,
+    rgba(201, 169, 97, 0.3) 90%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+.promptCard:hover {
+  transform: translateY(-4px) rotate(-0.5deg);
+  box-shadow:
+    0 8px 24px rgba(45, 42, 36, 0.12),
+    0 2px 8px rgba(45, 42, 36, 0.08);
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Default Card - Golden Glow */
+.defaultCard {
+  border-color: var(--gold);
+  background: linear-gradient(
+    135deg,
+    var(--parchment) 0%,
+    rgba(201, 169, 97, 0.08) 100%
+  );
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 2px 16px rgba(45, 42, 36, 0.08),
+      0 0 0 0 rgba(201, 169, 97, 0);
+  }
+  50% {
+    box-shadow:
+      0 2px 16px rgba(45, 42, 36, 0.08),
+      0 0 20px 2px rgba(201, 169, 97, 0.2);
+  }
+}
+
+/* Card Header */
+.cardHeader {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 1rem;
+}
+
+.cardTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: "Fraunces", serif;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* Default Badge - Handwritten Style */
+.defaultBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  background: var(--gold);
+  color: var(--ink);
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 8px rgba(201, 169, 97, 0.3);
+  transform: rotate(-2deg);
+  transition: transform 200ms ease;
+}
+
+.defaultBadge:hover {
+  transform: rotate(0deg) scale(1.05);
+}
+
+/* Prompt Preview - Handwritten Text */
+.promptPreview {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 1.25rem;
+  padding-left: 0.5rem;
+}
+
+.previewContent {
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--ink-soft);
+  font-family: "Manrope", sans-serif;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+}
+
+/* Card Actions - Sketch Style Buttons */
+.cardActions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--line);
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.actionButton::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--academic-brown);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.actionButton:hover {
+  transform: scale(1.1) rotate(5deg);
+  border-color: var(--academic-brown);
+  color: var(--academic-brown);
+}
+
+.actionButton:hover::before {
+  opacity: 0.1;
+}
+
+.actionButton:active {
+  transform: scale(0.95) rotate(0deg);
+}
+
+.deleteButton {
+  border-color: rgba(160, 82, 45, 0.3);
+  color: var(--sienna);
+}
+
+.deleteButton:hover {
+  border-color: var(--sienna);
+  color: var(--sienna);
+}
+
+.deleteButton:hover::before {
+  background: var(--sienna);
+}
