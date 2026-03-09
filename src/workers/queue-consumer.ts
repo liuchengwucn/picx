@@ -6,6 +6,7 @@ import {
   papers,
   user,
   userApiConfigs,
+  whiteboardPrompts,
 } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import {
@@ -34,6 +35,7 @@ interface QueueMessage {
   language?: "en" | "zh-cn" | "zh-tw" | "ja"; // 摘要语言
   whiteboardLanguage?: "en" | "zh-cn" | "zh-tw" | "ja"; // 白板图语言
   apiConfigId?: string; // 用户提供的 API 配置 ID
+  promptId?: string; // 用户提供的 Prompt 模板 ID
 }
 
 const MAX_RETRIES = 3;
@@ -151,6 +153,37 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       geminiModel: env.GEMINI_MODEL,
       cfApiToken: env.CF_API_TOKEN,
     };
+  }
+
+  // Step 0.5: 读取自定义 Prompt 模板（如果提供）
+  let customPromptTemplate: string | undefined;
+
+  if (msg.promptId) {
+    try {
+      log("load-prompt", `Loading custom prompt template: ${msg.promptId}`);
+
+      const [promptConfig] = await db
+        .select()
+        .from(whiteboardPrompts)
+        .where(eq(whiteboardPrompts.id, msg.promptId))
+        .limit(1);
+
+      if (!promptConfig) {
+        logWarn(
+          "load-prompt",
+          `Custom prompt template not found: ${msg.promptId}, using default`,
+        );
+      } else {
+        customPromptTemplate = promptConfig.promptTemplate;
+        log("load-prompt", `Custom prompt template loaded successfully`);
+      }
+    } catch (error) {
+      logWarn(
+        "load-prompt",
+        `Failed to load custom prompt template, using default`,
+        error,
+      );
+    }
   }
 
   // Step 1: 获取 PDF
@@ -346,6 +379,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       aiConfig,
       whiteboardLang,
       summary, // 传递摘要作为降级选项
+      customPromptTemplate, // 传递自定义 prompt 模板
     );
     imageData = result.imageData;
     prompt = result.prompt;

@@ -11,6 +11,11 @@ export interface AIConfig {
   cfApiToken?: string;
 }
 
+import {
+  buildPromptFromTemplate,
+  getSystemDefaultPromptTemplate,
+} from "#/lib/prompt-validation";
+
 export interface PaperTailReviewInput {
   candidateTitle: string;
   pageNumber: number;
@@ -281,6 +286,7 @@ ${paperText}`,
  * @param config AI 配置
  * @param language 白板图语言 ('en' 为英文, 'zh-cn' 为简体中文, 'zh-tw' 为繁体中文, 'ja' 为日文)
  * @param summary 可选的论文摘要，当论文文本过长时使用
+ * @param customPromptTemplate 可选的自定义 prompt 模板
  * @returns 图片的 ArrayBuffer 数据和用于生成的 prompt
  * @throws 如果生成失败则抛出错误
  */
@@ -290,13 +296,18 @@ export async function generateWhiteboardImage(
   config: AIConfig,
   language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
   summary?: string,
+  customPromptTemplate?: string,
 ): Promise<{ imageData: ArrayBuffer; prompt: string }> {
   // 检测是否使用 OpenRouter (通过 geminiBaseUrl 判断)
   const isOpenRouter = config.geminiBaseUrl?.includes("openrouter");
 
+  // 获取 prompt 模板（自定义或默认）
+  const promptTemplate = customPromptTemplate || getSystemDefaultPromptTemplate();
+
   // 先尝试使用完整论文文本
   try {
-    const prompt = buildWhiteboardPrompt(
+    const prompt = buildPromptFromTemplate(
+      promptTemplate,
       whiteboardMarkdown,
       paperText,
       language,
@@ -318,7 +329,8 @@ export async function generateWhiteboardImage(
       console.log(
         `Paper text length: ${paperText.length}, Summary length: ${summary.length}`,
       );
-      const promptWithSummary = buildWhiteboardPrompt(
+      const promptWithSummary = buildPromptFromTemplate(
+        promptTemplate,
         whiteboardMarkdown,
         summary,
         language,
@@ -891,49 +903,4 @@ Rules:
       `Paper tail review failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
-}
-
-/**
- * 构建白板生成 prompt
- *
- * @param whiteboardMarkdown 白板的 Markdown 表示
- * @param contentText 论文文本或摘要
- * @param language 白板图语言
- * @returns 生成的 prompt
- */
-function buildWhiteboardPrompt(
-  whiteboardMarkdown: string,
-  contentText: string,
-  language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
-): string {
-  const languageInstruction =
-    language === "zh-cn"
-      ? "请用简体中文生成白板图，包括所有文字、标注和说明。"
-      : language === "zh-tw"
-        ? "請用繁體中文生成白板圖，包括所有文字、標註和說明。"
-        : language === "ja"
-          ? "日本語でホワイトボード図を生成してください。すべてのテキスト、ラベル、説明を含めてください。"
-          : "Generate the whiteboard in English, including all text, labels, and captions.";
-
-  return `Transform this academic paper into a professor-style whiteboard image. Include diagrams, arrows, boxes, and short captions that explain the core ideas visually.
-
-${languageInstruction}
-
-Key insights to emphasize:
-${whiteboardMarkdown}
-
-Paper content:
-${contentText}
-
-Requirements:
-- Create a hand-drawn whiteboard aesthetic with a clean, academic style
-- Use boxes and circles to highlight key concepts from the insights above
-- Draw arrows to show relationships and flow between ideas
-- Include key formulas and equations prominently (extract from paper content)
-- Use different sections or colors to organize main topics
-- Make the text readable and well-organized
-- Ensure good spacing to avoid clutter
-- Use a professional, academic color palette (black, blue, red for emphasis)
-- Mimic the style of a university professor explaining concepts on a whiteboard
-- Focus on visualizing the insights and their connections, not just listing information`;
 }

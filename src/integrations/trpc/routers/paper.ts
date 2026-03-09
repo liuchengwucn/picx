@@ -40,6 +40,7 @@ export const paperRouter = router({
         language: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(), // 摘要语言
         whiteboardLanguage: z.enum(["en", "zh-cn", "zh-tw", "ja"]).optional(), // 白板图语言
         apiConfigId: z.string().uuid().optional(), // 用户提供的 API 配置
+        promptId: z.string().uuid().optional(), // 用户提供的 Prompt 模板
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -137,6 +138,7 @@ export const paperRouter = router({
           language: queueLanguage,
           whiteboardLanguage: queueWhiteboardLanguage,
           apiConfigId: input.apiConfigId,
+          promptId: input.promptId,
         });
       } catch (error) {
         await ctx.db
