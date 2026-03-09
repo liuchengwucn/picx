@@ -24,10 +24,12 @@ export default function ParaglideLocaleSwitcher() {
 
   return (
     <Select value={currentLocale} onValueChange={(value) => setLocale(value)}>
-      <SelectTrigger className="w-[140px] h-9">
-        <div className="flex items-center gap-1.5 w-full">
+      <SelectTrigger className="w-9 sm:w-[140px] h-9 [&>svg]:hidden sm:[&>svg]:block">
+        <div className="flex items-center gap-1.5 w-full justify-center sm:justify-start">
           <Languages className="h-4 w-4 shrink-0" />
-          <SelectValue />
+          <span className="hidden sm:inline">
+            <SelectValue />
+          </span>
         </div>
       </SelectTrigger>
       <SelectContent>

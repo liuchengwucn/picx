@@ -5,6 +5,12 @@ import {
   isReviewGuestModeEnabled,
 } from "#/lib/review-guest";
 import * as m from "#/paraglide/messages";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu";
 
 export default function BetterAuthHeader() {
   const queryClient = useQueryClient();
@@ -18,52 +24,55 @@ export default function BetterAuthHeader() {
 
   if (isPending) {
     return (
-      <div className="h-8 w-8 bg-neutral-100 dark:bg-neutral-800 animate-pulse" />
+      <div className="h-8 w-8 bg-neutral-100 dark:bg-neutral-800 animate-pulse rounded-full" />
     );
   }
 
   if (effectiveSession?.user) {
     return (
-      <div className="flex items-center gap-2">
-        {effectiveSession.user.image ? (
-          <img
-            src={effectiveSession.user.image}
-            alt=""
-            className="h-8 w-8 rounded-full"
-          />
-        ) : (
-          <div className="h-8 w-8 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center rounded-full">
-            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              {effectiveSession.user.name?.charAt(0).toUpperCase() || "U"}
-            </span>
-          </div>
-        )}
-        {isGuestSession ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <button
             type="button"
-            onClick={() => {
-              void startGitHubSignIn("/");
-            }}
-            className="h-9 px-3 sm:px-4 text-sm font-medium bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors inline-flex items-center whitespace-nowrap rounded"
+            className="h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           >
-            <span className="hidden sm:inline">{m.auth_sign_in_github()}</span>
-            <span className="sm:hidden">{m.auth_sign_in()}</span>
+            {effectiveSession.user.image ? (
+              <img
+                src={effectiveSession.user.image}
+                alt=""
+                className="h-8 w-8 rounded-full"
+              />
+            ) : (
+              <div className="h-8 w-8 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center rounded-full">
+                <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+                  {effectiveSession.user.name?.charAt(0).toUpperCase() || "U"}
+                </span>
+              </div>
+            )}
           </button>
-        ) : (
-          <button
-            type="button"
-            onClick={async () => {
-              await authClient.signOut();
-              queryClient.clear();
-              window.location.assign("/");
-            }}
-            className="h-9 px-3 sm:px-4 text-sm font-medium bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50 border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors whitespace-nowrap rounded"
-          >
-            <span className="hidden sm:inline">{m.auth_sign_out()}</span>
-            <span className="sm:hidden">{m.auth_sign_out_short()}</span>
-          </button>
-        )}
-      </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          {isGuestSession ? (
+            <DropdownMenuItem
+              onClick={() => {
+                void startGitHubSignIn("/");
+              }}
+            >
+              {m.auth_sign_in_github()}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              onClick={async () => {
+                await authClient.signOut();
+                queryClient.clear();
+                window.location.assign("/");
+              }}
+            >
+              {m.auth_sign_out()}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   }
 
