@@ -275,9 +275,20 @@ function PaperDetailPage() {
                     {m.paper_source()}
                   </span>
                   <span className="text-right">
-                    {paper.sourceType === "arxiv"
-                      ? "arXiv"
-                      : m.paper_source_upload()}
+                    {paper.sourceType === "arxiv" && paper.sourceUrl ? (
+                      <a
+                        href={paper.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[var(--academic-brown)] hover:underline"
+                      >
+                        arXiv
+                      </a>
+                    ) : paper.sourceType === "arxiv" ? (
+                      "arXiv"
+                    ) : (
+                      m.paper_source_upload()
+                    )}
                   </span>
                 </div>
                 {paper.pageCount && (
