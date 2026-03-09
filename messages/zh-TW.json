@@ -207,6 +207,7 @@
   "whiteboard_prompt_delete_default_confirm": "確定要刪除預設提示詞嗎？將使用系統預設。",
   "whiteboard_prompt_create_success": "提示詞已建立",
   "whiteboard_prompt_update_success": "提示詞已更新",
-  "upload_select_prompt_template": "提示詞",
-  "upload_use_system_prompt": "系統預設"
+  "upload_select_prompt_template": "選擇白板提示詞",
+  "upload_use_system_prompt": "系統預設",
+  "upload_advanced_settings": "進階設定"
 }

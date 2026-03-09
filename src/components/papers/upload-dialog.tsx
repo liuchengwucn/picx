@@ -1,6 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "#/components/ui/accordion";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -178,10 +184,6 @@ function PromptSelector({
 }: PromptSelectorProps) {
   const hasPrompts = prompts && prompts.length > 0;
 
-  if (!hasPrompts) {
-    return null;
-  }
-
   return (
     <div className="space-y-2">
       <Label className="text-sm text-[var(--ink-soft)]">
@@ -195,7 +197,7 @@ function PromptSelector({
           <SelectItem value="system">
             {m.upload_use_system_prompt()}
           </SelectItem>
-          {prompts.map((prompt) => (
+          {hasPrompts && prompts.map((prompt) => (
             <SelectItem key={prompt.id} value={prompt.id}>
               {prompt.name}
               {prompt.isDefault && ` (${m.api_config_default()})`}
@@ -268,6 +270,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
       } else {
         setSelectedPromptId(prompts[0].id);
       }
+    } else {
+      // No custom prompts, use system default
+      setSelectedPromptId(undefined);
     }
   }, [prompts]);
 
@@ -471,21 +476,28 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 }
               />
             </div>
-            <div className="mt-4">
-              <ApiConfigSelector
-                apiSource={apiSource}
-                selectedApiConfigId={selectedApiConfigId}
-                apiConfigs={apiConfigs}
-                onApiSourceChange={(value) => setApiSource(value)}
-                onApiConfigChange={(value) => setSelectedApiConfigId(value)}
-              />
-            </div>
-            <div className="mt-4">
-              <PromptSelector
-                selectedPromptId={selectedPromptId}
-                prompts={prompts}
-                onPromptChange={(value) => setSelectedPromptId(value)}
-              />
+            <div className="mt-2">
+              <Accordion type="single" collapsible>
+                <AccordionItem value="advanced" className="border-[var(--line)]">
+                  <AccordionTrigger className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:no-underline py-2">
+                    {m.upload_advanced_settings()}
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-3 pb-1">
+                    <ApiConfigSelector
+                      apiSource={apiSource}
+                      selectedApiConfigId={selectedApiConfigId}
+                      apiConfigs={apiConfigs}
+                      onApiSourceChange={(value) => setApiSource(value)}
+                      onApiConfigChange={(value) => setSelectedApiConfigId(value)}
+                    />
+                    <PromptSelector
+                      selectedPromptId={selectedPromptId}
+                      prompts={prompts}
+                      onPromptChange={(value) => setSelectedPromptId(value)}
+                    />
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-[var(--ink-soft)]">
@@ -537,21 +549,28 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 }
               />
             </div>
-            <div className="mt-4">
-              <ApiConfigSelector
-                apiSource={apiSource}
-                selectedApiConfigId={selectedApiConfigId}
-                apiConfigs={apiConfigs}
-                onApiSourceChange={(value) => setApiSource(value)}
-                onApiConfigChange={(value) => setSelectedApiConfigId(value)}
-              />
-            </div>
-            <div className="mt-4">
-              <PromptSelector
-                selectedPromptId={selectedPromptId}
-                prompts={prompts}
-                onPromptChange={(value) => setSelectedPromptId(value)}
-              />
+            <div className="mt-2">
+              <Accordion type="single" collapsible>
+                <AccordionItem value="advanced" className="border-[var(--line)]">
+                  <AccordionTrigger className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:no-underline py-2">
+                    {m.upload_advanced_settings()}
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-3 pb-1">
+                    <ApiConfigSelector
+                      apiSource={apiSource}
+                      selectedApiConfigId={selectedApiConfigId}
+                      apiConfigs={apiConfigs}
+                      onApiSourceChange={(value) => setApiSource(value)}
+                      onApiConfigChange={(value) => setSelectedApiConfigId(value)}
+                    />
+                    <PromptSelector
+                      selectedPromptId={selectedPromptId}
+                      prompts={prompts}
+                      onPromptChange={(value) => setSelectedPromptId(value)}
+                    />
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-[var(--ink-soft)]">

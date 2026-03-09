@@ -207,6 +207,7 @@
   "whiteboard_prompt_delete_default_confirm": "确定要删除默认提示词吗？将使用系统默认。",
   "whiteboard_prompt_create_success": "提示词已创建",
   "whiteboard_prompt_update_success": "提示词已更新",
-  "upload_select_prompt_template": "提示词",
-  "upload_use_system_prompt": "系统默认"
+  "upload_select_prompt_template": "选择白板提示词",
+  "upload_use_system_prompt": "系统默认",
+  "upload_advanced_settings": "高级设置"
 }

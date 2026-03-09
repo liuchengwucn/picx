@@ -207,6 +207,7 @@
   "whiteboard_prompt_delete_default_confirm": "Are you sure you want to delete the default prompt? The system default will be used.",
   "whiteboard_prompt_create_success": "Prompt created",
   "whiteboard_prompt_update_success": "Prompt updated",
-  "upload_select_prompt_template": "Prompt",
-  "upload_use_system_prompt": "System Default"
+  "upload_select_prompt_template": "Select Whiteboard Prompt",
+  "upload_use_system_prompt": "System Default",
+  "upload_advanced_settings": "Advanced Settings"
 }

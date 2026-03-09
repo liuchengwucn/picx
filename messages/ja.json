@@ -207,6 +207,7 @@
   "whiteboard_prompt_delete_default_confirm": "デフォルトプロンプトを削除してもよろしいですか？システムデフォルトが使用されます。",
   "whiteboard_prompt_create_success": "プロンプトを作成しました",
   "whiteboard_prompt_update_success": "プロンプトを更新しました",
-  "upload_select_prompt_template": "プロンプト",
-  "upload_use_system_prompt": "システムデフォルト"
+  "upload_select_prompt_template": "ホワイトボードプロンプトを選択",
+  "upload_use_system_prompt": "システムデフォルト",
+  "upload_advanced_settings": "詳細設定"
 }
