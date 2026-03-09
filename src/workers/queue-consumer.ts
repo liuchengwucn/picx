@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   creditTransactions,
@@ -108,7 +108,12 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       const [config] = await db
         .select()
         .from(userApiConfigs)
-        .where(eq(userApiConfigs.id, msg.apiConfigId))
+        .where(
+          and(
+            eq(userApiConfigs.id, msg.apiConfigId),
+            eq(userApiConfigs.userId, msg.userId),
+          ),
+        )
         .limit(1);
 
       if (!config) {
@@ -165,7 +170,12 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       const [promptConfig] = await db
         .select()
         .from(whiteboardPrompts)
-        .where(eq(whiteboardPrompts.id, msg.promptId))
+        .where(
+          and(
+            eq(whiteboardPrompts.id, msg.promptId),
+            eq(whiteboardPrompts.userId, msg.userId),
+          ),
+        )
         .limit(1);
 
       if (!promptConfig) {

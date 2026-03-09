@@ -1,7 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { creditTransactions, paperResults, papers, user } from "#/db/schema";
+import {
+  creditTransactions,
+  paperResults,
+  papers,
+  user,
+  userApiConfigs,
+  whiteboardPrompts,
+} from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
 import {
@@ -52,6 +59,46 @@ export const paperRouter = router({
       try {
         // Better Auth 已经管理用户，直接使用 session 中的 user ID
         const userId = ctx.session.user.id;
+
+        if (input.apiConfigId) {
+          const [apiConfig] = await ctx.db
+            .select({ id: userApiConfigs.id })
+            .from(userApiConfigs)
+            .where(
+              and(
+                eq(userApiConfigs.id, input.apiConfigId),
+                eq(userApiConfigs.userId, userId),
+              ),
+            )
+            .limit(1);
+
+          if (!apiConfig) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "API configuration not found",
+            });
+          }
+        }
+
+        if (input.promptId) {
+          const [prompt] = await ctx.db
+            .select({ id: whiteboardPrompts.id })
+            .from(whiteboardPrompts)
+            .where(
+              and(
+                eq(whiteboardPrompts.id, input.promptId),
+                eq(whiteboardPrompts.userId, userId),
+              ),
+            )
+            .limit(1);
+
+          if (!prompt) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Prompt template not found",
+            });
+          }
+        }
 
         // 如果提供了 apiConfigId，使用用户 API，不扣除 credit
         // 如果没有提供，使用系统 API，扣除 credit
@@ -192,7 +239,7 @@ export const paperRouter = router({
       }
 
       if (input.search) {
-        conditions.push(sql`${papers.title} LIKE ${"%" + input.search + "%"}`);
+        conditions.push(sql`${papers.title} LIKE ${`%${input.search}%`}`);
       }
 
       const paperList = await ctx.db
