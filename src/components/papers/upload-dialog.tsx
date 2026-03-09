@@ -189,20 +189,22 @@ function PromptSelector({
       <Label className="text-sm text-[var(--ink-soft)]">
         {m.upload_select_prompt_template()}
       </Label>
-      <Select value={selectedPromptId || "system"} onValueChange={onPromptChange}>
+      <Select
+        value={selectedPromptId || "system"}
+        onValueChange={onPromptChange}
+      >
         <SelectTrigger className="border-[var(--line)]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="system">
-            {m.upload_use_system_prompt()}
-          </SelectItem>
-          {hasPrompts && prompts.map((prompt) => (
-            <SelectItem key={prompt.id} value={prompt.id}>
-              {prompt.name}
-              {prompt.isDefault && ` (${m.api_config_default()})`}
-            </SelectItem>
-          ))}
+          <SelectItem value="system">{m.upload_use_system_prompt()}</SelectItem>
+          {hasPrompts &&
+            prompts.map((prompt) => (
+              <SelectItem key={prompt.id} value={prompt.id}>
+                {prompt.name}
+                {prompt.isDefault && ` (${m.api_config_default()})`}
+              </SelectItem>
+            ))}
         </SelectContent>
       </Select>
     </div>
@@ -478,7 +480,10 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             </div>
             <div className="mt-2">
               <Accordion type="single" collapsible>
-                <AccordionItem value="advanced" className="border-[var(--line)]">
+                <AccordionItem
+                  value="advanced"
+                  className="border-[var(--line)]"
+                >
                   <AccordionTrigger className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:no-underline py-2">
                     {m.upload_advanced_settings()}
                   </AccordionTrigger>
@@ -488,7 +493,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                       selectedApiConfigId={selectedApiConfigId}
                       apiConfigs={apiConfigs}
                       onApiSourceChange={(value) => setApiSource(value)}
-                      onApiConfigChange={(value) => setSelectedApiConfigId(value)}
+                      onApiConfigChange={(value) =>
+                        setSelectedApiConfigId(value)
+                      }
                     />
                     <PromptSelector
                       selectedPromptId={selectedPromptId}
@@ -551,7 +558,10 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             </div>
             <div className="mt-2">
               <Accordion type="single" collapsible>
-                <AccordionItem value="advanced" className="border-[var(--line)]">
+                <AccordionItem
+                  value="advanced"
+                  className="border-[var(--line)]"
+                >
                   <AccordionTrigger className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:no-underline py-2">
                     {m.upload_advanced_settings()}
                   </AccordionTrigger>
@@ -561,7 +571,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                       selectedApiConfigId={selectedApiConfigId}
                       apiConfigs={apiConfigs}
                       onApiSourceChange={(value) => setApiSource(value)}
-                      onApiConfigChange={(value) => setSelectedApiConfigId(value)}
+                      onApiConfigChange={(value) =>
+                        setSelectedApiConfigId(value)
+                      }
                     />
                     <PromptSelector
                       selectedPromptId={selectedPromptId}

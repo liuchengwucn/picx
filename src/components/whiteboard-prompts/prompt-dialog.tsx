@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2, Star } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import {
@@ -40,6 +40,8 @@ export function PromptDialog({
   const [isDefault, setIsDefault] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const trpc = useTRPC();
+  const nameInputId = useId();
+  const promptTemplateInputId = useId();
 
   // Fetch prompts list to get editing data
   const promptsQuery = useQuery({
@@ -145,9 +147,7 @@ export function PromptDialog({
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] rounded-2xl border-[var(--line)] bg-[var(--parchment)] flex flex-col">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="font-serif text-xl">
-            {editingPromptId
-              ? m.edit()
-              : m.create()}
+            {editingPromptId ? m.edit() : m.create()}
           </DialogTitle>
           <DialogDescription className="text-[var(--ink-soft)]">
             {m.whiteboard_prompt_variables_hint(promptPlaceholderLabels)}
@@ -157,11 +157,11 @@ export function PromptDialog({
         <div className="space-y-4 py-4 overflow-y-auto flex-1 min-h-0">
           {/* Template Name */}
           <div className="space-y-2">
-            <Label htmlFor="name" className="text-[var(--ink)]">
+            <Label htmlFor={nameInputId} className="text-[var(--ink)]">
               {m.whiteboard_prompt_name()}
             </Label>
             <Input
-              id="name"
+              id={nameInputId}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={m.whiteboard_prompt_name_placeholder()}
@@ -178,11 +178,14 @@ export function PromptDialog({
 
           {/* Prompt Template */}
           <div className="space-y-2">
-            <Label htmlFor="promptTemplate" className="text-[var(--ink)]">
+            <Label
+              htmlFor={promptTemplateInputId}
+              className="text-[var(--ink)]"
+            >
               {m.whiteboard_prompt_content()}
             </Label>
             <Textarea
-              id="promptTemplate"
+              id={promptTemplateInputId}
               value={promptTemplate}
               onChange={(e) => setPromptTemplate(e.target.value)}
               placeholder={m.whiteboard_prompt_content_placeholder()}
@@ -216,9 +219,7 @@ export function PromptDialog({
             <div
               className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-all ${isDefault ? "bg-gradient-to-br from-[var(--academic-brown)] to-[var(--gold)] border-[var(--gold)]" : "border-[var(--neutral-mid)]"}`}
             >
-              {isDefault && (
-                <Star className="h-3 w-3 text-white fill-white" />
-              )}
+              {isDefault && <Star className="h-3 w-3 text-white fill-white" />}
             </div>
             <div className="flex-1">
               <div className="text-sm font-medium text-[var(--ink)]">

@@ -24,15 +24,6 @@ export const Route = createFileRoute("/whiteboard-prompts/")({
   component: WhiteboardPromptsPage,
 });
 
-type WhiteboardPrompt = {
-  id: string;
-  name: string;
-  promptTemplate: string;
-  isDefault: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
 function WhiteboardPromptsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [promptToDelete, setPromptToDelete] = useState<string | null>(null);

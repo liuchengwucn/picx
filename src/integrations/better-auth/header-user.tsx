@@ -1,16 +1,16 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { authClient, startGitHubSignIn } from "#/lib/auth-client";
-import {
-  getReviewGuestClientSession,
-  isReviewGuestModeEnabled,
-} from "#/lib/review-guest";
-import * as m from "#/paraglide/messages";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
+import { authClient, startGitHubSignIn } from "#/lib/auth-client";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+} from "#/lib/review-guest";
+import * as m from "#/paraglide/messages";
 
 export default function BetterAuthHeader() {
   const queryClient = useQueryClient();
