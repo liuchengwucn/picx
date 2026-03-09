@@ -1,7 +1,7 @@
 -- Custom SQL migration file, put your code below! --
 
 -- Create whiteboard_prompts table for storing user's custom prompt templates
-CREATE TABLE `whiteboard_prompts` (
+CREATE TABLE IF NOT EXISTS `whiteboard_prompts` (
   `id` text PRIMARY KEY NOT NULL,
   `user_id` text NOT NULL,
   `name` text NOT NULL,
@@ -13,4 +13,4 @@ CREATE TABLE `whiteboard_prompts` (
 );
 --> statement-breakpoint
 -- Create composite index on user_id and is_default for efficient lookups
-CREATE INDEX `whiteboard_prompts_user_id_idx` ON `whiteboard_prompts` (`user_id`, `is_default`);
+CREATE INDEX IF NOT EXISTS `whiteboard_prompts_user_id_idx` ON `whiteboard_prompts` (`user_id`, `is_default`);
