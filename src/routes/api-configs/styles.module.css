@@ -31,7 +31,10 @@
 }
 
 .configCard:hover {
-  transform: translateY(-2px);
+  transform: translateY(-4px);
+  box-shadow:
+    0 8px 24px rgba(45, 42, 36, 0.12),
+    0 2px 8px rgba(45, 42, 36, 0.08);
 }
 
 .defaultCard {
@@ -96,18 +99,86 @@
 
 .actionButton {
   transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.actionButton::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--academic-brown);
+  opacity: 0;
+  transition: opacity 200ms ease;
 }
 
 .actionButton:hover {
-  transform: scale(1.1);
+  transform: scale(1.1) rotate(5deg);
+}
+
+.actionButton:hover::before {
+  opacity: 0.1;
 }
 
 .actionButton:active {
-  transform: scale(0.95);
+  transform: scale(0.95) rotate(0deg);
+}
+
+.deleteButton {
+  border-color: rgba(160, 82, 45, 0.3);
+  color: var(--sienna);
+}
+
+.deleteButton:hover {
+  border-color: var(--sienna);
+  color: var(--sienna);
+}
+
+.deleteButton:hover::before {
+  background: var(--sienna);
 }
 
 .emptyStateIcon {
   animation: float 3s ease-in-out infinite;
+  margin-bottom: 1rem;
+}
+
+/* Empty State - Floating Animation */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  margin-top: 3rem;
+  border: 2px dashed var(--line);
+  border-radius: 1.5rem;
+  background: linear-gradient(
+    135deg,
+    var(--parchment) 0%,
+    var(--parchment-warm) 100%
+  );
+  position: relative;
+  overflow: hidden;
+}
+
+.emptyState::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 31px,
+    rgba(139, 111, 71, 0.03) 31px,
+    rgba(139, 111, 71, 0.03) 32px
+  );
+  pointer-events: none;
+}
+
+.emptyIcon {
+  animation: float 3s ease-in-out infinite;
+  margin-bottom: 1rem;
 }
 
 @keyframes float {

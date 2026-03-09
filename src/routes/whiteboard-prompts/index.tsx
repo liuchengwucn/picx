@@ -188,9 +188,11 @@ function WhiteboardPromptsPage() {
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <h3 className={styles.cardTitle}>{prompt.name}</h3>
                     {prompt.isDefault && (
-                      <div className={styles.defaultBadge}>
-                        <Star className="h-3 w-3 fill-current" />
-                        <span>{m.whiteboard_prompt_default_badge()}</span>
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-[var(--gold)]/20 to-[var(--academic-brown)]/20 border border-[var(--gold)]/30">
+                        <Star className="h-3 w-3 text-[var(--gold)] fill-[var(--gold)]" />
+                        <span className="text-xs font-semibold text-[var(--academic-brown-deep)]">
+                          {m.whiteboard_prompt_default_badge()}
+                        </span>
                       </div>
                     )}
                   </div>

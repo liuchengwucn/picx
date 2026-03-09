@@ -1,9 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, Star } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
-import { Checkbox } from "#/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -205,19 +204,31 @@ export function PromptDialog({
           </div>
 
           {/* Set as Default */}
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="isDefault"
+          <label
+            className={`flex items-center gap-3 p-4 rounded-xl border border-[var(--line)] cursor-pointer transition-all hover:border-[var(--gold)] hover:bg-[var(--gold)]/5 ${isDefault ? "bg-gradient-to-r from-[var(--gold)]/10 to-transparent border-[var(--gold)]" : ""}`}
+          >
+            <input
+              type="checkbox"
               checked={isDefault}
-              onCheckedChange={(checked) => setIsDefault(checked === true)}
+              onChange={(e) => setIsDefault(e.target.checked)}
+              className="sr-only"
             />
-            <Label
-              htmlFor="isDefault"
-              className="text-sm cursor-pointer text-[var(--ink)]"
+            <div
+              className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-all ${isDefault ? "bg-gradient-to-br from-[var(--academic-brown)] to-[var(--gold)] border-[var(--gold)]" : "border-[var(--neutral-mid)]"}`}
             >
-              {m.whiteboard_prompt_set_default()}
-            </Label>
-          </div>
+              {isDefault && (
+                <Star className="h-3 w-3 text-white fill-white" />
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-[var(--ink)]">
+                {m.whiteboard_prompt_set_default()}
+              </div>
+              <div className="text-xs text-[var(--ink-soft)]">
+                {m.whiteboard_prompt_default_description()}
+              </div>
+            </div>
+          </label>
         </div>
 
         <DialogFooter className="gap-2 flex-shrink-0">

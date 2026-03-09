@@ -77,6 +77,13 @@ function ApiConfigsPage() {
     },
   });
 
+  const setDefaultMutation = useMutation({
+    ...trpc.apiConfig.update.mutationOptions(),
+    onSuccess: () => {
+      configsQuery.refetch();
+    },
+  });
+
   const handleDelete = (id: string) => {
     setConfigToDelete(id);
     setDeleteDialogOpen(true);
@@ -116,6 +123,10 @@ function ApiConfigsPage() {
     configsQuery.refetch();
   };
 
+  const handleSetDefault = (id: string) => {
+    setDefaultMutation.mutate({ id, isDefault: true });
+  };
+
   // Show loading while checking session
   if (isSessionPending) {
     return (
@@ -153,11 +164,10 @@ function ApiConfigsPage() {
             </p>
           </div>
           <Button
-            size="sm"
             onClick={handleCreate}
-            className="shrink-0 gap-2 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] shadow-[0_4px_16px_rgba(139,111,71,0.24)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] transition-all duration-300"
+            className={`${styles.createButton} bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white`}
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="mr-2 h-4 w-4" />
             {m.api_config_create()}
           </Button>
         </div>
@@ -177,6 +187,7 @@ function ApiConfigsPage() {
                 config={config}
                 onDelete={handleDelete}
                 onEdit={handleEdit}
+                onSetDefault={handleSetDefault}
               />
             ))
           )}
@@ -236,10 +247,12 @@ function ConfigCard({
   config,
   onDelete,
   onEdit,
+  onSetDefault,
 }: {
   config: ApiConfig;
   onDelete: (id: string) => void;
   onEdit: (id: string) => void;
+  onSetDefault: (id: string) => void;
 }) {
   const getStatusIcon = (status: "success" | "failed" | null) => {
     if (status === "success") {
@@ -318,6 +331,17 @@ function ConfigCard({
             >
               <Edit3 className="h-4 w-4" />
             </Button>
+            {!config.isDefault && (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={() => onSetDefault(config.id)}
+                className={`hover:bg-[var(--gold)]/10 hover:text-[var(--gold)] ${styles.actionButton}`}
+                title={m.api_config_set_default()}
+              >
+                <Star className="h-4 w-4" />
+              </Button>
+            )}
             <Button
               size="icon-sm"
               variant="ghost"
@@ -455,14 +479,14 @@ function ConfigCardSkeleton() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--academic-brown)]/10 to-[var(--gold)]/10 border-2 border-dashed border-[var(--neutral-mid)]">
-        <Key className="h-10 w-10 text-[var(--neutral-mid)]" />
+    <div className={styles.emptyState}>
+      <div className={styles.emptyIcon}>
+        <Key className="h-16 w-16 text-[var(--academic-brown)] opacity-40" />
       </div>
-      <h3 className="mt-4 font-serif text-lg font-semibold text-[var(--ink)]">
+      <h3 className="text-lg font-semibold text-[var(--ink)] mb-2">
         {m.api_config_empty_title()}
       </h3>
-      <p className="mt-1 text-sm text-[var(--ink-soft)] max-w-sm">
+      <p className="text-sm text-[var(--ink-soft)] mb-6 max-w-md">
         {m.api_config_empty_description()}
       </p>
     </div>

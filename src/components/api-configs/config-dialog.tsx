@@ -177,9 +177,9 @@ export function ConfigDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={`sm:max-w-[680px] max-h-[90vh] overflow-y-auto rounded-3xl border-[var(--line)] bg-[var(--parchment)] ${styles.dialogContent}`}
+        className={`sm:max-w-[680px] max-h-[90vh] rounded-3xl border-[var(--line)] bg-[var(--parchment)] flex flex-col ${styles.dialogContent}`}
       >
-        <DialogHeader>
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle className="font-serif text-2xl text-[var(--ink)] flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--academic-brown)] to-[var(--gold)] shadow-lg">
               <Key className="h-5 w-5 text-white" />
@@ -194,7 +194,7 @@ export function ConfigDialog({
             e.stopPropagation();
             form.handleSubmit();
           }}
-          className="space-y-6 mt-4"
+          className="space-y-6 mt-4 overflow-y-auto flex-1 min-h-0"
         >
           {/* Configuration Name */}
           <div className={`space-y-2 ${styles.fieldGroup}`}>
@@ -416,51 +416,52 @@ export function ConfigDialog({
               </label>
             )}
           </form.Field>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-3 pt-4 border-t border-[var(--line)]">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleTest}
-              disabled={isTesting || isLoading}
-              className={`gap-2 border-[var(--academic-brown)] text-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/10 ${styles.testButton}`}
-            >
-              {isTesting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {m.api_config_testing()}
-                </>
-              ) : (
-                <>
-                  <Zap className="h-4 w-4" />
-                  {m.api_config_test()}
-                </>
-              )}
-            </Button>
-
-            <div className="flex-1" />
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={isLoading}
-              className="border-[var(--line)]"
-            >
-              {m.api_config_cancel()}
-            </Button>
-
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className="gap-2 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] transition-all duration-300"
-            >
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {m.api_config_save()}
-            </Button>
-          </div>
         </form>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-3 pt-4 border-t border-[var(--line)] flex-shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleTest}
+            disabled={isTesting || isLoading}
+            className={`gap-2 border-[var(--academic-brown)] text-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/10 ${styles.testButton}`}
+          >
+            {isTesting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {m.api_config_testing()}
+              </>
+            ) : (
+              <>
+                <Zap className="h-4 w-4" />
+                {m.api_config_test()}
+              </>
+            )}
+          </Button>
+
+          <div className="flex-1" />
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isLoading}
+            className="border-[var(--line)]"
+          >
+            {m.api_config_cancel()}
+          </Button>
+
+          <Button
+            type="button"
+            onClick={() => form.handleSubmit()}
+            disabled={isLoading}
+            className="gap-2 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] transition-all duration-300"
+          >
+            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {m.api_config_save()}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
