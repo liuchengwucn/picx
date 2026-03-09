@@ -226,3 +226,33 @@ export const userApiConfigs = sqliteTable(
     ),
   }),
 );
+
+// 白板 Prompt 模板表
+export const whiteboardPrompts = sqliteTable(
+  "whiteboard_prompts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    promptTemplate: text("prompt_template").notNull(),
+    isDefault: integer("is_default", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userIdIdx: index("whiteboard_prompts_user_id_idx").on(
+      table.userId,
+      table.isDefault,
+    ),
+  }),
+);
