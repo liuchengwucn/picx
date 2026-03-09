@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Coins, FileText, Globe, Key } from "lucide-react";
+import { Clipboard, Coins, FileText, Globe, Key } from "lucide-react";
 import { m } from "#/paraglide/messages";
 import BetterAuthHeader from "../integrations/better-auth/header-user.tsx";
 import ParaglideLocaleSwitcher from "./LocaleSwitcher.tsx";
@@ -51,6 +51,14 @@ export default function Header() {
           >
             <Key className="h-4 w-4" />
             <span className="hidden sm:inline">{m.nav_api_configs()}</span>
+          </Link>
+          <Link
+            to="/whiteboard-prompts"
+            className="nav-link inline-flex items-center gap-1.5"
+            activeProps={{ className: "nav-link is-active" }}
+          >
+            <Clipboard className="h-4 w-4" />
+            <span className="hidden sm:inline">{m.whiteboard_prompt_page_title()}</span>
           </Link>
         </div>
 
