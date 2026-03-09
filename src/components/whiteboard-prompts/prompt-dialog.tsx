@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -191,12 +192,10 @@ export function PromptDialog({
 
           {/* Set as Default */}
           <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
+            <Checkbox
               id="isDefault"
               checked={isDefault}
-              onChange={(e) => setIsDefault(e.target.checked)}
-              className="h-4 w-4 rounded border-[var(--line)] text-[var(--academic-brown)] focus:ring-[var(--academic-brown)]"
+              onCheckedChange={(checked) => setIsDefault(checked === true)}
             />
             <Label
               htmlFor="isDefault"
