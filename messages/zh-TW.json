@@ -30,7 +30,8 @@
   "learn_router": "了解 Paraglide JS",
   "nav_papers": "論文",
   "nav_credits": "積分",
-  "nav_api_configs": "API 配置",
+  "nav_api_configs": "API",
+  "nav_whiteboard_prompts": "提示詞",
   "theme_light": "淺色",
   "theme_dark": "深色",
   "theme_auto": "自動",
@@ -224,5 +225,6 @@
   "whiteboard_prompt_delete_success": "範本已刪除",
   "whiteboard_prompt_create_success": "範本已建立",
   "whiteboard_prompt_update_success": "範本已更新",
-  "upload_select_prompt_template": "提示詞範本"
+  "upload_select_prompt_template": "提示詞範本",
+  "upload_use_system_prompt": "系統預設"
 }

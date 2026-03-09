@@ -30,7 +30,8 @@
   "learn_router": "Paraglide JSを学ぶ",
   "nav_papers": "論文",
   "nav_credits": "クレジット",
-  "nav_api_configs": "API 設定",
+  "nav_api_configs": "API",
+  "nav_whiteboard_prompts": "プロンプト",
   "theme_light": "ライト",
   "theme_dark": "ダーク",
   "theme_auto": "自動",
@@ -226,5 +227,6 @@
   "whiteboard_prompt_delete_success": "テンプレートを削除しました",
   "whiteboard_prompt_create_success": "テンプレートを作成しました",
   "whiteboard_prompt_update_success": "テンプレートを更新しました",
-  "upload_select_prompt_template": "プロンプトテンプレート"
+  "upload_select_prompt_template": "プロンプトテンプレート",
+  "upload_use_system_prompt": "システムデフォルト"
 }

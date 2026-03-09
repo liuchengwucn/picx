@@ -187,11 +187,14 @@ function PromptSelector({
       <Label className="text-sm text-[var(--ink-soft)]">
         {m.upload_select_prompt_template()}
       </Label>
-      <Select value={selectedPromptId} onValueChange={onPromptChange}>
+      <Select value={selectedPromptId || "system"} onValueChange={onPromptChange}>
         <SelectTrigger className="border-[var(--line)]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
+          <SelectItem value="system">
+            {m.upload_use_system_prompt()}
+          </SelectItem>
           {prompts.map((prompt) => (
             <SelectItem key={prompt.id} value={prompt.id}>
               {prompt.name}
@@ -301,7 +304,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         language: summaryLanguage,
         whiteboardLanguage,
         apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
-        promptId: selectedPromptId,
+        promptId: selectedPromptId === "system" ? undefined : selectedPromptId,
       });
       setOpen(false);
       setFile(null);
@@ -341,7 +344,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         language: summaryLanguage,
         whiteboardLanguage,
         apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
-        promptId: selectedPromptId,
+        promptId: selectedPromptId === "system" ? undefined : selectedPromptId,
       });
       setOpen(false);
       setArxivUrl("");

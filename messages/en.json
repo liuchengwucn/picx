@@ -30,7 +30,8 @@
   "learn_router": "Learn Paraglide JS",
   "nav_papers": "Papers",
   "nav_credits": "Credits",
-  "nav_api_configs": "API Configs",
+  "nav_api_configs": "API",
+  "nav_whiteboard_prompts": "Prompts",
   "theme_light": "Light",
   "theme_dark": "Dark",
   "theme_auto": "Auto",
@@ -225,5 +226,6 @@
   "whiteboard_prompt_delete_success": "Template deleted",
   "whiteboard_prompt_create_success": "Template created",
   "whiteboard_prompt_update_success": "Template updated",
-  "upload_select_prompt_template": "Prompt Template"
+  "upload_select_prompt_template": "Prompt Template",
+  "upload_use_system_prompt": "System Default"
 }

@@ -59,7 +59,7 @@ export default function Header() {
           >
             <Clipboard className="h-4 w-4" />
             <span className="hidden sm:inline">
-              {m.whiteboard_prompt_page_title()}
+              {m.nav_whiteboard_prompts()}
             </span>
           </Link>
         </div>

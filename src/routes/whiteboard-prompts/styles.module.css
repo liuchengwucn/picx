@@ -103,22 +103,10 @@
   opacity: 0.5;
 }
 
-/* Left Margin Line */
+/* Left Margin Line - Removed */
 .promptCard::after {
   content: "";
-  position: absolute;
-  left: 3rem;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgba(201, 169, 97, 0.3) 10%,
-    rgba(201, 169, 97, 0.3) 90%,
-    transparent
-  );
-  pointer-events: none;
+  display: none;
 }
 
 .promptCard:hover {
