@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Sparkles, Zap } from "lucide-react";
+import { Loader2, Zap } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
@@ -298,14 +298,11 @@ export function RegenerateWhiteboardDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl bg-[var(--parchment)] border-[var(--line)]">
         <DialogHeader>
-          <DialogTitle className="font-serif text-3xl font-bold text-[var(--ink)] tracking-tight flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--academic-brown)] to-[var(--academic-brown-deep)] shadow-lg">
-              <Sparkles className="h-6 w-6 text-white" />
-            </div>
+          <DialogTitle className="font-serif text-3xl font-bold text-[var(--ink)] tracking-tight">
             {m.paper_whiteboard_regenerate_title()}
           </DialogTitle>
           <DialogDescription className="text-[var(--ink-soft)] mt-2">
-            Configure options to generate a new whiteboard visualization
+            {m.paper_whiteboard_regenerate_description()}
           </DialogDescription>
         </DialogHeader>
 
@@ -341,21 +338,12 @@ export function RegenerateWhiteboardDialog({
                     : m.paper_whiteboard_regenerate_no_credit_cost()}
                 </h4>
                 <p className="text-sm text-[var(--ink-soft)]">
-                  {willConsumeCredit ? (
-                    <>
-                      This will consume{" "}
-                      <span className="font-bold text-[var(--academic-brown)]">
-                        1 credit
-                      </span>
-                      . You currently have{" "}
-                      <span className="font-bold">
-                        {profile?.credits ?? 0} credits
-                      </span>
-                      .
-                    </>
-                  ) : (
-                    "Using your API configuration. No credits will be consumed."
-                  )}
+                  {willConsumeCredit
+                    ? m.paper_whiteboard_regenerate_credit_info({
+                        credits: "1",
+                        balance: String(profile?.credits ?? 0),
+                      })
+                    : m.paper_whiteboard_regenerate_no_credit_info()}
                 </p>
                 {willConsumeCredit && !hasEnoughCredits && (
                   <p className="text-sm text-[var(--sienna)] font-medium mt-2">
@@ -394,10 +382,7 @@ export function RegenerateWhiteboardDialog({
                   {m.paper_whiteboard_regenerating()}
                 </>
               ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  {m.paper_whiteboard_regenerate_submit()}
-                </>
+                m.paper_whiteboard_regenerate_submit()
               )}
             </Button>
           </div>
