@@ -815,18 +815,23 @@ export const paperRouter = router({
         });
       }
 
-      // Step 3: Set all whiteboards for this paper to isDefault: false
-      // D1 doesn't support transactions, so we use sequential updates
-      await ctx.db
-        .update(whiteboardImages)
-        .set({ isDefault: false })
-        .where(eq(whiteboardImages.paperId, input.paperId));
-
-      // Step 4: Set the specified whiteboard to isDefault: true
-      await ctx.db
-        .update(whiteboardImages)
-        .set({ isDefault: true })
-        .where(eq(whiteboardImages.id, input.whiteboardId));
+      // Step 3: Atomic update to set isDefault
+      // Use SQL CASE to update all whiteboards in a single operation
+      // This prevents race conditions that could occur with two sequential updates
+      try {
+        await ctx.db
+          .update(whiteboardImages)
+          .set({
+            isDefault: sql`CASE WHEN ${whiteboardImages.id} = ${input.whiteboardId} THEN 1 ELSE 0 END`,
+          })
+          .where(eq(whiteboardImages.paperId, input.paperId));
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update default whiteboard",
+          cause: error,
+        });
+      }
 
       return { success: true };
     }),
