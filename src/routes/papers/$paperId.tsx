@@ -380,19 +380,19 @@ function PaperDetailPage() {
 
             {whiteboardImageUrl && (
               <div className="paper-card p-4 sm:p-5">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
+                <div className="mb-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
                     <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
                       {m.paper_whiteboard()}
                     </h2>
                     {paper.whiteboardRegenerating && (
-                      <div className="mt-1 flex items-center gap-1.5 text-sm text-[var(--academic-brown)]">
+                      <div className="flex items-center gap-1.5 text-sm text-[var(--academic-brown)]">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span>{m.paper_whiteboard_regenerating()}</span>
+                        <span className="hidden sm:inline">{m.paper_whiteboard_regenerating()}</span>
                       </div>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {paper.userId === profile.data?.id &&
                       whiteboardsData &&
                       whiteboardsData.whiteboards.length > 1 && (
@@ -403,7 +403,7 @@ function PaperDetailPage() {
                           className="gap-1.5"
                         >
                           <ImageIcon className="h-4 w-4" />
-                          {m.paper_whiteboard_view_all()}
+                          <span className="hidden sm:inline">{m.paper_whiteboard_view_all()}</span>
                         </Button>
                       )}
                     {paper.userId === profile.data?.id && (
@@ -414,7 +414,7 @@ function PaperDetailPage() {
                         className="gap-1.5"
                       >
                         <Sparkles className="h-4 w-4" />
-                        {m.paper_whiteboard_regenerate()}
+                        <span className="hidden sm:inline">{m.paper_whiteboard_regenerate()}</span>
                       </Button>
                     )}
                     <Button variant="outline" size="sm" asChild>
@@ -424,7 +424,7 @@ function PaperDetailPage() {
                         className="gap-1.5"
                       >
                         <Download className="h-4 w-4" />
-                        {m.paper_whiteboard_download()}
+                        <span className="hidden sm:inline">{m.paper_whiteboard_download()}</span>
                       </a>
                     </Button>
                   </div>

@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, Star, Trash2, X } from "lucide-react";
+import { Download, Star, Trash2 } from "lucide-react";
 import { useState } from "react";
 import {
   AlertDialog,
@@ -45,7 +45,6 @@ export function WhiteboardGalleryDialog({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const setDefaultMutation = useMutation(
     trpc.paper.setDefaultWhiteboard.mutationOptions({
@@ -77,20 +76,11 @@ export function WhiteboardGalleryDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col bg-[var(--parchment)] border-[var(--line)]">
+        <DialogContent className="max-w-[min(98vw,1440px)] max-h-[96vh] overflow-hidden flex flex-col bg-[var(--parchment)] border-[var(--line)] rounded-[28px] shadow-[0_30px_120px_rgba(39,29,21,0.35)] sm:max-w-[min(98vw,1440px)]">
           <DialogHeader className="px-8 pt-8 pb-4 border-b border-[var(--line)]/30">
-            <div className="flex items-center justify-between">
-              <DialogTitle className="font-serif text-3xl font-bold text-[var(--ink)] tracking-tight">
-                {m.paper_whiteboard_gallery_title()}
-              </DialogTitle>
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                className="rounded-full p-2 hover:bg-[var(--parchment-warm)] transition-colors"
-              >
-                <X className="h-5 w-5 text-[var(--ink-soft)]" />
-              </button>
-            </div>
+            <DialogTitle className="font-serif text-3xl font-bold text-[var(--ink)] tracking-tight">
+              {m.paper_whiteboard_gallery_title()}
+            </DialogTitle>
             <p className="text-sm text-[var(--ink-soft)] mt-2">
               {whiteboards.length}{" "}
               {whiteboards.length === 1 ? "version" : "versions"} available
@@ -107,19 +97,13 @@ export function WhiteboardGalleryDialog({
                     animation: `fadeInUp 0.4s ease-out ${index * 0.08}s both`,
                   }}
                 >
-                  <div className="relative rounded-2xl border-2 border-[var(--line)] bg-[var(--parchment-warm)] p-4 transition-all duration-300 hover:border-[var(--academic-brown)]/40 hover:shadow-[0_12px_40px_rgba(87,61,38,0.15)] hover:-translate-y-1">
+                  <div className="relative rounded-2xl border-2 border-[var(--line)] bg-[var(--parchment-warm)] p-4 transition-all duration-300 hover:border-[var(--academic-brown)]/40 hover:shadow-[0_12px_40px_rgba(87,61,38,0.15)] hover:-translate-y-1 flex flex-col h-full">
                     {/* Image Preview */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPreviewImage(`/api/r2/${whiteboard.imageR2Key}`)
-                      }
-                      className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-gradient-to-br from-white/80 to-[var(--parchment-warm)] border border-[var(--line)]/50 hover:border-[var(--academic-brown)]/30 transition-all"
-                    >
+                    <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-gradient-to-br from-white/80 to-[var(--parchment-warm)] border border-[var(--line)]/50">
                       <img
                         src={`/api/r2/${whiteboard.imageR2Key}`}
                         alt="Whiteboard"
-                        className="w-full h-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
+                        className="w-full h-full object-contain p-2"
                       />
                       {whiteboard.isDefault && (
                         <div className="absolute top-3 right-3">
@@ -129,10 +113,10 @@ export function WhiteboardGalleryDialog({
                           </Badge>
                         </div>
                       )}
-                    </button>
+                    </div>
 
                     {/* Metadata */}
-                    <div className="mt-4 space-y-2">
+                    <div className="mt-4 space-y-2 flex-1">
                       <div className="flex items-center justify-between text-xs text-[var(--ink-soft)]">
                         <span className="font-medium">
                           {new Date(whiteboard.createdAt).toLocaleDateString(
@@ -154,20 +138,22 @@ export function WhiteboardGalleryDialog({
                           )}
                         </span>
                       </div>
-                      {whiteboard.promptName && (
-                        <div className="text-xs text-[var(--ink)] bg-[var(--parchment)]/60 rounded-lg px-3 py-2 border border-[var(--line)]/30">
-                          <span className="font-medium">
-                            {m.paper_whiteboard_prompt()}:
-                          </span>{" "}
-                          <span className="text-[var(--ink-soft)]">
-                            {whiteboard.promptName}
-                          </span>
-                        </div>
-                      )}
+                      <div className="min-h-[52px]">
+                        {whiteboard.promptName && (
+                          <div className="text-xs text-[var(--ink)] bg-[var(--parchment)]/60 rounded-lg px-3 py-2 border border-[var(--line)]/30">
+                            <span className="font-medium">
+                              {m.paper_whiteboard_prompt()}:
+                            </span>{" "}
+                            <span className="text-[var(--ink-soft)]">
+                              {whiteboard.promptName}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Actions */}
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-4 flex flex-wrap gap-2">
                       {!whiteboard.isDefault && (
                         <Button
                           variant="outline"
@@ -179,21 +165,23 @@ export function WhiteboardGalleryDialog({
                             })
                           }
                           disabled={setDefaultMutation.isPending}
-                          className="flex-1 border-[var(--line)] hover:bg-[var(--academic-brown)] hover:text-white hover:border-[var(--academic-brown)] transition-all"
+                          className="flex-1 min-w-[120px] border-[var(--line)] hover:bg-[var(--academic-brown)] hover:text-white hover:border-[var(--academic-brown)] transition-all"
                         >
                           <Star className="h-3.5 w-3.5 mr-1.5" />
-                          {m.paper_whiteboard_set_default()}
+                          <span className="hidden sm:inline">{m.paper_whiteboard_set_default()}</span>
+                          <span className="sm:hidden">默认</span>
                         </Button>
                       )}
                       <Button
                         variant="outline"
                         size="sm"
                         asChild
-                        className={`${whiteboard.isDefault ? "flex-1" : ""} border-[var(--line)] hover:bg-[var(--parchment)] transition-all`}
+                        className={`${whiteboard.isDefault ? "flex-1 min-w-[120px]" : "flex-1 min-w-[100px]"} border-[var(--line)] hover:bg-[var(--parchment)] transition-all`}
                       >
                         <a href={`/api/r2/${whiteboard.imageR2Key}`} download>
                           <Download className="h-3.5 w-3.5 mr-1.5" />
-                          {m.paper_whiteboard_download()}
+                          <span className="hidden sm:inline">{m.paper_whiteboard_download()}</span>
+                          <span className="sm:hidden">下载</span>
                         </a>
                       </Button>
                       {whiteboards.length > 1 && (
@@ -202,7 +190,7 @@ export function WhiteboardGalleryDialog({
                           size="sm"
                           onClick={() => setDeleteConfirmId(whiteboard.id)}
                           disabled={deleteMutation.isPending}
-                          className="border-[var(--line)] hover:bg-[var(--sienna)] hover:text-white hover:border-[var(--sienna)] transition-all"
+                          className="shrink-0 border-[var(--line)] hover:bg-[var(--sienna)] hover:text-white hover:border-[var(--sienna)] transition-all"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -212,29 +200,6 @@ export function WhiteboardGalleryDialog({
                 </div>
               ))}
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Preview Dialog */}
-      <Dialog
-        open={!!previewImage}
-        onOpenChange={(open) => !open && setPreviewImage(null)}
-      >
-        <DialogContent className="max-w-[95vw] max-h-[95vh] p-0 border-0 bg-black/95">
-          <button
-            type="button"
-            onClick={() => setPreviewImage(null)}
-            className="absolute top-4 right-4 z-50 rounded-full bg-white/10 p-2 hover:bg-white/20 transition-colors backdrop-blur-sm"
-          >
-            <X className="h-5 w-5 text-white" />
-          </button>
-          <div className="w-full h-full flex items-center justify-center p-8">
-            <img
-              src={previewImage || ""}
-              alt="Preview"
-              className="max-w-full max-h-full object-contain"
-            />
           </div>
         </DialogContent>
       </Dialog>
