@@ -96,6 +96,11 @@ export const papers = sqliteTable(
       .notNull()
       .default("pending"),
     errorMessage: text("error_message"),
+    whiteboardRegenerating: integer("whiteboard_regenerating", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(false),
     isPublic: integer("is_public", { mode: "boolean" })
       .notNull()
       .default(false),

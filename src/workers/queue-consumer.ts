@@ -461,7 +461,21 @@ async function processWhiteboardRegeneration(
       error ?? "",
     );
 
-  // Step 0: 读取 AI 配置（用户配置或系统配置）
+  // Step 0: Mark whiteboard as regenerating
+  try {
+    await db
+      .update(papers)
+      .set({
+        whiteboardRegenerating: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(papers.id, msg.paperId));
+    log("status", "Marked whiteboard as regenerating");
+  } catch (error) {
+    logWarn("status", "Failed to mark whiteboard as regenerating", error);
+  }
+
+  // Step 1: 读取 AI 配置（用户配置或系统配置）
   let aiConfig: AIConfig;
   const usingUserApi = !!msg.apiConfigId;
 
@@ -617,6 +631,18 @@ async function processWhiteboardRegeneration(
         logWarn("refund", "Failed to refund credit", refundError);
       }
     }
+    // Mark whiteboard regeneration as complete (failed)
+    try {
+      await db
+        .update(papers)
+        .set({
+          whiteboardRegenerating: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(papers.id, msg.paperId));
+    } catch (statusError) {
+      logWarn("status", "Failed to clear regenerating status", statusError);
+    }
     throw new StepError("generate-image", error);
   }
 
@@ -636,6 +662,18 @@ async function processWhiteboardRegeneration(
       } catch (refundError) {
         logWarn("refund", "Failed to refund credit", refundError);
       }
+    }
+    // Mark whiteboard regeneration as complete (failed)
+    try {
+      await db
+        .update(papers)
+        .set({
+          whiteboardRegenerating: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(papers.id, msg.paperId));
+    } catch (statusError) {
+      logWarn("status", "Failed to clear regenerating status", statusError);
     }
     throw new StepError("upload-image", error);
   }
@@ -674,7 +712,33 @@ async function processWhiteboardRegeneration(
         logWarn("refund", "Failed to refund credit", refundError);
       }
     }
+    // Mark whiteboard regeneration as complete (failed)
+    try {
+      await db
+        .update(papers)
+        .set({
+          whiteboardRegenerating: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(papers.id, msg.paperId));
+    } catch (statusError) {
+      logWarn("status", "Failed to clear regenerating status", statusError);
+    }
     throw new StepError("update-db", error);
+  }
+
+  // Step 6: Mark whiteboard regeneration as complete (success)
+  try {
+    await db
+      .update(papers)
+      .set({
+        whiteboardRegenerating: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(papers.id, msg.paperId));
+    log("status", "Marked whiteboard regeneration as complete");
+  } catch (error) {
+    logWarn("status", "Failed to clear regenerating status", error);
   }
 
   const processingTimeMs = Date.now() - startTime;

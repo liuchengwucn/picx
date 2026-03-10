@@ -385,6 +385,12 @@ function PaperDetailPage() {
                     <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
                       {m.paper_whiteboard()}
                     </h2>
+                    {paper.whiteboardRegenerating && (
+                      <div className="mt-1 flex items-center gap-1.5 text-sm text-[var(--academic-brown)]">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>{m.paper_whiteboard_regenerating()}</span>
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     {paper.userId === profile.data?.id &&

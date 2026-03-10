@@ -9,6 +9,11 @@ interface PaperStatusEvent {
   errorMessage?: string;
 }
 
+interface WhiteboardUpdateEvent {
+  paperId: string;
+  regenerating: boolean;
+}
+
 export function usePaperSSE(userId: string | undefined) {
   const queryClient = useQueryClient();
   const trpc = useTRPC();
@@ -43,6 +48,26 @@ export function usePaperSSE(userId: string | undefined) {
           }
         } catch (e) {
           console.error("SSE parse error:", e);
+        }
+      });
+
+      es.addEventListener("whiteboard-update", (event) => {
+        try {
+          const data: WhiteboardUpdateEvent = JSON.parse(event.data);
+          queryClient.invalidateQueries({
+            queryKey: trpc.paper.getById.queryKey(data.paperId),
+          });
+          queryClient.invalidateQueries({
+            queryKey: trpc.paper.listWhiteboards.queryKey(data.paperId),
+          });
+          // If regeneration completed, also refresh user profile (credits might have changed)
+          if (!data.regenerating) {
+            queryClient.invalidateQueries({
+              queryKey: trpc.user.getProfile.queryKey(),
+            });
+          }
+        } catch (e) {
+          console.error("SSE whiteboard-update parse error:", e);
         }
       });
 

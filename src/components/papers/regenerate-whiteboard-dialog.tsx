@@ -241,6 +241,8 @@ export function RegenerateWhiteboardDialog({
         setSelectedPromptValue(SYSTEM_PROMPT_VALUE);
         setApiSource("system");
         setSelectedApiConfigId(undefined);
+        // Note: The whiteboard will be regenerated in the background
+        // The UI will update automatically via SSE when it's ready
       },
     }),
   );

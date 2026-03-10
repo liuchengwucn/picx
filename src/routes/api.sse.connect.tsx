@@ -30,6 +30,7 @@ async function handler({ request }: { request: Request }) {
   writer.write(encoder.encode('data: {"type":"connected"}\n\n'));
 
   const knownStatuses = new Map<string, string>();
+  const knownWhiteboardRegenerating = new Map<string, boolean>();
   const abortController = new AbortController();
   (async () => {
     try {
@@ -51,26 +52,69 @@ async function handler({ request }: { request: Request }) {
             ),
           );
 
+        // Also track papers with whiteboard regenerating
+        const regeneratingPapers = await db
+          .select({
+            id: papers.id,
+            status: papers.status,
+            whiteboardRegenerating: papers.whiteboardRegenerating,
+          })
+          .from(papers)
+          .where(
+            and(
+              eq(papers.userId, userId),
+              eq(papers.whiteboardRegenerating, true),
+            ),
+          );
+
         const trackingIds = [...knownStatuses.keys()];
-        let trackedPapers: { id: string; status: string }[] = [];
-        if (trackingIds.length > 0) {
+        const trackingWhiteboardIds = [...knownWhiteboardRegenerating.keys()];
+        let trackedPapers: {
+          id: string;
+          status: string;
+          whiteboardRegenerating: boolean;
+        }[] = [];
+        if (trackingIds.length > 0 || trackingWhiteboardIds.length > 0) {
+          const allTrackingIds = [
+            ...new Set([...trackingIds, ...trackingWhiteboardIds]),
+          ];
           trackedPapers = await db
-            .select({ id: papers.id, status: papers.status })
+            .select({
+              id: papers.id,
+              status: papers.status,
+              whiteboardRegenerating: papers.whiteboardRegenerating,
+            })
             .from(papers)
-            .where(inArray(papers.id, trackingIds));
+            .where(inArray(papers.id, allTrackingIds));
         }
 
-        const allPapers = new Map<string, string>();
-        for (const paper of [...activePapers, ...trackedPapers]) {
-          allPapers.set(paper.id, paper.status);
+        const allPapers = new Map<
+          string,
+          { status: string; whiteboardRegenerating: boolean }
+        >();
+        for (const paper of [
+          ...activePapers.map((p) => ({
+            ...p,
+            whiteboardRegenerating: false,
+          })),
+          ...regeneratingPapers,
+          ...trackedPapers,
+        ]) {
+          allPapers.set(paper.id, {
+            status: paper.status,
+            whiteboardRegenerating: paper.whiteboardRegenerating ?? false,
+          });
         }
 
-        for (const [paperId, status] of allPapers) {
-          const known = knownStatuses.get(paperId);
-          if (known !== status) {
+        for (const [paperId, paperData] of allPapers) {
+          const { status, whiteboardRegenerating } = paperData;
+
+          // Check status changes
+          const knownStatus = knownStatuses.get(paperId);
+          if (knownStatus !== status) {
             knownStatuses.set(paperId, status);
             if (
-              known !== undefined ||
+              knownStatus !== undefined ||
               activePapers.some((paper) => paper.id === paperId)
             ) {
               const progress =
@@ -90,8 +134,30 @@ async function handler({ request }: { request: Request }) {
             }
           }
 
+          // Check whiteboard regenerating changes
+          const knownRegenerating =
+            knownWhiteboardRegenerating.get(paperId) ?? false;
+          if (knownRegenerating !== whiteboardRegenerating) {
+            knownWhiteboardRegenerating.set(paperId, whiteboardRegenerating);
+            if (
+              knownRegenerating !== undefined ||
+              regeneratingPapers.some((paper) => paper.id === paperId)
+            ) {
+              const msg = `event: whiteboard-update\ndata: ${JSON.stringify({ paperId, regenerating: whiteboardRegenerating })}\n\n`;
+              try {
+                await writer.write(encoder.encode(msg));
+              } catch {
+                return;
+              }
+            }
+          }
+
+          // Clean up tracking
           if (status === "completed" || status === "failed") {
             knownStatuses.delete(paperId);
+          }
+          if (!whiteboardRegenerating) {
+            knownWhiteboardRegenerating.delete(paperId);
           }
         }
       }
