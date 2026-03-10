@@ -938,4 +938,177 @@ export const paperRouter = router({
 
       return { success: true };
     }),
+
+  /**
+   * Regenerate whiteboard with same or different prompt
+   * Deducts 1 credit if not using user API
+   * Pushes to queue for async processing
+   */
+  regenerateWhiteboard: protectedProcedure
+    .input(
+      z.object({
+        paperId: z.string().uuid(),
+        promptId: z.string().uuid().optional(),
+        useExistingPrompt: z.boolean().optional(),
+        apiConfigId: z.string().uuid().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
+      const userId = ctx.session.user.id;
+
+      // Step 1: Verify paper exists, belongs to user, and status is "completed"
+      const [paper] = await ctx.db
+        .select()
+        .from(papers)
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.userId, userId),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      if (paper.status !== "completed") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Paper must be completed before regenerating whiteboard",
+        });
+      }
+
+      // Step 2: Validate apiConfigId if provided
+      if (input.apiConfigId) {
+        const [apiConfig] = await ctx.db
+          .select({ id: userApiConfigs.id })
+          .from(userApiConfigs)
+          .where(
+            and(
+              eq(userApiConfigs.id, input.apiConfigId),
+              eq(userApiConfigs.userId, userId),
+            ),
+          )
+          .limit(1);
+
+        if (!apiConfig) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "API configuration not found",
+          });
+        }
+      }
+
+      // Step 3: Determine promptId to use
+      let finalPromptId: string | undefined = input.promptId;
+
+      if (input.useExistingPrompt) {
+        // Get promptId from current default whiteboard
+        const [defaultWhiteboard] = await ctx.db
+          .select({ promptId: whiteboardImages.promptId })
+          .from(whiteboardImages)
+          .where(
+            and(
+              eq(whiteboardImages.paperId, input.paperId),
+              eq(whiteboardImages.isDefault, true),
+            ),
+          )
+          .limit(1);
+
+        if (defaultWhiteboard?.promptId) {
+          finalPromptId = defaultWhiteboard.promptId;
+        }
+      }
+
+      // Step 4: Validate promptId if provided
+      if (finalPromptId) {
+        const [prompt] = await ctx.db
+          .select({ id: whiteboardPrompts.id })
+          .from(whiteboardPrompts)
+          .where(
+            and(
+              eq(whiteboardPrompts.id, finalPromptId),
+              eq(whiteboardPrompts.userId, userId),
+            ),
+          )
+          .limit(1);
+
+        if (!prompt) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Prompt template not found",
+          });
+        }
+      }
+
+      // Step 5: Deduct credit if not using user API
+      if (!input.apiConfigId) {
+        const [updatedUser] = await ctx.db
+          .update(user)
+          .set({
+            credits: sql`${user.credits} - 1`,
+          })
+          .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
+          .returning();
+
+        if (!updatedUser) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Insufficient credits. You need at least 1 credit.",
+          });
+        }
+
+        // Record credit transaction
+        await ctx.db.insert(creditTransactions).values({
+          userId: userId,
+          amount: -1,
+          type: "consume",
+          relatedPaperId: input.paperId,
+          description: "Whiteboard regeneration",
+        });
+      }
+
+      // Step 6: Push to queue for async processing
+      try {
+        await ctx.env.PAPER_QUEUE.send({
+          type: "regenerate_whiteboard",
+          paperId: input.paperId,
+          userId: userId,
+          promptId: finalPromptId,
+          apiConfigId: input.apiConfigId,
+        });
+      } catch (error) {
+        // Refund credit if queue dispatch fails
+        if (!input.apiConfigId) {
+          await ctx.db
+            .update(user)
+            .set({
+              credits: sql`${user.credits} + 1`,
+            })
+            .where(eq(user.id, userId));
+
+          await ctx.db.insert(creditTransactions).values({
+            userId: userId,
+            amount: 1,
+            type: "refund",
+            relatedPaperId: input.paperId,
+            description: "Refund for failed whiteboard regeneration queue dispatch",
+          });
+        }
+
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Queue dispatch failed",
+          cause: error,
+        });
+      }
+
+      return { success: true };
+    }),
 });
