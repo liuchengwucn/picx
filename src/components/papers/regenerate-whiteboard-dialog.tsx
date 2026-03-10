@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Sparkles, Zap } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "#/components/ui/button";
-import { Checkbox } from "#/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +10,7 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { Label } from "#/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "#/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -27,6 +27,177 @@ interface RegenerateWhiteboardDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface ApiConfigSelectorProps {
+  apiSource: "system" | "user";
+  selectedApiConfigId: string | undefined;
+  apiConfigs:
+    | Array<{ id: string; name: string; isDefault: boolean }>
+    | undefined;
+  onApiSourceChange: (value: "system" | "user") => void;
+  onApiConfigChange: (value: string) => void;
+}
+
+function ApiConfigSelector({
+  apiSource,
+  selectedApiConfigId,
+  apiConfigs,
+  onApiSourceChange,
+  onApiConfigChange,
+}: ApiConfigSelectorProps) {
+  const hasApiConfigs = apiConfigs && apiConfigs.length > 0;
+  const systemApiId = useId();
+  const userApiId = useId();
+
+  // Auto-select first config when switching to user API if none selected
+  useEffect(() => {
+    if (apiSource === "user" && hasApiConfigs && !selectedApiConfigId) {
+      onApiConfigChange(apiConfigs[0].id);
+    }
+  }, [apiSource, hasApiConfigs, selectedApiConfigId, apiConfigs, onApiConfigChange]);
+
+  return (
+    <div className="space-y-3">
+      <Label className="text-sm font-semibold text-[var(--ink)]">
+        {m.paper_whiteboard_regenerate_api_label()}
+      </Label>
+      <RadioGroup value={apiSource} onValueChange={onApiSourceChange}>
+        <div className="flex items-center space-x-2">
+          <RadioGroupItem value="system" id={systemApiId} />
+          <Label htmlFor={systemApiId} className="text-sm cursor-pointer">
+            {m.upload_use_system_api()}
+          </Label>
+        </div>
+        {hasApiConfigs && (
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="user" id={userApiId} />
+            <Label htmlFor={userApiId} className="text-sm cursor-pointer">
+              {m.upload_use_user_api()}
+            </Label>
+          </div>
+        )}
+      </RadioGroup>
+
+      {apiSource === "user" && hasApiConfigs && (
+        <Select value={selectedApiConfigId} onValueChange={onApiConfigChange}>
+          <SelectTrigger className="h-12 border-2 border-[var(--line)] bg-white/50 hover:border-[var(--academic-brown)]/30 transition-colors">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
+            {apiConfigs.map((config) => (
+              <SelectItem
+                key={config.id}
+                value={config.id}
+                className="hover:bg-[var(--parchment-warm)] cursor-pointer"
+              >
+                {config.name}
+                {config.isDefault && ` (${m.api_config_default()})`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+      {apiSource === "user" && !hasApiConfigs && (
+        <div className="rounded-lg border border-[var(--line)] bg-[var(--academic-brown)]/5 p-3">
+          <p className="text-sm text-[var(--ink-soft)]">
+            {m.upload_no_api_config()}
+          </p>
+          <a
+            href="/api-configs"
+            className="mt-2 inline-block text-sm font-medium text-[var(--academic-brown)] hover:underline"
+          >
+            {m.upload_go_to_settings()}
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface PromptSelectorProps {
+  promptSource: "system" | "existing" | "custom";
+  selectedPromptId: string | undefined;
+  prompts: Array<{ id: string; name: string; isDefault: boolean }> | undefined;
+  onPromptSourceChange: (value: "system" | "existing" | "custom") => void;
+  onPromptChange: (value: string) => void;
+}
+
+function PromptSelector({
+  promptSource,
+  selectedPromptId,
+  prompts,
+  onPromptSourceChange,
+  onPromptChange,
+}: PromptSelectorProps) {
+  const hasPrompts = prompts && prompts.length > 0;
+  const systemPromptId = useId();
+  const existingPromptId = useId();
+  const customPromptId = useId();
+
+  // Auto-select first prompt when switching to custom if none selected
+  useEffect(() => {
+    if (promptSource === "custom" && hasPrompts && !selectedPromptId) {
+      onPromptChange(prompts[0].id);
+    }
+  }, [promptSource, hasPrompts, selectedPromptId, prompts, onPromptChange]);
+
+  return (
+    <div className="space-y-3">
+      <Label className="text-sm font-semibold text-[var(--ink)]">
+        {m.paper_whiteboard_regenerate_prompt_label()}
+      </Label>
+      <RadioGroup value={promptSource} onValueChange={onPromptSourceChange}>
+        <div className="flex items-center space-x-2">
+          <RadioGroupItem value="system" id={systemPromptId} />
+          <Label htmlFor={systemPromptId} className="text-sm cursor-pointer">
+            {m.upload_use_system_prompt()}
+          </Label>
+        </div>
+        <div className="flex items-center space-x-2">
+          <RadioGroupItem value="existing" id={existingPromptId} />
+          <Label htmlFor={existingPromptId} className="text-sm cursor-pointer">
+            {m.paper_whiteboard_regenerate_use_same()}
+          </Label>
+        </div>
+        {hasPrompts && (
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="custom" id={customPromptId} />
+            <Label htmlFor={customPromptId} className="text-sm cursor-pointer">
+              {m.upload_select_prompt_template()}
+            </Label>
+          </div>
+        )}
+      </RadioGroup>
+
+      {promptSource === "custom" && hasPrompts && (
+        <Select value={selectedPromptId} onValueChange={onPromptChange}>
+          <SelectTrigger className="h-12 border-2 border-[var(--line)] bg-white/50 hover:border-[var(--academic-brown)]/30 transition-colors">
+            <SelectValue placeholder="Select a prompt template..." />
+          </SelectTrigger>
+          <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
+            {prompts.map((prompt) => (
+              <SelectItem
+                key={prompt.id}
+                value={prompt.id}
+                className="hover:bg-[var(--parchment-warm)] cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <span>{prompt.name}</span>
+                  {prompt.isDefault && (
+                    <span className="text-xs text-[var(--academic-brown)] font-medium">
+                      (Default)
+                    </span>
+                  )}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+}
+
 export function RegenerateWhiteboardDialog({
   paperId,
   open,
@@ -35,10 +206,16 @@ export function RegenerateWhiteboardDialog({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  const [promptId, setPromptId] = useState<string>("");
-  const [useExistingPrompt, setUseExistingPrompt] = useState(false);
-  const [apiConfigId, setApiConfigId] = useState<string>("system");
-  const checkboxId = useId();
+  const [promptSource, setPromptSource] = useState<
+    "system" | "existing" | "custom"
+  >("system");
+  const [selectedPromptId, setSelectedPromptId] = useState<string | undefined>(
+    undefined,
+  );
+  const [apiSource, setApiSource] = useState<"system" | "user">("system");
+  const [selectedApiConfigId, setSelectedApiConfigId] = useState<
+    string | undefined
+  >(undefined);
 
   // Fetch user's prompts
   const { data: promptsData } = useQuery(
@@ -46,12 +223,34 @@ export function RegenerateWhiteboardDialog({
   );
 
   // Fetch user's API configs
-  const { data: apiConfigsData } = useQuery(
-    trpc.userApiConfig.list.queryOptions(),
-  );
+  const { data: apiConfigsData } = useQuery(trpc.apiConfig.list.queryOptions());
 
   // Fetch user profile for credits
   const { data: profile } = useQuery(trpc.user.getProfile.queryOptions());
+
+  // Set default API source and config when apiConfigs are loaded
+  useEffect(() => {
+    if (apiConfigsData && apiConfigsData.length > 0) {
+      const defaultConfig = apiConfigsData.find((config) => config.isDefault);
+      if (defaultConfig) {
+        setApiSource("user");
+        setSelectedApiConfigId(defaultConfig.id);
+      } else if (apiSource === "user" && !selectedApiConfigId) {
+        // If user selects "user" API but no default is set, select the first one
+        setSelectedApiConfigId(apiConfigsData[0].id);
+      }
+    }
+  }, [apiConfigsData, apiSource, selectedApiConfigId]);
+
+  // Set default prompt when prompts are loaded
+  useEffect(() => {
+    if (promptsData && promptsData.length > 0) {
+      const defaultPrompt = promptsData.find((p) => p.isDefault);
+      if (defaultPrompt) {
+        setSelectedPromptId(defaultPrompt.id);
+      }
+    }
+  }, [promptsData]);
 
   const regenerateMutation = useMutation(
     trpc.paper.regenerateWhiteboard.mutationOptions({
@@ -64,24 +263,35 @@ export function RegenerateWhiteboardDialog({
         });
         onOpenChange(false);
         // Reset form
-        setPromptId("");
-        setUseExistingPrompt(false);
-        setApiConfigId("system");
+        setPromptSource("system");
+        setSelectedPromptId(undefined);
+        setApiSource("system");
+        setSelectedApiConfigId(undefined);
       },
     }),
   );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    let promptId: string | undefined;
+    let useExistingPrompt = false;
+
+    if (promptSource === "existing") {
+      useExistingPrompt = true;
+    } else if (promptSource === "custom") {
+      promptId = selectedPromptId;
+    }
+
     regenerateMutation.mutate({
       paperId,
-      promptId: promptId || undefined,
+      promptId,
       useExistingPrompt,
-      apiConfigId: apiConfigId === "system" ? undefined : apiConfigId,
+      apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
     });
   };
 
-  const willConsumeCredit = apiConfigId === "system";
+  const willConsumeCredit = apiSource === "system";
   const hasEnoughCredits = (profile?.credits ?? 0) >= 1;
 
   return (
@@ -101,102 +311,22 @@ export function RegenerateWhiteboardDialog({
 
         <form onSubmit={handleSubmit} className="space-y-6 mt-6">
           {/* Prompt Selection */}
-          <div className="space-y-3">
-            <Label className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
-              {m.paper_whiteboard_regenerate_prompt_label()}
-              <span className="text-xs font-normal text-[var(--ink-soft)]">
-                (Optional)
-              </span>
-            </Label>
-
-            <div className="space-y-3">
-              <Select
-                value={promptId}
-                onValueChange={setPromptId}
-                disabled={useExistingPrompt || regenerateMutation.isPending}
-              >
-                <SelectTrigger className="h-12 border-2 border-[var(--line)] bg-white/50 hover:border-[var(--academic-brown)]/30 transition-colors disabled:opacity-50">
-                  <SelectValue placeholder="Select a prompt template..." />
-                </SelectTrigger>
-                <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
-                  {promptsData?.map((prompt) => (
-                    <SelectItem
-                      key={prompt.id}
-                      value={prompt.id}
-                      className="hover:bg-[var(--parchment-warm)] cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span>{prompt.name}</span>
-                        {prompt.isDefault && (
-                          <span className="text-xs text-[var(--academic-brown)] font-medium">
-                            (Default)
-                          </span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <div className="flex items-center space-x-2 p-4 rounded-xl border-2 border-[var(--line)] bg-[var(--parchment-warm)]/50 hover:bg-[var(--parchment-warm)] transition-colors">
-                <Checkbox
-                  id={checkboxId}
-                  checked={useExistingPrompt}
-                  onCheckedChange={(checked) => {
-                    setUseExistingPrompt(checked as boolean);
-                    if (checked) setPromptId("");
-                  }}
-                  disabled={regenerateMutation.isPending}
-                  className="border-[var(--academic-brown)] data-[state=checked]:bg-[var(--academic-brown)]"
-                />
-                <Label
-                  htmlFor={checkboxId}
-                  className="text-sm text-[var(--ink)] cursor-pointer flex-1"
-                >
-                  {m.paper_whiteboard_regenerate_use_same()}
-                </Label>
-              </div>
-            </div>
-          </div>
+          <PromptSelector
+            promptSource={promptSource}
+            selectedPromptId={selectedPromptId}
+            prompts={promptsData}
+            onPromptSourceChange={setPromptSource}
+            onPromptChange={setSelectedPromptId}
+          />
 
           {/* API Configuration */}
-          <div className="space-y-3">
-            <Label className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
-              {m.paper_whiteboard_regenerate_api_label()}
-              <span className="text-xs font-normal text-[var(--ink-soft)]">
-                (Optional)
-              </span>
-            </Label>
-
-            <Select
-              value={apiConfigId}
-              onValueChange={setApiConfigId}
-              disabled={regenerateMutation.isPending}
-            >
-              <SelectTrigger className="h-12 border-2 border-[var(--line)] bg-white/50 hover:border-[var(--academic-brown)]/30 transition-colors">
-                <SelectValue
-                  placeholder={m.paper_whiteboard_regenerate_api_system()}
-                />
-              </SelectTrigger>
-              <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
-                <SelectItem
-                  value="system"
-                  className="hover:bg-[var(--parchment-warm)]"
-                >
-                  {m.paper_whiteboard_regenerate_api_system()}
-                </SelectItem>
-                {apiConfigsData?.map((config) => (
-                  <SelectItem
-                    key={config.id}
-                    value={config.id}
-                    className="hover:bg-[var(--parchment-warm)] cursor-pointer"
-                  >
-                    {config.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <ApiConfigSelector
+            apiSource={apiSource}
+            selectedApiConfigId={selectedApiConfigId}
+            apiConfigs={apiConfigsData}
+            onApiSourceChange={setApiSource}
+            onApiConfigChange={setSelectedApiConfigId}
+          />
 
           {/* Credit Cost Display */}
           <div className="rounded-2xl border-2 border-[var(--line)] bg-gradient-to-br from-[var(--parchment-warm)] to-white/50 p-6">
@@ -252,7 +382,9 @@ export function RegenerateWhiteboardDialog({
               type="submit"
               disabled={
                 regenerateMutation.isPending ||
-                (willConsumeCredit && !hasEnoughCredits)
+                (willConsumeCredit && !hasEnoughCredits) ||
+                (apiSource === "user" && !selectedApiConfigId) ||
+                (promptSource === "custom" && !selectedPromptId)
               }
               className="flex-1 h-12 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-lg hover:shadow-xl transition-all"
             >
