@@ -29,7 +29,7 @@ export default function Header() {
             <span className="hidden md:inline">{m.nav_papers()}</span>
           </Link>
           <Link
-            to="/explore"
+            to="/gallery"
             className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
             activeProps={{ className: "nav-link is-active" }}
           >

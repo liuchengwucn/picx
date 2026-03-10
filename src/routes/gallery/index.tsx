@@ -7,7 +7,7 @@ import { Skeleton } from "#/components/ui/skeleton";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 
-export const Route = createFileRoute("/explore/")({
+export const Route = createFileRoute("/gallery/")({
   component: ExplorePage,
 });
 
