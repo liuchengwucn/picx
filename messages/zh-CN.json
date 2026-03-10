@@ -14,6 +14,7 @@
   "api_config_test_failed": "API 测试失败",
   "api_config_test_success": "API 测试成功",
   "api_config_updated": "配置更新成功",
+  "api_config_validation_name_duplicate": "配置名称已存在",
   "api_configs_description": "管理您的 OpenAI 和 Gemini API 配置",
   "api_configs_title": "API 配置管理",
   "gemini_api_key": "Gemini API Key",

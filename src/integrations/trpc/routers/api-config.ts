@@ -37,6 +37,21 @@ export const apiConfigRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertGuestWriteAllowed(ctx.session);
 
+      // Check for duplicate name
+      const existingWithName = await ctx.db.query.userApiConfigs.findFirst({
+        where: and(
+          eq(userApiConfigs.userId, ctx.session.user.id),
+          eq(userApiConfigs.name, input.name),
+        ),
+      });
+
+      if (existingWithName) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "api_config_validation_name_duplicate",
+        });
+      }
+
       const encryptionSecret = ctx.env.API_KEY_ENCRYPTION_SECRET;
       if (!encryptionSecret) {
         throw new TRPCError({
@@ -261,7 +276,22 @@ export const apiConfigRouter = router({
           updatedAt: new Date(),
         };
 
-        if (input.name !== undefined) {
+        if (input.name !== undefined && input.name !== existingConfig.name) {
+          // Check for duplicate name
+          const duplicateName = await ctx.db.query.userApiConfigs.findFirst({
+            where: and(
+              eq(userApiConfigs.userId, ctx.session.user.id),
+              eq(userApiConfigs.name, input.name),
+            ),
+          });
+
+          if (duplicateName) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "api_config_validation_name_duplicate",
+            });
+          }
+
           updateData.name = input.name;
         }
 

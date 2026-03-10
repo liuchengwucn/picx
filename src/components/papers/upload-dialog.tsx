@@ -258,13 +258,13 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   // Set default API source and config when apiConfigs are loaded
   useEffect(() => {
     if (apiConfigs && apiConfigs.length > 0) {
-      setApiSource("user");
       const defaultConfig = apiConfigs.find((config) => config.isDefault);
       if (defaultConfig) {
+        // Only switch to user API if there's a default config
+        setApiSource("user");
         setSelectedApiConfigId(defaultConfig.id);
-      } else {
-        setSelectedApiConfigId(apiConfigs[0].id);
       }
+      // If no default config, keep using system API (don't auto-select first config)
     }
   }, [apiConfigs]);
 
