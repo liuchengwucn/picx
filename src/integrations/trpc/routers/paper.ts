@@ -7,6 +7,7 @@ import {
   papers,
   user,
   userApiConfigs,
+  whiteboardImages,
   whiteboardPrompts,
 } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
@@ -304,6 +305,47 @@ export const paperRouter = router({
         .where(eq(paperResults.paperId, input))
         .limit(1);
 
+      // 获取默认白板图片
+      const [defaultWhiteboard] = await ctx.db
+        .select({
+          id: whiteboardImages.id,
+          imageR2Key: whiteboardImages.imageR2Key,
+          promptId: whiteboardImages.promptId,
+          promptName: whiteboardPrompts.name,
+          isDefault: whiteboardImages.isDefault,
+          createdAt: whiteboardImages.createdAt,
+        })
+        .from(whiteboardImages)
+        .leftJoin(
+          whiteboardPrompts,
+          eq(whiteboardImages.promptId, whiteboardPrompts.id),
+        )
+        .where(
+          and(
+            eq(whiteboardImages.paperId, input),
+            eq(whiteboardImages.isDefault, true),
+          ),
+        )
+        .limit(1);
+
+      // 获取所有白板图片
+      const whiteboards = await ctx.db
+        .select({
+          id: whiteboardImages.id,
+          imageR2Key: whiteboardImages.imageR2Key,
+          promptId: whiteboardImages.promptId,
+          promptName: whiteboardPrompts.name,
+          isDefault: whiteboardImages.isDefault,
+          createdAt: whiteboardImages.createdAt,
+        })
+        .from(whiteboardImages)
+        .leftJoin(
+          whiteboardPrompts,
+          eq(whiteboardImages.promptId, whiteboardPrompts.id),
+        )
+        .where(eq(whiteboardImages.paperId, input))
+        .orderBy(desc(whiteboardImages.createdAt));
+
       // 如果有结果，返回当前语言的摘要
       if (result) {
         const summaries = result.summaries as Record<string, string>;
@@ -317,12 +359,16 @@ export const paperRouter = router({
             summary, // 返回当前语言的摘要
             availableLanguages: Object.keys(summaries), // 返回可用的语言列表
           },
+          defaultWhiteboard: defaultWhiteboard || null,
+          whiteboards,
         };
       }
 
       return {
         paper,
         result: null,
+        defaultWhiteboard: null,
+        whiteboards: [],
       };
     }),
 
@@ -675,5 +721,63 @@ export const paperRouter = router({
         papers: publicPapers,
         total: totalResult.count,
       };
+    }),
+
+  /**
+   * List all whiteboard images for a paper
+   * Public endpoint - allows viewing whiteboards for public papers
+   */
+  listWhiteboards: publicProcedure
+    .input(z.string().uuid())
+    .query(async ({ ctx, input }) => {
+      // Try to get session (optional for public papers)
+      const session =
+        (await ctx.auth.api.getSession({ headers: ctx.headers })) ??
+        (isReviewGuestModeEnabled()
+          ? await getReviewGuestServerSession(ctx.db)
+          : null);
+
+      // Check if paper exists
+      const [paper] = await ctx.db
+        .select()
+        .from(papers)
+        .where(and(eq(papers.id, input), isNull(papers.deletedAt)))
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      // Check permission: owner or public paper
+      const isOwner = session && paper.userId === session.user.id;
+      if (!isOwner && !paper.isPublic) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to view this paper",
+        });
+      }
+
+      // Query all whiteboard images with left join to whiteboardPrompts for prompt name
+      const whiteboards = await ctx.db
+        .select({
+          id: whiteboardImages.id,
+          imageR2Key: whiteboardImages.imageR2Key,
+          promptId: whiteboardImages.promptId,
+          promptName: whiteboardPrompts.name,
+          isDefault: whiteboardImages.isDefault,
+          createdAt: whiteboardImages.createdAt,
+        })
+        .from(whiteboardImages)
+        .leftJoin(
+          whiteboardPrompts,
+          eq(whiteboardImages.promptId, whiteboardPrompts.id),
+        )
+        .where(eq(whiteboardImages.paperId, input))
+        .orderBy(desc(whiteboardImages.createdAt));
+
+      return { whiteboards };
     }),
 });
