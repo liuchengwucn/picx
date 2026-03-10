@@ -543,13 +543,13 @@ export const paperRouter = router({
       }
 
       // Check if whiteboard image exists
-      const [result] = await ctx.db
+      const [whiteboard] = await ctx.db
         .select()
-        .from(paperResults)
-        .where(eq(paperResults.paperId, input.paperId))
+        .from(whiteboardImages)
+        .where(eq(whiteboardImages.paperId, input.paperId))
         .limit(1);
 
-      if (!result?.whiteboardImageR2Key) {
+      if (!whiteboard) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Paper must have whiteboard image before sharing",
@@ -619,13 +619,13 @@ export const paperRouter = router({
         });
       }
 
-      const [result] = await ctx.db
+      const [whiteboard] = await ctx.db
         .select()
-        .from(paperResults)
-        .where(eq(paperResults.paperId, input.paperId))
+        .from(whiteboardImages)
+        .where(eq(whiteboardImages.paperId, input.paperId))
         .limit(1);
 
-      if (!result?.whiteboardImageR2Key) {
+      if (!whiteboard) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Paper must have whiteboard image before listing in gallery",
@@ -672,7 +672,6 @@ export const paperRouter = router({
           whiteboardImageR2Key: whiteboardImages.imageR2Key,
         })
         .from(papers)
-        .innerJoin(paperResults, eq(papers.id, paperResults.paperId))
         .innerJoin(
           whiteboardImages,
           and(

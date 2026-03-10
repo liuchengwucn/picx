@@ -34,6 +34,7 @@ interface WhiteboardGalleryDialogProps {
   }>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  readOnly?: boolean; // 只读模式，不显示设置默认和删除按钮
 }
 
 export function WhiteboardGalleryDialog({
@@ -41,6 +42,7 @@ export function WhiteboardGalleryDialog({
   whiteboards,
   open,
   onOpenChange,
+  readOnly = false,
 }: WhiteboardGalleryDialogProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -154,7 +156,7 @@ export function WhiteboardGalleryDialog({
 
                     {/* Actions */}
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {!whiteboard.isDefault && (
+                      {!readOnly && !whiteboard.isDefault && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -176,7 +178,7 @@ export function WhiteboardGalleryDialog({
                         variant="outline"
                         size="sm"
                         asChild
-                        className={`${whiteboard.isDefault ? "flex-1 min-w-[120px]" : "flex-1 min-w-[100px]"} border-[var(--line)] hover:bg-[var(--parchment)] transition-all`}
+                        className={`${!readOnly && !whiteboard.isDefault ? "flex-1 min-w-[100px]" : "flex-1 min-w-[120px]"} border-[var(--line)] hover:bg-[var(--parchment)] transition-all`}
                       >
                         <a href={`/api/r2/${whiteboard.imageR2Key}`} download>
                           <Download className="h-3.5 w-3.5 mr-1.5" />
@@ -184,7 +186,7 @@ export function WhiteboardGalleryDialog({
                           <span className="sm:hidden">下载</span>
                         </a>
                       </Button>
-                      {whiteboards.length > 1 && (
+                      {!readOnly && whiteboards.length > 1 && (
                         <Button
                           variant="outline"
                           size="sm"

@@ -233,7 +233,9 @@ function PaperDetailPage() {
             isListedInGallery={paper.isListedInGallery}
             canShare={
               paper.status === "completed" &&
-              !!defaultWhiteboard?.imageR2Key
+              !paper.whiteboardRegenerating &&
+              (!!defaultWhiteboard?.imageR2Key ||
+                (whiteboardsData?.whiteboards && whiteboardsData.whiteboards.length > 0))
             }
           />
         )}
@@ -393,8 +395,7 @@ function PaperDetailPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {paper.userId === profile.data?.id &&
-                      whiteboardsData &&
+                    {whiteboardsData &&
                       whiteboardsData.whiteboards.length > 1 && (
                         <Button
                           variant="outline"
@@ -634,6 +635,7 @@ function PaperDetailPage() {
             whiteboards={whiteboardsData.whiteboards}
             open={isGalleryOpen}
             onOpenChange={setIsGalleryOpen}
+            readOnly={paper.userId !== profile.data?.id}
           />
         )}
 
