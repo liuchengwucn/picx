@@ -118,6 +118,7 @@
   "create": "Create",
   "edit": "Edit",
   "error_insufficient_credits": "Insufficient credits. You need at least 1 credit.",
+  "error_insufficient_credits_use_api": "Insufficient credits. Please add more credits or use your own API.",
   "home_hero_title": "AI-Powered Paper Summarization & Whiteboard Generation",
   "home_hero_badge": "Completely free・Get paper ideas and key points faster",
   "home_hero_subtitle": "Upload PDF or arXiv link, get instant summary and visual whiteboard",
@@ -231,6 +232,8 @@
   "whiteboard_prompt_delete_default_confirm": "Are you sure you want to delete the default prompt? The system default will be used.",
   "whiteboard_prompt_create_success": "Prompt created",
   "whiteboard_prompt_update_success": "Prompt updated",
+  "whiteboard_prompt_update_failed": "Failed to update prompt",
+  "whiteboard_prompt_create_failed": "Failed to create prompt",
   "upload_select_prompt_template": "Select Whiteboard Prompt",
   "upload_use_system_prompt": "System Default",
   "upload_advanced_settings": "Advanced Settings"

@@ -134,8 +134,8 @@ export function PromptDialog({
       console.error("Failed to save prompt:", error);
       toast.error(
         editingPromptId
-          ? "Failed to update template"
-          : "Failed to create template",
+          ? m.whiteboard_prompt_update_failed()
+          : m.whiteboard_prompt_create_failed(),
       );
     }
   };

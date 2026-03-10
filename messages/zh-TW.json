@@ -118,6 +118,7 @@
   "create": "建立",
   "edit": "編輯",
   "error_insufficient_credits": "積分不足，至少需要 1 積分。",
+  "error_insufficient_credits_use_api": "積分不足。請添加更多積分或使用您自己的 API。",
   "home_hero_title": "AI 驅動的論文總結與白板圖生成",
   "home_hero_badge": "完全免費・更快獲取論文 idea 與重點",
   "home_hero_subtitle": "上傳 PDF 或 arXiv 連結，即刻獲得論文總結和視覺化白板圖",
@@ -231,6 +232,8 @@
   "whiteboard_prompt_delete_default_confirm": "確定要刪除預設提示詞嗎？將使用系統預設。",
   "whiteboard_prompt_create_success": "提示詞已建立",
   "whiteboard_prompt_update_success": "提示詞已更新",
+  "whiteboard_prompt_update_failed": "提示詞更新失敗",
+  "whiteboard_prompt_create_failed": "提示詞建立失敗",
   "upload_select_prompt_template": "選擇白板提示詞",
   "upload_use_system_prompt": "系統預設",
   "upload_advanced_settings": "進階設定"

@@ -161,7 +161,7 @@ function PromptSelector({
                   <span>{prompt.name}</span>
                   {prompt.isDefault && (
                     <span className="text-xs text-[var(--academic-brown)] font-medium">
-                      (Default)
+                      ({m.api_config_default()})
                     </span>
                   )}
                 </div>
@@ -324,8 +324,7 @@ export function RegenerateWhiteboardDialog({
                 </p>
                 {willConsumeCredit && !hasEnoughCredits && (
                   <p className="text-sm text-[var(--sienna)] font-medium mt-2">
-                    ⚠️ Insufficient credits. Please add more credits or use your
-                    own API.
+                    ⚠️ {m.error_insufficient_credits_use_api()}
                   </p>
                 )}
               </div>

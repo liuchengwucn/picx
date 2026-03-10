@@ -118,6 +118,7 @@
   "create": "作成",
   "edit": "編集",
   "error_insufficient_credits": "クレジットが不足しています。最低1クレジットが必要です。",
+  "error_insufficient_credits_use_api": "クレジットが不足しています。クレジットを追加するか、独自の API を使用してください。",
   "home_hero_title": "AI駆動の論文要約とホワイトボード生成",
   "home_hero_badge": "完全無料・論文のアイデアと要点をすばやく掴む",
   "home_hero_subtitle": "PDFまたはarXivリンクをアップロードして、即座に論文要約と視覚化ホワイトボードを取得",
@@ -231,6 +232,8 @@
   "whiteboard_prompt_delete_default_confirm": "デフォルトプロンプトを削除してもよろしいですか？システムデフォルトが使用されます。",
   "whiteboard_prompt_create_success": "プロンプトを作成しました",
   "whiteboard_prompt_update_success": "プロンプトを更新しました",
+  "whiteboard_prompt_update_failed": "プロンプトの更新に失敗しました",
+  "whiteboard_prompt_create_failed": "プロンプトの作成に失敗しました",
   "upload_select_prompt_template": "ホワイトボードプロンプトを選択",
   "upload_use_system_prompt": "システムデフォルト",
   "upload_advanced_settings": "詳細設定"
