@@ -29,7 +29,8 @@ type PaperStatus =
 interface QueueMessage {
   paperId: string;
   userId: string;
-  sourceType: "upload" | "arxiv";
+  type?: "initial" | "regenerate_whiteboard"; // 消息类型，默认为 initial
+  sourceType?: "upload" | "arxiv"; // 对于 regenerate_whiteboard 不需要
   arxivUrl?: string;
   r2Key?: string;
   language?: "en" | "zh-cn" | "zh-tw" | "ja"; // 摘要语言
@@ -43,14 +44,22 @@ const MAX_RETRIES = 3;
 export default {
   async queue(batch: MessageBatch<QueueMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
-      const { paperId } = message.body;
+      const { paperId, type = "initial" } = message.body;
       const attempt = message.attempts;
 
       try {
         console.log(
-          `[paper:${paperId}] Processing attempt ${attempt}/${MAX_RETRIES}`,
+          `[paper:${paperId}] Processing attempt ${attempt}/${MAX_RETRIES} (type: ${type})`,
         );
-        await processPaper(message.body, env);
+
+        // 根据消息类型路由到不同的处理函数
+        if (type === "regenerate_whiteboard") {
+          // TODO: 将在下一个任务中实现
+          throw new Error("processWhiteboardRegeneration not implemented yet");
+        } else {
+          await processPaper(message.body, env);
+        }
+
         message.ack();
       } catch (error) {
         const errorDetail = formatErrorDetail(error);
@@ -201,6 +210,10 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   let r2Key = msg.r2Key;
 
   try {
+    if (!msg.sourceType) {
+      throw new Error("sourceType is required for initial processing");
+    }
+
     if (msg.sourceType === "arxiv") {
       if (!msg.arxivUrl) {
         throw new Error("arxivUrl is required for arxiv source type");
