@@ -119,7 +119,7 @@ export function RegenerateWhiteboardDialog({
                   <SelectValue placeholder="Select a prompt template..." />
                 </SelectTrigger>
                 <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
-                  {promptsData?.prompts.map((prompt) => (
+                  {promptsData?.map((prompt) => (
                     <SelectItem
                       key={prompt.id}
                       value={prompt.id}
@@ -185,7 +185,7 @@ export function RegenerateWhiteboardDialog({
                 >
                   {m.paper_whiteboard_regenerate_api_system()}
                 </SelectItem>
-                {apiConfigsData?.configs.map((config) => (
+                {apiConfigsData?.map((config) => (
                   <SelectItem
                     key={config.id}
                     value={config.id}
