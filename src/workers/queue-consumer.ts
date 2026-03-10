@@ -6,6 +6,7 @@ import {
   papers,
   user,
   userApiConfigs,
+  whiteboardImages,
   whiteboardPrompts,
 } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
@@ -54,8 +55,7 @@ export default {
 
         // 根据消息类型路由到不同的处理函数
         if (type === "regenerate_whiteboard") {
-          // TODO: 将在下一个任务中实现
-          throw new Error("processWhiteboardRegeneration not implemented yet");
+          await processWhiteboardRegeneration(message.body, env);
         } else {
           await processPaper(message.body, env);
         }
@@ -389,7 +389,6 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   // Step 5: 生成白板图片
   await updatePaperStatus(msg.paperId, "processing_image", null, env);
   let imageData: ArrayBuffer;
-  let prompt: string;
   try {
     log(
       "generate-image",
@@ -405,14 +404,13 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       customPromptTemplate, // 传递自定义 prompt 模板
     );
     imageData = result.imageData;
-    prompt = result.prompt;
     log("generate-image", `Image generated: ${imageData.byteLength} bytes`);
   } catch (error) {
     throw new StepError("generate-image", error);
   }
 
   // Step 6: 上传图片到 R2 和保存结果到数据库（并行执行）
-  const imageR2Key = `whiteboards/${msg.userId}/${msg.paperId}.png`;
+  const imageR2Key = `whiteboards/${msg.paperId}/${crypto.randomUUID()}.png`;
   const processingTimeMs = Date.now() - startTime;
 
   await Promise.all([
@@ -428,15 +426,259 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
         summaries: { [language]: summary },
         summaryLanguage: language,
         whiteboardInsights: whiteboardInsights,
-        whiteboardImageR2Key: imageR2Key,
-        imagePrompt: prompt,
         processingTimeMs,
+      }),
+    // 保存白板图片记录
+    db
+      .insert(whiteboardImages)
+      .values({
+        paperId: msg.paperId,
+        imageR2Key: imageR2Key,
+        promptId: msg.promptId || null,
+        isDefault: true,
       }),
   ]);
 
   // Step 7: 标记完成
   await updatePaperStatus(msg.paperId, "completed", null, env);
   log("done", `Completed in ${processingTimeMs}ms`);
+}
+
+/**
+ * 处理白板图片重新生成
+ */
+async function processWhiteboardRegeneration(
+  msg: QueueMessage,
+  env: Env,
+): Promise<void> {
+  const db = drizzle(env.DB);
+  const startTime = Date.now();
+  const log = (step: string, message: string) =>
+    console.log(`[whiteboard:${msg.paperId}][${step}] ${message}`);
+  const logWarn = (step: string, message: string, error?: unknown) =>
+    console.warn(
+      `[whiteboard:${msg.paperId}][${step}] ${message}`,
+      error ?? "",
+    );
+
+  // Step 0: 读取 AI 配置（用户配置或系统配置）
+  let aiConfig: AIConfig;
+  const usingUserApi = !!msg.apiConfigId;
+
+  if (msg.apiConfigId) {
+    try {
+      log("load-config", `Loading user API configuration: ${msg.apiConfigId}`);
+
+      // 从数据库读取用户配置
+      const [config] = await db
+        .select()
+        .from(userApiConfigs)
+        .where(
+          and(
+            eq(userApiConfigs.id, msg.apiConfigId),
+            eq(userApiConfigs.userId, msg.userId),
+          ),
+        )
+        .limit(1);
+
+      if (!config) {
+        throw new UserApiConfigError(
+          `User API configuration not found: ${msg.apiConfigId}`,
+        );
+      }
+
+      // 解密 API keys
+      const secret = env.API_KEY_ENCRYPTION_SECRET;
+      if (!secret) {
+        throw new Error("API_KEY_ENCRYPTION_SECRET is not configured");
+      }
+
+      aiConfig = {
+        openaiApiKey: await decrypt(config.openaiApiKey, secret),
+        openaiBaseUrl: config.openaiBaseUrl,
+        openaiModel: config.openaiModel,
+        geminiApiKey: await decrypt(config.geminiApiKey, secret),
+        geminiBaseUrl: config.geminiBaseUrl,
+        geminiModel: config.geminiModel,
+      };
+
+      log("load-config", `User API configuration loaded successfully`);
+    } catch (error) {
+      if (error instanceof UserApiConfigError) {
+        throw error;
+      }
+      throw new UserApiConfigError(
+        `Failed to load user API configuration: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  } else {
+    // 使用系统配置
+    log("load-config", "Using system API configuration");
+    aiConfig = {
+      openaiApiKey: env.OPENAI_API_KEY,
+      openaiBaseUrl: env.OPENAI_BASE_URL,
+      openaiModel: env.OPENAI_MODEL,
+      geminiApiKey: env.GEMINI_API_KEY,
+      geminiBaseUrl: env.GEMINI_BASE_URL,
+      geminiModel: env.GEMINI_MODEL,
+      cfApiToken: env.CF_API_TOKEN,
+    };
+  }
+
+  // Step 1: 获取论文结果（用于获取 insights）
+  let whiteboardInsights: string;
+  try {
+    log("load-results", `Loading paper results for paper ${msg.paperId}`);
+
+    const [result] = await db
+      .select()
+      .from(paperResults)
+      .where(eq(paperResults.paperId, msg.paperId))
+      .limit(1);
+
+    if (!result) {
+      throw new Error(`Paper results not found for paper ${msg.paperId}`);
+    }
+
+    whiteboardInsights = result.whiteboardInsights;
+    log(
+      "load-results",
+      `Loaded whiteboard insights (${whiteboardInsights.length} chars)`,
+    );
+  } catch (error) {
+    throw new StepError("load-results", error);
+  }
+
+  // Step 2: 读取自定义 Prompt 模板（如果提供）
+  let customPromptTemplate: string | undefined;
+
+  if (msg.promptId) {
+    try {
+      log("load-prompt", `Loading custom prompt template: ${msg.promptId}`);
+
+      const [promptConfig] = await db
+        .select()
+        .from(whiteboardPrompts)
+        .where(
+          and(
+            eq(whiteboardPrompts.id, msg.promptId),
+            eq(whiteboardPrompts.userId, msg.userId),
+          ),
+        )
+        .limit(1);
+
+      if (!promptConfig) {
+        logWarn(
+          "load-prompt",
+          `Custom prompt template not found: ${msg.promptId}, using default`,
+        );
+      } else {
+        customPromptTemplate = promptConfig.promptTemplate;
+        log("load-prompt", `Custom prompt template loaded successfully`);
+      }
+    } catch (error) {
+      logWarn(
+        "load-prompt",
+        `Failed to load custom prompt template, using default`,
+        error,
+      );
+    }
+  }
+
+  // Step 3: 生成白板图片
+  let imageData: ArrayBuffer;
+  try {
+    log(
+      "generate-image",
+      `Generating whiteboard image (model: ${aiConfig.geminiModel || "default"}, baseUrl: ${aiConfig.geminiBaseUrl || "default"})`,
+    );
+    const whiteboardLang = msg.whiteboardLanguage || "en";
+    const result = await generateWhiteboardImage(
+      whiteboardInsights,
+      "", // 不需要完整文本
+      aiConfig,
+      whiteboardLang,
+      undefined, // 不需要摘要降级
+      customPromptTemplate,
+    );
+    imageData = result.imageData;
+    log("generate-image", `Image generated: ${imageData.byteLength} bytes`);
+  } catch (error) {
+    // 如果使用系统 API 失败，需要退还 credit
+    if (!usingUserApi) {
+      try {
+        await refundCredit(
+          msg.paperId,
+          msg.userId,
+          "Whiteboard regeneration failed",
+          env,
+        );
+      } catch (refundError) {
+        logWarn("refund", "Failed to refund credit", refundError);
+      }
+    }
+    throw new StepError("generate-image", error);
+  }
+
+  // Step 4: 上传图片到 R2
+  const imageR2Key = `whiteboards/${msg.paperId}/${crypto.randomUUID()}.png`;
+  try {
+    log("upload-image", `Uploading image to R2: ${imageR2Key}`);
+    await env.PAPERS_BUCKET.put(imageR2Key, imageData, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    log("upload-image", `Image uploaded successfully`);
+  } catch (error) {
+    // 上传失败也需要退还 credit（如果使用系统 API）
+    if (!usingUserApi) {
+      try {
+        await refundCredit(msg.paperId, msg.userId, "Image upload failed", env);
+      } catch (refundError) {
+        logWarn("refund", "Failed to refund credit", refundError);
+      }
+    }
+    throw new StepError("upload-image", error);
+  }
+
+  // Step 5: 更新数据库（设置所有现有白板为非默认，插入新白板为默认）
+  try {
+    log("update-db", "Setting existing whiteboards to non-default");
+
+    // 先设置所有现有白板为非默认
+    await db
+      .update(whiteboardImages)
+      .set({ isDefault: false })
+      .where(eq(whiteboardImages.paperId, msg.paperId));
+
+    // 插入新白板记录为默认
+    log("update-db", "Inserting new whiteboard as default");
+    await db.insert(whiteboardImages).values({
+      paperId: msg.paperId,
+      imageR2Key: imageR2Key,
+      promptId: msg.promptId || null,
+      isDefault: true,
+    });
+
+    log("update-db", "Database updated successfully");
+  } catch (error) {
+    // 数据库更新失败也需要退还 credit（如果使用系统 API）
+    if (!usingUserApi) {
+      try {
+        await refundCredit(
+          msg.paperId,
+          msg.userId,
+          "Database update failed",
+          env,
+        );
+      } catch (refundError) {
+        logWarn("refund", "Failed to refund credit", refundError);
+      }
+    }
+    throw new StepError("update-db", error);
+  }
+
+  const processingTimeMs = Date.now() - startTime;
+  log("done", `Whiteboard regeneration completed in ${processingTimeMs}ms`);
 }
 
 /**
@@ -555,6 +797,41 @@ async function markPaperFailedAndRefund(
     type: "refund",
     relatedPaperId: paperId,
     description: `Refund for failed paper processing: ${truncated}`,
+  });
+
+  console.log(`[paper:${paperId}] Credit refunded successfully`);
+}
+
+/**
+ * 退还 credit（用于白板重新生成失败）
+ */
+async function refundCredit(
+  paperId: string,
+  userId: string,
+  reason: string,
+  env: Env,
+): Promise<void> {
+  const db = drizzle(env.DB);
+
+  console.log(
+    `[paper:${paperId}] Refunding credit to user ${userId} for: ${reason}`,
+  );
+
+  // 返还 1 credit
+  await db
+    .update(user)
+    .set({
+      credits: sql`${user.credits} + 1`,
+    })
+    .where(eq(user.id, userId));
+
+  // 记录 credit 交易
+  await db.insert(creditTransactions).values({
+    userId: userId,
+    amount: 1,
+    type: "refund",
+    relatedPaperId: paperId,
+    description: `Refund for whiteboard regeneration: ${reason}`,
   });
 
   console.log(`[paper:${paperId}] Credit refunded successfully`);

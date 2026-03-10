@@ -1098,7 +1098,8 @@ export const paperRouter = router({
             amount: 1,
             type: "refund",
             relatedPaperId: input.paperId,
-            description: "Refund for failed whiteboard regeneration queue dispatch",
+            description:
+              "Refund for failed whiteboard regeneration queue dispatch",
           });
         }
 
