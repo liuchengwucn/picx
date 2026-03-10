@@ -205,10 +205,10 @@ function PaperDetailPage() {
 
   if (!data) return null;
 
-  const { paper, result } = data;
+  const { paper, result, defaultWhiteboard } = data;
   const progress = statusProgress[paper.status] ?? 0;
-  const whiteboardImageUrl = result?.defaultWhiteboard?.imageR2Key
-    ? `/api/r2/${result.defaultWhiteboard.imageR2Key}`
+  const whiteboardImageUrl = defaultWhiteboard?.imageR2Key
+    ? `/api/r2/${defaultWhiteboard.imageR2Key}`
     : null;
 
   return (
@@ -233,7 +233,7 @@ function PaperDetailPage() {
             isListedInGallery={paper.isListedInGallery}
             canShare={
               paper.status === "completed" &&
-              !!result?.defaultWhiteboard?.imageR2Key
+              !!defaultWhiteboard?.imageR2Key
             }
           />
         )}

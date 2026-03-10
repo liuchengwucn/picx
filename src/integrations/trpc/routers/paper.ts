@@ -663,16 +663,23 @@ export const paperRouter = router({
     .query(async ({ ctx, input }) => {
       const offset = (input.page - 1) * input.limit;
 
-      // Query public papers with results
+      // Query public papers with default whiteboard images
       const publicPapers = await ctx.db
         .select({
           id: papers.id,
           title: papers.title,
           publishedAt: papers.publishedAt,
-          whiteboardImageR2Key: paperResults.whiteboardImageR2Key,
+          whiteboardImageR2Key: whiteboardImages.imageR2Key,
         })
         .from(papers)
         .innerJoin(paperResults, eq(papers.id, paperResults.paperId))
+        .innerJoin(
+          whiteboardImages,
+          and(
+            eq(papers.id, whiteboardImages.paperId),
+            eq(whiteboardImages.isDefault, true),
+          ),
+        )
         .where(
           and(
             eq(papers.isPublic, true),
