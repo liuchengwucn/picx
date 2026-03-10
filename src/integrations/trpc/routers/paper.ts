@@ -324,7 +324,7 @@ export const paperRouter = router({
         .orderBy(desc(whiteboardImages.createdAt));
 
       // 从结果中找到默认白板
-      const defaultWhiteboard = whiteboards.find(w => w.isDefault) || null;
+      const defaultWhiteboard = whiteboards.find((w) => w.isDefault) || null;
 
       // 如果有结果，返回当前语言的摘要
       if (result) {
@@ -831,6 +831,109 @@ export const paperRouter = router({
           message: "Failed to update default whiteboard",
           cause: error,
         });
+      }
+
+      return { success: true };
+    }),
+
+  /**
+   * Delete a whiteboard image
+   * Must keep at least one whiteboard per paper
+   * If deleting default, auto-set another as default
+   */
+  deleteWhiteboard: protectedProcedure
+    .input(
+      z.object({
+        paperId: z.string().uuid(),
+        whiteboardId: z.string().uuid(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
+      const userId = ctx.session.user.id;
+
+      // Step 1: Verify paper exists and belongs to user
+      const [paper] = await ctx.db
+        .select()
+        .from(papers)
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.userId, userId),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      // Step 2: Verify whiteboard exists and belongs to the paper
+      const [whiteboard] = await ctx.db
+        .select()
+        .from(whiteboardImages)
+        .where(
+          and(
+            eq(whiteboardImages.id, input.whiteboardId),
+            eq(whiteboardImages.paperId, input.paperId),
+          ),
+        )
+        .limit(1);
+
+      if (!whiteboard) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Whiteboard not found",
+        });
+      }
+
+      // Step 3: Delete image from R2 first (before DB changes)
+      try {
+        await ctx.env.R2_BUCKET.delete(whiteboard.imageR2Key);
+      } catch (error) {
+        // Log but continue - database cleanup is more important
+        console.error("Failed to delete whiteboard from R2:", error);
+      }
+
+      // Step 4: Conditional delete - only delete if more than 1 whiteboard exists
+      // This prevents TOCTOU race condition by combining check and delete atomically
+      const deleteResult = await ctx.db
+        .delete(whiteboardImages)
+        .where(
+          and(
+            eq(whiteboardImages.id, input.whiteboardId),
+            sql`(SELECT COUNT(*) FROM ${whiteboardImages} WHERE ${whiteboardImages.paperId} = ${input.paperId}) > 1`,
+          ),
+        )
+        .returning();
+
+      if (deleteResult.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Cannot delete the last whiteboard. At least one must remain.",
+        });
+      }
+
+      // Step 5: If deleted whiteboard was default, atomically set latest one as default
+      // Use CASE expression to update all whiteboards in single query
+      if (whiteboard.isDefault) {
+        await ctx.db
+          .update(whiteboardImages)
+          .set({
+            isDefault: sql`CASE WHEN ${whiteboardImages.id} = (
+              SELECT ${whiteboardImages.id}
+              FROM ${whiteboardImages}
+              WHERE ${whiteboardImages.paperId} = ${input.paperId}
+              ORDER BY ${whiteboardImages.createdAt} DESC
+              LIMIT 1
+            ) THEN 1 ELSE 0 END`,
+          })
+          .where(eq(whiteboardImages.paperId, input.paperId));
       }
 
       return { success: true };
