@@ -203,6 +203,8 @@
   "whiteboard_prompt_validation_content_length": "提示詞內容長度必須在 10-3000 個字元之間",
   "whiteboard_prompt_validation_content_text_required": "提示詞必須包含 {contentText} 佔位符",
   "whiteboard_prompt_validation_content_text_once": "提示詞只能包含一個 {contentText} 佔位符",
+  "whiteboard_prompt_validation_name_duplicate": "提示詞名稱已存在",
+  "whiteboard_prompt_validation_name_reserved": "此名稱為系統保留，請使用其他名稱",
   "whiteboard_prompt_delete_confirm": "確定要刪除此提示詞嗎？",
   "whiteboard_prompt_delete_default_confirm": "確定要刪除預設提示詞嗎？將使用系統預設。",
   "whiteboard_prompt_create_success": "提示詞已建立",

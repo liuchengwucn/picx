@@ -2,7 +2,10 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { whiteboardPrompts } from "#/db/schema";
-import { validatePromptTemplate } from "#/lib/prompt-validation";
+import {
+  isReservedPromptName,
+  validatePromptTemplate,
+} from "#/lib/prompt-validation";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { protectedProcedure, router } from "../init";
 
@@ -37,6 +40,13 @@ export const whiteboardPromptRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       assertGuestWriteAllowed(ctx.session);
+
+      if (isReservedPromptName(input.name)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "whiteboard_prompt_validation_name_reserved",
+        });
+      }
 
       const validation = validatePromptTemplate(input.promptTemplate);
       if (!validation.valid) {
@@ -117,6 +127,13 @@ export const whiteboardPromptRouter = router({
       }
 
       if (input.name && input.name !== existing.name) {
+        if (isReservedPromptName(input.name)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "whiteboard_prompt_validation_name_reserved",
+          });
+        }
+
         const duplicate = await ctx.db.query.whiteboardPrompts.findFirst({
           where: and(
             eq(whiteboardPrompts.userId, ctx.session.user.id),

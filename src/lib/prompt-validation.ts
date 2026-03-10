@@ -1,4 +1,16 @@
 /**
+ * 保留的提示词名称（不允许用户使用）
+ */
+const RESERVED_PROMPT_NAMES = ["system", "__system__", "default"];
+
+/**
+ * 验证提示词名称是否为保留名称
+ */
+export function isReservedPromptName(name: string): boolean {
+  return RESERVED_PROMPT_NAMES.includes(name.toLowerCase());
+}
+
+/**
  * 验证 prompt 模板是否包含正确数量的 {contentText} 占位符
  */
 export function validatePromptTemplate(template: string): {

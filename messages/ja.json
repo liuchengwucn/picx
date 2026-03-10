@@ -203,6 +203,8 @@
   "whiteboard_prompt_validation_content_length": "プロンプト内容は10〜3000文字である必要があります",
   "whiteboard_prompt_validation_content_text_required": "プロンプトには {contentText} プレースホルダーが必要です",
   "whiteboard_prompt_validation_content_text_once": "プロンプトには {contentText} プレースホルダーを1つだけ含めることができます",
+  "whiteboard_prompt_validation_name_duplicate": "プロンプト名は既に存在します",
+  "whiteboard_prompt_validation_name_reserved": "この名前はシステムで予約されています。別の名前を使用してください",
   "whiteboard_prompt_delete_confirm": "このプロンプトを削除してもよろしいですか？",
   "whiteboard_prompt_delete_default_confirm": "デフォルトプロンプトを削除してもよろしいですか？システムデフォルトが使用されます。",
   "whiteboard_prompt_create_success": "プロンプトを作成しました",

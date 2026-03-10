@@ -172,9 +172,9 @@ function ApiConfigSelector({
 }
 
 interface PromptSelectorProps {
-  selectedPromptId: string | undefined;
+  selectedPromptId: string | null | undefined;
   prompts: Array<{ id: string; name: string; isDefault: boolean }> | undefined;
-  onPromptChange: (value: string) => void;
+  onPromptChange: (value: string | null) => void;
 }
 
 function PromptSelector({
@@ -183,6 +183,7 @@ function PromptSelector({
   onPromptChange,
 }: PromptSelectorProps) {
   const hasPrompts = prompts && prompts.length > 0;
+  const SYSTEM_PROMPT_VALUE = "__system__";
 
   return (
     <div className="space-y-2">
@@ -190,14 +191,18 @@ function PromptSelector({
         {m.upload_select_prompt_template()}
       </Label>
       <Select
-        value={selectedPromptId || "system"}
-        onValueChange={onPromptChange}
+        value={selectedPromptId ?? SYSTEM_PROMPT_VALUE}
+        onValueChange={(value) => {
+          onPromptChange(value === SYSTEM_PROMPT_VALUE ? null : value);
+        }}
       >
         <SelectTrigger className="border-[var(--line)]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="system">{m.upload_use_system_prompt()}</SelectItem>
+          <SelectItem value={SYSTEM_PROMPT_VALUE}>
+            {m.upload_use_system_prompt()}
+          </SelectItem>
           {hasPrompts &&
             prompts.map((prompt) => (
               <SelectItem key={prompt.id} value={prompt.id}>
@@ -227,9 +232,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [selectedApiConfigId, setSelectedApiConfigId] = useState<
     string | undefined
   >(undefined);
-  const [selectedPromptId, setSelectedPromptId] = useState<string | undefined>(
-    undefined,
-  );
+  const [selectedPromptId, setSelectedPromptId] = useState<
+    string | null | undefined
+  >(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const trpc = useTRPC();
   const { data: session } = authClient.useSession();
@@ -270,11 +275,12 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
       if (defaultPrompt) {
         setSelectedPromptId(defaultPrompt.id);
       } else {
-        setSelectedPromptId(prompts[0].id);
+        // No default prompt, use system default (null)
+        setSelectedPromptId(null);
       }
     } else {
-      // No custom prompts, use system default
-      setSelectedPromptId(undefined);
+      // No custom prompts, use system default (null)
+      setSelectedPromptId(null);
     }
   }, [prompts]);
 
@@ -311,7 +317,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         language: summaryLanguage,
         whiteboardLanguage,
         apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
-        promptId: selectedPromptId === "system" ? undefined : selectedPromptId,
+        promptId: selectedPromptId ?? undefined,
       });
       setOpen(false);
       setFile(null);
@@ -351,7 +357,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         language: summaryLanguage,
         whiteboardLanguage,
         apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
-        promptId: selectedPromptId === "system" ? undefined : selectedPromptId,
+        promptId: selectedPromptId ?? undefined,
       });
       setOpen(false);
       setArxivUrl("");

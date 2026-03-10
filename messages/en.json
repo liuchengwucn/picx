@@ -203,6 +203,8 @@
   "whiteboard_prompt_validation_content_length": "Prompt content must be between 10-3000 characters",
   "whiteboard_prompt_validation_content_text_required": "Prompt must contain {contentText} placeholder",
   "whiteboard_prompt_validation_content_text_once": "Prompt can only contain one {contentText} placeholder",
+  "whiteboard_prompt_validation_name_duplicate": "Prompt name already exists",
+  "whiteboard_prompt_validation_name_reserved": "This name is reserved by the system, please use another name",
   "whiteboard_prompt_delete_confirm": "Are you sure you want to delete this prompt?",
   "whiteboard_prompt_delete_default_confirm": "Are you sure you want to delete the default prompt? The system default will be used.",
   "whiteboard_prompt_create_success": "Prompt created",

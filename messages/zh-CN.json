@@ -203,6 +203,8 @@
   "whiteboard_prompt_validation_content_length": "提示词内容长度必须在 10-3000 个字符之间",
   "whiteboard_prompt_validation_content_text_required": "提示词必须包含 {contentText} 占位符",
   "whiteboard_prompt_validation_content_text_once": "提示词只能包含一个 {contentText} 占位符",
+  "whiteboard_prompt_validation_name_duplicate": "提示词名称已存在",
+  "whiteboard_prompt_validation_name_reserved": "此名称为系统保留，请使用其他名称",
   "whiteboard_prompt_delete_confirm": "确定要删除此提示词吗？",
   "whiteboard_prompt_delete_default_confirm": "确定要删除默认提示词吗？将使用系统默认。",
   "whiteboard_prompt_create_success": "提示词已创建",
