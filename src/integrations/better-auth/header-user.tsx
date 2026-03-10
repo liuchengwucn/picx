@@ -1,8 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { Clipboard, Coins, Key } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
 import { authClient, startGitHubSignIn } from "#/lib/auth-client";
@@ -51,7 +54,7 @@ export default function BetterAuthHeader() {
             )}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end">
           {isGuestSession ? (
             <DropdownMenuItem
               onClick={() => {
@@ -61,15 +64,36 @@ export default function BetterAuthHeader() {
               {m.auth_sign_in_github()}
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem
-              onClick={async () => {
-                await authClient.signOut();
-                queryClient.clear();
-                window.location.assign("/");
-              }}
-            >
-              {m.auth_sign_out()}
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem asChild>
+                <Link to="/credits" className="flex items-center gap-2">
+                  <Coins className="h-4 w-4" />
+                  {m.nav_credits()}
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/api-configs" className="flex items-center gap-2">
+                  <Key className="h-4 w-4" />
+                  {m.nav_api_configs()}
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/whiteboard-prompts" className="flex items-center gap-2">
+                  <Clipboard className="h-4 w-4" />
+                  {m.nav_whiteboard_prompts()}
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={async () => {
+                  await authClient.signOut();
+                  queryClient.clear();
+                  window.location.assign("/");
+                }}
+              >
+                {m.auth_sign_out()}
+              </DropdownMenuItem>
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

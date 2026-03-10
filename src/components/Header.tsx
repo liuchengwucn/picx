@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Clipboard, Coins, FileText, Globe, Key } from "lucide-react";
+import { FileText, Globe } from "lucide-react";
 import { m } from "#/paraglide/messages";
 import BetterAuthHeader from "../integrations/better-auth/header-user.tsx";
 import ParaglideLocaleSwitcher from "./LocaleSwitcher.tsx";
@@ -21,14 +21,6 @@ export default function Header() {
 
         <div className="flex items-center gap-x-1 sm:gap-x-2 md:gap-x-4 text-sm font-semibold overflow-x-auto scrollbar-hide">
           <Link
-            to="/papers"
-            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
-            activeProps={{ className: "nav-link is-active" }}
-          >
-            <FileText className="h-4 w-4" />
-            <span className="hidden md:inline">{m.nav_papers()}</span>
-          </Link>
-          <Link
             to="/gallery"
             className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
             activeProps={{ className: "nav-link is-active" }}
@@ -37,30 +29,12 @@ export default function Header() {
             <span className="hidden md:inline">{m.nav_explore()}</span>
           </Link>
           <Link
-            to="/credits"
+            to="/papers"
             className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
             activeProps={{ className: "nav-link is-active" }}
           >
-            <Coins className="h-4 w-4" />
-            <span className="hidden md:inline">{m.nav_credits()}</span>
-          </Link>
-          <Link
-            to="/api-configs"
-            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
-            activeProps={{ className: "nav-link is-active" }}
-          >
-            <Key className="h-4 w-4" />
-            <span className="hidden md:inline">{m.nav_api_configs()}</span>
-          </Link>
-          <Link
-            to="/whiteboard-prompts"
-            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
-            activeProps={{ className: "nav-link is-active" }}
-          >
-            <Clipboard className="h-4 w-4" />
-            <span className="hidden md:inline">
-              {m.nav_whiteboard_prompts()}
-            </span>
+            <FileText className="h-4 w-4" />
+            <span className="hidden md:inline">{m.nav_papers()}</span>
           </Link>
         </div>
 
