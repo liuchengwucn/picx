@@ -115,67 +115,43 @@ function ApiConfigSelector({
 }
 
 interface PromptSelectorProps {
-  promptSource: "system" | "existing" | "custom";
-  selectedPromptId: string | undefined;
+  selectedPromptValue: string; // "system" | "existing" | prompt.id
   prompts: Array<{ id: string; name: string; isDefault: boolean }> | undefined;
-  onPromptSourceChange: (value: "system" | "existing" | "custom") => void;
   onPromptChange: (value: string) => void;
 }
 
 function PromptSelector({
-  promptSource,
-  selectedPromptId,
+  selectedPromptValue,
   prompts,
-  onPromptSourceChange,
   onPromptChange,
 }: PromptSelectorProps) {
-  const hasPrompts = prompts && prompts.length > 0;
-  const systemPromptId = useId();
-  const existingPromptId = useId();
-  const customPromptId = useId();
-
-  // Auto-select first prompt when switching to custom if none selected
-  useEffect(() => {
-    if (promptSource === "custom" && hasPrompts && !selectedPromptId) {
-      onPromptChange(prompts[0].id);
-    }
-  }, [promptSource, hasPrompts, selectedPromptId, prompts, onPromptChange]);
+  const SYSTEM_PROMPT_VALUE = "__system__";
+  const EXISTING_PROMPT_VALUE = "__existing__";
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <Label className="text-sm font-semibold text-[var(--ink)]">
         {m.paper_whiteboard_regenerate_prompt_label()}
       </Label>
-      <RadioGroup value={promptSource} onValueChange={onPromptSourceChange}>
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="system" id={systemPromptId} />
-          <Label htmlFor={systemPromptId} className="text-sm cursor-pointer">
+      <Select value={selectedPromptValue} onValueChange={onPromptChange}>
+        <SelectTrigger className="h-12 border-2 border-[var(--line)] bg-white/50 hover:border-[var(--academic-brown)]/30 transition-colors">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
+          <SelectItem
+            value={SYSTEM_PROMPT_VALUE}
+            className="hover:bg-[var(--parchment-warm)] cursor-pointer"
+          >
             {m.upload_use_system_prompt()}
-          </Label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="existing" id={existingPromptId} />
-          <Label htmlFor={existingPromptId} className="text-sm cursor-pointer">
+          </SelectItem>
+          <SelectItem
+            value={EXISTING_PROMPT_VALUE}
+            className="hover:bg-[var(--parchment-warm)] cursor-pointer"
+          >
             {m.paper_whiteboard_regenerate_use_same()}
-          </Label>
-        </div>
-        {hasPrompts && (
-          <div className="flex items-center space-x-2">
-            <RadioGroupItem value="custom" id={customPromptId} />
-            <Label htmlFor={customPromptId} className="text-sm cursor-pointer">
-              {m.upload_select_prompt_template()}
-            </Label>
-          </div>
-        )}
-      </RadioGroup>
-
-      {promptSource === "custom" && hasPrompts && (
-        <Select value={selectedPromptId} onValueChange={onPromptChange}>
-          <SelectTrigger className="h-12 border-2 border-[var(--line)] bg-white/50 hover:border-[var(--academic-brown)]/30 transition-colors">
-            <SelectValue placeholder="Select a prompt template..." />
-          </SelectTrigger>
-          <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
-            {prompts.map((prompt) => (
+          </SelectItem>
+          {prompts &&
+            prompts.map((prompt) => (
               <SelectItem
                 key={prompt.id}
                 value={prompt.id}
@@ -191,9 +167,8 @@ function PromptSelector({
                 </div>
               </SelectItem>
             ))}
-          </SelectContent>
-        </Select>
-      )}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
@@ -206,11 +181,11 @@ export function RegenerateWhiteboardDialog({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  const [promptSource, setPromptSource] = useState<
-    "system" | "existing" | "custom"
-  >("system");
-  const [selectedPromptId, setSelectedPromptId] = useState<string | undefined>(
-    undefined,
+  const SYSTEM_PROMPT_VALUE = "__system__";
+  const EXISTING_PROMPT_VALUE = "__existing__";
+
+  const [selectedPromptValue, setSelectedPromptValue] = useState<string>(
+    SYSTEM_PROMPT_VALUE,
   );
   const [apiSource, setApiSource] = useState<"system" | "user">("system");
   const [selectedApiConfigId, setSelectedApiConfigId] = useState<
@@ -247,7 +222,7 @@ export function RegenerateWhiteboardDialog({
     if (promptsData && promptsData.length > 0) {
       const defaultPrompt = promptsData.find((p) => p.isDefault);
       if (defaultPrompt) {
-        setSelectedPromptId(defaultPrompt.id);
+        setSelectedPromptValue(defaultPrompt.id);
       }
     }
   }, [promptsData]);
@@ -263,8 +238,7 @@ export function RegenerateWhiteboardDialog({
         });
         onOpenChange(false);
         // Reset form
-        setPromptSource("system");
-        setSelectedPromptId(undefined);
+        setSelectedPromptValue(SYSTEM_PROMPT_VALUE);
         setApiSource("system");
         setSelectedApiConfigId(undefined);
       },
@@ -277,10 +251,13 @@ export function RegenerateWhiteboardDialog({
     let promptId: string | undefined;
     let useExistingPrompt = false;
 
-    if (promptSource === "existing") {
+    if (selectedPromptValue === EXISTING_PROMPT_VALUE) {
       useExistingPrompt = true;
-    } else if (promptSource === "custom") {
-      promptId = selectedPromptId;
+    } else if (
+      selectedPromptValue !== SYSTEM_PROMPT_VALUE &&
+      selectedPromptValue !== EXISTING_PROMPT_VALUE
+    ) {
+      promptId = selectedPromptValue;
     }
 
     regenerateMutation.mutate({
@@ -309,11 +286,9 @@ export function RegenerateWhiteboardDialog({
         <form onSubmit={handleSubmit} className="space-y-6 mt-6">
           {/* Prompt Selection */}
           <PromptSelector
-            promptSource={promptSource}
-            selectedPromptId={selectedPromptId}
+            selectedPromptValue={selectedPromptValue}
             prompts={promptsData}
-            onPromptSourceChange={setPromptSource}
-            onPromptChange={setSelectedPromptId}
+            onPromptChange={setSelectedPromptValue}
           />
 
           {/* API Configuration */}
@@ -371,8 +346,7 @@ export function RegenerateWhiteboardDialog({
               disabled={
                 regenerateMutation.isPending ||
                 (willConsumeCredit && !hasEnoughCredits) ||
-                (apiSource === "user" && !selectedApiConfigId) ||
-                (promptSource === "custom" && !selectedPromptId)
+                (apiSource === "user" && !selectedApiConfigId)
               }
               className="flex-1 h-12 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-lg hover:shadow-xl transition-all"
             >
