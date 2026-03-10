@@ -305,29 +305,6 @@ export const paperRouter = router({
         .where(eq(paperResults.paperId, input))
         .limit(1);
 
-      // 获取默认白板图片
-      const [defaultWhiteboard] = await ctx.db
-        .select({
-          id: whiteboardImages.id,
-          imageR2Key: whiteboardImages.imageR2Key,
-          promptId: whiteboardImages.promptId,
-          promptName: whiteboardPrompts.name,
-          isDefault: whiteboardImages.isDefault,
-          createdAt: whiteboardImages.createdAt,
-        })
-        .from(whiteboardImages)
-        .leftJoin(
-          whiteboardPrompts,
-          eq(whiteboardImages.promptId, whiteboardPrompts.id),
-        )
-        .where(
-          and(
-            eq(whiteboardImages.paperId, input),
-            eq(whiteboardImages.isDefault, true),
-          ),
-        )
-        .limit(1);
-
       // 获取所有白板图片
       const whiteboards = await ctx.db
         .select({
@@ -345,6 +322,9 @@ export const paperRouter = router({
         )
         .where(eq(whiteboardImages.paperId, input))
         .orderBy(desc(whiteboardImages.createdAt));
+
+      // 从结果中找到默认白板
+      const defaultWhiteboard = whiteboards.find(w => w.isDefault) || null;
 
       // 如果有结果，返回当前语言的摘要
       if (result) {
