@@ -1,6 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Sparkles, Zap } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Checkbox } from "#/components/ui/checkbox";
 import {
@@ -38,6 +38,7 @@ export function RegenerateWhiteboardDialog({
   const [promptId, setPromptId] = useState<string>("");
   const [useExistingPrompt, setUseExistingPrompt] = useState(false);
   const [apiConfigId, setApiConfigId] = useState<string>("");
+  const checkboxId = useId();
 
   // Fetch user's prompts
   const { data: promptsData } = useQuery(
@@ -50,9 +51,7 @@ export function RegenerateWhiteboardDialog({
   );
 
   // Fetch user profile for credits
-  const { data: profile } = useQuery(
-    trpc.user.getProfile.queryOptions(),
-  );
+  const { data: profile } = useQuery(trpc.user.getProfile.queryOptions());
 
   const regenerateMutation = useMutation(
     trpc.paper.regenerateWhiteboard.mutationOptions({
@@ -93,7 +92,7 @@ export function RegenerateWhiteboardDialog({
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--academic-brown)] to-[var(--academic-brown-deep)] shadow-lg">
               <Sparkles className="h-6 w-6 text-white" />
             </div>
-            Regenerate Whiteboard
+            {m.paper_whiteboard_regenerate_title()}
           </DialogTitle>
           <DialogDescription className="text-[var(--ink-soft)] mt-2">
             Configure options to generate a new whiteboard visualization
@@ -104,8 +103,10 @@ export function RegenerateWhiteboardDialog({
           {/* Prompt Selection */}
           <div className="space-y-3">
             <Label className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
-              Prompt Template
-              <span className="text-xs font-normal text-[var(--ink-soft)]">(Optional)</span>
+              {m.paper_whiteboard_regenerate_prompt_label()}
+              <span className="text-xs font-normal text-[var(--ink-soft)]">
+                (Optional)
+              </span>
             </Label>
 
             <div className="space-y-3">
@@ -139,7 +140,7 @@ export function RegenerateWhiteboardDialog({
 
               <div className="flex items-center space-x-2 p-4 rounded-xl border-2 border-[var(--line)] bg-[var(--parchment-warm)]/50 hover:bg-[var(--parchment-warm)] transition-colors">
                 <Checkbox
-                  id="use-existing"
+                  id={checkboxId}
                   checked={useExistingPrompt}
                   onCheckedChange={(checked) => {
                     setUseExistingPrompt(checked as boolean);
@@ -149,10 +150,10 @@ export function RegenerateWhiteboardDialog({
                   className="border-[var(--academic-brown)] data-[state=checked]:bg-[var(--academic-brown)]"
                 />
                 <Label
-                  htmlFor="use-existing"
+                  htmlFor={checkboxId}
                   className="text-sm text-[var(--ink)] cursor-pointer flex-1"
                 >
-                  Use same prompt as current default whiteboard
+                  {m.paper_whiteboard_regenerate_use_same()}
                 </Label>
               </div>
             </div>
@@ -161,8 +162,10 @@ export function RegenerateWhiteboardDialog({
           {/* API Configuration */}
           <div className="space-y-3">
             <Label className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
-              API Configuration
-              <span className="text-xs font-normal text-[var(--ink-soft)]">(Optional)</span>
+              {m.paper_whiteboard_regenerate_api_label()}
+              <span className="text-xs font-normal text-[var(--ink-soft)]">
+                (Optional)
+              </span>
             </Label>
 
             <Select
@@ -171,11 +174,16 @@ export function RegenerateWhiteboardDialog({
               disabled={regenerateMutation.isPending}
             >
               <SelectTrigger className="h-12 border-2 border-[var(--line)] bg-white/50 hover:border-[var(--academic-brown)]/30 transition-colors">
-                <SelectValue placeholder="Use system API (default)" />
+                <SelectValue
+                  placeholder={m.paper_whiteboard_regenerate_api_system()}
+                />
               </SelectTrigger>
               <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
-                <SelectItem value="" className="hover:bg-[var(--parchment-warm)]">
-                  System API
+                <SelectItem
+                  value=""
+                  className="hover:bg-[var(--parchment-warm)]"
+                >
+                  {m.paper_whiteboard_regenerate_api_system()}
                 </SelectItem>
                 {apiConfigsData?.configs.map((config) => (
                   <SelectItem
@@ -198,13 +206,22 @@ export function RegenerateWhiteboardDialog({
               </div>
               <div className="flex-1">
                 <h4 className="font-semibold text-[var(--ink)] mb-1">
-                  {willConsumeCredit ? "Credit Cost" : "Using Your API"}
+                  {willConsumeCredit
+                    ? m.paper_whiteboard_regenerate_credit_cost()
+                    : m.paper_whiteboard_regenerate_no_credit_cost()}
                 </h4>
                 <p className="text-sm text-[var(--ink-soft)]">
                   {willConsumeCredit ? (
                     <>
-                      This will consume <span className="font-bold text-[var(--academic-brown)]">1 credit</span>.
-                      {" "}You currently have <span className="font-bold">{profile?.credits ?? 0} credits</span>.
+                      This will consume{" "}
+                      <span className="font-bold text-[var(--academic-brown)]">
+                        1 credit
+                      </span>
+                      . You currently have{" "}
+                      <span className="font-bold">
+                        {profile?.credits ?? 0} credits
+                      </span>
+                      .
                     </>
                   ) : (
                     "Using your API configuration. No credits will be consumed."
@@ -212,7 +229,8 @@ export function RegenerateWhiteboardDialog({
                 </p>
                 {willConsumeCredit && !hasEnoughCredits && (
                   <p className="text-sm text-[var(--sienna)] font-medium mt-2">
-                    ⚠️ Insufficient credits. Please add more credits or use your own API.
+                    ⚠️ Insufficient credits. Please add more credits or use your
+                    own API.
                   </p>
                 )}
               </div>
@@ -228,22 +246,25 @@ export function RegenerateWhiteboardDialog({
               disabled={regenerateMutation.isPending}
               className="flex-1 h-12 border-[var(--line)] hover:bg-[var(--parchment-warm)]"
             >
-              Cancel
+              {m.cancel()}
             </Button>
             <Button
               type="submit"
-              disabled={regenerateMutation.isPending || (willConsumeCredit && !hasEnoughCredits)}
+              disabled={
+                regenerateMutation.isPending ||
+                (willConsumeCredit && !hasEnoughCredits)
+              }
               className="flex-1 h-12 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-lg hover:shadow-xl transition-all"
             >
               {regenerateMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Generating...
+                  {m.paper_whiteboard_regenerating()}
                 </>
               ) : (
                 <>
                   <Sparkles className="h-4 w-4 mr-2" />
-                  Generate New Whiteboard
+                  {m.paper_whiteboard_regenerate_submit()}
                 </>
               )}
             </Button>

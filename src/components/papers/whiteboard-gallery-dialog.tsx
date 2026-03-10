@@ -81,7 +81,7 @@ export function WhiteboardGalleryDialog({
           <DialogHeader className="px-8 pt-8 pb-4 border-b border-[var(--line)]/30">
             <div className="flex items-center justify-between">
               <DialogTitle className="font-serif text-3xl font-bold text-[var(--ink)] tracking-tight">
-                Whiteboard Gallery
+                {m.paper_whiteboard_gallery_title()}
               </DialogTitle>
               <button
                 type="button"
@@ -92,7 +92,8 @@ export function WhiteboardGalleryDialog({
               </button>
             </div>
             <p className="text-sm text-[var(--ink-soft)] mt-2">
-              {whiteboards.length} {whiteboards.length === 1 ? "version" : "versions"} available
+              {whiteboards.length}{" "}
+              {whiteboards.length === 1 ? "version" : "versions"} available
             </p>
           </DialogHeader>
 
@@ -124,7 +125,7 @@ export function WhiteboardGalleryDialog({
                         <div className="absolute top-3 right-3">
                           <Badge className="bg-[var(--academic-brown)] text-white border-0 shadow-lg font-medium px-3 py-1">
                             <Star className="h-3 w-3 mr-1 fill-current" />
-                            Default
+                            {m.paper_whiteboard_default()}
                           </Badge>
                         </div>
                       )}
@@ -134,23 +135,33 @@ export function WhiteboardGalleryDialog({
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center justify-between text-xs text-[var(--ink-soft)]">
                         <span className="font-medium">
-                          {new Date(whiteboard.createdAt).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
+                          {new Date(whiteboard.createdAt).toLocaleDateString(
+                            "en-US",
+                            {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            },
+                          )}
                         </span>
                         <span className="text-[10px]">
-                          {new Date(whiteboard.createdAt).toLocaleTimeString("en-US", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          {new Date(whiteboard.createdAt).toLocaleTimeString(
+                            "en-US",
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            },
+                          )}
                         </span>
                       </div>
                       {whiteboard.promptName && (
                         <div className="text-xs text-[var(--ink)] bg-[var(--parchment)]/60 rounded-lg px-3 py-2 border border-[var(--line)]/30">
-                          <span className="font-medium">Prompt:</span>{" "}
-                          <span className="text-[var(--ink-soft)]">{whiteboard.promptName}</span>
+                          <span className="font-medium">
+                            {m.paper_whiteboard_prompt()}:
+                          </span>{" "}
+                          <span className="text-[var(--ink-soft)]">
+                            {whiteboard.promptName}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -171,7 +182,7 @@ export function WhiteboardGalleryDialog({
                           className="flex-1 border-[var(--line)] hover:bg-[var(--academic-brown)] hover:text-white hover:border-[var(--academic-brown)] transition-all"
                         >
                           <Star className="h-3.5 w-3.5 mr-1.5" />
-                          Set Default
+                          {m.paper_whiteboard_set_default()}
                         </Button>
                       )}
                       <Button
@@ -180,12 +191,9 @@ export function WhiteboardGalleryDialog({
                         asChild
                         className={`${whiteboard.isDefault ? "flex-1" : ""} border-[var(--line)] hover:bg-[var(--parchment)] transition-all`}
                       >
-                        <a
-                          href={`/api/r2/${whiteboard.imageR2Key}`}
-                          download
-                        >
+                        <a href={`/api/r2/${whiteboard.imageR2Key}`} download>
                           <Download className="h-3.5 w-3.5 mr-1.5" />
-                          Download
+                          {m.paper_whiteboard_download()}
                         </a>
                       </Button>
                       {whiteboards.length > 1 && (
@@ -239,15 +247,15 @@ export function WhiteboardGalleryDialog({
         <AlertDialogContent className="bg-[var(--parchment)] border-[var(--line)]">
           <AlertDialogHeader>
             <AlertDialogTitle className="font-serif text-xl text-[var(--ink)]">
-              Delete Whiteboard?
+              {m.paper_whiteboard_delete_confirm_title()}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[var(--ink-soft)]">
-              This action cannot be undone. The whiteboard image will be permanently deleted.
+              {m.paper_whiteboard_delete_confirm_description()}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-[var(--line)] hover:bg-[var(--parchment-warm)]">
-              Cancel
+              {m.cancel()}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
@@ -260,7 +268,7 @@ export function WhiteboardGalleryDialog({
               }}
               className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90 text-white"
             >
-              Delete
+              {m.paper_whiteboard_delete()}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

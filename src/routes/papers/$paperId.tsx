@@ -12,6 +12,7 @@ import {
   Languages,
   Loader2,
   Maximize2,
+  Sparkles,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -24,7 +25,9 @@ import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 import { PublicBadge } from "#/components/papers/public-badge";
+import { RegenerateWhiteboardDialog } from "#/components/papers/regenerate-whiteboard-dialog";
 import { ShareBanner } from "#/components/papers/share-banner";
+import { WhiteboardGalleryDialog } from "#/components/papers/whiteboard-gallery-dialog";
 import {
   Accordion,
   AccordionContent,
@@ -105,6 +108,8 @@ function PaperDetailPage() {
   const [copied, setCopied] = useState(false);
   const [isWhiteboardPreviewOpen, setIsWhiteboardPreviewOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(true);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [isRegenerateOpen, setIsRegenerateOpen] = useState(false);
 
   // Use optional auth - allow viewing public papers without login
   const { data: session, isPending: isSessionPending } =
@@ -124,6 +129,11 @@ function PaperDetailPage() {
   const { data, isLoading, error } = useQuery(
     trpc.paper.getById.queryOptions(paperId),
   );
+
+  const { data: whiteboardsData } = useQuery({
+    ...trpc.paper.listWhiteboards.queryOptions(paperId),
+    enabled: !!data?.paper && data.paper.status === "completed",
+  });
 
   const deleteMutation = useMutation(
     trpc.paper.delete.mutationOptions({
@@ -197,8 +207,8 @@ function PaperDetailPage() {
 
   const { paper, result } = data;
   const progress = statusProgress[paper.status] ?? 0;
-  const whiteboardImageUrl = result?.whiteboardImageR2Key
-    ? `/api/r2/${result.whiteboardImageR2Key}`
+  const whiteboardImageUrl = result?.defaultWhiteboard?.imageR2Key
+    ? `/api/r2/${result.defaultWhiteboard.imageR2Key}`
     : null;
 
   return (
@@ -222,7 +232,8 @@ function PaperDetailPage() {
             isPublic={paper.isPublic}
             isListedInGallery={paper.isListedInGallery}
             canShare={
-              paper.status === "completed" && !!result?.whiteboardImageR2Key
+              paper.status === "completed" &&
+              !!result?.defaultWhiteboard?.imageR2Key
             }
           />
         )}
@@ -375,16 +386,42 @@ function PaperDetailPage() {
                       {m.paper_whiteboard()}
                     </h2>
                   </div>
-                  <Button variant="outline" size="sm" asChild>
-                    <a
-                      href={whiteboardImageUrl}
-                      download={`${paper.title}-whiteboard.png`}
-                      className="gap-1.5"
-                    >
-                      <Download className="h-4 w-4" />
-                      {m.paper_whiteboard_download()}
-                    </a>
-                  </Button>
+                  <div className="flex gap-2">
+                    {paper.userId === profile.data?.id &&
+                      whiteboardsData &&
+                      whiteboardsData.whiteboards.length > 1 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsGalleryOpen(true)}
+                          className="gap-1.5"
+                        >
+                          <ImageIcon className="h-4 w-4" />
+                          {m.paper_whiteboard_view_all()}
+                        </Button>
+                      )}
+                    {paper.userId === profile.data?.id && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsRegenerateOpen(true)}
+                        className="gap-1.5"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        {m.paper_whiteboard_regenerate()}
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" asChild>
+                      <a
+                        href={whiteboardImageUrl}
+                        download={`${paper.title}-whiteboard.png`}
+                        className="gap-1.5"
+                      >
+                        <Download className="h-4 w-4" />
+                        {m.paper_whiteboard_download()}
+                      </a>
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="rounded-2xl border border-[var(--line)] bg-[var(--parchment-warm)] p-3 lg:hidden">
@@ -583,6 +620,23 @@ function PaperDetailPage() {
             </DialogContent>
           </Dialog>
         )}
+
+        {/* Gallery Dialog */}
+        {whiteboardsData && (
+          <WhiteboardGalleryDialog
+            paperId={paperId}
+            whiteboards={whiteboardsData.whiteboards}
+            open={isGalleryOpen}
+            onOpenChange={setIsGalleryOpen}
+          />
+        )}
+
+        {/* Regenerate Dialog */}
+        <RegenerateWhiteboardDialog
+          paperId={paperId}
+          open={isRegenerateOpen}
+          onOpenChange={setIsRegenerateOpen}
+        />
       </div>
     </main>
   );
