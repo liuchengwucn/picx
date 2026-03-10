@@ -760,4 +760,74 @@ export const paperRouter = router({
 
       return { whiteboards };
     }),
+
+  /**
+   * Set a specific whiteboard as the default for a paper
+   * Only one whiteboard per paper can be default
+   */
+  setDefaultWhiteboard: protectedProcedure
+    .input(
+      z.object({
+        paperId: z.string().uuid(),
+        whiteboardId: z.string().uuid(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
+      const userId = ctx.session.user.id;
+
+      // Step 1: Verify paper exists and belongs to user
+      const [paper] = await ctx.db
+        .select()
+        .from(papers)
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.userId, userId),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      // Step 2: Verify whiteboard exists and belongs to the paper
+      const [whiteboard] = await ctx.db
+        .select()
+        .from(whiteboardImages)
+        .where(
+          and(
+            eq(whiteboardImages.id, input.whiteboardId),
+            eq(whiteboardImages.paperId, input.paperId),
+          ),
+        )
+        .limit(1);
+
+      if (!whiteboard) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Whiteboard not found",
+        });
+      }
+
+      // Step 3: Set all whiteboards for this paper to isDefault: false
+      // D1 doesn't support transactions, so we use sequential updates
+      await ctx.db
+        .update(whiteboardImages)
+        .set({ isDefault: false })
+        .where(eq(whiteboardImages.paperId, input.paperId));
+
+      // Step 4: Set the specified whiteboard to isDefault: true
+      await ctx.db
+        .update(whiteboardImages)
+        .set({ isDefault: true })
+        .where(eq(whiteboardImages.id, input.whiteboardId));
+
+      return { success: true };
+    }),
 });
