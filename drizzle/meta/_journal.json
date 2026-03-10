@@ -71,6 +71,13 @@
       "when": 1773100000000,
       "tag": "0009_rename_whiteboard_structure_to_insights",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1773200000000,
+      "tag": "0010_multiple_whiteboard_images",
+      "breakpoints": true
     }
   ]
 }

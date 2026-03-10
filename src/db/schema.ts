@@ -142,8 +142,6 @@ export const paperResults = sqliteTable(
       .$type<Record<string, string>>(),
     summaryLanguage: text("summary_language").notNull().default("en"),
     whiteboardInsights: text("whiteboard_insights").notNull(),
-    whiteboardImageR2Key: text("whiteboard_image_r2_key"),
-    imagePrompt: text("image_prompt").notNull(),
     processingTimeMs: integer("processing_time_ms"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
@@ -252,6 +250,36 @@ export const whiteboardPrompts = sqliteTable(
   (table) => ({
     userIdIdx: index("whiteboard_prompts_user_id_idx").on(
       table.userId,
+      table.isDefault,
+    ),
+  }),
+);
+
+// 白板图片表 - 支持每篇论文多张白板图片
+export const whiteboardImages = sqliteTable(
+  "whiteboard_images",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    paperId: text("paper_id")
+      .notNull()
+      .references(() => papers.id, { onDelete: "cascade" }),
+    imageR2Key: text("image_r2_key").notNull(),
+    promptId: text("prompt_id").references(() => whiteboardPrompts.id, {
+      onDelete: "set null",
+    }),
+    isDefault: integer("is_default", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    paperIdIdx: index("whiteboard_images_paper_id_idx").on(table.paperId),
+    paperIdDefaultIdx: index("whiteboard_images_paper_id_default_idx").on(
+      table.paperId,
       table.isDefault,
     ),
   }),
