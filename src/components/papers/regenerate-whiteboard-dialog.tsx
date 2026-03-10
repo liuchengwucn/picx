@@ -37,7 +37,7 @@ export function RegenerateWhiteboardDialog({
 
   const [promptId, setPromptId] = useState<string>("");
   const [useExistingPrompt, setUseExistingPrompt] = useState(false);
-  const [apiConfigId, setApiConfigId] = useState<string>("");
+  const [apiConfigId, setApiConfigId] = useState<string>("system");
   const checkboxId = useId();
 
   // Fetch user's prompts
@@ -66,7 +66,7 @@ export function RegenerateWhiteboardDialog({
         // Reset form
         setPromptId("");
         setUseExistingPrompt(false);
-        setApiConfigId("");
+        setApiConfigId("system");
       },
     }),
   );
@@ -77,11 +77,11 @@ export function RegenerateWhiteboardDialog({
       paperId,
       promptId: promptId || undefined,
       useExistingPrompt,
-      apiConfigId: apiConfigId || undefined,
+      apiConfigId: apiConfigId === "system" ? undefined : apiConfigId,
     });
   };
 
-  const willConsumeCredit = !apiConfigId;
+  const willConsumeCredit = apiConfigId === "system";
   const hasEnoughCredits = (profile?.credits ?? 0) >= 1;
 
   return (
@@ -180,7 +180,7 @@ export function RegenerateWhiteboardDialog({
               </SelectTrigger>
               <SelectContent className="bg-[var(--parchment)] border-[var(--line)]">
                 <SelectItem
-                  value=""
+                  value="system"
                   className="hover:bg-[var(--parchment-warm)]"
                 >
                   {m.paper_whiteboard_regenerate_api_system()}
