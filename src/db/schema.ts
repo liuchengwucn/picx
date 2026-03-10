@@ -141,7 +141,7 @@ export const paperResults = sqliteTable(
       .notNull()
       .$type<Record<string, string>>(),
     summaryLanguage: text("summary_language").notNull().default("en"),
-    whiteboardStructure: text("whiteboard_structure").notNull(),
+    whiteboardInsights: text("whiteboard_insights").notNull(),
     whiteboardImageR2Key: text("whiteboard_image_r2_key"),
     imagePrompt: text("image_prompt").notNull(),
     processingTimeMs: integer("processing_time_ms"),

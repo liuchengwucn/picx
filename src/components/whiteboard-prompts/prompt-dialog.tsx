@@ -26,7 +26,7 @@ interface PromptDialogProps {
 
 const promptPlaceholderLabels = {
   contentText: "{contentText}",
-  whiteboardMarkdown: "{whiteboardMarkdown}",
+  whiteboardInsights: "{whiteboardInsights}",
   languageInstruction: "{languageInstruction}",
 } as const;
 

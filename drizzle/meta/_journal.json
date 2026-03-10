@@ -57,6 +57,20 @@
       "when": 1772982682698,
       "tag": "0007_giant_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1773000000000,
+      "tag": "0008_add_whiteboard_prompts",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1773100000000,
+      "tag": "0009_rename_whiteboard_structure_to_insights",
+      "breakpoints": true
     }
   ]
 }

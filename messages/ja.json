@@ -191,7 +191,7 @@
   "whiteboard_prompt_name_placeholder": "例：学術スタイル、簡潔版",
   "whiteboard_prompt_content": "プロンプト内容",
   "whiteboard_prompt_content_placeholder": "プロンプト内容を入力...",
-  "whiteboard_prompt_variables_hint": "利用可能なプレースホルダー：{contentText}（必須）、{whiteboardMarkdown}、{languageInstruction}",
+  "whiteboard_prompt_variables_hint": "利用可能なプレースホルダー：{contentText}（必須）、{whiteboardInsights}、{languageInstruction}",
   "whiteboard_prompt_content_text_required_hint": "{contentText} は正確に1回出現する必要があります",
   "whiteboard_prompt_edit": "編集",
   "whiteboard_prompt_delete": "削除",

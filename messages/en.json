@@ -191,7 +191,7 @@
   "whiteboard_prompt_name_placeholder": "e.g., Academic Style, Concise Version",
   "whiteboard_prompt_content": "Prompt Content",
   "whiteboard_prompt_content_placeholder": "Enter your prompt content...",
-  "whiteboard_prompt_variables_hint": "Available placeholders: {contentText} (required), {whiteboardMarkdown}, {languageInstruction}",
+  "whiteboard_prompt_variables_hint": "Available placeholders: {contentText} (required), {whiteboardInsights}, {languageInstruction}",
   "whiteboard_prompt_content_text_required_hint": "{contentText} must appear exactly once",
   "whiteboard_prompt_edit": "Edit",
   "whiteboard_prompt_delete": "Delete",

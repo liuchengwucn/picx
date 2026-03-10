@@ -13,7 +13,7 @@ import {
   extractPaperTitle,
   generateSummary,
   generateWhiteboardImage,
-  generateWhiteboardStructure,
+  generateWhiteboardInsights,
 } from "#/lib/ai";
 import { decrypt } from "#/lib/crypto";
 import { downloadArxivPDF, extractPDFText, PDFPageLimitError } from "#/lib/pdf";
@@ -343,26 +343,26 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     })
     .where(eq(papers.id, msg.paperId));
 
-  // Step 4: 生成总结和白板结构（并行执行）
+  // Step 4: 生成总结和白板洞察（并行执行）
   const language: "en" | "zh-cn" | "zh-tw" | "ja" = msg.language || "en";
 
   let summary: string;
-  let whiteboardMarkdown: string;
+  let whiteboardInsights: string;
   try {
     log(
       "generate-summary-and-whiteboard",
-      `Generating summary and whiteboard structure in parallel (text: ${text.length} chars, lang: ${language})`,
+      `Generating summary and whiteboard insights in parallel (text: ${text.length} chars, lang: ${language})`,
     );
 
-    // 并行执行摘要生成和白板结构生成
-    [summary, whiteboardMarkdown] = await Promise.all([
+    // 并行执行摘要生成和白板洞察生成
+    [summary, whiteboardInsights] = await Promise.all([
       generateSummary(text, aiConfig, language),
-      generateWhiteboardStructure(text, aiConfig),
+      generateWhiteboardInsights(text, aiConfig),
     ]);
 
     log(
       "generate-summary-and-whiteboard",
-      `Summary (${summary.length} chars) and whiteboard structure (${whiteboardMarkdown.length} chars) generated`,
+      `Summary (${summary.length} chars) and whiteboard insights (${whiteboardInsights.length} chars) generated`,
     );
   } catch (error) {
     // 判断是哪个步骤失败了
@@ -384,7 +384,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     );
     const whiteboardLang = msg.whiteboardLanguage || "en";
     const result = await generateWhiteboardImage(
-      whiteboardMarkdown,
+      whiteboardInsights,
       text,
       aiConfig,
       whiteboardLang,
@@ -414,7 +414,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
         paperId: msg.paperId,
         summaries: { [language]: summary },
         summaryLanguage: language,
-        whiteboardStructure: whiteboardMarkdown,
+        whiteboardInsights: whiteboardInsights,
         whiteboardImageR2Key: imageR2Key,
         imagePrompt: prompt,
         processingTimeMs,

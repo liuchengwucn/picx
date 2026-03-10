@@ -41,7 +41,7 @@ export function validatePromptTemplate(template: string): {
  */
 export function buildPromptFromTemplate(
   template: string,
-  whiteboardMarkdown: string,
+  whiteboardInsights: string,
   contentText: string,
   language: "en" | "zh-cn" | "zh-tw" | "ja",
 ): string {
@@ -55,7 +55,7 @@ export function buildPromptFromTemplate(
           : "Generate the whiteboard in English, including all text, labels, and captions.";
 
   return template
-    .replace(/\{whiteboardMarkdown\}/g, whiteboardMarkdown)
+    .replace(/\{whiteboardInsights\}/g, whiteboardInsights)
     .replace(/\{contentText\}/g, contentText)
     .replace(/\{languageInstruction\}/g, languageInstruction);
 }
@@ -69,7 +69,7 @@ export function getSystemDefaultPromptTemplate(): string {
 {languageInstruction}
 
 Key insights to emphasize:
-{whiteboardMarkdown}
+{whiteboardInsights}
 
 Paper content:
 {contentText}

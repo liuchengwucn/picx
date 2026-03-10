@@ -170,14 +170,14 @@ Guidelines:
 }
 
 /**
- * 调用 OpenAI API 生成白板 Markdown 结构
+ * 调用 OpenAI API 生成白板洞察
  *
  * @param paperText 论文文本内容
  * @param config AI 配置
- * @returns 白板的 Markdown 表示
+ * @returns 白板的洞察内容（Markdown 格式）
  * @throws 如果生成失败则抛出错误
  */
-export async function generateWhiteboardStructure(
+export async function generateWhiteboardInsights(
   paperText: string,
   config: AIConfig,
 ): Promise<string> {
@@ -264,14 +264,14 @@ ${paperText}`,
     const content = data.choices[0].message?.content?.trim();
 
     if (!content) {
-      throw new Error("Empty whiteboard structure generated");
+      throw new Error("Empty whiteboard insights generated");
     }
 
     return content;
   } catch (error) {
-    console.error("Failed to generate whiteboard structure:", error);
+    console.error("Failed to generate whiteboard insights:", error);
     throw new Error(
-      `Whiteboard structure generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Whiteboard insights generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }
@@ -281,7 +281,7 @@ ${paperText}`,
  * 支持通过 OpenRouter 或直接调用 Gemini API
  * 如果论文文本过长导致失败，会自动降级使用摘要重试
  *
- * @param whiteboardMarkdown 白板的 Markdown 表示
+ * @param whiteboardInsights 白板的洞察内容（Markdown 格式）
  * @param paperText 原始论文文本
  * @param config AI 配置
  * @param language 白板图语言 ('en' 为英文, 'zh-cn' 为简体中文, 'zh-tw' 为繁体中文, 'ja' 为日文)
@@ -291,7 +291,7 @@ ${paperText}`,
  * @throws 如果生成失败则抛出错误
  */
 export async function generateWhiteboardImage(
-  whiteboardMarkdown: string,
+  whiteboardInsights: string,
   paperText: string,
   config: AIConfig,
   language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
@@ -309,7 +309,7 @@ export async function generateWhiteboardImage(
   try {
     const prompt = buildPromptFromTemplate(
       promptTemplate,
-      whiteboardMarkdown,
+      whiteboardInsights,
       paperText,
       language,
     );
@@ -332,7 +332,7 @@ export async function generateWhiteboardImage(
       );
       const promptWithSummary = buildPromptFromTemplate(
         promptTemplate,
-        whiteboardMarkdown,
+        whiteboardInsights,
         summary,
         language,
       );
