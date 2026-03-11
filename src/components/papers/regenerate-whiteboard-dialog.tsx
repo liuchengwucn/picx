@@ -208,19 +208,17 @@ export function RegenerateWhiteboardDialog({
   // Fetch user profile for credits
   const { data: profile } = useQuery(trpc.user.getProfile.queryOptions());
 
-  // Set default API source and config when apiConfigs are loaded
+  // Auto-select default API config when user manually switches to user API
   useEffect(() => {
-    if (apiConfigsData && apiConfigsData.length > 0) {
+    if (apiSource === "user" && apiConfigsData && apiConfigsData.length > 0 && !selectedApiConfigId) {
       const defaultConfig = apiConfigsData.find((config) => config.isDefault);
       if (defaultConfig) {
-        setApiSource("user");
         setSelectedApiConfigId(defaultConfig.id);
-      } else if (apiSource === "user" && !selectedApiConfigId) {
-        // If user selects "user" API but no default is set, select the first one
+      } else {
         setSelectedApiConfigId(apiConfigsData[0].id);
       }
     }
-  }, [apiConfigsData, apiSource, selectedApiConfigId]);
+  }, [apiSource, apiConfigsData, selectedApiConfigId]);
 
   // Set default prompt when prompts are loaded
   useEffect(() => {
