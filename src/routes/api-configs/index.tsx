@@ -39,8 +39,8 @@ export const Route = createFileRoute("/api-configs/")({
         title: m.page_title_api_configs(),
       },
     ],
-  }}),
-}});
+  }),
+});
 
 const configSkeletonKeys = [
   "config-skeleton-1",
