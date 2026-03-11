@@ -69,6 +69,12 @@ import { m } from "#/paraglide/messages";
 export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
   loader: async ({ context, params }) => {
+    // Skip data fetching during SSR — the tRPC HTTP client uses localhost
+    // which is unreachable in Cloudflare Workers production environment.
+    // The client-side useQuery will fetch data after hydration.
+    if (typeof window === "undefined") {
+      return { paper: null };
+    }
     const data = await context.queryClient.ensureQueryData(
       context.trpc.paper.getById.queryOptions(params.paperId),
     );
