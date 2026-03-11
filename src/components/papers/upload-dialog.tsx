@@ -483,6 +483,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                   setWhiteboardLanguage(value)
                 }
               />
+              <p className="mt-2 text-xs text-[var(--ink-soft)]">
+                {m.upload_english_image_hint()}
+              </p>
             </div>
             <div className="mt-2">
               <Accordion type="single" collapsible>
@@ -561,6 +564,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                   setWhiteboardLanguage(value)
                 }
               />
+              <p className="mt-2 text-xs text-[var(--ink-soft)]">
+                {m.upload_english_image_hint()}
+              </p>
             </div>
             <div className="mt-2">
               <Accordion type="single" collapsible>

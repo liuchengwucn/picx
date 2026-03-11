@@ -236,5 +236,6 @@
   "whiteboard_prompt_create_failed": "プロンプトの作成に失敗しました",
   "upload_select_prompt_template": "ホワイトボードプロンプトを選択",
   "upload_use_system_prompt": "システムデフォルト",
-  "upload_advanced_settings": "詳細設定"
+  "upload_advanced_settings": "詳細設定",
+  "upload_english_image_hint": "ヒント：英語の画像の方が効果的です"
 }

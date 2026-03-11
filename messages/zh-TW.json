@@ -236,5 +236,6 @@
   "whiteboard_prompt_create_failed": "提示詞建立失敗",
   "upload_select_prompt_template": "選擇白板提示詞",
   "upload_use_system_prompt": "系統預設",
-  "upload_advanced_settings": "進階設定"
+  "upload_advanced_settings": "進階設定",
+  "upload_english_image_hint": "提示：生成英文圖片效果更好"
 }

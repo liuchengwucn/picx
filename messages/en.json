@@ -236,5 +236,6 @@
   "whiteboard_prompt_create_failed": "Failed to create prompt",
   "upload_select_prompt_template": "Select Whiteboard Prompt",
   "upload_use_system_prompt": "System Default",
-  "upload_advanced_settings": "Advanced Settings"
+  "upload_advanced_settings": "Advanced Settings",
+  "upload_english_image_hint": "Tip: English images work better"
 }

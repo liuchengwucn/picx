@@ -302,6 +302,11 @@ export function RegenerateWhiteboardDialog({
             onApiConfigChange={setSelectedApiConfigId}
           />
 
+          {/* Hint */}
+          <p className="text-xs text-[var(--ink-soft)]">
+            {m.upload_english_image_hint()}
+          </p>
+
           {/* Credit Cost Display */}
           <div className="rounded-2xl border-2 border-[var(--line)] bg-gradient-to-br from-[var(--parchment-warm)] to-white/50 p-6">
             <div className="flex items-start gap-4">
