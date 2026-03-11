@@ -208,6 +208,15 @@ export function RegenerateWhiteboardDialog({
   // Fetch user profile for credits
   const { data: profile } = useQuery(trpc.user.getProfile.queryOptions());
 
+  // Reset form state when dialog opens
+  useEffect(() => {
+    if (open) {
+      setSelectedPromptValue(SYSTEM_PROMPT_VALUE);
+      setApiSource("system");
+      setSelectedApiConfigId(undefined);
+    }
+  }, [open]);
+
   // Auto-select default API config when user manually switches to user API
   useEffect(() => {
     if (apiSource === "user" && apiConfigsData && apiConfigsData.length > 0 && !selectedApiConfigId) {
@@ -220,16 +229,6 @@ export function RegenerateWhiteboardDialog({
     }
   }, [apiSource, apiConfigsData, selectedApiConfigId]);
 
-  // Set default prompt when prompts are loaded
-  useEffect(() => {
-    if (promptsData && promptsData.length > 0) {
-      const defaultPrompt = promptsData.find((p) => p.isDefault);
-      if (defaultPrompt) {
-        setSelectedPromptValue(defaultPrompt.id);
-      }
-    }
-  }, [promptsData]);
-
   const regenerateMutation = useMutation(
     trpc.paper.regenerateWhiteboard.mutationOptions({
       onSuccess: () => {
@@ -240,10 +239,6 @@ export function RegenerateWhiteboardDialog({
           queryKey: trpc.paper.listWhiteboards.queryKey(paperId),
         });
         onOpenChange(false);
-        // Reset form
-        setSelectedPromptValue(SYSTEM_PROMPT_VALUE);
-        setApiSource("system");
-        setSelectedApiConfigId(undefined);
         // Note: The whiteboard will be regenerated in the background
         // The UI will update automatically via SSE when it's ready
       },
