@@ -237,5 +237,11 @@
   "upload_select_prompt_template": "Select Whiteboard Prompt",
   "upload_use_system_prompt": "System Default",
   "upload_advanced_settings": "Advanced Settings",
-  "upload_english_image_hint": "Tip: English images work better"
+  "upload_english_image_hint": "Tip: English images work better",
+  "page_title_home": "PicX - AI-Powered Paper Summarization & Whiteboard Generation",
+  "page_title_papers": "My Papers - PicX",
+  "page_title_gallery": "Public Gallery - PicX",
+  "page_title_credits": "Credit History - PicX",
+  "page_title_api_configs": "API Configurations - PicX",
+  "page_title_whiteboard_prompts": "Whiteboard Prompts - PicX"
 }

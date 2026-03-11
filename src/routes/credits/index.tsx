@@ -25,7 +25,14 @@ import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/credits/")({
   component: CreditsPage,
-});
+  head: () => ({
+    meta: [
+      {
+        title: m.page_title_credits(),
+      },
+    ],
+  }}),
+}});
 
 const creditHistorySkeletonKeys = [
   "credit-history-skeleton-1",

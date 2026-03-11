@@ -9,7 +9,14 @@ import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/gallery/")({
   component: ExplorePage,
-});
+  head: () => ({
+    meta: [
+      {
+        title: m.page_title_gallery(),
+      },
+    ],
+  }}),
+}});
 
 const gallerySkeletonKeys = [
   "gallery-skeleton-1",
@@ -125,9 +132,9 @@ function GalleryCard({ paper, delay }: GalleryCardProps) {
   return (
     <Link
       to="/papers/$paperId"
-      params={{ paperId: paper.id }}
+      params={ paperId: paper.id }}
       className="rise-in group block no-underline"
-      style={{ animationDelay: delay }}
+      style={ animationDelay: delay }}
     >
       <article className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-2 hover:shadow-[0_12px_32px_rgba(139,111,71,0.16)]">
         {/* Whiteboard Image */}

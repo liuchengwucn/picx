@@ -78,7 +78,10 @@ export default function BetterAuthHeader() {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link to="/whiteboard-prompts" className="flex items-center gap-2">
+                <Link
+                  to="/whiteboard-prompts"
+                  className="flex items-center gap-2"
+                >
                   <Clipboard className="h-4 w-4" />
                   {m.nav_whiteboard_prompts()}
                 </Link>

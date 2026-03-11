@@ -26,6 +26,13 @@ type StatusFilter =
 
 export const Route = createFileRoute("/papers/")({
   component: PapersPage,
+  head: () => ({
+    meta: [
+      {
+        title: m.page_title_papers(),
+      },
+    ],
+  }),
 });
 
 const paperSkeletonKeys = [

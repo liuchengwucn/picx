@@ -237,5 +237,11 @@
   "upload_select_prompt_template": "选择白板提示词",
   "upload_use_system_prompt": "系统默认",
   "upload_advanced_settings": "高级设置",
-  "upload_english_image_hint": "提示：生成英文图片效果更好"
+  "upload_english_image_hint": "提示：生成英文图片效果更好",
+  "page_title_home": "PicX - AI 驱动的论文总结与白板图生成",
+  "page_title_papers": "我的论文 - PicX",
+  "page_title_gallery": "公开画廊 - PicX",
+  "page_title_credits": "积分历史 - PicX",
+  "page_title_api_configs": "API 配置 - PicX",
+  "page_title_whiteboard_prompts": "白板图提示词 - PicX"
 }

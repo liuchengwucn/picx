@@ -170,7 +170,9 @@ export function WhiteboardGalleryDialog({
                           className="flex-1 min-w-[120px] border-[var(--line)] hover:bg-[var(--academic-brown)] hover:text-white hover:border-[var(--academic-brown)] transition-all"
                         >
                           <Star className="h-3.5 w-3.5 mr-1.5" />
-                          <span className="hidden sm:inline">{m.paper_whiteboard_set_default()}</span>
+                          <span className="hidden sm:inline">
+                            {m.paper_whiteboard_set_default()}
+                          </span>
                           <span className="sm:hidden">默认</span>
                         </Button>
                       )}
@@ -182,7 +184,9 @@ export function WhiteboardGalleryDialog({
                       >
                         <a href={`/api/r2/${whiteboard.imageR2Key}`} download>
                           <Download className="h-3.5 w-3.5 mr-1.5" />
-                          <span className="hidden sm:inline">{m.paper_whiteboard_download()}</span>
+                          <span className="hidden sm:inline">
+                            {m.paper_whiteboard_download()}
+                          </span>
                           <span className="sm:hidden">下载</span>
                         </a>
                       </Button>

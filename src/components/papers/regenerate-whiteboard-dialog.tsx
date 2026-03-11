@@ -53,7 +53,13 @@ function ApiConfigSelector({
     if (apiSource === "user" && hasApiConfigs && !selectedApiConfigId) {
       onApiConfigChange(apiConfigs[0].id);
     }
-  }, [apiSource, hasApiConfigs, selectedApiConfigId, apiConfigs, onApiConfigChange]);
+  }, [
+    apiSource,
+    hasApiConfigs,
+    selectedApiConfigId,
+    apiConfigs,
+    onApiConfigChange,
+  ]);
 
   return (
     <div className="space-y-3">
@@ -184,9 +190,8 @@ export function RegenerateWhiteboardDialog({
   const SYSTEM_PROMPT_VALUE = "__system__";
   const EXISTING_PROMPT_VALUE = "__existing__";
 
-  const [selectedPromptValue, setSelectedPromptValue] = useState<string>(
-    SYSTEM_PROMPT_VALUE,
-  );
+  const [selectedPromptValue, setSelectedPromptValue] =
+    useState<string>(SYSTEM_PROMPT_VALUE);
   const [apiSource, setApiSource] = useState<"system" | "user">("system");
   const [selectedApiConfigId, setSelectedApiConfigId] = useState<
     string | undefined

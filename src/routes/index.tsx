@@ -11,7 +11,16 @@ import {
 } from "lucide-react";
 import { m } from "#/paraglide/messages";
 
-export const Route = createFileRoute("/")({ component: HomePage });
+export const Route = createFileRoute("/")({
+  component: HomePage,
+  head: () => ({
+    meta: [
+      {
+        title: m.page_title_home(),
+      },
+    ],
+  }),
+});
 
 function HomePage() {
   return (

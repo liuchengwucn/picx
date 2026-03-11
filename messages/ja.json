@@ -237,5 +237,11 @@
   "upload_select_prompt_template": "ホワイトボードプロンプトを選択",
   "upload_use_system_prompt": "システムデフォルト",
   "upload_advanced_settings": "詳細設定",
-  "upload_english_image_hint": "ヒント：英語の画像の方が効果的です"
+  "upload_english_image_hint": "ヒント：英語の画像の方が効果的です",
+  "page_title_home": "PicX - AI駆動の論文要約とホワイトボード生成",
+  "page_title_papers": "自分の論文 - PicX",
+  "page_title_gallery": "公開ギャラリー - PicX",
+  "page_title_credits": "クレジット履歴 - PicX",
+  "page_title_api_configs": "API設定 - PicX",
+  "page_title_whiteboard_prompts": "ホワイトボードプロンプト - PicX"
 }

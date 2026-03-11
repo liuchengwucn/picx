@@ -22,7 +22,14 @@ import styles from "./styles.module.css";
 
 export const Route = createFileRoute("/whiteboard-prompts/")({
   component: WhiteboardPromptsPage,
-});
+  head: () => ({
+    meta: [
+      {
+        title: m.page_title_whiteboard_prompts(),
+      },
+    ],
+  }}),
+}});
 
 function WhiteboardPromptsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -163,7 +170,7 @@ function WhiteboardPromptsPage() {
               <div
                 key={prompt.id}
                 className={`${styles.promptCard} ${prompt.isDefault ? styles.defaultCard : ""}`}
-                style={{
+                style={
                   animationDelay: `${index * 50}ms`,
                 }}
               >

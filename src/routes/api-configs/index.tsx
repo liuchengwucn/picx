@@ -33,7 +33,14 @@ import styles from "./styles.module.css";
 
 export const Route = createFileRoute("/api-configs/")({
   component: ApiConfigsPage,
-});
+  head: () => ({
+    meta: [
+      {
+        title: m.page_title_api_configs(),
+      },
+    ],
+  }}),
+}});
 
 const configSkeletonKeys = [
   "config-skeleton-1",

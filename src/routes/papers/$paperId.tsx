@@ -68,8 +68,22 @@ import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
+  loader: async ({ context, params }) => {
+    const data = await context.queryClient.ensureQueryData(
+      context.trpc.paper.getById.queryOptions(params.paperId),
+    );
+    return { paper: data.paper };
+  },
+  head: ({ loaderData }) => ({
+    meta: [
+      {
+        title: loaderData?.paper?.title
+          ? `${loaderData.paper.title} - PicX`
+          : "PicX - Paper Whiteboard",
+      },
+    ],
+  }),
 });
-
 /**
  * Normalize AI-generated math markdown before handing it to remark-math.
  *
@@ -235,7 +249,8 @@ function PaperDetailPage() {
               paper.status === "completed" &&
               !paper.whiteboardRegenerating &&
               (!!defaultWhiteboard?.imageR2Key ||
-                (whiteboardsData?.whiteboards && whiteboardsData.whiteboards.length > 0))
+                (whiteboardsData?.whiteboards &&
+                  whiteboardsData.whiteboards.length > 0))
             }
           />
         )}
@@ -390,7 +405,9 @@ function PaperDetailPage() {
                     {paper.whiteboardRegenerating && (
                       <div className="flex items-center gap-1.5 text-sm text-[var(--academic-brown)]">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span className="hidden sm:inline">{m.paper_whiteboard_regenerating()}</span>
+                        <span className="hidden sm:inline">
+                          {m.paper_whiteboard_regenerating()}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -404,7 +421,9 @@ function PaperDetailPage() {
                           className="gap-1.5"
                         >
                           <ImageIcon className="h-4 w-4" />
-                          <span className="hidden sm:inline">{m.paper_whiteboard_view_all()}</span>
+                          <span className="hidden sm:inline">
+                            {m.paper_whiteboard_view_all()}
+                          </span>
                         </Button>
                       )}
                     {paper.userId === profile.data?.id && (
@@ -415,7 +434,9 @@ function PaperDetailPage() {
                         className="gap-1.5"
                       >
                         <Sparkles className="h-4 w-4" />
-                        <span className="hidden sm:inline">{m.paper_whiteboard_regenerate()}</span>
+                        <span className="hidden sm:inline">
+                          {m.paper_whiteboard_regenerate()}
+                        </span>
                       </Button>
                     )}
                     <Button variant="outline" size="sm" asChild>
@@ -425,7 +446,9 @@ function PaperDetailPage() {
                         className="gap-1.5"
                       >
                         <Download className="h-4 w-4" />
-                        <span className="hidden sm:inline">{m.paper_whiteboard_download()}</span>
+                        <span className="hidden sm:inline">
+                          {m.paper_whiteboard_download()}
+                        </span>
                       </a>
                     </Button>
                   </div>
