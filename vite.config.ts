@@ -15,7 +15,27 @@ const config = defineConfig({
       external: ["cloudflare:workers"],
     },
   },
+  optimizeDeps: {
+    exclude: ["cloudflare:workers"],
+  },
   plugins: [
+    // In dev mode, vite:import-analysis scans all dynamic imports regardless of
+    // import.meta.env.SSR guards. Stub cloudflare:workers for the client environment
+    // so the dev server doesn't fail. SSR environment gets the real module from workerd.
+    {
+      name: "stub-cloudflare-workers",
+      enforce: "pre",
+      resolveId(id, _importer, opts) {
+        if (id === "cloudflare:workers" && !opts?.ssr) {
+          return "\0cloudflare-workers-stub";
+        }
+      },
+      load(id) {
+        if (id === "\0cloudflare-workers-stub") {
+          return "export const env = {};";
+        }
+      },
+    },
     devtools(),
     paraglideVitePlugin({
       project: "./project.inlang",

@@ -264,67 +264,38 @@ function HomePage() {
       </section>
 
       {/* Trust Section */}
-      <section className="px-4 py-16 pb-24 sm:px-6">
+      <section className="px-4 py-8 pb-10 sm:px-6">
         <div className="page-wrap">
-          <div className="mx-auto max-w-2xl rounded-3xl border border-[var(--line)] bg-[var(--surface-strong)] p-8 shadow-[0_4px_24px_rgba(45,42,36,0.08)] sm:p-12">
-            <div className="mb-6 flex items-center justify-center gap-3">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] shadow-[0_4px_16px_rgba(139,111,71,0.24)]">
-                <Heart className="h-8 w-8 text-white" />
-              </div>
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--academic-brown)] shadow-[0_4px_16px_rgba(139,111,71,0.24)]">
-                <Github className="h-8 w-8 text-white" />
-              </div>
-            </div>
-
-            <h2 className="mb-6 text-center text-2xl font-bold text-[var(--ink)] sm:text-3xl">
-              {m.home_credits_title()}
-            </h2>
-
-            <div className="text-center mb-8">
-              <p className="text-xl font-semibold text-[var(--academic-brown)] mb-3">
-                {m.home_credits_main()}
-              </p>
-              <p className="text-sm text-[var(--ink-soft)]">
-                {m.home_credits_detail()}
-              </p>
-            </div>
-
-            {/* Open Source Banner */}
-            <div className="rounded-2xl border-2 border-[var(--academic-brown)] bg-gradient-to-br from-[var(--academic-brown)]/5 to-[var(--gold)]/5 p-6">
-              <div className="text-center">
-                <p className="mb-6 text-base font-semibold text-[var(--ink)]">
-                  {m.home_credits_opensource()}
-                </p>
-                <div className="flex flex-col sm:flex-row items-stretch justify-center gap-4">
-                  <a
-                    href="https://github.com/liuchengwucn/picx"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 rounded-lg bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold !text-white shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)] no-underline"
-                  >
-                    <Github className="h-4 w-4" />
-                    {m.home_credits_github()}
-                    <ArrowRight className="h-4 w-4" />
-                  </a>
-                  <Link
-                    to="/papers"
-                    className="flex items-center justify-center gap-2 rounded-lg border-2 border-[var(--academic-brown)] bg-transparent px-6 py-3 text-sm font-semibold !text-[var(--academic-brown)] transition-all hover:bg-[var(--academic-brown)] hover:!text-white no-underline"
-                  >
-                    {m.home_cta_start()}
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </div>
-                <p className="mt-4 text-sm text-[var(--ink-soft)]">
-                  <a
-                    href="https://www.emergentmind.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline decoration-[var(--academic-brown)] underline-offset-4 transition-opacity hover:opacity-80"
-                  >
-                    {m.home_credits_see_also()}
-                  </a>
-                </p>
-              </div>
+          <div className="mx-auto max-w-2xl flex flex-col items-center gap-4 text-center">
+            <p className="text-sm text-[var(--ink-soft)]">
+              {m.home_credits_main()}
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-[var(--ink-soft)]">
+              <a
+                href="https://github.com/liuchengwucn/picx"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 transition-opacity hover:opacity-70 no-underline text-[var(--ink-soft)]"
+              >
+                <Github className="h-4 w-4" />
+                {m.home_credits_github()}
+              </a>
+              <span className="text-[var(--line)]">·</span>
+              <Link
+                to="/about"
+                className="transition-opacity hover:opacity-70 no-underline text-[var(--ink-soft)]"
+              >
+                {m.home_credits_learn_more()}
+              </Link>
+              <span className="text-[var(--line)]">·</span>
+              <a
+                href="https://www.emergentmind.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="transition-opacity hover:opacity-70 no-underline text-[var(--ink-soft)]"
+              >
+                {m.home_credits_see_also()}
+              </a>
             </div>
           </div>
         </div>

@@ -76,7 +76,7 @@ interface AppEnvBindings {
 export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
   loader: async ({ context, params }) => {
-    if (typeof window === "undefined") {
+    if (import.meta.env.SSR) {
       // SSR: fetch minimal paper data directly from D1 for meta tags
       try {
         const { env } = await import("cloudflare:workers");
