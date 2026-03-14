@@ -29,6 +29,9 @@ export function ShareBanner({
     queryClient.invalidateQueries({
       queryKey: trpc.paper.getById.queryKey(paperId),
     });
+    queryClient.invalidateQueries({
+      queryKey: trpc.paper.getByShortId.queryKey(shortId),
+    });
   };
 
   const togglePublicMutation = useMutation(
