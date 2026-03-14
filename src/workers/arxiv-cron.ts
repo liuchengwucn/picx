@@ -38,8 +38,10 @@ export default {
       // Step 1: upsert guest user，确保存在且 credits 充足
       await upsertGuestUser(db);
 
-      // Step 2: 获取当天 HF Daily Papers
-      const hfPapers = await fetchDailyPapers();
+      // Step 2: 获取昨天 HF Daily Papers（昨天的投票已完整积累）
+      const yesterday = getYesterdayUTC();
+      const hfPapers = await fetchDailyPapers(yesterday);
+      console.log(`[ArxivCron] Fetching papers for date: ${yesterday}`);
       console.log(`[ArxivCron] Fetched ${hfPapers.length} papers from HF`);
 
       // Step 3: 筛选：upvotes >= 30 全取，不足 3 篇补到 3 篇
@@ -127,13 +129,19 @@ async function upsertGuestUser(db: ReturnType<typeof drizzle>): Promise<void> {
   }
 }
 
-async function fetchDailyPapers(): Promise<HFPaper[]> {
-  const res = await fetch(HF_DAILY_PAPERS_API);
+async function fetchDailyPapers(date?: string): Promise<HFPaper[]> {
+  const url = date ? `${HF_DAILY_PAPERS_API}?date=${date}` : HF_DAILY_PAPERS_API;
+  const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`HF API error: ${res.status} ${res.statusText}`);
   }
   const data = (await res.json()) as HFPaper[];
   return data;
+}
+
+function getYesterdayUTC(): string {
+  const d = new Date(Date.now() - 86400000);
+  return d.toISOString().slice(0, 10);
 }
 
 function selectPapers(papers: HFPaper[]): HFPaper[] {
