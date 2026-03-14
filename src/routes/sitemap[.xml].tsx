@@ -14,18 +14,23 @@ async function handler({ request }: { request: Request }) {
   const db = drizzle(appEnv.DB);
 
   // Fetch all public gallery papers (id + publishedAt only)
-  const publicPapers = await db
-    .select({ id: papers.id, publishedAt: papers.publishedAt })
-    .from(papers)
-    .where(
-      and(
-        eq(papers.isPublic, true),
-        eq(papers.isListedInGallery, true),
-        eq(papers.status, "completed"),
-        isNull(papers.deletedAt),
-      ),
-    )
-    .orderBy(desc(papers.publishedAt));
+  let publicPapers: Array<{ id: string; publishedAt: string | null }> = [];
+  try {
+    publicPapers = await db
+      .select({ id: papers.id, publishedAt: papers.publishedAt })
+      .from(papers)
+      .where(
+        and(
+          eq(papers.isPublic, true),
+          eq(papers.isListedInGallery, true),
+          eq(papers.status, "completed"),
+          isNull(papers.deletedAt),
+        ),
+      )
+      .orderBy(desc(papers.publishedAt));
+  } catch {
+    // Degrade gracefully to static-only sitemap
+  }
 
   const staticRoutes = [
     { url: `${origin}/`, priority: "1.0", changefreq: "weekly" },
