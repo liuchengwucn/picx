@@ -337,6 +337,7 @@ export const paperRouter = router({
           result: {
             ...result,
             summary, // 返回当前语言的摘要
+            summaries, // 返回所有已缓存语言的摘要
             availableLanguages: Object.keys(summaries), // 返回可用的语言列表
           },
           defaultWhiteboard: defaultWhiteboard || null,

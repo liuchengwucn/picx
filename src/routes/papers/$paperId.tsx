@@ -65,6 +65,7 @@ import {
 } from "#/lib/auth-client";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
 
 export const Route = createFileRoute("/papers/$paperId")({
   component: PaperDetailPage,
@@ -130,6 +131,7 @@ function PaperDetailPage() {
   const [isDesktopViewport, setIsDesktopViewport] = useState(true);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isRegenerateOpen, setIsRegenerateOpen] = useState(false);
+  const [guestSelectedLanguage, setGuestSelectedLanguage] = useState<string | null>(null);
 
   // Use optional auth - allow viewing public papers without login
   const { data: session, isPending: isSessionPending } =
@@ -196,10 +198,10 @@ function PaperDetailPage() {
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
 
-  const handleCopyMarkdown = async () => {
-    if (!result?.summary) return;
+  const handleCopyMarkdown = async (text: string) => {
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(result.summary);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -231,6 +233,25 @@ function PaperDetailPage() {
     ? `/api/r2/${defaultWhiteboard.imageR2Key}`
     : null;
 
+  const isOwner = paper.userId === profile.data?.id;
+
+  // 访客语言选择：优先用页面当前语言，否则回退到 result.summaryLanguage
+  const effectiveGuestLanguage = (() => {
+    if (!result) return null;
+    const availableLanguages = result.availableLanguages ?? [];
+    if (guestSelectedLanguage && availableLanguages.includes(guestSelectedLanguage)) {
+      return guestSelectedLanguage;
+    }
+    // 将 paraglide locale 格式（zh-CN）映射为摘要语言格式（zh-cn）
+    const pageLocale = getLocale().toLowerCase() as string;
+    if (availableLanguages.includes(pageLocale)) return pageLocale;
+    return result.summaryLanguage;
+  })();
+
+  const guestSummary = result
+    ? ((result.summaries as Record<string, string>)?.[effectiveGuestLanguage ?? ""] ?? result.summary)
+    : null;
+
   return (
     <main className="page-wrap py-8">
       <div className="stagger-in">
@@ -246,7 +267,7 @@ function PaperDetailPage() {
         </nav>
 
         {/* Share Banner - only show to owner */}
-        {paper.userId === profile.data?.id && (
+        {isOwner && (
           <ShareBanner
             paperId={paper.id}
             isPublic={paper.isPublic}
@@ -353,7 +374,7 @@ function PaperDetailPage() {
                   </a>
                 </Button>
                 {/* Only show delete button to paper owner */}
-                {paper.userId === profile.data?.id &&
+                {isOwner &&
                   (isReadOnlyGuest ? (
                     <Button
                       variant="outline"
@@ -431,7 +452,7 @@ function PaperDetailPage() {
                           </span>
                         </Button>
                       )}
-                    {paper.userId === profile.data?.id && (
+                    {isOwner && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -509,7 +530,7 @@ function PaperDetailPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={handleCopyMarkdown}
+                        onClick={() => handleCopyMarkdown(isOwner ? result.summary : (guestSummary ?? result.summary))}
                         className="gap-1.5"
                       >
                         {copied ? (
@@ -525,7 +546,7 @@ function PaperDetailPage() {
                         )}
                       </Button>
                       {/* Only show language selector to paper owner */}
-                      {paper.userId === profile.data?.id && (
+                      {isOwner && (
                         <Select
                           value={result.summaryLanguage || "en"}
                           onValueChange={(
@@ -568,6 +589,30 @@ function PaperDetailPage() {
                           </SelectContent>
                         </Select>
                       )}
+                      {/* Guest read-only language switcher: only show if multiple languages cached */}
+                      {!isOwner && result.availableLanguages && result.availableLanguages.length > 1 && (
+                        <Select
+                          value={effectiveGuestLanguage ?? result.summaryLanguage}
+                          onValueChange={(value) => setGuestSelectedLanguage(value)}
+                        >
+                          <SelectTrigger className="h-9 w-auto min-w-0 max-w-full">
+                            <div className="flex items-center gap-1.5 w-full">
+                              <Languages className="h-4 w-4 shrink-0" />
+                              <SelectValue />
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {result.availableLanguages.map((lang) => (
+                              <SelectItem key={lang} value={lang}>
+                                {lang === "en" && m.upload_language_en()}
+                                {lang === "zh-cn" && m.upload_language_zh()}
+                                {lang === "zh-tw" && m.upload_language_zh_tw()}
+                                {lang === "ja" && m.upload_language_ja()}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   </div>
                   <AccordionContent>
@@ -593,7 +638,7 @@ function PaperDetailPage() {
                           ),
                         }}
                       >
-                        {normalizeMathMarkdown(result.summary)}
+                        {normalizeMathMarkdown(isOwner ? result.summary : (guestSummary ?? result.summary))}
                       </ReactMarkdown>
                     </div>
                   </AccordionContent>
