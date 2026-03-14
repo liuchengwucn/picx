@@ -101,7 +101,6 @@ function ExplorePage() {
               className="gap-1.5"
             >
               <ChevronLeft className="h-4 w-4" />
-              <span className="hidden sm:inline">{m.papers_filter_all()}</span>
             </Button>
             <div className="flex items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-sm font-medium text-[var(--ink)] shadow-[0_2px_8px_rgba(45,42,36,0.06)]">
               <span>{page}</span>
@@ -115,7 +114,6 @@ function ExplorePage() {
               disabled={page === totalPages}
               className="gap-1.5"
             >
-              <span className="hidden sm:inline">{m.papers_filter_all()}</span>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
