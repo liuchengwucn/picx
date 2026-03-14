@@ -14,7 +14,7 @@ async function handler({ request }: { request: Request }) {
   const db = drizzle(appEnv.DB);
 
   // Fetch all public gallery papers (id + publishedAt only)
-  let publicPapers: Array<{ id: string; publishedAt: string | null }> = [];
+  let publicPapers: Array<{ id: string; publishedAt: Date | null }> = [];
   try {
     publicPapers = await db
       .select({ id: papers.id, publishedAt: papers.publishedAt })
@@ -43,7 +43,7 @@ async function handler({ request }: { request: Request }) {
     priority: "0.7",
     changefreq: "never",
     lastmod: p.publishedAt
-      ? new Date(p.publishedAt).toISOString().split("T")[0]
+      ? p.publishedAt.toISOString().split("T")[0]
       : undefined,
   }));
 
