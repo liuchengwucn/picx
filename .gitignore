@@ -25,5 +25,4 @@ skills-lock.json
 # Playwright
 .playwright-mcp/
 
-docs/superpowers/
-docs/plans/
+docs/
