@@ -22,7 +22,7 @@ export default function Header() {
         <div className="flex items-center gap-x-1 sm:gap-x-2 md:gap-x-4 text-sm font-semibold overflow-x-auto scrollbar-hide">
           <Link
             to="/gallery"
-            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
+            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0 p-2 md:p-0"
             activeProps={{ className: "nav-link is-active" }}
           >
             <Globe className="h-4 w-4" />
@@ -30,7 +30,7 @@ export default function Header() {
           </Link>
           <Link
             to="/papers"
-            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
+            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0 p-2 md:p-0"
             activeProps={{ className: "nav-link is-active" }}
           >
             <FileText className="h-4 w-4" />
@@ -38,7 +38,7 @@ export default function Header() {
           </Link>
           <Link
             to="/about"
-            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0"
+            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0 p-2 md:p-0"
             activeProps={{ className: "nav-link is-active" }}
           >
             <Info className="h-4 w-4" />
