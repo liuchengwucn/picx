@@ -14,10 +14,10 @@ async function handler({ request }: { request: Request }) {
   const db = drizzle(appEnv.DB);
 
   // Fetch all public gallery papers (id + publishedAt only)
-  let publicPapers: Array<{ id: string; publishedAt: Date | null }> = [];
+  let publicPapers: Array<{ id: string; shortId: string | null; publishedAt: Date | null }> = [];
   try {
     publicPapers = await db
-      .select({ id: papers.id, publishedAt: papers.publishedAt })
+      .select({ id: papers.id, shortId: papers.shortId, publishedAt: papers.publishedAt })
       .from(papers)
       .where(
         and(
@@ -39,7 +39,7 @@ async function handler({ request }: { request: Request }) {
   ];
 
   const paperRoutes = publicPapers.map((p) => ({
-    url: `${origin}/papers/${p.id}`,
+    url: p.shortId ? `${origin}/p/${p.shortId}` : `${origin}/papers/${p.id}`,
     priority: "0.7",
     changefreq: "never",
     lastmod: p.publishedAt

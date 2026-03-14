@@ -21,6 +21,7 @@ type PaperStatus =
 
 interface Paper {
   id: string;
+  shortId?: string;
   title: string;
   status: PaperStatus;
   sourceType: string;
@@ -84,8 +85,8 @@ export function PaperCard({ paper }: { paper: Paper }) {
 
   return (
     <Link
-      to="/papers/$paperId"
-      params={{ paperId: paper.id }}
+      to={paper.shortId ? "/p/$shortId" : "/papers/$paperId"}
+      params={paper.shortId ? { shortId: paper.shortId } : { paperId: paper.id }}
       className="paper-card block p-4 no-underline"
       style={{ borderLeftWidth: "4px", borderLeftColor: config.borderColor }}
     >

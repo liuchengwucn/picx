@@ -18,6 +18,7 @@ import {
   isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
 import { protectedProcedure, publicProcedure, router } from "../init";
+import { generateShortId } from "#/lib/short-id";
 
 function assertGuestWriteAllowed(session: { user: { id: string } }) {
   if (isReviewGuestReadOnlySession(session)) {
@@ -26,6 +27,24 @@ function assertGuestWriteAllowed(session: { user: { id: string } }) {
       message: "Review guest mode is read-only",
     });
   }
+}
+
+async function ensureShortId(
+  // biome-ignore lint/suspicious/noExplicitAny: drizzle db type is complex
+  db: any,
+  paperId: string,
+): Promise<string> {
+  const shortId = generateShortId();
+  await db
+    .update(papers)
+    .set({ shortId })
+    .where(and(eq(papers.id, paperId), isNull(papers.shortId)));
+  const [row] = await db
+    .select({ shortId: papers.shortId })
+    .from(papers)
+    .where(eq(papers.id, paperId))
+    .limit(1);
+  return row?.shortId ?? shortId;
 }
 
 export const paperRouter = router({
@@ -133,6 +152,7 @@ export const paperRouter = router({
             pdfR2Key: input.r2Key,
             fileSize: input.fileSize,
             status: "pending",
+            shortId: generateShortId(),
           })
           .returning();
 
@@ -298,6 +318,11 @@ export const paperRouter = router({
         });
       }
 
+      // Lazy backfill short ID for existing papers
+      if (!paper.shortId) {
+        paper.shortId = await ensureShortId(ctx.db, paper.id);
+      }
+
       // 获取结果（如果有）
       const [result] = await ctx.db
         .select()
@@ -341,6 +366,91 @@ export const paperRouter = router({
             availableLanguages: Object.keys(summaries), // 返回可用的语言列表
           },
           defaultWhiteboard: defaultWhiteboard || null,
+          whiteboards,
+        };
+      }
+
+      return {
+        paper,
+        result: null,
+        defaultWhiteboard: null,
+        whiteboards: [],
+      };
+    }),
+
+  /**
+   * Get paper by short ID with results
+   * Public endpoint - allows viewing public papers without auth
+   */
+  getByShortId: publicProcedure
+    .input(z.string().min(1).max(10))
+    .query(async ({ ctx, input }) => {
+      const session =
+        (await ctx.auth.api.getSession({ headers: ctx.headers })) ??
+        (isReviewGuestModeEnabled()
+          ? await getReviewGuestServerSession(ctx.db)
+          : null);
+
+      const [paper] = await ctx.db
+        .select()
+        .from(papers)
+        .where(and(eq(papers.shortId, input), isNull(papers.deletedAt)))
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      const isOwner = session && paper.userId === session.user.id;
+      if (!isOwner && !paper.isPublic) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to view this paper",
+        });
+      }
+
+      const [result] = await ctx.db
+        .select()
+        .from(paperResults)
+        .where(eq(paperResults.paperId, paper.id))
+        .limit(1);
+
+      const whiteboards = await ctx.db
+        .select({
+          id: whiteboardImages.id,
+          imageR2Key: whiteboardImages.imageR2Key,
+          promptId: whiteboardImages.promptId,
+          promptName: whiteboardPrompts.name,
+          isDefault: whiteboardImages.isDefault,
+          createdAt: whiteboardImages.createdAt,
+        })
+        .from(whiteboardImages)
+        .leftJoin(
+          whiteboardPrompts,
+          eq(whiteboardImages.promptId, whiteboardPrompts.id),
+        )
+        .where(eq(whiteboardImages.paperId, paper.id))
+        .orderBy(desc(whiteboardImages.createdAt));
+
+      const defaultWhiteboard = whiteboards.find((w) => w.isDefault) || null;
+
+      if (result) {
+        const summaries = result.summaries as Record<string, string>;
+        const currentLanguage = result.summaryLanguage;
+        const summary = summaries[currentLanguage] || summaries.en || "";
+
+        return {
+          paper,
+          result: {
+            ...result,
+            summary,
+            summaries,
+            availableLanguages: Object.keys(summaries),
+          },
+          defaultWhiteboard,
           whiteboards,
         };
       }
@@ -668,6 +778,7 @@ export const paperRouter = router({
       const publicPapers = await ctx.db
         .select({
           id: papers.id,
+          shortId: papers.shortId,
           title: papers.title,
           publishedAt: papers.publishedAt,
           whiteboardImageR2Key: whiteboardImages.imageR2Key,

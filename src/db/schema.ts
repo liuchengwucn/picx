@@ -75,6 +75,7 @@ export const papers = sqliteTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
+    shortId: text("short_id").unique(),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -128,6 +129,7 @@ export const papers = sqliteTable(
       table.isListedInGallery,
       table.publishedAt,
     ),
+    shortIdIdx: index("papers_short_id_idx").on(table.shortId),
   }),
 );
 

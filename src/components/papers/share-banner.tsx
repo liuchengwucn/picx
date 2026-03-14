@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Copy, Globe, Loader2 } from "lucide-react";
+import { CheckCircle2, Copy, Globe, Loader2, Share2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
@@ -7,12 +7,14 @@ import { m } from "#/paraglide/messages";
 
 interface ShareBannerProps {
   paperId: string;
+  shortId: string;
   isPublic: boolean;
   canShare: boolean;
 }
 
 export function ShareBanner({
   paperId,
+  shortId,
   isPublic,
   canShare,
 }: ShareBannerProps) {
@@ -37,7 +39,7 @@ export function ShareBanner({
 
   const shareUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/papers/${paperId}`
+      ? `${window.location.origin}/p/${shortId}`
       : "";
 
   const handleCopyLink = async () => {
