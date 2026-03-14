@@ -75,7 +75,7 @@ export const papers = sqliteTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
-    shortId: text("short_id").unique(),
+    shortId: text("short_id").notNull().unique(),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

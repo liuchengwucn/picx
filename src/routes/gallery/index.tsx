@@ -140,8 +140,8 @@ function GalleryCard({ paper, delay }: GalleryCardProps) {
 
   return (
     <Link
-      to={paper.shortId ? "/p/$shortId" : "/papers/$paperId"}
-      params={paper.shortId ? { shortId: paper.shortId } : { paperId: paper.id }}
+      to="/p/$shortId"
+      params={{ shortId: paper.shortId }}
       className="rise-in group block no-underline"
       style={{ animationDelay: delay }}
     >

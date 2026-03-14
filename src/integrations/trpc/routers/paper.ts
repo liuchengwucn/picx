@@ -29,24 +29,6 @@ function assertGuestWriteAllowed(session: { user: { id: string } }) {
   }
 }
 
-async function ensureShortId(
-  // biome-ignore lint/suspicious/noExplicitAny: drizzle db type is complex
-  db: any,
-  paperId: string,
-): Promise<string> {
-  const shortId = generateShortId();
-  await db
-    .update(papers)
-    .set({ shortId })
-    .where(and(eq(papers.id, paperId), isNull(papers.shortId)));
-  const [row] = await db
-    .select({ shortId: papers.shortId })
-    .from(papers)
-    .where(eq(papers.id, paperId))
-    .limit(1);
-  return row?.shortId ?? shortId;
-}
-
 export const paperRouter = router({
   /**
    * Create a new paper processing task
@@ -316,11 +298,6 @@ export const paperRouter = router({
           code: "FORBIDDEN",
           message: "You don't have permission to view this paper",
         });
-      }
-
-      // Lazy backfill short ID for existing papers
-      if (!paper.shortId) {
-        paper.shortId = await ensureShortId(ctx.db, paper.id);
       }
 
       // 获取结果（如果有）

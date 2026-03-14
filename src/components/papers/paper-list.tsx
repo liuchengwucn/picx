@@ -85,8 +85,8 @@ export function PaperCard({ paper }: { paper: Paper }) {
 
   return (
     <Link
-      to={paper.shortId ? "/p/$shortId" : "/papers/$paperId"}
-      params={paper.shortId ? { shortId: paper.shortId } : { paperId: paper.id }}
+      to="/p/$shortId"
+      params={{ shortId: paper.shortId }}
       className="paper-card block p-4 no-underline"
       style={{ borderLeftWidth: "4px", borderLeftColor: config.borderColor }}
     >

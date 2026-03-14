@@ -39,7 +39,7 @@ async function handler({ request }: { request: Request }) {
   ];
 
   const paperRoutes = publicPapers.map((p) => ({
-    url: p.shortId ? `${origin}/p/${p.shortId}` : `${origin}/papers/${p.id}`,
+    url: `${origin}/p/${p.shortId}`,
     priority: "0.7",
     changefreq: "never",
     lastmod: p.publishedAt
