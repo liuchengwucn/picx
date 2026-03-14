@@ -23,5 +23,7 @@ skills-lock.json
 .worktrees/
 
 # Playwright
-.playwright-mcp/docs/superpowers/
+.playwright-mcp/
+
+docs/superpowers/
 docs/plans/
