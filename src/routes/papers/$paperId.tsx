@@ -23,9 +23,6 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
-import { env } from "cloudflare:workers";
-import { and, eq, isNull } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 import { PublicBadge } from "#/components/papers/public-badge";
 import { RegenerateWhiteboardDialog } from "#/components/papers/regenerate-whiteboard-dialog";
@@ -60,7 +57,6 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Skeleton } from "#/components/ui/skeleton";
-import { papers, whiteboardImages } from "#/db/schema";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
 import {
@@ -83,6 +79,10 @@ export const Route = createFileRoute("/papers/$paperId")({
     if (typeof window === "undefined") {
       // SSR: fetch minimal paper data directly from D1 for meta tags
       try {
+        const { env } = await import("cloudflare:workers");
+        const { drizzle } = await import("drizzle-orm/d1");
+        const { and, eq, isNull } = await import("drizzle-orm");
+        const { papers, whiteboardImages } = await import("#/db/schema");
         const appEnv = env as typeof env & AppEnvBindings;
         const db = drizzle(appEnv.DB);
 
