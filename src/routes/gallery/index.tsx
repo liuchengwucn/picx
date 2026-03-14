@@ -11,9 +11,19 @@ export const Route = createFileRoute("/gallery/")({
   component: ExplorePage,
   head: () => ({
     meta: [
+      { title: m.page_title_gallery() },
       {
-        title: m.page_title_gallery(),
+        name: "description",
+        content:
+          "Browse visual whiteboard summaries of today's top HuggingFace research papers, automatically updated daily.",
       },
+      { property: "og:title", content: m.page_title_gallery() },
+      {
+        property: "og:description",
+        content:
+          "Browse visual whiteboard summaries of today's top HuggingFace research papers, automatically updated daily.",
+      },
+      { property: "og:url", content: "https://picx.liuchengwu.com/gallery" },
     ],
   }),
 });
