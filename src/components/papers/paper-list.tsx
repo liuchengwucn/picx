@@ -103,7 +103,7 @@ export function PaperCard({ paper }: { paper: Paper }) {
             <span>· {(paper.fileSize / 1024 / 1024).toFixed(1)} MB</span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:flex-nowrap sm:gap-2">
           {paper.isPublic && <PublicBadge />}
           <Badge variant="outline" className={`gap-1 ${config.className}`}>
             <StatusIcon
