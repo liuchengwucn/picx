@@ -220,7 +220,8 @@ async function createPaperIfNotExists(
     userId: GUEST_USER_ID,
     type: "initial",
     sourceType: "arxiv",
-    arxivUrl: arxivUrl, // downloadArxivPDF 内部会从 abs URL 提取 id 并拼 PDF URL
+    arxivUrl: arxivUrl,
+    extraLanguages: ["zh-cn", "zh-tw", "ja"],
   });
 
   console.log(`[ArxivCron] Created paper ${paperId}: ${title}`);

@@ -15,6 +15,7 @@ import {
   generateSummary,
   generateWhiteboardImage,
   generateWhiteboardInsights,
+  translateSummary,
 } from "#/lib/ai";
 import { decrypt } from "#/lib/crypto";
 import { downloadArxivPDF, extractPDFText, PDFPageLimitError } from "#/lib/pdf";
@@ -36,6 +37,7 @@ interface QueueMessage {
   r2Key?: string;
   language?: "en" | "zh-cn" | "zh-tw" | "ja"; // 摘要语言
   whiteboardLanguage?: "en" | "zh-cn" | "zh-tw" | "ja"; // 白板图语言
+  extraLanguages?: ("zh-cn" | "zh-tw" | "ja")[]; // 额外翻译语言（生成英文后自动翻译）
   apiConfigId?: string; // 用户提供的 API 配置 ID
   promptId?: string; // 用户提供的 Prompt 模板 ID
 }
@@ -378,12 +380,28 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       `Summary (${summary.length} chars) and whiteboard insights (${whiteboardInsights.length} chars) generated`,
     );
   } catch (error) {
-    // 判断是哪个步骤失败了
     const stepName =
       error instanceof Error && error.message.includes("Summary")
         ? "generate-summary"
         : "generate-whiteboard";
     throw new StepError(stepName, error);
+  }
+
+  // Step 4.5: 翻译额外语言（如 cron 任务需要多语言）
+  const summaries: Record<string, string> = { [language]: summary };
+  if (msg.extraLanguages && msg.extraLanguages.length > 0) {
+    log("translate-summary", `Translating to: ${msg.extraLanguages.join(", ")}`);
+    try {
+      const translations = await Promise.all(
+        msg.extraLanguages.map((lang) => translateSummary(summary, lang, aiConfig)),
+      );
+      for (let i = 0; i < msg.extraLanguages.length; i++) {
+        summaries[msg.extraLanguages[i]] = translations[i];
+      }
+      log("translate-summary", `Translated ${msg.extraLanguages.length} languages`);
+    } catch (error) {
+      throw new StepError("translate-summary", error);
+    }
   }
 
   // Step 5: 生成白板图片
@@ -423,7 +441,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       .insert(paperResults)
       .values({
         paperId: msg.paperId,
-        summaries: { [language]: summary },
+        summaries: summaries,
         summaryLanguage: language,
         whiteboardInsights: whiteboardInsights,
         processingTimeMs,
