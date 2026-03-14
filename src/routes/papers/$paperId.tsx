@@ -250,7 +250,6 @@ function PaperDetailPage() {
           <ShareBanner
             paperId={paper.id}
             isPublic={paper.isPublic}
-            isListedInGallery={paper.isListedInGallery}
             canShare={
               paper.status === "completed" &&
               !paper.whiteboardRegenerating &&
