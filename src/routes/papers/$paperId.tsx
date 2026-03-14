@@ -67,7 +67,7 @@ import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
-const SITE_ORIGIN = "https://picx.liuchengwu.com";
+const SITE_ORIGIN = "https://picx.cn";
 
 interface AppEnvBindings {
   DB: D1Database;

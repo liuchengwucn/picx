@@ -27,7 +27,7 @@ export const Route = createFileRoute("/")({
         content:
           "Upload a PDF or arXiv link and get an AI-generated summary and visual whiteboard. Free to try.",
       },
-      { property: "og:url", content: "https://picx.liuchengwu.com/" },
+      { property: "og:url", content: "https://picx.cn/" },
     ],
   }),
 });

@@ -23,7 +23,7 @@ export const Route = createFileRoute("/gallery/")({
         content:
           "Browse visual whiteboard summaries of today's top HuggingFace research papers, automatically updated daily.",
       },
-      { property: "og:url", content: "https://picx.liuchengwu.com/gallery" },
+      { property: "og:url", content: "https://picx.cn/gallery" },
     ],
   }),
 });
