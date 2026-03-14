@@ -102,8 +102,17 @@ export function PaperCard({ paper }: { paper: Paper }) {
             {paper.pageCount && <span>· {paper.pageCount} pages</span>}
             <span>· {(paper.fileSize / 1024 / 1024).toFixed(1)} MB</span>
           </div>
+          <div className="mt-2 flex items-center gap-2 sm:hidden">
+            {paper.isPublic && <PublicBadge />}
+            <Badge variant="outline" className={`gap-1 ${config.className}`}>
+              <StatusIcon
+                className={`h-3 w-3 ${isProcessing ? "animate-spin" : ""}`}
+              />
+              {config.label()}
+            </Badge>
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:flex-nowrap sm:gap-2">
+        <div className="hidden shrink-0 items-center gap-2 sm:flex">
           {paper.isPublic && <PublicBadge />}
           <Badge variant="outline" className={`gap-1 ${config.className}`}>
             <StatusIcon
