@@ -168,7 +168,7 @@
   "paper_gallery_remove": "从画廊撤回",
   "paper_public_badge": "公开分享",
   "explore_title": "公开画廊",
-  "explore_description": "探索其他用户分享的论文总结",
+  "explore_description": "HuggingFace 每日最热研究论文的可视化总结",
   "explore_empty_title": "暂无公开的论文",
   "explore_empty_description": "成为第一个分享论文总结的用户吧！",
   "nav_explore": "画廊",

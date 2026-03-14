@@ -168,7 +168,7 @@
   "paper_gallery_remove": "Remove from Gallery",
   "paper_public_badge": "Public",
   "explore_title": "Public Gallery",
-  "explore_description": "Explore paper summaries shared by others",
+  "explore_description": "Visual summaries of today's top research papers on HuggingFace",
   "explore_empty_title": "No public papers yet",
   "explore_empty_description": "Be the first to share a paper summary!",
   "nav_explore": "Gallery",

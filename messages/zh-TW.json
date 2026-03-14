@@ -163,7 +163,7 @@
   "paper_unshare": "取消公開",
   "paper_public_badge": "公開分享",
   "explore_title": "公開畫廊",
-  "explore_description": "探索其他用戶分享的論文總結",
+  "explore_description": "HuggingFace 每日最熱研究論文的視覺化總結",
   "explore_empty_title": "暫無公開的論文",
   "explore_empty_description": "成為第一個分享論文總結的用戶吧！",
   "nav_explore": "畫廊",

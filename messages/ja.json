@@ -163,7 +163,7 @@
   "paper_unshare": "共有を解除",
   "paper_public_badge": "公開",
   "explore_title": "公開ギャラリー",
-  "explore_description": "他のユーザーが共有した論文要約を探索",
+  "explore_description": "HuggingFaceの今日のトップ研究論文のビジュアル要約",
   "explore_empty_title": "まだ公開論文がありません",
   "explore_empty_description": "最初に論文要約を共有するユーザーになりましょう！",
   "nav_explore": "ギャラリー",
