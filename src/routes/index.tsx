@@ -15,9 +15,19 @@ export const Route = createFileRoute("/")({
   component: HomePage,
   head: () => ({
     meta: [
+      { title: m.page_title_home() },
       {
-        title: m.page_title_home(),
+        name: "description",
+        content:
+          "Upload a PDF or arXiv link and get an AI-generated summary and visual whiteboard. Free to try.",
       },
+      { property: "og:title", content: m.page_title_home() },
+      {
+        property: "og:description",
+        content:
+          "Upload a PDF or arXiv link and get an AI-generated summary and visual whiteboard. Free to try.",
+      },
+      { property: "og:url", content: "https://picx.liuchengwu.com/" },
     ],
   }),
 });
