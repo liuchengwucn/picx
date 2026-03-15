@@ -74,6 +74,15 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       { property: "og:type", content: "website" },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
+    scripts: [
+      {
+        src: "https://www.googletagmanager.com/gtag/js?id=G-QTJLY71E59",
+        async: true,
+      },
+      {
+        children: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-QTJLY71E59');`,
+      },
+    ],
   }),
   shellComponent: RootDocument,
 });
