@@ -9,6 +9,7 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
+import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/")({
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/")({
         content:
           "Upload a PDF or arXiv link and get an AI-generated summary and visual whiteboard. Free to try.",
       },
-      { property: "og:url", content: "https://picx.cn/" },
+      { property: "og:url", content: `${SITE_URL}/` },
     ],
   }),
 });

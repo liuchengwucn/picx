@@ -64,10 +64,9 @@ import {
   startGitHubSignIn as beginGitHubSignIn,
 } from "#/lib/auth-client";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
+import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
-
-const SITE_ORIGIN = "https://picx.cn";
 
 interface AppEnvBindings {
   DB: D1Database;
@@ -151,13 +150,13 @@ export const Route = createFileRoute("/p/$shortId")({
     if (ssrMeta.whiteboardImageR2Key) {
       meta.push({
         property: "og:image",
-        content: `${SITE_ORIGIN}/api/r2/${ssrMeta.whiteboardImageR2Key}`,
+        content: `${SITE_URL}/api/r2/${ssrMeta.whiteboardImageR2Key}`,
       });
     }
 
     meta.push({
       property: "og:url",
-      content: `${SITE_ORIGIN}/p/${ssrMeta.shortId}`,
+      content: `${SITE_URL}/p/${ssrMeta.shortId}`,
     });
 
     return { meta };

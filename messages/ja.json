@@ -263,7 +263,7 @@
   "about_stack_title": "モダンなインフラで構築",
   "about_open_label": "オープンソース",
   "about_open_title": "無料で使用、自由にフォーク",
-  "about_open_body": "PicX は完全オープンソースです。自分の API キーを持ち込んでセルフホストするか、picx.cn のホスト版をそのまま使用できます。ペイウォールも定期購読もありません。",
+  "about_open_body": "PicX は完全オープンソースです。自分の API キーを持ち込んでセルフホストするか、picx.dev のホスト版をそのまま使用できます。ペイウォールも定期購読もありません。",
   "about_open_github": "GitHub で見る",
   "about_cta_title": "よりスマートに読み始める",
   "about_cta_body": "今日の HuggingFace 論文を閲覧するか、自分の PDF をアップロードしてください。",

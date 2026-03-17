@@ -14,6 +14,7 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
+import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/about")({
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/about")({
           "PicX turns academic papers into visual whiteboards. Free, open-source, with daily HuggingFace paper digests.",
       },
       { property: "og:title", content: m.page_title_about() },
-      { property: "og:url", content: "https://picx.cn/about" },
+      { property: "og:url", content: `${SITE_URL}/about` },
     ],
   }),
 });
