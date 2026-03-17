@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { creditTransactions, papers, user } from "#/db/schema";
 import type { Env } from "#/types/env";
+import { generateShortId } from "#/lib/short-id";
 
 const GUEST_USER_ID = "review-guest-user";
 const GUEST_USER_NAME = "Guest";
@@ -186,6 +187,7 @@ async function createPaperIfNotExists(
   // 先创建 paper 记录（credit_transactions 有 FK 引用 papers.id）
   await db.insert(papers).values({
     id: paperId,
+    shortId: generateShortId(),
     userId: GUEST_USER_ID,
     title,
     sourceType: "arxiv",
