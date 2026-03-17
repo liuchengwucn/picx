@@ -73,7 +73,10 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       { property: "og:site_name", content: "PicX" },
       { property: "og:type", content: "website" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.json" },
+    ],
     scripts: [
       {
         src: "https://www.googletagmanager.com/gtag/js?id=G-QTJLY71E59",
