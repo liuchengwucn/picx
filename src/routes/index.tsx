@@ -73,7 +73,7 @@ function HomePage() {
 
             {/* Title */}
             <h1
-              className="rise-in mb-6 text-4xl font-bold leading-tight tracking-tight text-[var(--ink)] sm:text-6xl sm:leading-tight"
+              className="rise-in mb-6 font-serif text-4xl font-bold leading-tight tracking-tight text-[var(--ink)] sm:text-6xl sm:leading-tight"
               style={{ animationDelay: "200ms" }}
             >
               {m.home_hero_title()}
@@ -104,7 +104,7 @@ function HomePage() {
                     <Newspaper className="h-6 w-6" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h2 className="mb-1 text-base font-semibold text-[var(--ink)] sm:text-lg">
+                    <h2 className="mb-1 font-serif text-base font-semibold text-[var(--ink)] sm:text-lg">
                       {m.home_daily_title()}
                     </h2>
                     <p className="text-sm leading-relaxed text-[var(--ink-soft)]">
@@ -144,7 +144,7 @@ function HomePage() {
       <section className="px-4 py-16 sm:px-6">
         <div className="page-wrap">
           <div className="mx-auto max-w-6xl">
-            <h2 className="rise-in mb-12 text-center text-3xl font-bold text-[var(--ink)] sm:text-4xl">
+            <h2 className="rise-in mb-12 text-center font-serif text-3xl font-bold text-[var(--ink)] sm:text-4xl">
               {m.home_showcase_title()}
             </h2>
 
@@ -167,7 +167,7 @@ function HomePage() {
                     <FileText className="h-4 w-4" />
                     <span>{m.home_showcase_paper_badge()}</span>
                   </div>
-                  <h3 className="mb-2 text-xl font-semibold text-[var(--ink)]">
+                  <h3 className="mb-2 font-serif text-xl font-semibold text-[var(--ink)]">
                     {m.home_showcase_paper_title()}
                   </h3>
                   <p className="text-sm text-[var(--ink-soft)]">
@@ -205,7 +205,7 @@ function HomePage() {
                     <Network className="h-4 w-4" />
                     <span>{m.home_showcase_whiteboard_badge()}</span>
                   </div>
-                  <h3 className="mb-2 text-xl font-semibold text-[var(--ink)]">
+                  <h3 className="mb-2 font-serif text-xl font-semibold text-[var(--ink)]">
                     {m.home_showcase_whiteboard_title()}
                   </h3>
                   <p className="text-sm text-[var(--ink-soft)]">
@@ -256,7 +256,7 @@ function HomePage() {
                 <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] text-white shadow-[0_4px_12px_rgba(139,111,71,0.24)]">
                   <feature.icon className="h-6 w-6" />
                 </div>
-                <h3 className="mb-2 text-lg font-semibold text-[var(--ink)]">
+                <h3 className="mb-2 font-serif text-lg font-semibold text-[var(--ink)]">
                   {feature.title}
                 </h3>
                 <p className="text-sm text-[var(--ink-soft)]">{feature.desc}</p>
@@ -270,7 +270,7 @@ function HomePage() {
       <section className="px-4 py-16 sm:px-6">
         <div className="page-wrap">
           <div className="mx-auto max-w-3xl">
-            <h2 className="mb-12 text-center text-3xl font-bold text-[var(--ink)] sm:text-4xl">
+            <h2 className="mb-12 text-center font-serif text-3xl font-bold text-[var(--ink)] sm:text-4xl">
               {m.home_flow_title()}
             </h2>
 
