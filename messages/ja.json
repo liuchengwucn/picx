@@ -269,5 +269,8 @@
   "about_cta_body": "今日の HuggingFace 論文を閲覧するか、自分の PDF をアップロードしてください。",
   "about_cta_gallery": "公開ギャラリー",
   "about_cta_upload": "論文をアップロード",
-  "home_credits_learn_more": "詳細を見る"
+  "home_credits_learn_more": "詳細を見る",
+  "home_daily_title": "HuggingFace デイリーペーパー",
+  "home_daily_desc": "毎日自動的に厳選された最新研究論文をビジュアル化。ギャラリーで最先端の AI 研究を探索。",
+  "home_daily_badge": "毎日更新"
 }

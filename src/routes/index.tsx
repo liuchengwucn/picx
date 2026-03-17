@@ -6,6 +6,7 @@ import {
   Github,
   Heart,
   Network,
+  Newspaper,
   Sparkles,
   Upload,
 } from "lucide-react";
@@ -86,15 +87,48 @@ function HomePage() {
               {m.home_hero_subtitle()}
             </p>
 
-            {/* CTA Button */}
-            <Link
-              to="/papers"
-              className="rise-in group inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-8 py-4 text-base font-semibold !text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] active:translate-y-0 no-underline"
+            {/* Hero Actions */}
+            <div
+              className="rise-in mx-auto flex max-w-6xl flex-col items-stretch gap-5"
               style={{ animationDelay: "400ms" }}
             >
-              {m.home_cta_start()}
-              <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
-            </Link>
+              <Link
+                to="/gallery"
+                className="group relative order-1 flex min-h-[88px] flex-1 overflow-hidden rounded-2xl border border-[var(--academic-brown)]/20 bg-gradient-to-br from-[var(--academic-brown)]/5 via-[var(--gold)]/5 to-transparent p-5 text-left transition-all hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,111,71,0.16)] sm:max-w-4xl"
+              >
+                <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[radial-gradient(circle,rgba(139,111,71,0.12),transparent_70%)] blur-2xl" />
+                <div className="pointer-events-none absolute -bottom-8 -left-8 h-24 w-24 rounded-full bg-[radial-gradient(circle,rgba(201,169,97,0.1),transparent_70%)] blur-2xl" />
+
+                <div className="relative flex w-full items-center gap-4">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)]">
+                    <Newspaper className="h-6 w-6" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="mb-1 text-base font-semibold text-[var(--ink)] sm:text-lg">
+                      {m.home_daily_title()}
+                    </h2>
+                    <p className="text-sm leading-relaxed text-[var(--ink-soft)]">
+                      {m.home_daily_desc()}
+                    </p>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-2 self-center">
+                    <span className="hidden rounded-full bg-[var(--academic-brown)]/10 px-3 py-1 text-xs font-medium text-[var(--academic-brown)] sm:inline-flex sm:items-center sm:gap-1.5">
+                      <Sparkles className="h-3 w-3" />
+                      {m.home_daily_badge()}
+                    </span>
+                    <ArrowRight className="h-5 w-5 text-[var(--academic-brown)] transition-transform group-hover:translate-x-1" />
+                  </div>
+                </div>
+              </Link>
+
+              <Link
+                to="/papers"
+                className="group order-2 inline-flex w-full items-center justify-center gap-2 self-center rounded-2xl bg-[var(--academic-brown)] px-6 py-4 text-base font-semibold !text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] active:translate-y-0 no-underline sm:min-w-[168px] sm:w-auto"
+              >
+                {m.home_cta_start()}
+                <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+              </Link>
+            </div>
 
             <p
               className="rise-in mt-4 text-sm text-[var(--ink-soft)]"

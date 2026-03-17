@@ -269,5 +269,8 @@
   "about_cta_body": "浏览今天的 HuggingFace 论文，或上传你自己的 PDF。",
   "about_cta_gallery": "公开画廊",
   "about_cta_upload": "上传论文",
-  "home_credits_learn_more": "了解更多"
+  "home_credits_learn_more": "了解更多",
+  "home_daily_title": "HuggingFace 每日论文推送",
+  "home_daily_desc": "每天自动精选并可视化最新研究论文，浏览画廊探索前沿 AI 研究。",
+  "home_daily_badge": "每日更新"
 }

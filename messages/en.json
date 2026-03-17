@@ -269,5 +269,8 @@
   "about_cta_body": "Browse today's HuggingFace papers, or upload your own PDF.",
   "about_cta_gallery": "Public Gallery",
   "about_cta_upload": "Upload a Paper",
-  "home_credits_learn_more": "Learn more"
+  "home_credits_learn_more": "Learn more",
+  "home_daily_title": "Daily Papers from HuggingFace",
+  "home_daily_desc": "Fresh research papers curated and visualized automatically every day. Browse the gallery to explore the latest AI research.",
+  "home_daily_badge": "Updated daily"
 }
