@@ -72,6 +72,9 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       },
       { property: "og:site_name", content: "PicX" },
       { property: "og:type", content: "website" },
+      { property: "og:image", content: "https://picx.dev/logo512.png" },
+      { name: "twitter:card", content: "summary" },
+      { name: "twitter:image", content: "https://picx.dev/logo512.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
