@@ -17,8 +17,115 @@ import {
   isReviewGuestModeEnabled,
   isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
-import { protectedProcedure, publicProcedure, router } from "../init";
 import { generateShortId } from "#/lib/short-id";
+import { protectedProcedure, publicProcedure, router } from "../init";
+
+/**
+ * 把 Paraglide 的语言代码 (en/zh-CN/zh-TW/ja) 归一化为
+ * summaries / tldr JSON 里使用的小写 key (en/zh-cn/zh-tw/ja)。
+ */
+function normalizeLocaleKey(
+  locale: string | undefined,
+): "en" | "zh-cn" | "zh-tw" | "ja" {
+  switch (locale) {
+    case "zh-CN":
+    case "zh-cn":
+      return "zh-cn";
+    case "zh-TW":
+    case "zh-tw":
+      return "zh-tw";
+    case "ja":
+      return "ja";
+    default:
+      return "en";
+  }
+}
+
+/**
+ * 从结构化 Markdown 摘要中抽取一段简短片段, 作为 tldr 的兜底
+ * (存量数据没有 tldr 时使用)。
+ *
+ * 摘要开头固定是 "## Summary (Overview)" 段 + 几条要点。
+ * 这里剥掉 Markdown / LaTeX, 跳过标题行, 取最前面的正文/要点,
+ * 不依赖具体标题文字, 因此对多语言都适用。
+ */
+function extractSummarySnippet(markdown: string, maxLen = 200): string {
+  if (!markdown) return "";
+
+  const text = markdown
+    // 去掉代码块
+    .replace(/```[\s\S]*?```/g, " ")
+    // 去掉行内代码反引号
+    .replace(/`([^`]*)`/g, "$1")
+    // 去掉 LaTeX 块级与行内公式
+    .replace(/\$\$[\s\S]*?\$\$/g, " ")
+    .replace(/\$[^$\n]*\$/g, " ");
+
+  const lines = text.split("\n");
+  // 结构化摘要必有 "## ..." 标题。若存在标题, 只从第一个标题之后开始抓正文,
+  // 以跳过模型偶尔生成的开场白 (如 "好的，我将为您总结..." / "Here is the summary...")。
+  const hasHeading = lines.some((l) => /^\s*#{1,6}\s/.test(l));
+  let seenHeading = !hasHeading;
+
+  const parts: string[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    // 跳过标题、表格、引用、分隔线
+    if (/^#{1,6}\s/.test(line)) {
+      seenHeading = true;
+      continue;
+    }
+    if (!seenHeading) continue;
+    if (line.startsWith("|") || /^[-:\s|]+$/.test(line)) continue;
+    if (line.startsWith(">")) continue;
+    if (/^([-*_])\1{2,}$/.test(line)) continue;
+
+    // 去掉列表 / 编号标记
+    const cleaned = line
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^\d+\.\s+/, "")
+      // 链接 [text](url) -> text
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      // 加粗 / 斜体标记
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/_([^_]+)_/g, "$1")
+      .trim();
+
+    if (!cleaned) continue;
+    parts.push(cleaned);
+
+    const joined = parts.join(" · ");
+    if (joined.length >= maxLen) {
+      return `${joined.slice(0, maxLen).trimEnd()}…`;
+    }
+  }
+
+  return parts.join(" · ");
+}
+
+/**
+ * 取某条 paper_result 在指定语言下的 tldr:
+ * 优先用已生成的多语言 tldr, 缺失则回退到英文 tldr,
+ * 再缺失则从对应语言 (或英文) 的 summary 里抽片段兜底。
+ */
+function resolveTldr(
+  tldr: Record<string, string> | null,
+  summaries: Record<string, string> | null,
+  localeKey: "en" | "zh-cn" | "zh-tw" | "ja",
+): string {
+  if (tldr) {
+    if (tldr[localeKey]) return tldr[localeKey];
+    if (tldr.en) return tldr.en;
+  }
+  if (summaries) {
+    const source = summaries[localeKey] ?? summaries.en;
+    if (source) return extractSummarySnippet(source);
+  }
+  return "";
+}
 
 function assertGuestWriteAllowed(session: { user: { id: string } }) {
   if (isReviewGuestReadOnlySession(session)) {
@@ -746,19 +853,25 @@ export const paperRouter = router({
       z.object({
         page: z.number().int().min(1).default(1),
         limit: z.number().int().min(1).max(100).default(20),
+        // 前端传入的当前界面语言 (Paraglide locale)
+        locale: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
       const offset = (input.page - 1) * input.limit;
+      const localeKey = normalizeLocaleKey(input.locale);
 
-      // Query public papers with default whiteboard images
-      const publicPapers = await ctx.db
+      // Query public papers with default whiteboard images.
+      // join paper_results 以拿到 tldr / summaries (用于卡片摘要文字)。
+      const rows = await ctx.db
         .select({
           id: papers.id,
           shortId: papers.shortId,
           title: papers.title,
           publishedAt: papers.publishedAt,
           whiteboardImageR2Key: whiteboardImages.imageR2Key,
+          tldr: paperResults.tldr,
+          summaries: paperResults.summaries,
         })
         .from(papers)
         .innerJoin(
@@ -768,6 +881,7 @@ export const paperRouter = router({
             eq(whiteboardImages.isDefault, true),
           ),
         )
+        .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
         .where(
           and(
             eq(papers.isPublic, true),
@@ -779,6 +893,17 @@ export const paperRouter = router({
         .orderBy(desc(papers.publishedAt))
         .limit(input.limit)
         .offset(offset);
+
+      // 服务端按语言解析出一段短文本 tldr, 只把短文本返回给前端
+      // (不把完整 summaries 打到客户端)。
+      const publicPapers = rows.map((row) => ({
+        id: row.id,
+        shortId: row.shortId,
+        title: row.title,
+        publishedAt: row.publishedAt,
+        whiteboardImageR2Key: row.whiteboardImageR2Key,
+        tldr: resolveTldr(row.tldr, row.summaries, localeKey),
+      }));
 
       const [totalResult] = await ctx.db
         .select({ count: count() })

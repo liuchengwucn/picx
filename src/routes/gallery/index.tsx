@@ -7,6 +7,7 @@ import { Skeleton } from "#/components/ui/skeleton";
 import { useTRPC } from "#/integrations/trpc/react";
 import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
 
 export const Route = createFileRoute("/gallery/")({
   component: ExplorePage,
@@ -29,20 +30,13 @@ export const Route = createFileRoute("/gallery/")({
   }),
 });
 
-const gallerySkeletonKeys = [
-  "gallery-skeleton-1",
-  "gallery-skeleton-2",
-  "gallery-skeleton-3",
-  "gallery-skeleton-4",
-  "gallery-skeleton-5",
-  "gallery-skeleton-6",
-  "gallery-skeleton-7",
-  "gallery-skeleton-8",
-  "gallery-skeleton-9",
-  "gallery-skeleton-10",
-  "gallery-skeleton-11",
-  "gallery-skeleton-12",
-];
+// 每页论文数量。横向宽卡为 2 列, 8 篇正好 4 行, 一屏更聚焦。
+const PAGE_SIZE = 8;
+
+const gallerySkeletonKeys = Array.from(
+  { length: PAGE_SIZE },
+  (_, i) => `gallery-skeleton-${i + 1}`,
+);
 
 function ExplorePage() {
   const [page, setPage] = useState(1);
@@ -51,11 +45,12 @@ function ExplorePage() {
   const galleryQuery = useQuery(
     trpc.paper.listPublic.queryOptions({
       page,
-      limit: 12,
+      limit: PAGE_SIZE,
+      locale: getLocale(),
     }),
   );
 
-  const totalPages = Math.ceil((galleryQuery.data?.total ?? 0) / 12);
+  const totalPages = Math.ceil((galleryQuery.data?.total ?? 0) / PAGE_SIZE);
 
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
@@ -72,7 +67,7 @@ function ExplorePage() {
 
         {/* Gallery Grid */}
         {galleryQuery.isLoading ? (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid auto-rows-fr gap-5 lg:grid-cols-2">
             {gallerySkeletonKeys.map((skeletonKey) => (
               <GalleryCardSkeleton key={skeletonKey} />
             ))}
@@ -80,7 +75,7 @@ function ExplorePage() {
         ) : galleryQuery.data?.papers.length === 0 ? (
           <EmptyGallery />
         ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid auto-rows-fr gap-5 lg:grid-cols-2">
             {galleryQuery.data?.papers.map((paper, index) => (
               <GalleryCard
                 key={paper.id}
@@ -129,6 +124,7 @@ interface GalleryCardProps {
     id: string;
     shortId?: string;
     title: string;
+    tldr: string;
     whiteboardImageR2Key: string;
     publishedAt: Date | null;
   };
@@ -146,34 +142,39 @@ function GalleryCard({ paper, delay }: GalleryCardProps) {
       className="rise-in group block no-underline"
       style={{ animationDelay: delay }}
     >
-      <article className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-2 hover:shadow-[0_12px_32px_rgba(139,111,71,0.16)]">
-        {/* Whiteboard Image */}
-        <div className="relative aspect-[4/3] overflow-hidden bg-[var(--parchment-warm)]">
+      <article className="flex h-full overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(139,111,71,0.16)]">
+        {/* Whiteboard thumbnail: anchored to top so the paper's title/headline
+            (top-left of the whiteboard) stays visible at small sizes. */}
+        <div className="relative w-32 shrink-0 overflow-hidden bg-[var(--parchment-warm)] sm:w-44">
           <img
             src={imageUrl}
             alt={paper.title}
-            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+            className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105"
             loading="lazy"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-[var(--surface-strong)] via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-60" />
-
-          {/* Floating badge on hover */}
-          <div className="absolute top-3 right-3 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-            <div className="flex items-center gap-1.5 rounded-full border border-white/80 bg-white/90 px-3 py-1.5 text-xs font-medium text-[var(--ink)] shadow-lg backdrop-blur-sm">
-              <Sparkles className="h-3 w-3 text-[var(--academic-brown)]" />
-              <span>{m.paper_whiteboard()}</span>
-            </div>
-          </div>
+          {/* subtle right edge fade into the text column */}
+          <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-r from-transparent to-[var(--surface-strong)] opacity-60" />
         </div>
 
-        {/* Paper Info */}
-        <div className="p-4">
-          <h3 className="mb-2 font-serif text-base font-semibold text-[var(--ink)] line-clamp-2 group-hover:text-[var(--academic-brown)] transition-colors">
+        {/* Paper info */}
+        <div className="flex min-w-0 flex-1 flex-col gap-2 p-4 sm:p-5">
+          <h3 className="line-clamp-3 font-serif text-lg font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)] sm:text-xl">
             {paper.title}
           </h3>
-          <div className="flex items-center gap-1.5 text-xs text-[var(--ink-soft)]">
-            <Globe className="h-3 w-3" />
-            <time>{timeAgo}</time>
+          {paper.tldr ? (
+            <p className="line-clamp-3 text-sm leading-relaxed text-[var(--ink-soft)]">
+              {paper.tldr}
+            </p>
+          ) : null}
+          <div className="mt-auto flex items-center gap-3 pt-1 text-xs text-[var(--ink-soft)]">
+            <span className="inline-flex items-center gap-1.5">
+              <Globe className="h-3 w-3" />
+              <time>{timeAgo}</time>
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[var(--academic-brown)] opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+              <Sparkles className="h-3 w-3" />
+              <span>{m.paper_whiteboard()}</span>
+            </span>
           </div>
         </div>
       </article>
@@ -183,11 +184,13 @@ function GalleryCard({ paper, delay }: GalleryCardProps) {
 
 function GalleryCardSkeleton() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)]">
-      <Skeleton className="aspect-[4/3] w-full" />
-      <div className="p-4">
-        <Skeleton className="mb-2 h-5 w-full" />
-        <Skeleton className="h-4 w-20" />
+    <div className="flex h-full overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)]">
+      <Skeleton className="w-32 shrink-0 self-stretch sm:w-44" />
+      <div className="flex min-w-0 flex-1 flex-col gap-2 p-4 sm:p-5">
+        <Skeleton className="h-6 w-5/6" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="mt-auto h-3 w-20" />
       </div>
     </div>
   );

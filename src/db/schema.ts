@@ -147,6 +147,9 @@ export const paperResults = sqliteTable(
     summaries: text("summaries", { mode: "json" })
       .notNull()
       .$type<Record<string, string>>(),
+    // 存储多语言一句话核心结论(用于 gallery 卡片): { "en": "...", "zh-cn": "...", ... }
+    // 可空: 存量数据没有, 读取时从 summaries 兜底
+    tldr: text("tldr", { mode: "json" }).$type<Record<string, string>>(),
     summaryLanguage: text("summary_language").notNull().default("en"),
     whiteboardInsights: text("whiteboard_insights").notNull(),
     processingTimeMs: integer("processing_time_ms"),

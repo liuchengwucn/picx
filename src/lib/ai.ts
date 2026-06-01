@@ -681,6 +681,195 @@ Guidelines:
 }
 
 /**
+ * 语言代码 -> 人类可读语言名 (用于 prompt)
+ */
+function languageDisplayName(
+  language: "en" | "zh-cn" | "zh-tw" | "ja",
+): string {
+  switch (language) {
+    case "zh-cn":
+      return "Simplified Chinese (简体中文)";
+    case "zh-tw":
+      return "Traditional Chinese (繁體中文)";
+    case "ja":
+      return "Japanese (日本語)";
+    default:
+      return "English";
+  }
+}
+
+/**
+ * 调用 OpenAI API 生成一句话核心结论 (TL;DR)
+ *
+ * 用于 gallery 卡片: 把已生成的摘要蒸馏成一句话, 让用户一眼抓住重点。
+ * 输入用已蒸馏的 summary (而非全文) 以节约 token。
+ *
+ * @param summaryOrText 论文摘要 (Markdown) 或正文
+ * @param config AI 配置
+ * @param language 输出语言
+ * @returns 一句话核心结论 (纯文本, 无 Markdown/LaTeX)
+ * @throws 如果生成失败则抛出错误
+ */
+export async function generateTldr(
+  summaryOrText: string,
+  config: AIConfig,
+  language: "en" | "zh-cn" | "zh-tw" | "ja" = "en",
+): Promise<string> {
+  const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
+  const model = config.openaiModel || "gpt-5.2-instant";
+
+  const systemPrompt = `You are an expert at distilling academic papers into a single punchy takeaway.
+
+Given a paper's content, output ONE sentence (maximum 30 words) that captures its single most important contribution or finding — the kind of one-liner a researcher would use to decide whether to read further.
+
+Respond in ${languageDisplayName(language)}.
+
+STRICT OUTPUT RULES:
+- Output ONLY the sentence, nothing else (no preamble, no quotes, no label).
+- Plain text only: NO Markdown, NO LaTeX, NO math symbols, NO bullet points, NO citations.
+- Lead with the result/contribution, not background.
+- Keep technical terms and named methods, but stay concise and readable.`;
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: summaryOrText,
+          },
+        ],
+        temperature: 0.5,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const tldr = data.choices?.[0]?.message?.content?.trim();
+
+    if (!tldr) {
+      throw new Error("Empty tldr generated");
+    }
+
+    return tldr;
+  } catch (error) {
+    console.error("Failed to generate tldr:", error);
+    throw new Error(
+      `Tldr generation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
+}
+
+/**
+ * 调用 OpenAI API 翻译一句话核心结论 (TL;DR)
+ *
+ * 输入很短, 是一次轻量调用; 不复用面向长 Markdown 的 translateSummary。
+ *
+ * @param tldrText 原始 TL;DR (纯文本)
+ * @param targetLanguage 目标语言
+ * @param config AI 配置
+ * @returns 翻译后的 TL;DR (纯文本)
+ * @throws 如果翻译失败则抛出错误
+ */
+export async function translateTldr(
+  tldrText: string,
+  targetLanguage: "en" | "zh-cn" | "zh-tw" | "ja",
+  config: AIConfig,
+): Promise<string> {
+  const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
+  const model = config.openaiModel || "gpt-5.2-instant";
+
+  const systemPrompt = `You are an expert academic translator. Translate the given one-sentence research takeaway into ${languageDisplayName(targetLanguage)}.
+
+STRICT OUTPUT RULES:
+- Output ONLY the translated sentence, nothing else.
+- Plain text only: NO Markdown, NO LaTeX, NO added quotes.
+- Keep technical terms and named methods accurate.
+- Preserve the concise, single-sentence form.`;
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: tldrText,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const translated = data.choices?.[0]?.message?.content?.trim();
+
+    if (!translated) {
+      throw new Error("Empty tldr translation generated");
+    }
+
+    return translated;
+  } catch (error) {
+    console.error("Failed to translate tldr:", error);
+    throw new Error(
+      `Tldr translation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
+}
+
+/**
  * 从论文文本中提取标题
  *
  * @param paperText 论文文本内容（前几页）

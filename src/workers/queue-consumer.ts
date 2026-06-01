@@ -13,9 +13,11 @@ import type { AIConfig } from "#/lib/ai";
 import {
   extractPaperTitle,
   generateSummary,
+  generateTldr,
   generateWhiteboardImage,
   generateWhiteboardInsights,
   translateSummary,
+  translateTldr,
 } from "#/lib/ai";
 import { decrypt } from "#/lib/crypto";
 import { downloadArxivPDF, extractPDFText, PDFPageLimitError } from "#/lib/pdf";
@@ -390,18 +392,56 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   // Step 4.5: 翻译额外语言（如 cron 任务需要多语言）
   const summaries: Record<string, string> = { [language]: summary };
   if (msg.extraLanguages && msg.extraLanguages.length > 0) {
-    log("translate-summary", `Translating to: ${msg.extraLanguages.join(", ")}`);
+    log(
+      "translate-summary",
+      `Translating to: ${msg.extraLanguages.join(", ")}`,
+    );
     try {
       const translations = await Promise.all(
-        msg.extraLanguages.map((lang) => translateSummary(summary, lang, aiConfig)),
+        msg.extraLanguages.map((lang) =>
+          translateSummary(summary, lang, aiConfig),
+        ),
       );
       for (let i = 0; i < msg.extraLanguages.length; i++) {
         summaries[msg.extraLanguages[i]] = translations[i];
       }
-      log("translate-summary", `Translated ${msg.extraLanguages.length} languages`);
+      log(
+        "translate-summary",
+        `Translated ${msg.extraLanguages.length} languages`,
+      );
     } catch (error) {
       throw new StepError("translate-summary", error);
     }
+  }
+
+  // Step 4.6: 生成多语言 TL;DR (用于 gallery 卡片)
+  // 非关键步骤: 失败不应中断论文处理, 读取时可从 summaries 兜底。
+  let tldr: Record<string, string> | undefined;
+  try {
+    const baseTldr = await generateTldr(summary, aiConfig, language);
+    tldr = { [language]: baseTldr };
+
+    if (msg.extraLanguages && msg.extraLanguages.length > 0) {
+      const tldrTranslations = await Promise.all(
+        msg.extraLanguages.map((lang) =>
+          translateTldr(baseTldr, lang, aiConfig),
+        ),
+      );
+      for (let i = 0; i < msg.extraLanguages.length; i++) {
+        tldr[msg.extraLanguages[i]] = tldrTranslations[i];
+      }
+    }
+    log(
+      "generate-tldr",
+      `Generated tldr in ${Object.keys(tldr).length} language(s)`,
+    );
+  } catch (error) {
+    logWarn(
+      "generate-tldr",
+      "Tldr generation failed, gallery will fall back to summary",
+      error,
+    );
+    tldr = undefined;
   }
 
   // Step 5: 生成白板图片
@@ -442,6 +482,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       .values({
         paperId: msg.paperId,
         summaries: summaries,
+        tldr: tldr,
         summaryLanguage: language,
         whiteboardInsights: whiteboardInsights,
         processingTimeMs,
