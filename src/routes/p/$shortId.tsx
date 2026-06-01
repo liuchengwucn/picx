@@ -790,6 +790,12 @@ function PaperDetailPage() {
                       </span>
                     </AccordionTrigger>
                     <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+                      {paper.isPublic && whiteboardImageUrl && (
+                        <ShareDialog
+                          shortId={paper.shortId ?? shortId}
+                          title={paper.title}
+                        />
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
