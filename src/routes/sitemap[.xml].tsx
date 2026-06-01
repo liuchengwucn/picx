@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { drizzle } from "drizzle-orm/d1";
 import { and, desc, eq, isNull } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import { papers } from "#/db/schema";
 
 interface AppEnvBindings {
@@ -14,10 +14,18 @@ async function handler({ request }: { request: Request }) {
   const db = drizzle(appEnv.DB);
 
   // Fetch all public gallery papers (id + publishedAt only)
-  let publicPapers: Array<{ id: string; shortId: string | null; publishedAt: Date | null }> = [];
+  let publicPapers: Array<{
+    id: string;
+    shortId: string | null;
+    publishedAt: Date | null;
+  }> = [];
   try {
     publicPapers = await db
-      .select({ id: papers.id, shortId: papers.shortId, publishedAt: papers.publishedAt })
+      .select({
+        id: papers.id,
+        shortId: papers.shortId,
+        publishedAt: papers.publishedAt,
+      })
       .from(papers)
       .where(
         and(
@@ -32,9 +40,31 @@ async function handler({ request }: { request: Request }) {
     // Degrade gracefully to static-only sitemap
   }
 
-  const staticRoutes = [
-    { url: `${origin}/`, priority: "1.0", changefreq: "weekly" },
-    { url: `${origin}/gallery`, priority: "0.9", changefreq: "daily" },
+  // publicPapers 已按 publishedAt 倒序, 取最新一篇的发布日作为首页/画廊的
+  // lastmod —— 在 sitemap 顶部给出"内容刚更新"的新鲜度信号, 这是 Google
+  // 现在真正参考的字段 (changefreq/priority 已被忽略)。
+  const latestPaperDate = publicPapers[0]?.publishedAt
+    ? publicPapers[0].publishedAt.toISOString().split("T")[0]
+    : undefined;
+
+  const staticRoutes: Array<{
+    url: string;
+    priority: string;
+    changefreq: string;
+    lastmod?: string;
+  }> = [
+    {
+      url: `${origin}/`,
+      priority: "1.0",
+      changefreq: "weekly",
+      lastmod: latestPaperDate,
+    },
+    {
+      url: `${origin}/gallery`,
+      priority: "0.9",
+      changefreq: "daily",
+      lastmod: latestPaperDate,
+    },
     { url: `${origin}/about`, priority: "0.5", changefreq: "monthly" },
   ];
 
