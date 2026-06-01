@@ -13,17 +13,19 @@ interface AppEnvBindings {
 function applyWatermark(pngBytes: Uint8Array): Uint8Array {
   const base = PhotonImage.new_from_byteslice(pngBytes);
   const mark = PhotonImage.new_from_byteslice(WATERMARK_PNG);
-  const { x, y } = watermarkPosition(
-    base.get_width(),
-    base.get_height(),
-    mark.get_width(),
-    mark.get_height(),
-  );
-  watermark(base, mark, BigInt(x), BigInt(y));
-  const out = base.get_bytes();
-  base.free();
-  mark.free();
-  return out;
+  try {
+    const { x, y } = watermarkPosition(
+      base.get_width(),
+      base.get_height(),
+      mark.get_width(),
+      mark.get_height(),
+    );
+    watermark(base, mark, BigInt(x), BigInt(y));
+    return base.get_bytes();
+  } finally {
+    base.free();
+    mark.free();
+  }
 }
 
 async function handler({
