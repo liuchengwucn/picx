@@ -210,6 +210,7 @@ export const Route = createFileRoute("/p/$shortId")({
           ssrMeta: {
             title: paper.title,
             shortId: paper.shortId,
+            isPublic: paper.isPublic,
             summary,
             tldr: (result?.tldr as Record<string, string> | null) ?? null,
             publishedAt: paper.publishedAt,
@@ -231,6 +232,7 @@ export const Route = createFileRoute("/p/$shortId")({
       ssrMeta: {
         title: data.paper.title,
         shortId: data.paper.shortId,
+        isPublic: data.paper.isPublic,
         summary: data.result?.summary ?? null,
         tldr: (data.result?.tldr as Record<string, string> | null) ?? null,
         publishedAt: data.paper.publishedAt,
@@ -264,9 +266,12 @@ export const Route = createFileRoute("/p/$shortId")({
     const description = tldrText
       ? `${m.seo_paper_desc_prefix()} ${tldrText}`
       : buildPaperDescription(ssrMeta.title, ssrMeta.summary);
-    const imageUrl = ssrMeta.whiteboardImageR2Key
-      ? `${SITE_URL}/p/${ssrMeta.shortId}/image`
-      : null;
+    // 仅公开论文输出社交卡片图: 带水印的稳定路由只服务公开论文,
+    // 私有论文(owner 自己浏览时)走该路由会 404, 故此处不输出 og:image。
+    const imageUrl =
+      ssrMeta.isPublic && ssrMeta.whiteboardImageR2Key
+        ? `${SITE_URL}/p/${ssrMeta.shortId}/image`
+        : null;
 
     const meta: Array<Record<string, string>> = [
       { title },
@@ -474,7 +479,7 @@ function PaperDetailPage() {
   const publicImageBase = paper.isPublic
     ? `/p/${paper.shortId ?? shortId}/image`
     : null;
-  const displayImageUrl = (publicImageBase ?? whiteboardImageUrl) ?? undefined;
+  const displayImageUrl = publicImageBase ?? whiteboardImageUrl ?? undefined;
   const downloadImageUrl =
     (publicImageBase ? `${publicImageBase}?download` : whiteboardImageUrl) ??
     undefined;
