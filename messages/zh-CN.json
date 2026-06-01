@@ -241,6 +241,8 @@
   "page_title_home": "PicX - AI 驱动的论文总结与白板图生成",
   "page_title_papers": "我的论文 - PicX",
   "page_title_gallery": "公开画廊 - PicX",
+  "seo_paper_title_prefix": "图解",
+  "seo_paper_desc_prefix": "🎨 一图读懂这篇论文 ——",
   "page_title_credits": "积分历史 - PicX",
   "page_title_api_configs": "API 配置 - PicX",
   "page_title_whiteboard_prompts": "白板图提示词 - PicX",

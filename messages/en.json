@@ -241,6 +241,8 @@
   "page_title_home": "PicX - AI-Powered Paper Summarization & Whiteboard Generation",
   "page_title_papers": "My Papers - PicX",
   "page_title_gallery": "Public Gallery - PicX",
+  "seo_paper_title_prefix": "Visual Summary",
+  "seo_paper_desc_prefix": "🎨 This paper at a glance —",
   "page_title_credits": "Credit History - PicX",
   "page_title_api_configs": "API Configurations - PicX",
   "page_title_whiteboard_prompts": "Whiteboard Prompts - PicX",

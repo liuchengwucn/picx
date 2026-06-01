@@ -18,28 +18,8 @@ import {
   isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
 import { generateShortId } from "#/lib/short-id";
+import { normalizeLocaleKey } from "#/lib/tldr";
 import { protectedProcedure, publicProcedure, router } from "../init";
-
-/**
- * 把 Paraglide 的语言代码 (en/zh-CN/zh-TW/ja) 归一化为
- * summaries / tldr JSON 里使用的小写 key (en/zh-cn/zh-tw/ja)。
- */
-function normalizeLocaleKey(
-  locale: string | undefined,
-): "en" | "zh-cn" | "zh-tw" | "ja" {
-  switch (locale) {
-    case "zh-CN":
-    case "zh-cn":
-      return "zh-cn";
-    case "zh-TW":
-    case "zh-tw":
-      return "zh-tw";
-    case "ja":
-      return "ja";
-    default:
-      return "en";
-  }
-}
 
 /**
  * 从结构化 Markdown 摘要中抽取一段简短片段, 作为 tldr 的兜底

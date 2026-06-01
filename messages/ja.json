@@ -241,6 +241,8 @@
   "page_title_home": "PicX - AI駆動の論文要約とホワイトボード生成",
   "page_title_papers": "自分の論文 - PicX",
   "page_title_gallery": "公開ギャラリー - PicX",
+  "seo_paper_title_prefix": "図解",
+  "seo_paper_desc_prefix": "🎨 この論文をひと目で ——",
   "page_title_credits": "クレジット履歴 - PicX",
   "page_title_api_configs": "API設定 - PicX",
   "page_title_whiteboard_prompts": "ホワイトボードプロンプト - PicX",
