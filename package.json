@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.5.3",
+    "@cf-wasm/photon": "^0.3.6",
     "@cloudflare/vite-plugin": "^1.13.8",
     "@faker-js/faker": "^10.0.0",
     "@tailwindcss/vite": "^4.1.18",
