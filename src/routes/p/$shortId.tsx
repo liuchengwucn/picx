@@ -27,6 +27,7 @@ import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badg
 import { PublicBadge } from "#/components/papers/public-badge";
 import { RegenerateWhiteboardDialog } from "#/components/papers/regenerate-whiteboard-dialog";
 import { ShareBanner } from "#/components/papers/share-banner";
+import { ShareDialog } from "#/components/papers/share-dialog";
 import { WhiteboardGalleryDialog } from "#/components/papers/whiteboard-gallery-dialog";
 import {
   Accordion,
@@ -264,7 +265,7 @@ export const Route = createFileRoute("/p/$shortId")({
       ? `${m.seo_paper_desc_prefix()} ${tldrText}`
       : buildPaperDescription(ssrMeta.title, ssrMeta.summary);
     const imageUrl = ssrMeta.whiteboardImageR2Key
-      ? `${SITE_URL}/api/r2/${ssrMeta.whiteboardImageR2Key}`
+      ? `${SITE_URL}/p/${ssrMeta.shortId}/image`
       : null;
 
     const meta: Array<Record<string, string>> = [
@@ -467,6 +468,16 @@ function PaperDetailPage() {
   const whiteboardImageUrl = defaultWhiteboard?.imageR2Key
     ? `/api/r2/${defaultWhiteboard.imageR2Key}`
     : null;
+
+  // 公开论文用带水印的稳定路由 (预览/下载/嵌入一致带水印);
+  // owner 看私有论文仍用原始 R2 (无水印, 稳定路由也取不到私有图)。
+  const publicImageBase = paper.isPublic
+    ? `/p/${paper.shortId ?? shortId}/image`
+    : null;
+  const displayImageUrl = (publicImageBase ?? whiteboardImageUrl) ?? undefined;
+  const downloadImageUrl =
+    (publicImageBase ? `${publicImageBase}?download` : whiteboardImageUrl) ??
+    undefined;
 
   const isOwner = paper.userId === profile.data?.id;
 
@@ -679,6 +690,12 @@ function PaperDetailPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    {paper.isPublic && whiteboardImageUrl && (
+                      <ShareDialog
+                        shortId={paper.shortId ?? shortId}
+                        title={paper.title}
+                      />
+                    )}
                     {whiteboardsData &&
                       whiteboardsData.whiteboards.length > 1 && (
                         <Button
@@ -708,7 +725,7 @@ function PaperDetailPage() {
                     )}
                     <Button variant="outline" size="sm" asChild>
                       <a
-                        href={whiteboardImageUrl}
+                        href={downloadImageUrl}
                         download={`${paper.title}-whiteboard.png`}
                         className="gap-1.5"
                       >
@@ -724,7 +741,7 @@ function PaperDetailPage() {
                 <div className="rounded-2xl border border-[var(--line)] bg-[var(--parchment-warm)] p-3 lg:hidden">
                   <div className="overflow-hidden rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(245,237,223,0.95))]">
                     <img
-                      src={whiteboardImageUrl}
+                      src={displayImageUrl}
                       alt={`${paper.title} ${m.paper_whiteboard()}`}
                       className="mx-auto h-auto max-h-[420px] w-full object-contain"
                     />
@@ -743,7 +760,7 @@ function PaperDetailPage() {
                 >
                   <div className="relative overflow-hidden rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(245,237,223,0.95))]">
                     <img
-                      src={whiteboardImageUrl}
+                      src={displayImageUrl}
                       alt={`${paper.title} ${m.paper_whiteboard()}`}
                       className="mx-auto h-auto max-h-[360px] w-full object-contain transition duration-300 group-hover:scale-[1.015]"
                     />
@@ -937,7 +954,7 @@ function PaperDetailPage() {
                   </div>
                   <Button variant="outline" size="sm" asChild>
                     <a
-                      href={whiteboardImageUrl}
+                      href={downloadImageUrl}
                       download={`${paper.title}-whiteboard.png`}
                       className="gap-1.5"
                     >
@@ -949,7 +966,7 @@ function PaperDetailPage() {
 
                 <div className="overflow-auto rounded-[22px] border border-[var(--line)] bg-[var(--parchment-warm)]/80 p-2 sm:p-4">
                   <img
-                    src={whiteboardImageUrl}
+                    src={displayImageUrl}
                     alt={`${paper.title} ${m.paper_whiteboard()}`}
                     className="mx-auto h-auto max-h-[calc(96vh-8rem)] w-full object-contain rounded-[18px]"
                   />
