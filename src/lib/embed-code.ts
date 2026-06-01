@@ -1,12 +1,16 @@
 import { SITE_URL } from "#/lib/site-url";
 
-/** HTML-escape so paper titles can't break the embed snippet. */
+/**
+ * HTML-escape so paper titles can't break the embed snippet.
+ * Escapes for both element text and single/double-quoted attribute values.
+ */
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export function paperPageUrl(shortId: string): string {
@@ -24,7 +28,7 @@ export function paperImageUrl(shortId: string): string {
 export function buildEmbedCode(shortId: string, title: string): string {
   const pageUrl = paperPageUrl(shortId);
   const imageUrl = paperImageUrl(shortId);
-  const alt = escapeHtml(`${title} — Visual whiteboard summary by PicX`);
+  const alt = `${escapeHtml(title)} — Visual whiteboard summary by PicX`;
   return `<a href="${pageUrl}">
   <img src="${imageUrl}" alt="${alt}" style="max-width:100%;height:auto" />
 </a>

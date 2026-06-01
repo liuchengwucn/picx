@@ -8,8 +8,24 @@ import {
 } from "./embed-code";
 
 describe("escapeHtml", () => {
-  it("escapes &, <, >, and double quotes", () => {
-    expect(escapeHtml(`A & B <c> "d"`)).toBe("A &amp; B &lt;c&gt; &quot;d&quot;");
+  it("escapes each special character", () => {
+    expect(escapeHtml("&")).toBe("&amp;");
+    expect(escapeHtml("<")).toBe("&lt;");
+    expect(escapeHtml(">")).toBe("&gt;");
+    expect(escapeHtml(`"`)).toBe("&quot;");
+    expect(escapeHtml("'")).toBe("&#39;");
+  });
+
+  it("escapes & first so entities are not double-encoded", () => {
+    expect(escapeHtml(`A & B <c> "d" 'e'`)).toBe(
+      "A &amp; B &lt;c&gt; &quot;d&quot; &#39;e&#39;",
+    );
+  });
+
+  it("leaves a clean string unchanged", () => {
+    expect(escapeHtml("Attention Is All You Need")).toBe(
+      "Attention Is All You Need",
+    );
   });
 });
 
