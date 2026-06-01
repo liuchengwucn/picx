@@ -6,8 +6,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "#/components/ui/dialog";
-import { DialogTrigger } from "#/components/ui/dialog";
 import {
   buildEmbedCode,
   buildSocialShareLinks,
@@ -131,6 +131,7 @@ export function ShareDialog({ shortId, title }: ShareDialogProps) {
               <Button
                 variant="outline"
                 size="sm"
+                aria-label="Share on X (Twitter)"
                 className="border-[var(--line)] bg-[var(--parchment-warm)] text-[var(--ink)] transition-all hover:border-[var(--academic-brown)]/40 hover:bg-[var(--academic-brown)]/6"
                 onClick={() => openShare(social.twitter)}
               >
@@ -139,6 +140,7 @@ export function ShareDialog({ shortId, title }: ShareDialogProps) {
               <Button
                 variant="outline"
                 size="sm"
+                aria-label="Share on Weibo"
                 className="border-[var(--line)] bg-[var(--parchment-warm)] text-[var(--ink)] transition-all hover:border-[var(--academic-brown)]/40 hover:bg-[var(--academic-brown)]/6"
                 onClick={() => openShare(social.weibo)}
               >
@@ -147,6 +149,7 @@ export function ShareDialog({ shortId, title }: ShareDialogProps) {
               <Button
                 variant="outline"
                 size="sm"
+                aria-label="Share on Reddit"
                 className="border-[var(--line)] bg-[var(--parchment-warm)] text-[var(--ink)] transition-all hover:border-[var(--academic-brown)]/40 hover:bg-[var(--academic-brown)]/6"
                 onClick={() => openShare(social.reddit)}
               >
