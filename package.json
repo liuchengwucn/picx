@@ -16,6 +16,7 @@
     "db:push": "drizzle-kit push",
     "db:pull": "drizzle-kit pull",
     "db:studio": "drizzle-kit studio",
+    "db:backfill-tldr": "node scripts/backfill-tldr.mjs",
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check"
