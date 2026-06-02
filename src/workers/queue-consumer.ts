@@ -11,6 +11,7 @@ import {
 } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import {
+  classifyPaper,
   extractPaperTitle,
   generateSummary,
   generateTldr,
@@ -365,6 +366,10 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
   let summary: string;
   let whiteboardInsights: string;
+  let classification: { categories: string[]; tags: string[] } = {
+    categories: ["other"],
+    tags: [],
+  };
   try {
     log(
       "generate-summary-and-whiteboard",
@@ -372,9 +377,10 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     );
 
     // 并行执行摘要生成和白板洞察生成
-    [summary, whiteboardInsights] = await Promise.all([
+    [summary, whiteboardInsights, classification] = await Promise.all([
       generateSummary(text, aiConfig, language),
       generateWhiteboardInsights(text, aiConfig),
+      classifyPaper(text, aiConfig),
     ]);
 
     log(
@@ -483,6 +489,8 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
         paperId: msg.paperId,
         summaries: summaries,
         tldr: tldr,
+        categories: classification.categories,
+        tags: classification.tags,
         summaryLanguage: language,
         whiteboardInsights: whiteboardInsights,
         processingTimeMs,
