@@ -12,6 +12,10 @@ export interface AIConfig {
 }
 
 import {
+  normalizeCategorySlugs,
+  PAPER_CATEGORY_SLUGS,
+} from "#/lib/paper-categories";
+import {
   buildPromptFromTemplate,
   getSystemDefaultPromptTemplate,
 } from "#/lib/prompt-validation";
@@ -1092,5 +1096,122 @@ Rules:
     throw new Error(
       `Paper tail review failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
+  }
+}
+
+/** 把 tag 规范化为小写连字符短串。 */
+function normalizeTag(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/**
+ * 纯函数:从 LLM 文本里解析出 { categories, tags }。
+ * - 容忍代码围栏/前后散文(复用 extractFirstJsonObject)
+ * - 只保留合法分类 slug,去重,最多 3 个;无合法则 ["other"]
+ * - tag 规范化为小写连字符,去重,最多 6 个
+ * - 任何异常都安全兜底 { categories: ["other"], tags: [] }
+ */
+export function parseClassification(content: string): {
+  categories: string[];
+  tags: string[];
+} {
+  const fallback = { categories: ["other"], tags: [] as string[] };
+  try {
+    const jsonStr = extractFirstJsonObject(content);
+    if (!jsonStr) return fallback;
+    const parsed = JSON.parse(jsonStr) as {
+      categories?: unknown;
+      tags?: unknown;
+    };
+    const rawCats = Array.isArray(parsed.categories)
+      ? parsed.categories.filter((x): x is string => typeof x === "string")
+      : [];
+    const cats = normalizeCategorySlugs(rawCats).slice(0, 3);
+    const rawTags = Array.isArray(parsed.tags)
+      ? parsed.tags.filter((x): x is string => typeof x === "string")
+      : [];
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const t of rawTags) {
+      const n = normalizeTag(t);
+      if (n && !seen.has(n)) {
+        seen.add(n);
+        tags.push(n);
+      }
+      if (tags.length >= 6) break;
+    }
+    return {
+      categories: cats.length > 0 ? cats : ["other"],
+      tags,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * 调用 LLM 给论文分类并产出自由 tag。语言无关,用英文摘要/正文即可。
+ * 失败时安全兜底(分类不该让整篇处理失败)。
+ */
+export async function classifyPaper(
+  text: string,
+  config: AIConfig,
+): Promise<{ categories: string[]; tags: string[] }> {
+  const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
+  const model = config.openaiModel || "gpt-5.2-instant";
+
+  const systemPrompt = `You are an expert at classifying AI/ML research papers.
+
+Pick 1-3 PRIMARY categories from this EXACT fixed list (use the slug verbatim):
+${PAPER_CATEGORY_SLUGS.join(", ")}
+
+Then produce 3-5 free-form fine-grained TAGS (lowercase, hyphenated, e.g. "image-restoration").
+
+Rules:
+- Categories MUST be slugs from the list above. If nothing fits, use ["other"].
+- Prefer the most specific fitting categories; do not over-assign.
+- Output ONLY a JSON object, no prose, no code fences:
+{"categories":["..."],"tags":["..."]}`;
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: text.slice(0, 3500) },
+        ],
+        temperature: 0.2,
+        max_tokens: 200,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Classify API failed: ${response.status} ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const content = data.choices?.[0]?.message?.content ?? "";
+    return parseClassification(content);
+  } catch (error) {
+    console.error("Failed to classify paper:", error);
+    return { categories: ["other"], tags: [] };
   }
 }
