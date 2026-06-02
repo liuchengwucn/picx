@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, notInArray } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   paperResults,
@@ -9,11 +9,7 @@ import {
 import { paperImageUrl } from "#/lib/embed-code";
 import { sendPhoto, type TelegramCredentials } from "#/lib/telegram-client";
 import { pickTldr } from "#/lib/tldr";
-import {
-  capCandidates,
-  RECENT_WINDOW_HOURS,
-  TWEET_MIN_UPVOTES,
-} from "#/lib/x-candidate";
+import { capCandidates, RECENT_WINDOW_HOURS } from "#/lib/x-candidate";
 import { buildTweetCaption } from "#/lib/x-caption";
 import { recentSinceMs } from "#/lib/x-schedule";
 import type { Env } from "#/types/env";
@@ -61,7 +57,7 @@ export default {
       eq(papers.status, "completed"),
       isNull(papers.deletedAt),
       gte(papers.publishedAt, new Date(sinceMs)), // 防洪护栏一
-      gte(papers.upvotes, TWEET_MIN_UPVOTES),
+      isNotNull(papers.upvotes), // 排除历史 NULL upvotes 论文（再加一层防洪）
     );
 
     const rows = await db

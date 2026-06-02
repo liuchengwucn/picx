@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capCandidates, MAX_PER_DAY, TWEET_MIN_UPVOTES } from "./x-candidate";
+import { capCandidates, MAX_PER_DAY } from "./x-candidate";
 
 const mk = (id: string, upvotes: number) => ({ id, upvotes });
 
@@ -17,8 +17,7 @@ describe("capCandidates", () => {
     expect(capCandidates(rows)).toHaveLength(2);
   });
 
-  it("exposes sane defaults for the SQL-side thresholds", () => {
-    expect(TWEET_MIN_UPVOTES).toBeGreaterThanOrEqual(1);
+  it("exposes a sane daily cap", () => {
     expect(MAX_PER_DAY).toBeGreaterThanOrEqual(1);
   });
 });

@@ -1,8 +1,8 @@
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { creditTransactions, papers, user } from "#/db/schema";
-import type { Env } from "#/types/env";
 import { generateShortId } from "#/lib/short-id";
+import type { Env } from "#/types/env";
 
 const GUEST_USER_ID = "review-guest-user";
 const GUEST_USER_NAME = "Guest";
@@ -10,7 +10,7 @@ const GUEST_USER_EMAIL = "review-guest@picx.local";
 const GUEST_CREDITS = 99999;
 
 const HF_DAILY_PAPERS_API = "https://huggingface.co/api/daily_papers";
-const MIN_UPVOTES = 30;
+const MIN_UPVOTES = 50;
 const MIN_PAPERS = 3;
 
 interface HFPaper {
@@ -45,7 +45,7 @@ export default {
       console.log(`[ArxivCron] Fetching papers for date: ${yesterday}`);
       console.log(`[ArxivCron] Fetched ${hfPapers.length} papers from HF`);
 
-      // Step 3: 筛选：upvotes >= 30 全取，不足 3 篇补到 3 篇
+      // Step 3: 筛选：upvotes >= 50 全取，不足 3 篇补到 3 篇
       const selected = selectPapers(hfPapers);
       console.log(
         `[ArxivCron] Selected ${selected.length} papers:`,
@@ -132,7 +132,9 @@ async function upsertGuestUser(db: ReturnType<typeof drizzle>): Promise<void> {
 }
 
 async function fetchDailyPapers(date?: string): Promise<HFPaper[]> {
-  const url = date ? `${HF_DAILY_PAPERS_API}?date=${date}` : HF_DAILY_PAPERS_API;
+  const url = date
+    ? `${HF_DAILY_PAPERS_API}?date=${date}`
+    : HF_DAILY_PAPERS_API;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`HF API error: ${res.status} ${res.statusText}`);
@@ -147,14 +149,10 @@ function getYesterdayUTC(): string {
 }
 
 function selectPapers(papers: HFPaper[]): HFPaper[] {
-  const sorted = [...papers].sort(
-    (a, b) => b.paper.upvotes - a.paper.upvotes,
-  );
+  const sorted = [...papers].sort((a, b) => b.paper.upvotes - a.paper.upvotes);
 
   // upvotes >= MIN_UPVOTES 全取
-  const aboveThreshold = sorted.filter(
-    (p) => p.paper.upvotes >= MIN_UPVOTES,
-  );
+  const aboveThreshold = sorted.filter((p) => p.paper.upvotes >= MIN_UPVOTES);
 
   // 不足 MIN_PAPERS 篇时补到 MIN_PAPERS 篇
   if (aboveThreshold.length >= MIN_PAPERS) {
