@@ -2,10 +2,10 @@ import handler from "@tanstack/react-start/server-entry";
 import type { Env } from "#/types/env";
 import arxivCron from "#/workers/arxiv-cron";
 import queueConsumer from "#/workers/queue-consumer";
-import tweetDigestCron from "#/workers/tweet-digest-cron";
+import tweetPosterCron from "#/workers/tweet-poster-cron";
 
 const ARXIV_CRON = "0 0 * * *";
-const DIGEST_CRON = "0 4 * * *";
+const POSTER_CRON = "0 14 * * *";
 
 async function dispatchScheduled(
   controller: ScheduledController,
@@ -13,8 +13,8 @@ async function dispatchScheduled(
   ctx: ExecutionContext,
 ): Promise<void> {
   switch (controller.cron) {
-    case DIGEST_CRON:
-      return tweetDigestCron.scheduled(controller, env, ctx);
+    case POSTER_CRON:
+      return tweetPosterCron.scheduled(controller, env, ctx);
     default:
       // ARXIV_CRON 及兜底
       return arxivCron.scheduled(controller, env, ctx);
