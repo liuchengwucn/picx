@@ -22,4 +22,10 @@ export interface Env {
   GEMINI_BASE_URL?: string;
   GEMINI_MODEL?: string;
   CF_API_TOKEN?: string;
+
+  // X (Twitter) bot 凭证（OAuth 1.0a user context）
+  X_API_KEY?: string;
+  X_API_SECRET?: string;
+  X_ACCESS_TOKEN?: string;
+  X_ACCESS_SECRET?: string;
 }
