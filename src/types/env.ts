@@ -23,7 +23,12 @@ export interface Env {
   GEMINI_MODEL?: string;
   CF_API_TOKEN?: string;
 
-  // X bot：每天把选出的论文推送到 Telegram 供人工发推
+  // X bot：每天自动直发 1 条到 X（OAuth 1.0a user context）
+  X_API_KEY?: string;
+  X_API_SECRET?: string;
+  X_ACCESS_TOKEN?: string;
+  X_ACCESS_SECRET?: string;
+  // Telegram：仅在 X 发推失败时告警，供人工补发
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
 }
