@@ -68,19 +68,20 @@ export function GalleryCard({ paper, delay, onTagClick }: GalleryCardProps) {
               {paper.tldr}
             </p>
           ) : null}
-          <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+          {/* 底部右对齐两行: 上行时间(最右)+白板图字样, 下行 tag(右下角) */}
+          <div className="mt-auto flex flex-col items-end gap-1.5 pt-1">
             <div className="flex items-center gap-3 text-xs text-[var(--ink-soft)]">
-              <span className="inline-flex items-center gap-1.5">
-                <Globe className="h-3 w-3" />
-                <time>{timeAgo}</time>
-              </span>
               <span className="inline-flex items-center gap-1.5 text-[var(--academic-brown)] opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                 <Sparkles className="h-3 w-3" />
                 <span>{m.paper_whiteboard()}</span>
               </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Globe className="h-3 w-3" />
+                <time>{timeAgo}</time>
+              </span>
             </div>
             {visibleTags.length > 0 && (
-              <div className="ml-auto flex items-center gap-1">
+              <div className="flex flex-wrap items-center justify-end gap-1">
                 {visibleTags.map((tag) =>
                   onTagClick ? (
                     <button
