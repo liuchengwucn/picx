@@ -10,7 +10,9 @@
   "triggers": {
     "crons": [
       "0 0 * * *", // 08:00 北京时间: arxiv-cron 拉取并生成白板
-      "0 14 * * *" // 22:00 北京时间: tweet-poster-cron 选 top-1 直发 X（北美早高峰）
+      "0 14 * * *", // 22:00 北京时间: tweet-poster-cron 发当天 top-1（北美早高峰）
+      "30 14 * * *", // 22:30 北京时间: tweet-poster-cron 发当天 top-2
+      "0 15 * * *" // 23:00 北京时间: tweet-poster-cron 发当天 top-3
     ]
   },
 

@@ -88,11 +88,16 @@ export default {
 
     // 已投递过的 paper_id（sent + error 都算，避免重复）。规模小，取全表。
     const seen = await db
-      .select({ paperId: tweetQueue.paperId })
+      .select({ paperId: tweetQueue.paperId, sentAt: tweetQueue.sentAt })
       .from(tweetQueue);
     const seenIds = seen.map((r) => r.paperId);
 
     const sinceMs = recentSinceMs(now, RECENT_WINDOW_HOURS);
+
+    // 今日（同一 24h 窗口内）已成功发出的篇数，用于通知文案标注「今日第 N 篇」。
+    const sentToday = seen.filter(
+      (r) => r.sentAt != null && r.sentAt.getTime() >= sinceMs,
+    ).length;
 
     // 候选：guest + 近 24h + 已完成 + 有默认白板 + upvotes 非 NULL + 未投递过。
     const baseWhere = and(
@@ -150,10 +155,11 @@ export default {
       });
       console.log("[TweetPoster] posted", selected.id, tweetId);
       // 成功回执：纯文本 + 推文链接（不带白板图与文案）。
+      // 标注「今日第 N 篇」，区分 22:00 / 22:30 / 23:00 三次发送。
       await notify(
         tg,
         null,
-        `✅ 今日已发 X\nhttps://x.com/i/web/status/${tweetId}`,
+        `✅ 今日已发 X（第 ${sentToday + 1} 篇）\nhttps://x.com/i/web/status/${tweetId}`,
       );
     } catch (err) {
       // 发送失败：记 error 行（占用 paper_id，不自动重试），并 Telegram 告警。

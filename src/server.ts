@@ -5,20 +5,20 @@ import queueConsumer from "#/workers/queue-consumer";
 import tweetPosterCron from "#/workers/tweet-poster-cron";
 
 const ARXIV_CRON = "0 0 * * *";
-const POSTER_CRON = "0 14 * * *";
+// 北京时间 22:00 / 22:30 / 23:00（UTC 14:00 / 14:30 / 15:00）三次触发，
+// 每次发当天剩余 upvotes 最高的 1 篇 → 依次发出 top-1 / top-2 / top-3。
+const POSTER_CRONS = new Set(["0 14 * * *", "30 14 * * *", "0 15 * * *"]);
 
 async function dispatchScheduled(
   controller: ScheduledController,
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
-  switch (controller.cron) {
-    case POSTER_CRON:
-      return tweetPosterCron.scheduled(controller, env, ctx);
-    default:
-      // ARXIV_CRON 及兜底
-      return arxivCron.scheduled(controller, env, ctx);
+  if (POSTER_CRONS.has(controller.cron)) {
+    return tweetPosterCron.scheduled(controller, env, ctx);
   }
+  // ARXIV_CRON 及兜底
+  return arxivCron.scheduled(controller, env, ctx);
 }
 
 export default {
