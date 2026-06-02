@@ -18,6 +18,7 @@
     "db:studio": "drizzle-kit studio",
     "db:backfill-tldr": "node scripts/backfill-tldr.mjs",
     "db:backfill-categories": "node scripts/backfill-categories.mjs",
+    "db:backfill-upvotes": "node scripts/backfill-upvotes.mjs",
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check"
