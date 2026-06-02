@@ -1,5 +1,5 @@
-// digest 每天只推 upvotes 最高的这么多篇。
-export const MAX_PER_DAY = 3;
+// 每天只自动直发 upvotes 最高的这么多篇（= 1，成本与防洪硬上限）。
+export const MAX_PER_DAY = 1;
 // 防洪时间窗口（小时）：只取 publishedAt 在此窗口内的论文。
 export const RECENT_WINDOW_HOURS = 24;
 
