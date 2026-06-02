@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, isNull, like, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   creditTransactions,
@@ -12,14 +12,14 @@ import {
 } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
+import { escapeLike, parseSort } from "#/lib/gallery-search";
+import { normalizeCategorySlugs } from "#/lib/paper-categories";
 import {
   getReviewGuestServerSession,
   isReviewGuestModeEnabled,
   isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
 import { generateShortId } from "#/lib/short-id";
-import { normalizeCategorySlugs } from "#/lib/paper-categories";
-import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { normalizeLocaleKey } from "#/lib/tldr";
 import { protectedProcedure, publicProcedure, router } from "../init";
 
@@ -860,26 +860,24 @@ export const paperRouter = router({
       if (input.q) {
         const needle = `%${escapeLike(input.q)}%`;
         const localePath = `$."${localeKey}"`;
-        baseConditions.push(
-          or(
-            like(papers.title, needle),
-            sql`json_extract(${paperResults.tldr}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
-            sql`json_extract(${paperResults.summaries}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
-            sql`${paperResults.tags} LIKE ${needle} ESCAPE '\\'`,
-          )!,
+        const searchCond = or(
+          sql`${papers.title} LIKE ${needle} ESCAPE '\\'`,
+          sql`json_extract(${paperResults.tldr}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+          sql`json_extract(${paperResults.summaries}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+          sql`${paperResults.tags} LIKE ${needle} ESCAPE '\\'`,
         );
+        if (searchCond) baseConditions.push(searchCond);
       }
 
       // 分类筛选(多选 OR): paper 的 categories JSON 包含任一所选 slug
       const cats = normalizeCategorySlugs(input.categories ?? []);
       if (cats.length > 0) {
-        baseConditions.push(
-          or(
-            ...cats.map(
-              (slug) => sql`${paperResults.categories} LIKE ${`%"${slug}"%`}`,
-            ),
-          )!,
+        const catCond = or(
+          ...cats.map(
+            (slug) => sql`${paperResults.categories} LIKE ${`%"${slug}"%`}`,
+          ),
         );
+        if (catCond) baseConditions.push(catCond);
       }
 
       // tag 筛选(多选 OR): tags JSON 包含任一所选 tag
@@ -887,11 +885,10 @@ export const paperRouter = router({
         .map((t) => t.trim().toLowerCase())
         .filter(Boolean);
       if (tagList.length > 0) {
-        baseConditions.push(
-          or(
-            ...tagList.map((t) => sql`${paperResults.tags} LIKE ${`%"${t}"%`}`),
-          )!,
+        const tagCond = or(
+          ...tagList.map((t) => sql`${paperResults.tags} LIKE ${`%"${t}"%`}`),
         );
+        if (tagCond) baseConditions.push(tagCond);
       }
 
       // Query public papers with default whiteboard images.
