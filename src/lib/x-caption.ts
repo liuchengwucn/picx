@@ -18,7 +18,9 @@ interface CaptionInput {
  * tldr 过长时截断加 …，保证含链接后 ≤ 280（链接按 23 计；tldr 为英文，按 code point 计长）。
  */
 export function buildTweetCaption(input: CaptionInput): string {
-  const url = paperPageUrl(input.shortId);
+  // X 对裸域名一样会转 t.co 并抓 og:image 出卡片；去掉 https:// 显示更干净。
+  // t.co 无论带不带 scheme 均计 23 字符，故预算计算不变。
+  const url = paperPageUrl(input.shortId).replace(/^https?:\/\//, "");
   // 链接计 23，与 tldr 之间一个空行 "\n\n" 计 2。
   const budget = TWEET_MAX - TCO_LEN - 2;
 
