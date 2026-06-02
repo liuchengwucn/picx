@@ -23,9 +23,7 @@ export interface Env {
   GEMINI_MODEL?: string;
   CF_API_TOKEN?: string;
 
-  // X (Twitter) bot 凭证（OAuth 1.0a user context）
-  X_API_KEY?: string;
-  X_API_SECRET?: string;
-  X_ACCESS_TOKEN?: string;
-  X_ACCESS_SECRET?: string;
+  // X bot：每天把选出的论文推送到 Telegram 供人工发推
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
 }

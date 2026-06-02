@@ -9,9 +9,8 @@
   // Cron triggers
   "triggers": {
     "crons": [
-      "0 0 * * *",    // 08:00 北京时间: arxiv-cron 拉取并生成白板
-      "0 4 * * *",    // 12:00 北京时间: tweet-candidate-cron 选候选入队（留 4h 给白板生成）
-      "*/30 * * * *"  // 每 30 分钟: tweet-poster-cron 发一条到点的推
+      "0 0 * * *", // 08:00 北京时间: arxiv-cron 拉取并生成白板
+      "0 4 * * *" // 12:00 北京时间: tweet-digest-cron 选论文并推送到 Telegram（留 4h 给白板生成）
     ]
   },
 

@@ -298,7 +298,8 @@ export const whiteboardImages = sqliteTable(
   }),
 );
 
-// X (Twitter) bot 发推队列。一篇论文最多一行（paper_id 唯一）。
+// X bot 投递记录：每天选出的论文推送到 Telegram 供人工发推。
+// 一篇论文最多一行（paper_id 唯一）用于去重，避免重复推送给运营者。
 export const tweetQueue = sqliteTable(
   "tweet_queue",
   {
@@ -309,25 +310,17 @@ export const tweetQueue = sqliteTable(
       .notNull()
       .unique()
       .references(() => papers.id, { onDelete: "cascade" }),
-    lang: text("lang").notNull().default("en"),
     caption: text("caption").notNull(),
-    scheduledFor: integer("scheduled_for", { mode: "timestamp" }).notNull(),
     status: text("status", {
-      enum: ["pending", "posting", "posted", "error"],
-    })
-      .notNull()
-      .default("pending"),
-    tweetId: text("tweet_id"),
-    postedAt: integer("posted_at", { mode: "timestamp" }),
+      enum: ["sent", "error"],
+    }).notNull(),
+    sentAt: integer("sent_at", { mode: "timestamp" }),
     errorMsg: text("error_msg"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
   },
   (table) => ({
-    statusScheduleIdx: index("tweet_queue_status_schedule_idx").on(
-      table.status,
-      table.scheduledFor,
-    ),
+    statusIdx: index("tweet_queue_status_idx").on(table.status),
   }),
 );

@@ -6,6 +6,8 @@ import {
   tweetQueue,
   whiteboardImages,
 } from "#/db/schema";
+import { paperImageUrl } from "#/lib/embed-code";
+import { sendPhoto, type TelegramCredentials } from "#/lib/telegram-client";
 import { pickTldr } from "#/lib/tldr";
 import {
   capCandidates,
@@ -13,13 +15,18 @@ import {
   TWEET_MIN_UPVOTES,
 } from "#/lib/x-candidate";
 import { buildTweetCaption } from "#/lib/x-caption";
-import { computeScheduleTimes, recentSinceMs } from "#/lib/x-schedule";
+import { recentSinceMs } from "#/lib/x-schedule";
 import type { Env } from "#/types/env";
 
 const GUEST_USER_ID = "review-guest-user";
-// 排期：第一条相对运行时刻的延迟（分钟），之后每条的间隔（分钟）。
-const FIRST_DELAY_MIN = 10;
-const POST_INTERVAL_MIN = 90;
+
+function readCreds(env: Env): TelegramCredentials | null {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return null;
+  return {
+    botToken: env.TELEGRAM_BOT_TOKEN,
+    chatId: env.TELEGRAM_CHAT_ID,
+  };
+}
 
 export default {
   async scheduled(
@@ -29,17 +36,23 @@ export default {
   ): Promise<void> {
     const now = controller.scheduledTime;
     const db = drizzle(env.DB);
-    console.log("[TweetCandidate] start", new Date(now).toISOString());
+    console.log("[TweetDigest] start", new Date(now).toISOString());
 
-    // 已入队的 paper_id（去重）。规模小，直接取全表 id 集合。
-    const queued = await db
+    const creds = readCreds(env);
+    if (!creds) {
+      console.error("[TweetDigest] Telegram credentials missing, skip");
+      return;
+    }
+
+    // 已投递过的 paper_id（sent + error 都算，避免重复推送）。规模小，取全表。
+    const seen = await db
       .select({ paperId: tweetQueue.paperId })
       .from(tweetQueue);
-    const queuedIds = queued.map((r) => r.paperId);
+    const seenIds = seen.map((r) => r.paperId);
 
     const sinceMs = recentSinceMs(now, RECENT_WINDOW_HOURS);
 
-    // 候选查询：guest + 今天 + 已完成 + 有默认白板 + upvotes 达标 + 未入队。
+    // 候选：guest + 近一天 + 已完成 + 有默认白板 + upvotes 达标 + 未投递过。
     // join 模式与 paper.listPublic 一致。
     const baseWhere = and(
       eq(papers.userId, GUEST_USER_ID),
@@ -70,8 +83,8 @@ export default {
       )
       .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
       .where(
-        queuedIds.length > 0
-          ? and(baseWhere, notInArray(papers.id, queuedIds))
+        seenIds.length > 0
+          ? and(baseWhere, notInArray(papers.id, seenIds))
           : baseWhere,
       )
       .orderBy(desc(papers.upvotes));
@@ -81,20 +94,12 @@ export default {
     const selected = capCandidates(normalized); // 防洪护栏二
 
     if (selected.length === 0) {
-      console.log("[TweetCandidate] no candidates");
+      console.log("[TweetDigest] no candidates");
       return;
     }
 
-    const baseMs = now + FIRST_DELAY_MIN * 60_000;
-    const times = computeScheduleTimes(
-      selected.length,
-      baseMs,
-      POST_INTERVAL_MIN,
-    );
-
-    let enqueued = 0;
-    for (let i = 0; i < selected.length; i++) {
-      const p = selected[i];
+    let sent = 0;
+    for (const p of selected) {
       const tldr = pickTldr(p.tldr, "en") ?? "";
       const caption = buildTweetCaption({
         title: p.title,
@@ -102,20 +107,29 @@ export default {
         shortId: p.shortId,
       });
       try {
+        await sendPhoto(creds, paperImageUrl(p.shortId), caption);
         await db.insert(tweetQueue).values({
           paperId: p.id,
-          lang: "en",
           caption,
-          scheduledFor: new Date(times[i]),
-          status: "pending",
+          status: "sent",
+          sentAt: new Date(now),
         });
-        enqueued++;
+        sent++;
       } catch (err) {
-        // paper_id 唯一约束撞了（并发/重跑）→ 跳过，不算错误。
-        console.log("[TweetCandidate] skip duplicate", p.id, String(err));
+        // 发送失败：记一条 error 行（占用 paper_id，不会自动重试；可手动清理重发）。
+        await db
+          .insert(tweetQueue)
+          .values({
+            paperId: p.id,
+            caption,
+            status: "error",
+            errorMsg: String(err),
+          })
+          .onConflictDoNothing();
+        console.error("[TweetDigest] send failed", p.id, String(err));
       }
     }
 
-    console.log(`[TweetCandidate] enqueued ${enqueued}/${selected.length}`);
+    console.log(`[TweetDigest] sent ${sent}/${selected.length} to Telegram`);
   },
 };
