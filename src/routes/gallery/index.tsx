@@ -226,7 +226,9 @@ function ExplorePage() {
         </div>
 
         {/* Sticky filter bar */}
-        <div className="sticky top-0 z-10 -mx-4 mb-6 bg-[var(--bg)]/90 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+        {/* sticky 偏移 = 全局 Header 高度(h-9 内容 + py-3/py-4 + 1px 边框),
+            比 header 低 1px 让接缝藏在 header 下, 避免滚动时被遮挡。 */}
+        <div className="sticky top-[60px] z-10 -mx-4 mb-6 bg-[var(--bg)]/90 px-4 py-3 backdrop-blur sm:top-[68px] sm:-mx-6 sm:px-6">
           {/* Row 1: search + sort */}
           <div className="flex items-center gap-3">
             {/* Search input */}
