@@ -5,12 +5,25 @@ import { m } from "#/paraglide/messages";
 
 export interface GalleryCardPaper {
   id: string;
-  shortId?: string;
+  shortId: string;
   title: string;
   tldr: string;
   whiteboardImageR2Key: string;
   publishedAt: Date | null;
   tags?: string[];
+}
+
+/**
+ * 把分类 slug 映射到当前语言的显示名(Paraglide)。
+ * message key 约定: category_<slug 连字符转下划线>, 缺失时回退 slug 本身。
+ * gallery 列表页与分类落地页共用。
+ */
+export function getCategoryLabel(slug: string): string {
+  return (
+    (m as Record<string, () => string>)[
+      `category_${slug.replace(/-/g, "_")}`
+    ]?.() ?? slug
+  );
 }
 
 interface GalleryCardProps {

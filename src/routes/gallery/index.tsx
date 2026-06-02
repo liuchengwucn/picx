@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   GalleryCard,
   GalleryCardSkeleton,
+  getCategoryLabel,
 } from "#/components/papers/gallery-card";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
@@ -214,10 +215,7 @@ function ExplorePage() {
             </button>
 
             {PAPER_CATEGORY_SLUGS.map((slug) => {
-              const label =
-                (m as Record<string, () => string>)[
-                  `category_${slug.replace(/-/g, "_")}`
-                ]?.() ?? slug;
+              const label = getCategoryLabel(slug);
               const isActive = categories.includes(slug);
               return (
                 <button
@@ -246,10 +244,7 @@ function ExplorePage() {
 
             {/* Selected categories */}
             {categories.map((slug) => {
-              const label =
-                (m as Record<string, () => string>)[
-                  `category_${slug.replace(/-/g, "_")}`
-                ]?.() ?? slug;
+              const label = getCategoryLabel(slug);
               return (
                 <span
                   key={`cat-${slug}`}
