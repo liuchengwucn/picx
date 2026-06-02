@@ -1,24 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { buildTweetCaption, TWEET_HASHTAGS } from "./x-caption";
+import { buildTweetCaption } from "./x-caption";
 
 describe("buildTweetCaption", () => {
-  it("includes title, tldr, the paper link, and hashtags", () => {
+  it("includes the tldr and the paper link", () => {
     const out = buildTweetCaption({
-      title: "Attention Is All You Need",
       tldr: "A transformer architecture based purely on attention.",
       shortId: "abc123",
     });
-    expect(out).toContain("Attention Is All You Need");
     expect(out).toContain("A transformer architecture");
     expect(out).toContain("https://picx.dev/p/abc123");
-    expect(out).toContain(TWEET_HASHTAGS);
   });
 
   it("stays within 280 chars counting the link as 23", () => {
-    const longTldr = "x".repeat(500);
     const out = buildTweetCaption({
-      title: "y".repeat(200),
-      tldr: longTldr,
+      tldr: "x".repeat(500),
       shortId: "abc123",
     });
     // 把 URL 还原成 23 计长
@@ -27,13 +22,8 @@ describe("buildTweetCaption", () => {
     expect([...weighted].length).toBeLessThanOrEqual(280);
   });
 
-  it("omits the tldr line when tldr is empty", () => {
-    const out = buildTweetCaption({
-      title: "Title",
-      tldr: "",
-      shortId: "abc123",
-    });
-    expect(out).toContain("Title");
+  it("returns just the link when tldr is empty", () => {
+    const out = buildTweetCaption({ tldr: "", shortId: "abc123" });
     expect(out).toContain("https://picx.dev/p/abc123");
   });
 });

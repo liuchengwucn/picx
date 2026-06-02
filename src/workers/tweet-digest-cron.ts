@@ -68,10 +68,8 @@ export default {
       .select({
         id: papers.id,
         shortId: papers.shortId,
-        title: papers.title,
         upvotes: papers.upvotes,
         tldr: paperResults.tldr,
-        summaries: paperResults.summaries,
       })
       .from(papers)
       .innerJoin(
@@ -101,11 +99,7 @@ export default {
     let sent = 0;
     for (const p of selected) {
       const tldr = pickTldr(p.tldr, "en") ?? "";
-      const caption = buildTweetCaption({
-        title: p.title,
-        tldr,
-        shortId: p.shortId,
-      });
+      const caption = buildTweetCaption({ tldr, shortId: p.shortId });
       try {
         await sendPhoto(creds, paperImageUrl(p.shortId), caption);
         await db.insert(tweetQueue).values({
