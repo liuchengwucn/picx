@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { papers } from "#/db/schema";
+import { PAPER_CATEGORY_SLUGS } from "#/lib/paper-categories";
 
 interface AppEnvBindings {
   DB: D1Database;
@@ -77,7 +78,16 @@ async function handler({ request }: { request: Request }) {
       : undefined,
   }));
 
-  const allRoutes = [...staticRoutes, ...paperRoutes];
+  const categoryRoutes = PAPER_CATEGORY_SLUGS.filter((s) => s !== "other").map(
+    (slug) => ({
+      url: `${origin}/gallery/c/${slug}`,
+      priority: "0.7",
+      changefreq: "daily",
+      lastmod: latestPaperDate,
+    }),
+  );
+
+  const allRoutes = [...staticRoutes, ...categoryRoutes, ...paperRoutes];
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

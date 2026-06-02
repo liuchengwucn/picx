@@ -30,23 +30,35 @@ const gallerySearchSchema = z.object({
 export const Route = createFileRoute("/gallery/")({
   validateSearch: gallerySearchSchema,
   component: ExplorePage,
-  head: () => ({
-    meta: [
+  head: ({ search }) => {
+    const filtered = Boolean(
+      search.q || search.cat || search.tag || search.sort || search.page,
+    );
+    const description =
+      "Browse visual whiteboard summaries of today's top HuggingFace research papers, automatically updated daily.";
+    const meta: Array<
+      | { title: string }
+      | { name: string; content: string }
+      | { property: string; content: string }
+    > = [
       { title: m.page_title_gallery() },
-      {
-        name: "description",
-        content:
-          "Browse visual whiteboard summaries of today's top HuggingFace research papers, automatically updated daily.",
-      },
+      { name: "description", content: description },
+    ];
+    if (filtered) {
+      meta.push({ name: "robots", content: "noindex,follow" });
+    }
+    meta.push(
       { property: "og:title", content: m.page_title_gallery() },
-      {
-        property: "og:description",
-        content:
-          "Browse visual whiteboard summaries of today's top HuggingFace research papers, automatically updated daily.",
-      },
+      { property: "og:description", content: description },
       { property: "og:url", content: `${SITE_URL}/gallery` },
-    ],
-  }),
+    );
+    return {
+      meta,
+      ...(filtered
+        ? { links: [{ rel: "canonical", href: `${SITE_URL}/gallery` }] }
+        : {}),
+    };
+  },
 });
 
 // 每页论文数量。横向宽卡为 2 列, 8 篇正好 4 行, 一屏更聚焦。
