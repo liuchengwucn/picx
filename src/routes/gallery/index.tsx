@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Globe, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -9,7 +9,7 @@ import {
   getCategoryLabel,
 } from "#/components/papers/gallery-card";
 import { Button } from "#/components/ui/button";
-import { useTRPC } from "#/integrations/trpc/react";
+import { useTRPCClient } from "#/integrations/trpc/react";
 import { parseCsvParam, parseSort } from "#/lib/gallery-search";
 import {
   normalizeCategorySlugs,
@@ -71,7 +71,7 @@ const gallerySkeletonKeys = Array.from(
 );
 
 function ExplorePage() {
-  const trpc = useTRPC();
+  const client = useTRPCClient();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
 
@@ -106,28 +106,53 @@ function ExplorePage() {
     return () => clearTimeout(timer);
   }, [inputValue, urlQ, navigate]);
 
-  const galleryQuery = useQuery(
-    trpc.paper.listPublic.queryOptions({
-      page: 1,
-      limit: page * PAGE_SIZE,
-      locale: getLocale(),
-      q,
-      categories,
-      tags,
-      sort,
-    }),
-  );
+  const locale = getLocale();
 
-  const total = galleryQuery.data?.total ?? 0;
-  const hasMore = page * PAGE_SIZE < total;
+  // 真增量加载: 每次只取 PAGE_SIZE 条 (offset 分页), 客户端累加。
+  // limit 恒为 PAGE_SIZE, 不会撞后端 max(100) 上限, 可扩展到任意数量。
+  const galleryQuery = useInfiniteQuery({
+    queryKey: ["gallery-list", { q, categories, tags, sort, locale }],
+    queryFn: ({ pageParam, signal }) =>
+      client.paper.listPublic.query(
+        {
+          page: pageParam,
+          limit: PAGE_SIZE,
+          locale,
+          q,
+          categories,
+          tags,
+          sort,
+        },
+        { signal },
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) =>
+      allPages.length * PAGE_SIZE < lastPage.total
+        ? allPages.length + 1
+        : undefined,
+  });
+
+  const papers = galleryQuery.data?.pages.flatMap((p) => p.papers) ?? [];
+  const total = galleryQuery.data?.pages[0]?.total ?? 0;
+  const hasMore = papers.length < total;
   const hasFilters = Boolean(q || categories.length || tags.length);
+
+  // URL 的 page 表示"已展开到第几页": deep link / 刷新 / 点「加载更多」都通过它驱动,
+  // 逐页补拉直到加载到目标页数 (单一数据源)。
+  const loadedPages = galleryQuery.data?.pages.length ?? 0;
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = galleryQuery;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 仅在目标/已加载页数变化时补拉
+  useEffect(() => {
+    if (loadedPages < page && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [page, loadedPages, hasNextPage, isFetchingNextPage]);
 
   // Category chips collapse to 2 rows; a toggle appears only when they overflow.
   const chipsRef = useRef<HTMLDivElement>(null);
   const [chipsExpanded, setChipsExpanded] = useState(false);
   // px height of the first two rows; null = chips already fit in ≤2 rows (no toggle).
   const [collapsedChipsH, setCollapsedChipsH] = useState<number | null>(null);
-  const locale = getLocale();
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure on locale change — chip labels change width and (while clamped) the ResizeObserver won't fire on reflow.
   useEffect(() => {
@@ -376,7 +401,7 @@ function ExplorePage() {
           <EmptyGallery />
         ) : (
           <div className="grid auto-rows-fr gap-5 lg:grid-cols-2">
-            {galleryQuery.data?.papers.map((paper, index) => (
+            {papers.map((paper, index) => (
               <GalleryCard
                 key={paper.id}
                 paper={paper}
@@ -392,14 +417,16 @@ function ExplorePage() {
           <div className="mt-10 flex justify-center">
             <Button
               variant="outline"
-              disabled={galleryQuery.isFetching}
+              disabled={isFetchingNextPage}
               onClick={() =>
-                navigate({ search: (prev) => ({ ...prev, page: page + 1 }) })
+                navigate({
+                  search: (prev) => ({ ...prev, page: page + 1 }),
+                  // 追加加载时保持滚动位置, 不跳回页首
+                  resetScroll: false,
+                })
               }
             >
-              {galleryQuery.isFetching
-                ? m.gallery_loading()
-                : m.gallery_load_more()}
+              {isFetchingNextPage ? m.gallery_loading() : m.gallery_load_more()}
             </Button>
           </div>
         )}
