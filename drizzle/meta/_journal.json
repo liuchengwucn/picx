@@ -99,6 +99,13 @@
       "when": 1773500000000,
       "tag": "0013_add_paper_tldr",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1780363260932,
+      "tag": "0014_add_paper_upvotes",
+      "breakpoints": true
     }
   ]
 }

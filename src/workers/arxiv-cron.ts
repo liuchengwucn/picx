@@ -64,6 +64,7 @@ export default {
           env,
           arxivUrl,
           item.paper.title,
+          item.paper.upvotes,
         );
 
         if (wasCreated) {
@@ -168,6 +169,7 @@ async function createPaperIfNotExists(
   env: Env,
   arxivUrl: string,
   title: string,
+  upvotes: number,
 ): Promise<boolean> {
   // 去重：检查 sourceUrl 是否已存在
   const [existing] = await db
@@ -194,6 +196,7 @@ async function createPaperIfNotExists(
     sourceUrl: arxivUrl,
     pdfR2Key: `papers/${GUEST_USER_ID}/placeholder-${paperId}.pdf`, // queue consumer 会更新
     fileSize: 0,
+    upvotes,
     status: "pending",
     isPublic: true,
     isListedInGallery: true,

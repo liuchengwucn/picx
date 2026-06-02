@@ -85,6 +85,9 @@ export const papers = sqliteTable(
     pdfR2Key: text("pdf_r2_key").notNull(),
     fileSize: integer("file_size").notNull(),
     pageCount: integer("page_count"),
+    // HuggingFace Daily Papers 的 upvotes，由 arxiv-cron 落库，供 X bot 阈值筛选。
+    // 用户上传 / 历史论文为 NULL（不会被 bot 选中，符合防洪）。
+    upvotes: integer("upvotes"),
     status: text("status", {
       enum: [
         "pending",
