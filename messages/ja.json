@@ -315,6 +315,8 @@
   "gallery_all_categories": "すべて",
   "gallery_show_more": "もっと見る",
   "gallery_show_less": "閉じる",
+  "gallery_cta_title": "自分の論文もありますか?",
+  "gallery_cta_desc": "PDF をアップロードするか arXiv リンクを貼り付けて、専用のホワイトボード要約を作成しましょう。",
   "category_page_title": "{category}の論文ビジュアル要約 | PicX",
   "category_page_description": "HuggingFace デイリー論文から{category}の研究論文のホワイトボード要約を閲覧。"
 }

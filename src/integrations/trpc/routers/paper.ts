@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   creditTransactions,
@@ -855,6 +855,13 @@ export const paperRouter = router({
         eq(papers.status, "completed"),
         isNull(papers.deletedAt),
       ];
+
+      // 「最热」只看最近一个月(滚动 30 天): upvotes 仅对近期 HF 论文有意义,
+      // 限定时间窗让「最热」= 当月热门, 而非被历史高赞长期霸榜。
+      if (sort === "popular") {
+        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        baseConditions.push(gte(papers.publishedAt, cutoff));
+      }
 
       // 搜索: 标题 + 当前语言 tldr/summary + tags(LIKE, CJK 子串友好)
       if (input.q) {

@@ -315,6 +315,8 @@
   "gallery_all_categories": "All",
   "gallery_show_more": "Show more",
   "gallery_show_less": "Show less",
+  "gallery_cta_title": "Have a paper of your own?",
+  "gallery_cta_desc": "Upload a PDF or paste an arXiv link to get your own visual whiteboard summary.",
   "category_page_title": "{category} Papers — Visual Summaries | PicX",
   "category_page_description": "Browse visual whiteboard summaries of {category} research papers from HuggingFace daily papers."
 }
