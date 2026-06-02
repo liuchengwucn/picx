@@ -7,7 +7,11 @@ import {
   whiteboardImages,
 } from "#/db/schema";
 import { paperImageUrl } from "#/lib/embed-code";
-import { sendPhoto, type TelegramCredentials } from "#/lib/telegram-client";
+import {
+  sendMessage,
+  sendPhoto,
+  type TelegramCredentials,
+} from "#/lib/telegram-client";
 import { pickTldr } from "#/lib/tldr";
 import { capCandidates, RECENT_WINDOW_HOURS } from "#/lib/x-candidate";
 import { buildTweetCaption } from "#/lib/x-caption";
@@ -42,7 +46,7 @@ function readTelegramCreds(env: Env): TelegramCredentials | null {
 /** 仅失败时调用：把告警 + 可复制文案推给运营者，便于手动补发。本身失败只记日志。 */
 async function alertFailure(
   tg: TelegramCredentials | null,
-  shortId: string,
+  shortId: string | null,
   reason: string,
   caption: string,
 ): Promise<void> {
@@ -50,12 +54,13 @@ async function alertFailure(
     console.error("[TweetPoster] no telegram creds, cannot alert");
     return;
   }
+  const text = `⚠️ 今日 X 发推失败：${reason}\n\n${caption}`;
   try {
-    await sendPhoto(
-      tg,
-      paperImageUrl(shortId),
-      `⚠️ 今日 X 发推失败：${reason}\n\n${caption}`,
-    );
+    if (shortId) {
+      await sendPhoto(tg, paperImageUrl(shortId), text);
+    } else {
+      await sendMessage(tg, text);
+    }
   } catch (err) {
     console.error("[TweetPoster] telegram alert failed", String(err));
   }
@@ -76,7 +81,7 @@ export default {
     if (!xCreds) {
       // 凭证缺失也告警，否则会静默哑火。
       console.error("[TweetPoster] X credentials missing, skip");
-      await alertFailure(tg, "", "X 凭证缺失", "(无文案)");
+      await alertFailure(tg, null, "X 凭证缺失", "(无文案)");
       return;
     }
 
