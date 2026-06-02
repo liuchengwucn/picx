@@ -297,3 +297,37 @@ export const whiteboardImages = sqliteTable(
     ),
   }),
 );
+
+// X (Twitter) bot 发推队列。一篇论文最多一行（paper_id 唯一）。
+export const tweetQueue = sqliteTable(
+  "tweet_queue",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    paperId: text("paper_id")
+      .notNull()
+      .unique()
+      .references(() => papers.id, { onDelete: "cascade" }),
+    lang: text("lang").notNull().default("en"),
+    caption: text("caption").notNull(),
+    scheduledFor: integer("scheduled_for", { mode: "timestamp" }).notNull(),
+    status: text("status", {
+      enum: ["pending", "posting", "posted", "error"],
+    })
+      .notNull()
+      .default("pending"),
+    tweetId: text("tweet_id"),
+    postedAt: integer("posted_at", { mode: "timestamp" }),
+    errorMsg: text("error_msg"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    statusScheduleIdx: index("tweet_queue_status_schedule_idx").on(
+      table.status,
+      table.scheduledFor,
+    ),
+  }),
+);
