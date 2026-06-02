@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   creditTransactions,
@@ -18,6 +18,8 @@ import {
   isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
 import { generateShortId } from "#/lib/short-id";
+import { normalizeCategorySlugs } from "#/lib/paper-categories";
+import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { normalizeLocaleKey } from "#/lib/tldr";
 import { protectedProcedure, publicProcedure, router } from "../init";
 
@@ -833,13 +835,64 @@ export const paperRouter = router({
       z.object({
         page: z.number().int().min(1).default(1),
         limit: z.number().int().min(1).max(100).default(20),
-        // 前端传入的当前界面语言 (Paraglide locale)
         locale: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(),
+        q: z.string().trim().max(100).optional(),
+        categories: z.array(z.string()).optional(),
+        tags: z.array(z.string()).optional(),
+        sort: z.enum(["recent", "popular"]).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
       const offset = (input.page - 1) * input.limit;
       const localeKey = normalizeLocaleKey(input.locale);
+
+      const sort = parseSort(input.sort);
+
+      // 基础可见性条件(列表与计数共用)
+      const baseConditions = [
+        eq(papers.isPublic, true),
+        eq(papers.isListedInGallery, true),
+        eq(papers.status, "completed"),
+        isNull(papers.deletedAt),
+      ];
+
+      // 搜索: 标题 + 当前语言 tldr/summary + tags(LIKE, CJK 子串友好)
+      if (input.q) {
+        const needle = `%${escapeLike(input.q)}%`;
+        const localePath = `$."${localeKey}"`;
+        baseConditions.push(
+          or(
+            like(papers.title, needle),
+            sql`json_extract(${paperResults.tldr}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+            sql`json_extract(${paperResults.summaries}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+            sql`${paperResults.tags} LIKE ${needle} ESCAPE '\\'`,
+          )!,
+        );
+      }
+
+      // 分类筛选(多选 OR): paper 的 categories JSON 包含任一所选 slug
+      const cats = normalizeCategorySlugs(input.categories ?? []);
+      if (cats.length > 0) {
+        baseConditions.push(
+          or(
+            ...cats.map(
+              (slug) => sql`${paperResults.categories} LIKE ${`%"${slug}"%`}`,
+            ),
+          )!,
+        );
+      }
+
+      // tag 筛选(多选 OR): tags JSON 包含任一所选 tag
+      const tagList = (input.tags ?? [])
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
+      if (tagList.length > 0) {
+        baseConditions.push(
+          or(
+            ...tagList.map((t) => sql`${paperResults.tags} LIKE ${`%"${t}"%`}`),
+          )!,
+        );
+      }
 
       // Query public papers with default whiteboard images.
       // join paper_results 以拿到 tldr / summaries (用于卡片摘要文字)。
@@ -852,6 +905,7 @@ export const paperRouter = router({
           whiteboardImageR2Key: whiteboardImages.imageR2Key,
           tldr: paperResults.tldr,
           summaries: paperResults.summaries,
+          tags: paperResults.tags,
         })
         .from(papers)
         .innerJoin(
@@ -862,15 +916,10 @@ export const paperRouter = router({
           ),
         )
         .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
-        .where(
-          and(
-            eq(papers.isPublic, true),
-            eq(papers.isListedInGallery, true),
-            eq(papers.status, "completed"),
-            isNull(papers.deletedAt),
-          ),
+        .where(and(...baseConditions))
+        .orderBy(
+          sort === "popular" ? desc(papers.upvotes) : desc(papers.publishedAt),
         )
-        .orderBy(desc(papers.publishedAt))
         .limit(input.limit)
         .offset(offset);
 
@@ -883,19 +932,21 @@ export const paperRouter = router({
         publishedAt: row.publishedAt,
         whiteboardImageR2Key: row.whiteboardImageR2Key,
         tldr: resolveTldr(row.tldr, row.summaries, localeKey),
+        tags: row.tags ?? [],
       }));
 
       const [totalResult] = await ctx.db
         .select({ count: count() })
         .from(papers)
-        .where(
+        .innerJoin(
+          whiteboardImages,
           and(
-            eq(papers.isPublic, true),
-            eq(papers.isListedInGallery, true),
-            eq(papers.status, "completed"),
-            isNull(papers.deletedAt),
+            eq(papers.id, whiteboardImages.paperId),
+            eq(whiteboardImages.isDefault, true),
           ),
-        );
+        )
+        .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
+        .where(and(...baseConditions));
 
       return {
         papers: publicPapers,
