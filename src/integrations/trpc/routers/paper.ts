@@ -1,5 +1,15 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, gte, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  gte,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import {
   creditTransactions,
@@ -921,6 +931,9 @@ export const paperRouter = router({
         )
         .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
         .where(and(...baseConditions))
+        // 一篇论文可能对应多张默认白板 / 多行 paper_results(历史脏数据或重复处理),
+        // 按 papers.id 聚合, 保证每篇论文只返回一行, 避免卡片重复(笛卡尔积扇出)。
+        .groupBy(papers.id)
         .orderBy(
           sort === "popular" ? desc(papers.upvotes) : desc(papers.publishedAt),
         )
@@ -940,7 +953,8 @@ export const paperRouter = router({
       }));
 
       const [totalResult] = await ctx.db
-        .select({ count: count() })
+        // countDistinct: 同上, join 可能放大行数, 用 distinct paper id 统计真实论文数。
+        .select({ count: countDistinct(papers.id) })
         .from(papers)
         .innerJoin(
           whiteboardImages,

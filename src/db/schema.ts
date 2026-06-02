@@ -1,4 +1,11 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 // ============================================
 // Better Auth Tables
@@ -133,6 +140,14 @@ export const papers = sqliteTable(
       table.publishedAt,
     ),
     shortIdIdx: index("papers_short_id_idx").on(table.shortId),
+    // gallery 唯一性(问题②根治): 同一 source_url 在 gallery 集合中至多一行。
+    // partial index 只约束 gallery 且未删除的行, 私有论文 / 已删除论文不受限,
+    // 可重复。source_url 规范化由写入方(arxiv-cron)保证, 见 lib/arxiv.ts。
+    galleryUrlUnique: uniqueIndex("papers_gallery_source_url_unique")
+      .on(table.sourceUrl)
+      .where(
+        sql`${table.isListedInGallery} = 1 and ${table.deletedAt} is null and ${table.sourceUrl} is not null`,
+      ),
   }),
 );
 

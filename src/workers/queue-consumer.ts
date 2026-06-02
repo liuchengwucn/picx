@@ -111,6 +111,25 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   const logWarn = (step: string, message: string, error?: unknown) =>
     console.warn(`[paper:${msg.paperId}][${step}] ${message}`, error ?? "");
 
+  // 幂等守卫: Cloudflare Queues 是 at-least-once 投递, 同一条 initial 消息可能被重投。
+  // 若该论文(按本条消息的 paperId, 不看 source_url / 是否在 gallery, 避免与私有论文混淆)
+  // 已处理完成, 直接跳过, 既不重复写 paper_results / 白板, 也省掉 LLM 与出图开销。
+  const [existingPaper] = await db
+    .select({ status: papers.status })
+    .from(papers)
+    .where(eq(papers.id, msg.paperId))
+    .limit(1);
+
+  if (!existingPaper) {
+    log("idempotency", "Paper not found, skipping");
+    return;
+  }
+
+  if (existingPaper.status === "completed") {
+    log("idempotency", "Paper already completed, skipping duplicate delivery");
+    return;
+  }
+
   // Step 0: 读取 AI 配置（用户配置或系统配置）
   let aiConfig: AIConfig;
 
@@ -476,6 +495,15 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   // Step 6: 上传图片到 R2 和保存结果到数据库（并行执行）
   const imageR2Key = `whiteboards/${msg.paperId}/${crypto.randomUUID()}.png`;
   const processingTimeMs = Date.now() - startTime;
+
+  // 幂等清理: 顶部守卫已挡掉「已 completed 的重投」; 这里覆盖另一种情况——
+  // 上一次处理写入 paper_results/白板后、标记 completed 前崩溃, 重试重跑到这里。
+  // 此时 status 仍是 processing_*, 不会被守卫跳过, 若不先清理就会插出第二行。
+  // 初始处理阶段论文刚创建, 不存在用户合法的多份结果, 直接清空既有结果再写。
+  await db.delete(paperResults).where(eq(paperResults.paperId, msg.paperId));
+  await db
+    .delete(whiteboardImages)
+    .where(eq(whiteboardImages.paperId, msg.paperId));
 
   await Promise.all([
     // 上传图片到 R2

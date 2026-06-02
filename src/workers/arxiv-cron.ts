@@ -1,6 +1,7 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { creditTransactions, papers, user } from "#/db/schema";
+import { canonicalArxivUrl } from "#/lib/arxiv";
 import { generateShortId } from "#/lib/short-id";
 import type { Env } from "#/types/env";
 
@@ -56,8 +57,8 @@ export default {
       let created = 0;
       let skipped = 0;
       for (const item of selected) {
-        const arxivId = item.paper.id;
-        const arxivUrl = `https://arxiv.org/abs/${arxivId}`;
+        // 规范化成 canonical 形式后再存/查重, 与 DB partial unique index 用同一身份键。
+        const arxivUrl = canonicalArxivUrl(item.paper.id);
 
         const wasCreated = await createPaperIfNotExists(
           db,
@@ -169,15 +170,24 @@ async function createPaperIfNotExists(
   title: string,
   upvotes: number,
 ): Promise<boolean> {
-  // 去重：检查 sourceUrl 是否已存在
+  // 去重：只检查 gallery 集合(isListedInGallery=1 且未删除)。
+  // 私有上传的同一篇 arxiv 不应阻止 gallery 收录, 故不查私有论文。
   const [existing] = await db
     .select({ id: papers.id })
     .from(papers)
-    .where(eq(papers.sourceUrl, arxivUrl))
+    .where(
+      and(
+        eq(papers.sourceUrl, arxivUrl),
+        eq(papers.isListedInGallery, true),
+        isNull(papers.deletedAt),
+      ),
+    )
     .limit(1);
 
   if (existing) {
-    console.log(`[ArxivCron] Skipping duplicate: ${arxivUrl}`);
+    console.log(
+      `[ArxivCron] Skipping duplicate (already in gallery): ${arxivUrl}`,
+    );
     return false;
   }
 
