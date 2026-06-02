@@ -315,6 +315,7 @@ export const tweetQueue = sqliteTable(
       enum: ["sent", "error"],
     }).notNull(),
     sentAt: integer("sent_at", { mode: "timestamp" }),
+    tweetId: text("tweet_id"),
     errorMsg: text("error_msg"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
