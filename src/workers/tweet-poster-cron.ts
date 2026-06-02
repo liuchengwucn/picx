@@ -1,0 +1,161 @@
+import { and, desc, eq, gte, isNotNull, isNull, notInArray } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import {
+  paperResults,
+  papers,
+  tweetQueue,
+  whiteboardImages,
+} from "#/db/schema";
+import { paperImageUrl } from "#/lib/embed-code";
+import { sendPhoto, type TelegramCredentials } from "#/lib/telegram-client";
+import { pickTldr } from "#/lib/tldr";
+import { capCandidates, RECENT_WINDOW_HOURS } from "#/lib/x-candidate";
+import { buildTweetCaption } from "#/lib/x-caption";
+import { postTweet, type XCredentials } from "#/lib/x-client";
+import { recentSinceMs } from "#/lib/x-schedule";
+import type { Env } from "#/types/env";
+
+const GUEST_USER_ID = "review-guest-user";
+
+function readXCreds(env: Env): XCredentials | null {
+  if (
+    !env.X_API_KEY ||
+    !env.X_API_SECRET ||
+    !env.X_ACCESS_TOKEN ||
+    !env.X_ACCESS_SECRET
+  ) {
+    return null;
+  }
+  return {
+    apiKey: env.X_API_KEY,
+    apiSecret: env.X_API_SECRET,
+    accessToken: env.X_ACCESS_TOKEN,
+    accessSecret: env.X_ACCESS_SECRET,
+  };
+}
+
+function readTelegramCreds(env: Env): TelegramCredentials | null {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return null;
+  return { botToken: env.TELEGRAM_BOT_TOKEN, chatId: env.TELEGRAM_CHAT_ID };
+}
+
+/** 仅失败时调用：把告警 + 可复制文案推给运营者，便于手动补发。本身失败只记日志。 */
+async function alertFailure(
+  tg: TelegramCredentials | null,
+  shortId: string,
+  reason: string,
+  caption: string,
+): Promise<void> {
+  if (!tg) {
+    console.error("[TweetPoster] no telegram creds, cannot alert");
+    return;
+  }
+  try {
+    await sendPhoto(
+      tg,
+      paperImageUrl(shortId),
+      `⚠️ 今日 X 发推失败：${reason}\n\n${caption}`,
+    );
+  } catch (err) {
+    console.error("[TweetPoster] telegram alert failed", String(err));
+  }
+}
+
+export default {
+  async scheduled(
+    controller: ScheduledController,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    const now = controller.scheduledTime;
+    const db = drizzle(env.DB);
+    console.log("[TweetPoster] start", new Date(now).toISOString());
+
+    const tg = readTelegramCreds(env);
+    const xCreds = readXCreds(env);
+    if (!xCreds) {
+      // 凭证缺失也告警，否则会静默哑火。
+      console.error("[TweetPoster] X credentials missing, skip");
+      await alertFailure(tg, "", "X 凭证缺失", "(无文案)");
+      return;
+    }
+
+    // 已投递过的 paper_id（sent + error 都算，避免重复）。规模小，取全表。
+    const seen = await db
+      .select({ paperId: tweetQueue.paperId })
+      .from(tweetQueue);
+    const seenIds = seen.map((r) => r.paperId);
+
+    const sinceMs = recentSinceMs(now, RECENT_WINDOW_HOURS);
+
+    // 候选：guest + 近 24h + 已完成 + 有默认白板 + upvotes 非 NULL + 未投递过。
+    const baseWhere = and(
+      eq(papers.userId, GUEST_USER_ID),
+      eq(papers.isPublic, true),
+      eq(papers.isListedInGallery, true),
+      eq(papers.status, "completed"),
+      isNull(papers.deletedAt),
+      gte(papers.publishedAt, new Date(sinceMs)), // 防洪护栏一
+      isNotNull(papers.upvotes), // 防洪护栏二（历史 NULL 天然排除）
+    );
+
+    const rows = await db
+      .select({
+        id: papers.id,
+        shortId: papers.shortId,
+        upvotes: papers.upvotes,
+        tldr: paperResults.tldr,
+      })
+      .from(papers)
+      .innerJoin(
+        whiteboardImages,
+        and(
+          eq(papers.id, whiteboardImages.paperId),
+          eq(whiteboardImages.isDefault, true),
+        ),
+      )
+      .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
+      .where(
+        seenIds.length > 0
+          ? and(baseWhere, notInArray(papers.id, seenIds))
+          : baseWhere,
+      )
+      .orderBy(desc(papers.upvotes));
+
+    const normalized = rows.map((r) => ({ ...r, upvotes: r.upvotes ?? 0 }));
+    const [selected] = capCandidates(normalized); // 防洪护栏三：cap=1，取 top-1
+
+    if (!selected) {
+      console.log("[TweetPoster] no candidate");
+      return;
+    }
+
+    const tldr = pickTldr(selected.tldr, "en") ?? "";
+    const caption = buildTweetCaption({ tldr, shortId: selected.shortId });
+
+    try {
+      const { tweetId } = await postTweet(caption, xCreds);
+      await db.insert(tweetQueue).values({
+        paperId: selected.id,
+        caption,
+        status: "sent",
+        tweetId,
+        sentAt: new Date(now),
+      });
+      console.log("[TweetPoster] posted", selected.id, tweetId);
+    } catch (err) {
+      // 发送失败：记 error 行（占用 paper_id，不自动重试），并 Telegram 告警。
+      await db
+        .insert(tweetQueue)
+        .values({
+          paperId: selected.id,
+          caption,
+          status: "error",
+          errorMsg: String(err),
+        })
+        .onConflictDoNothing();
+      console.error("[TweetPoster] post failed", selected.id, String(err));
+      await alertFailure(tg, selected.shortId, String(err), caption);
+    }
+  },
+};
