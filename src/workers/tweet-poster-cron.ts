@@ -43,18 +43,19 @@ function readTelegramCreds(env: Env): TelegramCredentials | null {
   return { botToken: env.TELEGRAM_BOT_TOKEN, chatId: env.TELEGRAM_CHAT_ID };
 }
 
-/** 仅失败时调用：把告警 + 可复制文案推给运营者，便于手动补发。本身失败只记日志。 */
-async function alertFailure(
+/**
+ * 给运营者发一条 Telegram 通知（成功回执 / 失败告警共用）：
+ * 有 shortId 就发带白板图的消息，否则发纯文本。本身失败只记日志，绝不影响发推主流程。
+ */
+async function notify(
   tg: TelegramCredentials | null,
   shortId: string | null,
-  reason: string,
-  caption: string,
+  text: string,
 ): Promise<void> {
   if (!tg) {
-    console.error("[TweetPoster] no telegram creds, cannot alert");
+    console.error("[TweetPoster] no telegram creds, cannot notify");
     return;
   }
-  const text = `⚠️ 今日 X 发推失败：${reason}\n\n${caption}`;
   try {
     if (shortId) {
       await sendPhoto(tg, paperImageUrl(shortId), text);
@@ -62,7 +63,7 @@ async function alertFailure(
       await sendMessage(tg, text);
     }
   } catch (err) {
-    console.error("[TweetPoster] telegram alert failed", String(err));
+    console.error("[TweetPoster] telegram notify failed", String(err));
   }
 }
 
@@ -81,7 +82,7 @@ export default {
     if (!xCreds) {
       // 凭证缺失也告警，否则会静默哑火。
       console.error("[TweetPoster] X credentials missing, skip");
-      await alertFailure(tg, null, "X 凭证缺失", "(无文案)");
+      await notify(tg, null, "⚠️ 今日 X 发推失败：X 凭证缺失");
       return;
     }
 
@@ -148,6 +149,12 @@ export default {
         sentAt: new Date(now),
       });
       console.log("[TweetPoster] posted", selected.id, tweetId);
+      // 成功回执：纯文本 + 推文链接（不带白板图与文案）。
+      await notify(
+        tg,
+        null,
+        `✅ 今日已发 X\nhttps://x.com/i/web/status/${tweetId}`,
+      );
     } catch (err) {
       // 发送失败：记 error 行（占用 paper_id，不自动重试），并 Telegram 告警。
       await db
@@ -160,7 +167,11 @@ export default {
         })
         .onConflictDoNothing();
       console.error("[TweetPoster] post failed", selected.id, String(err));
-      await alertFailure(tg, selected.shortId, String(err), caption);
+      await notify(
+        tg,
+        selected.shortId,
+        `⚠️ 今日 X 发推失败：${String(err)}\n\n${caption}`,
+      );
     }
   },
 };
