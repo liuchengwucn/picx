@@ -49,9 +49,7 @@ export function buildTweetCaption(input: CaptionInput): string {
   const remaining = budget - [...title].length;
   if (tldr && [...tldr].length > remaining) {
     tldr =
-      remaining > 1
-        ? `${[...tldr].slice(0, remaining - 1).join("")}…`
-        : "";
+      remaining > 1 ? `${[...tldr].slice(0, remaining - 1).join("")}…` : "";
   }
 
   const lines = [title];
