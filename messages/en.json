@@ -290,7 +290,7 @@
   "category_nlp": "Natural Language Processing",
   "category_multimodal": "Multimodal",
   "category_vision": "Computer Vision",
-  "category_generative": "Generative Modeling",
+  "category_generative": "Generative Models",
   "category_speech_audio": "Speech & Audio",
   "category_reinforcement_learning": "Reinforcement Learning",
   "category_agents": "Agents",
@@ -313,6 +313,8 @@
   "gallery_clear_filters": "Clear filters",
   "gallery_no_results": "No papers match your filters",
   "gallery_all_categories": "All",
+  "gallery_show_more": "Show more",
+  "gallery_show_less": "Show less",
   "category_page_title": "{category} Papers — Visual Summaries | PicX",
   "category_page_description": "Browse visual whiteboard summaries of {category} research papers from HuggingFace daily papers."
 }

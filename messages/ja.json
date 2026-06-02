@@ -290,7 +290,7 @@
   "category_nlp": "自然言語処理",
   "category_multimodal": "マルチモーダル",
   "category_vision": "コンピュータビジョン",
-  "category_generative": "生成モデリング",
+  "category_generative": "生成モデル",
   "category_speech_audio": "音声・オーディオ",
   "category_reinforcement_learning": "強化学習",
   "category_agents": "エージェント",
@@ -313,6 +313,8 @@
   "gallery_clear_filters": "絞り込みを解除",
   "gallery_no_results": "条件に一致する論文がありません",
   "gallery_all_categories": "すべて",
+  "gallery_show_more": "もっと見る",
+  "gallery_show_less": "閉じる",
   "category_page_title": "{category}の論文ビジュアル要約 | PicX",
   "category_page_description": "HuggingFace デイリー論文から{category}の研究論文のホワイトボード要約を閲覧。"
 }

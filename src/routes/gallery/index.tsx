@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Globe, Search, Sparkles, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import {
   GalleryCard,
@@ -30,7 +30,8 @@ const gallerySearchSchema = z.object({
 export const Route = createFileRoute("/gallery/")({
   validateSearch: gallerySearchSchema,
   component: ExplorePage,
-  head: ({ search }) => {
+  head: ({ match }) => {
+    const search = match.search;
     const filtered = Boolean(
       search.q || search.cat || search.tag || search.sort || search.page,
     );
@@ -120,6 +121,46 @@ function ExplorePage() {
   const total = galleryQuery.data?.total ?? 0;
   const hasMore = page * PAGE_SIZE < total;
   const hasFilters = Boolean(q || categories.length || tags.length);
+
+  // Category chips collapse to 2 rows; a toggle appears only when they overflow.
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const [chipsExpanded, setChipsExpanded] = useState(false);
+  // px height of the first two rows; null = chips already fit in ≤2 rows (no toggle).
+  const [collapsedChipsH, setCollapsedChipsH] = useState<number | null>(null);
+  const locale = getLocale();
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure on locale change — chip labels change width and (while clamped) the ResizeObserver won't fire on reflow.
+  useEffect(() => {
+    const el = chipsRef.current;
+    if (!el) return;
+    const measure = () => {
+      const kids = Array.from(el.children) as HTMLElement[];
+      if (kids.length === 0) return;
+      // Distinct offsetTop values = rows (overflow-hidden doesn't move children,
+      // so this stays correct even while clamped).
+      const rowTops: number[] = [];
+      for (const k of kids) {
+        if (!rowTops.includes(k.offsetTop)) rowTops.push(k.offsetTop);
+      }
+      if (rowTops.length <= 2) {
+        setCollapsedChipsH(null);
+        return;
+      }
+      const secondRowTop = rowTops[1];
+      const secondRowBottom = Math.max(
+        ...kids
+          .filter((k) => k.offsetTop === secondRowTop)
+          .map((k) => k.offsetTop + k.offsetHeight),
+      );
+      setCollapsedChipsH(secondRowBottom - rowTops[0]);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [locale]);
+
+  const chipsClamped = collapsedChipsH !== null && !chipsExpanded;
 
   // --- URL mutation helpers ---
   const patchSearch = (patch: Partial<z.infer<typeof gallerySearchSchema>>) =>
@@ -211,8 +252,16 @@ function ExplorePage() {
             </div>
           </div>
 
-          {/* Row 2: category chips */}
-          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {/* Row 2: category chips (collapse to 2 rows) */}
+          <div
+            ref={chipsRef}
+            className={`mt-3 flex flex-wrap gap-1.5${chipsClamped ? " overflow-hidden" : ""}`}
+            style={
+              chipsClamped
+                ? { maxHeight: collapsedChipsH ?? undefined }
+                : undefined
+            }
+          >
             {/* All chip */}
             <button
               type="button"
@@ -245,6 +294,15 @@ function ExplorePage() {
               );
             })}
           </div>
+          {collapsedChipsH !== null && (
+            <button
+              type="button"
+              onClick={() => setChipsExpanded((v) => !v)}
+              className="mt-2 text-xs font-medium text-[var(--academic-brown)] transition-opacity hover:opacity-70"
+            >
+              {chipsExpanded ? m.gallery_show_less() : m.gallery_show_more()}
+            </button>
+          )}
         </div>
 
         {/* Active filters row */}

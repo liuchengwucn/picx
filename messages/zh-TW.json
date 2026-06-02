@@ -290,7 +290,7 @@
   "category_nlp": "自然語言處理",
   "category_multimodal": "多模態",
   "category_vision": "電腦視覺",
-  "category_generative": "生成式建模",
+  "category_generative": "生成式模型",
   "category_speech_audio": "語音與音訊",
   "category_reinforcement_learning": "強化學習",
   "category_agents": "智慧體",
@@ -313,6 +313,8 @@
   "gallery_clear_filters": "清除篩選",
   "gallery_no_results": "沒有符合的論文",
   "gallery_all_categories": "全部",
+  "gallery_show_more": "展開",
+  "gallery_show_less": "收合",
   "category_page_title": "{category}論文視覺化總結 | PicX",
   "category_page_description": "瀏覽來自 HuggingFace 每日論文的{category}研究論文白板視覺化總結。"
 }
