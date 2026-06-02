@@ -153,6 +153,11 @@ export const paperResults = sqliteTable(
     // 存储多语言一句话核心结论(用于 gallery 卡片): { "en": "...", "zh-cn": "...", ... }
     // 可空: 存量数据没有, 读取时从 summaries 兜底
     tldr: text("tldr", { mode: "json" }).$type<Record<string, string>>(),
+    // 主分类 slug 数组(固定集合,见 src/lib/paper-categories.ts),如 ["multimodal","vision"]。
+    // 可空: 存量为 NULL, 由 backfill 补齐, 读取时当空数组。
+    categories: text("categories", { mode: "json" }).$type<string[]>(),
+    // LLM 自由细粒度 tag(小写连字符),如 ["image-restoration","diffusion"]。
+    tags: text("tags", { mode: "json" }).$type<string[]>(),
     summaryLanguage: text("summary_language").notNull().default("en"),
     whiteboardInsights: text("whiteboard_insights").notNull(),
     processingTimeMs: integer("processing_time_ms"),

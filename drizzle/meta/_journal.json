@@ -120,6 +120,13 @@
       "when": 1780550000000,
       "tag": "0016_add_tweet_id_to_tweet_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1748822400000,
+      "tag": "0017_add_categories_and_tags",
+      "breakpoints": true
     }
   ]
 }
