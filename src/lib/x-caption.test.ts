@@ -2,29 +2,56 @@ import { describe, expect, it } from "vitest";
 import { buildTweetCaption } from "./x-caption";
 
 describe("buildTweetCaption", () => {
-  it("includes the tldr and a bare-domain paper link (no https://)", () => {
+  it("includes tldr and hashtags from categories", () => {
     const out = buildTweetCaption({
       tldr: "A transformer architecture based purely on attention.",
-      shortId: "abc123",
+      categories: ["llm", "efficiency"],
     });
     expect(out).toContain("A transformer architecture");
-    expect(out).toContain("picx.dev/p/abc123");
-    expect(out).not.toContain("https://");
+    expect(out).toContain("#LLM");
+    expect(out).toContain("#EfficientML");
+    expect(out).not.toContain("picx.dev");
   });
 
-  it("stays within 280 chars counting the link as 23", () => {
+  it("stays within 280 chars", () => {
     const out = buildTweetCaption({
       tldr: "x".repeat(500),
-      shortId: "abc123",
+      categories: ["llm", "vision", "generative"],
     });
-    // 把裸域名链接还原成 23 计长
-    const url = "picx.dev/p/abc123";
-    const weighted = out.replace(url, "x".repeat(23));
-    expect([...weighted].length).toBeLessThanOrEqual(280);
+    expect([...out].length).toBeLessThanOrEqual(280);
   });
 
-  it("returns just the link when tldr is empty", () => {
-    const out = buildTweetCaption({ tldr: "", shortId: "abc123" });
-    expect(out).toBe("picx.dev/p/abc123");
+  it("skips 'other' category", () => {
+    const out = buildTweetCaption({
+      tldr: "Some paper.",
+      categories: ["other", "llm"],
+    });
+    expect(out).not.toContain("#other");
+    expect(out).toContain("#LLM");
+  });
+
+  it("caps at 3 hashtags", () => {
+    const out = buildTweetCaption({
+      tldr: "Paper.",
+      categories: ["llm", "nlp", "vision", "generative"],
+    });
+    const hashtagCount = (out.match(/#\w+/g) ?? []).length;
+    expect(hashtagCount).toBe(3);
+  });
+
+  it("handles empty categories", () => {
+    const out = buildTweetCaption({
+      tldr: "A paper with no categories.",
+      categories: [],
+    });
+    expect(out).toBe("A paper with no categories.");
+  });
+
+  it("returns just hashtags when tldr is empty", () => {
+    const out = buildTweetCaption({
+      tldr: "",
+      categories: ["retrieval-rag"],
+    });
+    expect(out).toBe("#RAG");
   });
 });

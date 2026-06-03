@@ -84,13 +84,61 @@ export interface PostTweetResult {
   tweetId: string;
 }
 
-/** 发一条纯文本推。失败抛错（含状态码与响应体）。 */
+/** 上传图片到 X，返回 media_id_string。仅支持 ≤5MB 的静态图片。 */
+export async function uploadMedia(
+  imageData: Uint8Array,
+  creds: XCredentials,
+): Promise<string> {
+  const url = "https://upload.twitter.com/1.1/media/upload.json";
+  const auth = await buildAuthHeader("POST", url, creds);
+
+  let binary = "";
+  for (const b of imageData) binary += String.fromCharCode(b);
+  const base64 = btoa(binary);
+
+  const boundary = `----FormBoundary${crypto.randomUUID().replace(/-/g, "")}`;
+  const body =
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="media_data"\r\n\r\n` +
+    `${base64}\r\n` +
+    `--${boundary}--\r\n`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: auth,
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const resBody = await res.text();
+    throw new Error(`X Media Upload ${res.status}: ${resBody}`);
+  }
+
+  const data = (await res.json()) as { media_id_string?: string };
+  if (!data.media_id_string) {
+    throw new Error(
+      `X Media Upload ok but no media_id: ${JSON.stringify(data)}`,
+    );
+  }
+  return data.media_id_string;
+}
+
+/** 发推。可选附带已上传的媒体。失败抛错（含状态码与响应体）。 */
 export async function postTweet(
   text: string,
   creds: XCredentials,
+  mediaIds?: string[],
 ): Promise<PostTweetResult> {
   const url = "https://api.twitter.com/2/tweets";
   const auth = await buildAuthHeader("POST", url, creds);
+
+  const body: Record<string, unknown> = { text };
+  if (mediaIds?.length) {
+    body.media = { media_ids: mediaIds };
+  }
 
   const res = await fetch(url, {
     method: "POST",
@@ -98,7 +146,7 @@ export async function postTweet(
       Authorization: auth,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {

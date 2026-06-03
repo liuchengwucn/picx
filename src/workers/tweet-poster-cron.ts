@@ -15,7 +15,7 @@ import {
 import { pickTldr } from "#/lib/tldr";
 import { capCandidates, RECENT_WINDOW_HOURS } from "#/lib/x-candidate";
 import { buildTweetCaption } from "#/lib/x-caption";
-import { postTweet, type XCredentials } from "#/lib/x-client";
+import { postTweet, uploadMedia, type XCredentials } from "#/lib/x-client";
 import { recentSinceMs } from "#/lib/x-schedule";
 import type { Env } from "#/types/env";
 
@@ -116,6 +116,7 @@ export default {
         shortId: papers.shortId,
         upvotes: papers.upvotes,
         tldr: paperResults.tldr,
+        categories: paperResults.categories,
       })
       .from(papers)
       .innerJoin(
@@ -142,10 +143,21 @@ export default {
     }
 
     const tldr = pickTldr(selected.tldr, "en") ?? "";
-    const caption = buildTweetCaption({ tldr, shortId: selected.shortId });
+    const categories = selected.categories ?? [];
+    const caption = buildTweetCaption({ tldr, categories });
 
     try {
-      const { tweetId } = await postTweet(caption, xCreds);
+      // 取带水印白板图 → 上传到 X 作为媒体附件（比贴链接分发权重高很多）。
+      const imgRes = await fetch(paperImageUrl(selected.shortId));
+      if (!imgRes.ok) {
+        throw new Error(
+          `Fetch image failed ${imgRes.status}: ${selected.shortId}`,
+        );
+      }
+      const imageData = new Uint8Array(await imgRes.arrayBuffer());
+      const mediaId = await uploadMedia(imageData, xCreds);
+
+      const { tweetId } = await postTweet(caption, xCreds, [mediaId]);
       await db.insert(tweetQueue).values({
         paperId: selected.id,
         caption,
