@@ -24,6 +24,7 @@ import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
 import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
+import { selectRelatedPapers } from "#/lib/related-papers";
 import {
   getReviewGuestServerSession,
   isReviewGuestModeEnabled,
@@ -537,6 +538,39 @@ export const paperRouter = router({
         defaultWhiteboard: null,
         whiteboards: [],
       };
+    }),
+
+  /**
+   * Related papers for the detail-page internal-link module. Shares any category
+   * slug first, then fills with recent public papers. Public/listed only.
+   */
+  listRelated: publicProcedure
+    .input(z.string().min(1).max(10))
+    .query(async ({ ctx, input }) => {
+      const [paper] = await ctx.db
+        .select({ id: papers.id })
+        .from(papers)
+        .where(
+          and(
+            eq(papers.shortId, input),
+            eq(papers.isPublic, true),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (!paper) return [];
+
+      const [result] = await ctx.db
+        .select({ categories: paperResults.categories })
+        .from(paperResults)
+        .where(eq(paperResults.paperId, paper.id))
+        .limit(1);
+
+      return selectRelatedPapers(ctx.db, {
+        excludePaperId: paper.id,
+        categories: result?.categories ?? [],
+        limit: 3,
+      });
     }),
 
   /**

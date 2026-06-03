@@ -16,7 +16,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -158,7 +158,12 @@ export const Route = createFileRoute("/p/$shortId")({
           .limit(1);
 
         if (!paper) {
-          return { paper: null, ssrData: null, ssrMeta: null };
+          return {
+            paper: null,
+            ssrData: null,
+            ssrMeta: null,
+            relatedPapers: [],
+          };
         }
 
         const [result] = await db
@@ -204,9 +209,22 @@ export const Route = createFileRoute("/p/$shortId")({
           whiteboards,
         };
 
+        // Related papers (same category first, then recent) so the SSR HTML
+        // ships real internal links — crawlers can follow them and link equity
+        // flows between papers.
+        const { selectRelatedPapers } = await import("#/lib/related-papers");
+        const relatedPapers = paper.isPublic
+          ? await selectRelatedPapers(db, {
+              excludePaperId: paper.id,
+              categories: (result?.categories as string[] | null) ?? [],
+              limit: 3,
+            })
+          : [];
+
         return {
           paper,
           ssrData,
+          relatedPapers,
           ssrMeta: {
             title: paper.title,
             shortId: paper.shortId,
@@ -219,16 +237,27 @@ export const Route = createFileRoute("/p/$shortId")({
           },
         };
       } catch {
-        return { paper: null, ssrData: null, ssrMeta: null };
+        return {
+          paper: null,
+          ssrData: null,
+          ssrMeta: null,
+          relatedPapers: [],
+        };
       }
     }
 
     const data = await context.queryClient.ensureQueryData(
       context.trpc.paper.getByShortId.queryOptions(params.shortId),
     );
+    const relatedPapers = data.paper.isPublic
+      ? await context.queryClient.ensureQueryData(
+          context.trpc.paper.listRelated.queryOptions(params.shortId),
+        )
+      : [];
     return {
       paper: data.paper,
       ssrData: null,
+      relatedPapers,
       ssrMeta: {
         title: data.paper.title,
         shortId: data.paper.shortId,
@@ -374,6 +403,8 @@ function PaperDetailPage() {
     authClient.useSession();
   const isReadOnlyGuest = isReviewGuestReadOnlySession(session);
   const ssrData = loaderData.ssrData;
+  const relatedPapers = loaderData.relatedPapers ?? [];
+  const relatedHeadingId = useId();
 
   const startGitHubSignIn = useCallback(() => {
     void beginGitHubSignIn("/");
@@ -940,6 +971,40 @@ function PaperDetailPage() {
             ) : null}
           </section>
         </div>
+
+        {/* Related papers — real, crawlable internal links (SSR-rendered). */}
+        {relatedPapers.length > 0 && (
+          <section className="mt-10" aria-labelledby={relatedHeadingId}>
+            <h2
+              id={relatedHeadingId}
+              className="font-serif text-lg font-semibold text-[var(--ink)]"
+            >
+              {m.paper_related_title()}
+            </h2>
+            <ul className="mt-4 divide-y divide-[var(--line)] overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--parchment)]">
+              {relatedPapers.map((rp) => (
+                <li key={rp.shortId}>
+                  <Link
+                    to="/p/$shortId"
+                    params={{ shortId: rp.shortId }}
+                    className="group flex items-center gap-3 px-5 py-4 transition-colors hover:bg-[var(--parchment-warm)]/60"
+                  >
+                    <FileText className="h-4 w-4 shrink-0 text-[var(--academic-brown)]" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
+                      {rp.title}
+                    </span>
+                    {rp.publishedAt && (
+                      <time className="shrink-0 text-xs text-[var(--ink-soft)]">
+                        {new Date(rp.publishedAt).getFullYear()}
+                      </time>
+                    )}
+                    <ChevronRight className="h-4 w-4 shrink-0 text-[var(--ink-soft)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--academic-brown)]" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {whiteboardImageUrl && (
           <Dialog
