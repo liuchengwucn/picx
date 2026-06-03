@@ -5,6 +5,7 @@ const p = (shortId: string): RelatedPaper => ({
   shortId,
   title: `Title ${shortId}`,
   publishedAt: null,
+  tldr: null,
 });
 
 describe("mergeRelated", () => {

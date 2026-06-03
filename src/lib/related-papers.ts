@@ -6,6 +6,7 @@ export interface RelatedPaper {
   shortId: string;
   title: string;
   publishedAt: Date | null;
+  tldr: Record<string, string> | null;
 }
 
 /**
@@ -51,17 +52,26 @@ export async function selectRelatedPapers(
     shortId: papers.shortId,
     title: papers.title,
     publishedAt: papers.publishedAt,
+    tldr: paperResults.tldr,
   };
   const toRelated = (
     rows: Array<{
       shortId: string | null;
       title: string;
       publishedAt: Date | null;
+      tldr: Record<string, string> | null;
     }>,
   ): RelatedPaper[] =>
     rows.flatMap((r) =>
       r.shortId
-        ? [{ shortId: r.shortId, title: r.title, publishedAt: r.publishedAt }]
+        ? [
+            {
+              shortId: r.shortId,
+              title: r.title,
+              publishedAt: r.publishedAt,
+              tldr: r.tldr,
+            },
+          ]
         : [],
     );
 
@@ -91,6 +101,7 @@ export async function selectRelatedPapers(
     const rows = await db
       .select(columns)
       .from(papers)
+      .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
       .where(base)
       .orderBy(desc(papers.publishedAt))
       .limit(limit + primary.length);

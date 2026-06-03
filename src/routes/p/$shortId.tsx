@@ -405,6 +405,7 @@ function PaperDetailPage() {
   const ssrData = loaderData.ssrData;
   const relatedPapers = loaderData.relatedPapers ?? [];
   const relatedHeadingId = useId();
+  const relatedLocaleKey = normalizeLocaleKey(getLocale());
 
   const startGitHubSignIn = useCallback(() => {
     void beginGitHubSignIn("/");
@@ -982,26 +983,38 @@ function PaperDetailPage() {
               {m.paper_related_title()}
             </h2>
             <ul className="mt-4 divide-y divide-[var(--line)] overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--parchment)]">
-              {relatedPapers.map((rp) => (
-                <li key={rp.shortId}>
-                  <Link
-                    to="/p/$shortId"
-                    params={{ shortId: rp.shortId }}
-                    className="group flex items-center gap-3 px-5 py-4 transition-colors hover:bg-[var(--parchment-warm)]/60"
-                  >
-                    <FileText className="h-4 w-4 shrink-0 text-[var(--academic-brown)]" />
-                    <span className="min-w-0 flex-1 truncate font-medium text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
-                      {rp.title}
-                    </span>
-                    {rp.publishedAt && (
-                      <time className="shrink-0 text-xs text-[var(--ink-soft)]">
-                        {new Date(rp.publishedAt).getFullYear()}
-                      </time>
-                    )}
-                    <ChevronRight className="h-4 w-4 shrink-0 text-[var(--ink-soft)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--academic-brown)]" />
-                  </Link>
-                </li>
-              ))}
+              {relatedPapers.map((rp) => {
+                const tldrText = pickTldr(rp.tldr, relatedLocaleKey);
+                return (
+                  <li key={rp.shortId}>
+                    <Link
+                      to="/p/$shortId"
+                      params={{ shortId: rp.shortId }}
+                      className="group flex items-start gap-3 px-5 py-4 transition-colors hover:bg-[var(--parchment-warm)]/60"
+                    >
+                      <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--academic-brown)]" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-2">
+                          <span className="min-w-0 flex-1 truncate font-medium text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
+                            {rp.title}
+                          </span>
+                          {rp.publishedAt && (
+                            <time className="shrink-0 text-xs text-[var(--ink-soft)]">
+                              {new Date(rp.publishedAt).getFullYear()}
+                            </time>
+                          )}
+                        </div>
+                        {tldrText && (
+                          <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-[var(--ink-soft)]">
+                            {tldrText}
+                          </p>
+                        )}
+                      </div>
+                      <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 self-center text-[var(--ink-soft)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--academic-brown)]" />
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
