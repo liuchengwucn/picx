@@ -11,7 +11,7 @@ const GUEST_USER_EMAIL = "review-guest@picx.local";
 const GUEST_CREDITS = 99999;
 
 const HF_DAILY_PAPERS_API = "https://huggingface.co/api/daily_papers";
-const MIN_UPVOTES = 50;
+const MIN_UPVOTES = 30;
 const MIN_PAPERS = 3;
 
 interface HFPaper {
@@ -46,7 +46,7 @@ export default {
       console.log(`[ArxivCron] Fetching papers for date: ${yesterday}`);
       console.log(`[ArxivCron] Fetched ${hfPapers.length} papers from HF`);
 
-      // Step 3: 筛选：upvotes >= 50 全取，不足 3 篇补到 3 篇
+      // Step 3: 筛选：upvotes >= 30 全取，不足 3 篇补到 3 篇
       const selected = selectPapers(hfPapers);
       console.log(
         `[ArxivCron] Selected ${selected.length} papers:`,
