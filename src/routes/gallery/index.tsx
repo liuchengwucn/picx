@@ -228,7 +228,13 @@ function ExplorePage() {
         {/* Sticky filter bar */}
         {/* sticky 偏移 = 全局 Header 高度(h-9 内容 + py-3/py-4 + 1px 边框),
             比 header 低 1px 让接缝藏在 header 下, 避免滚动时被遮挡。 */}
-        <div className="filter-bar sticky top-[60px] z-10 -mx-4 mb-6 px-4 py-3 sm:top-[68px] sm:-mx-6 sm:px-6">
+        <div className="sticky top-[60px] z-10 -mx-4 mb-6 px-4 py-3 sm:top-[68px] sm:-mx-6 sm:px-6">
+          {/* 玻璃底:独立层 + 底部羽化, 让卡片柔和淡入而非硬切的模糊边。
+              延伸到 mb-6 间距下方, 羽化带落在卡片之外, 不影响搜索框/标签。 */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 -bottom-6 -z-10 bg-[var(--header-bg)] backdrop-blur-md mask-b-from-[calc(100%-1.5rem)] mask-b-to-100%"
+          />
           {/* Row 1: search + sort */}
           <div className="flex items-center gap-3">
             {/* Search input */}
