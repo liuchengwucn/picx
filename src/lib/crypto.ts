@@ -5,9 +5,11 @@
 /**
  * Convert a string to ArrayBuffer
  */
-function stringToBuffer(str: string): ArrayBuffer {
+function stringToBuffer(str: string): Uint8Array<ArrayBuffer> {
   const encoder = new TextEncoder();
-  return encoder.encode(str);
+  // 复制到 ArrayBuffer 背衬的视图，满足 WebCrypto 的 BufferSource 约束
+  // （TextEncoder.encode 返回 Uint8Array<ArrayBufferLike>，不被 crypto.subtle 接受）。
+  return new Uint8Array(encoder.encode(str));
 }
 
 /**
@@ -21,8 +23,8 @@ function bufferToString(buffer: ArrayBuffer): string {
 /**
  * Convert ArrayBuffer to Base64 string
  */
-function bufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+function bufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   let binary = "";
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
@@ -47,7 +49,7 @@ function base64ToBuffer(base64: string): ArrayBuffer {
  */
 async function deriveKey(
   secret: string,
-  salt: ArrayBuffer,
+  salt: BufferSource,
 ): Promise<CryptoKey> {
   const keyMaterial = await crypto.subtle.importKey(
     "raw",

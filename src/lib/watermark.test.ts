@@ -7,7 +7,10 @@ describe("watermarkPosition", () => {
   });
 
   it("accepts a custom margin", () => {
-    expect(watermarkPosition(1000, 800, 220, 52, 10)).toEqual({ x: 770, y: 738 });
+    expect(watermarkPosition(1000, 800, 220, 52, 10)).toEqual({
+      x: 770,
+      y: 738,
+    });
   });
 
   it("never returns negative coordinates when base is smaller than watermark", () => {

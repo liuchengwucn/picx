@@ -1,4 +1,3 @@
-import type { TRPCError } from "@trpc/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { papers } from "#/db/schema";
 import { paperRouter } from "./paper";
@@ -89,7 +88,7 @@ describe("paperRouter.create security checks", () => {
         r2Key: "papers/user-1/paper.pdf",
         apiConfigId: "11111111-1111-4111-8111-111111111111",
       }),
-    ).rejects.toMatchObject<Partial<TRPCError>>({
+    ).rejects.toMatchObject({
       code: "NOT_FOUND",
       message: "API configuration not found",
     });
@@ -111,7 +110,7 @@ describe("paperRouter.create security checks", () => {
         apiConfigId: "11111111-1111-4111-8111-111111111111",
         promptId: "22222222-2222-4222-8222-222222222222",
       }),
-    ).rejects.toMatchObject<Partial<TRPCError>>({
+    ).rejects.toMatchObject({
       code: "NOT_FOUND",
       message: "Prompt template not found",
     });
@@ -133,7 +132,7 @@ describe("uploadRouter.uploadFile validation", () => {
         fileData,
         fileSize: 1,
       }),
-    ).rejects.toMatchObject<Partial<TRPCError>>({
+    ).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: "Declared file size does not match uploaded data",
     });
@@ -149,7 +148,7 @@ describe("uploadRouter.uploadFile validation", () => {
         fileData,
         fileSize: 10,
       }),
-    ).rejects.toMatchObject<Partial<TRPCError>>({
+    ).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: "Uploaded file is not a valid PDF",
     });

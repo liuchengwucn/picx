@@ -36,8 +36,10 @@ export function mergeRelated(
  * understand topical clustering), then the most recent public papers to fill
  * the remaining slots. Always returns real, crawlable internal links.
  */
-export async function selectRelatedPapers(
-  db: DrizzleD1Database,
+export async function selectRelatedPapers<
+  TSchema extends Record<string, unknown>,
+>(
+  db: DrizzleD1Database<TSchema>,
   opts: { excludePaperId: string; categories: string[]; limit?: number },
 ): Promise<RelatedPaper[]> {
   const limit = opts.limit ?? 3;

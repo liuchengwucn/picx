@@ -58,8 +58,8 @@ type ApiConfig = {
   geminiBaseUrl: string;
   geminiModel: string;
   isDefault: boolean;
-  openaiTestStatus: "success" | "failed" | null;
-  geminiTestStatus: "success" | "failed" | null;
+  openaiTestStatus: "success" | "failed" | "untested" | null;
+  geminiTestStatus: "success" | "failed" | "untested" | null;
   lastTestedAt: Date | null;
   createdAt: Date;
 };
@@ -261,7 +261,7 @@ function ConfigCard({
   onEdit: (id: string) => void;
   onSetDefault: (id: string) => void;
 }) {
-  const getStatusIcon = (status: "success" | "failed" | null) => {
+  const getStatusIcon = (status: "success" | "failed" | "untested" | null) => {
     if (status === "success") {
       return (
         <CheckCircle2

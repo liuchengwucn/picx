@@ -1,6 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Navigate, redirect } from "@tanstack/react-router";
 import { isRedirect } from "@tanstack/router-core";
-import { useQuery } from "@tanstack/react-query";
 import { useTRPC } from "#/integrations/trpc/react";
 
 interface AppEnvBindings {

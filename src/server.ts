@@ -50,7 +50,9 @@ export default {
       });
     }
 
-    return handler.fetch(request, env, ctx);
+    // env/ctx 由 @cloudflare/vite-plugin 的 cloudflare:workers async context 注入，
+    // handler.fetch 只接收 (request, opts?)。
+    return handler.fetch(request);
   },
   queue: queueConsumer.queue,
   scheduled: dispatchScheduled,

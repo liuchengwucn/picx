@@ -20,7 +20,7 @@ export interface GalleryCardPaper {
  */
 export function getCategoryLabel(slug: string): string {
   return (
-    (m as Record<string, () => string>)[
+    (m as unknown as Record<string, () => string>)[
       `category_${slug.replace(/-/g, "_")}`
     ]?.() ?? slug
   );

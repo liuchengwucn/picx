@@ -338,8 +338,9 @@ export async function extractPDFText(
 
     try {
       const metadata = await pdf.getMetadata();
-      if (metadata?.info?.Title && typeof metadata.info.Title === "string") {
-        title = metadata.info.Title.trim();
+      const info = metadata?.info as { Title?: unknown } | undefined;
+      if (info?.Title && typeof info.Title === "string") {
+        title = info.Title.trim();
       }
     } catch (e) {
       console.warn("Failed to extract PDF metadata:", e);

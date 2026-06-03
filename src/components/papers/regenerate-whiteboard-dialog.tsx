@@ -156,23 +156,22 @@ function PromptSelector({
           >
             {m.paper_whiteboard_regenerate_use_same()}
           </SelectItem>
-          {prompts &&
-            prompts.map((prompt) => (
-              <SelectItem
-                key={prompt.id}
-                value={prompt.id}
-                className="hover:bg-[var(--parchment-warm)] cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <span>{prompt.name}</span>
-                  {prompt.isDefault && (
-                    <span className="text-xs text-[var(--academic-brown)] font-medium">
-                      ({m.api_config_default()})
-                    </span>
-                  )}
-                </div>
-              </SelectItem>
-            ))}
+          {prompts?.map((prompt) => (
+            <SelectItem
+              key={prompt.id}
+              value={prompt.id}
+              className="hover:bg-[var(--parchment-warm)] cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <span>{prompt.name}</span>
+                {prompt.isDefault && (
+                  <span className="text-xs text-[var(--academic-brown)] font-medium">
+                    ({m.api_config_default()})
+                  </span>
+                )}
+              </div>
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     </div>
@@ -219,7 +218,12 @@ export function RegenerateWhiteboardDialog({
 
   // Auto-select default API config when user manually switches to user API
   useEffect(() => {
-    if (apiSource === "user" && apiConfigsData && apiConfigsData.length > 0 && !selectedApiConfigId) {
+    if (
+      apiSource === "user" &&
+      apiConfigsData &&
+      apiConfigsData.length > 0 &&
+      !selectedApiConfigId
+    ) {
       const defaultConfig = apiConfigsData.find((config) => config.isDefault);
       if (defaultConfig) {
         setSelectedApiConfigId(defaultConfig.id);

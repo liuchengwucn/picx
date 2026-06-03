@@ -21,7 +21,8 @@
     "db:backfill-upvotes": "node scripts/backfill-upvotes.mjs",
     "format": "biome format",
     "lint": "biome lint",
-    "check": "biome check"
+    "typecheck": "tsc --noEmit",
+    "check": "biome check && tsc --noEmit"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.5.3",

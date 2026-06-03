@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import type { inferRouterOutputs } from "@trpc/server";
 import {
   AlertCircle,
   CheckCircle2,
@@ -60,6 +61,7 @@ import {
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
+import type { TRPCRouter } from "#/integrations/trpc/router";
 import {
   authClient,
   startGitHubSignIn as beginGitHubSignIn,
@@ -73,6 +75,11 @@ import { getLocale } from "#/paraglide/runtime";
 interface AppEnvBindings {
   DB: D1Database;
 }
+
+// SSR 预取数据必须与 paper.getByShortId 的输出形状完全一致，才能作为 react-query 的
+// initialData 注入（判别联合：有 result / 无 result 两种分支）。
+type GetByShortIdOutput =
+  inferRouterOutputs<TRPCRouter>["paper"]["getByShortId"];
 
 function stripMarkdown(markdown: string): string {
   return markdown
@@ -195,19 +202,25 @@ export const Route = createFileRoute("/p/$shortId")({
         const summary = summaries
           ? summaries[currentLanguage] || summaries.en || ""
           : null;
-        const ssrData = {
-          paper,
-          result: result
+        const ssrData: GetByShortIdOutput =
+          result && summaries
             ? {
-                ...result,
-                summary,
-                summaries,
-                availableLanguages: Object.keys(summaries),
+                paper,
+                result: {
+                  ...result,
+                  summary: summary ?? "",
+                  summaries,
+                  availableLanguages: Object.keys(summaries),
+                },
+                defaultWhiteboard,
+                whiteboards,
               }
-            : null,
-          defaultWhiteboard,
-          whiteboards,
-        };
+            : {
+                paper,
+                result: null,
+                defaultWhiteboard: null,
+                whiteboards: [],
+              };
 
         // Related papers (same category first, then recent) so the SSR HTML
         // ships real internal links — crawlers can follow them and link equity
@@ -273,14 +286,10 @@ export const Route = createFileRoute("/p/$shortId")({
   head: ({ loaderData }) => {
     const ssrMeta = loaderData?.ssrMeta;
     if (!ssrMeta) {
+      // ssrMeta 为空仅出现在「论文未找到 / SSR 失败」分支，此时 paper 必为 null，
+      // 没有可用标题，直接回退到站点默认标题。
       return {
-        meta: [
-          {
-            title: loaderData?.paper?.title
-              ? `${m.seo_paper_title_prefix()} | ${loaderData.paper.title}`
-              : "PicX - Paper Whiteboard",
-          },
-        ],
+        meta: [{ title: "PicX - Paper Whiteboard" }],
       };
     }
 
@@ -564,8 +573,7 @@ function PaperDetailPage() {
               paper.status === "completed" &&
               !paper.whiteboardRegenerating &&
               (!!defaultWhiteboard?.imageR2Key ||
-                (whiteboardsData?.whiteboards &&
-                  whiteboardsData.whiteboards.length > 0))
+                !!whiteboardsData?.whiteboards?.length)
             }
           />
         )}

@@ -13,11 +13,13 @@ import {
 export interface PaperQueueMessage {
   paperId: string;
   userId: string;
-  sourceType: "upload" | "arxiv";
+  type?: "initial" | "regenerate_whiteboard"; // 消息类型，默认为 initial
+  sourceType?: "upload" | "arxiv"; // regenerate_whiteboard 不需要
   arxivUrl?: string;
-  r2Key: string;
+  r2Key?: string;
   language?: "en" | "zh-cn" | "zh-tw" | "ja";
   whiteboardLanguage?: "en" | "zh-cn" | "zh-tw" | "ja";
+  extraLanguages?: ("zh-cn" | "zh-tw" | "ja")[]; // 额外翻译语言
   apiConfigId?: string;
   promptId?: string;
 }

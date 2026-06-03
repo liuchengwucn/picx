@@ -70,7 +70,7 @@ export function ConfigDialog({
   const updateMutation = useMutation(trpc.apiConfig.update.mutationOptions());
   const testMutation = useMutation(trpc.apiConfig.test.mutationOptions());
 
-  const form = useForm<FormValues>({
+  const form = useForm({
     defaultValues: {
       name: "",
       openaiApiKey: "",
@@ -80,7 +80,7 @@ export function ConfigDialog({
       geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
       geminiModel: "gemini-3.1-flash-image-preview",
       isDefault: false,
-    },
+    } as FormValues,
     onSubmit: async ({ value }) => {
       try {
         if (configId) {

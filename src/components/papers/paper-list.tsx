@@ -21,7 +21,7 @@ type PaperStatus =
 
 interface Paper {
   id: string;
-  shortId?: string;
+  shortId: string;
   title: string;
   status: PaperStatus;
   sourceType: string;

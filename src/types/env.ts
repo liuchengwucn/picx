@@ -23,6 +23,9 @@ export interface Env {
   GEMINI_MODEL?: string;
   CF_API_TOKEN?: string;
 
+  // API key 加密密钥（用于加解密用户保存的第三方 API key）
+  API_KEY_ENCRYPTION_SECRET?: string;
+
   // X bot：每天自动直发 1 条到 X（OAuth 1.0a user context）
   X_API_KEY?: string;
   X_API_SECRET?: string;

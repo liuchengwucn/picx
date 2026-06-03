@@ -1,5 +1,4 @@
-const BASE62 =
-  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 export function generateShortId(length = 6): string {
   const bytes = new Uint8Array(length);

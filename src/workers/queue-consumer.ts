@@ -9,6 +9,7 @@ import {
   whiteboardImages,
   whiteboardPrompts,
 } from "#/db/schema";
+import type { PaperQueueMessage as QueueMessage } from "#/integrations/trpc/init";
 import type { AIConfig } from "#/lib/ai";
 import {
   classifyPaper,
@@ -31,19 +32,7 @@ type PaperStatus =
   | "completed"
   | "failed";
 
-interface QueueMessage {
-  paperId: string;
-  userId: string;
-  type?: "initial" | "regenerate_whiteboard"; // 消息类型，默认为 initial
-  sourceType?: "upload" | "arxiv"; // 对于 regenerate_whiteboard 不需要
-  arxivUrl?: string;
-  r2Key?: string;
-  language?: "en" | "zh-cn" | "zh-tw" | "ja"; // 摘要语言
-  whiteboardLanguage?: "en" | "zh-cn" | "zh-tw" | "ja"; // 白板图语言
-  extraLanguages?: ("zh-cn" | "zh-tw" | "ja")[]; // 额外翻译语言（生成英文后自动翻译）
-  apiConfigId?: string; // 用户提供的 API 配置 ID
-  promptId?: string; // 用户提供的 Prompt 模板 ID
-}
+// 队列消息契约统一在 #/integrations/trpc/init 的 PaperQueueMessage（生产端与消费端共用）
 
 const MAX_RETRIES = 3;
 

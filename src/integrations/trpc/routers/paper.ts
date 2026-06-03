@@ -1196,7 +1196,7 @@ export const paperRouter = router({
 
       // Step 3: Delete image from R2 first (before DB changes)
       try {
-        await ctx.env.R2_BUCKET.delete(whiteboard.imageR2Key);
+        await ctx.env.PAPERS_BUCKET.delete(whiteboard.imageR2Key);
       } catch (error) {
         // Log but continue - database cleanup is more important
         console.error("Failed to delete whiteboard from R2:", error);
