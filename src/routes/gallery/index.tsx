@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Globe, Search, Sparkles, X } from "lucide-react";
+import { Globe, Loader2, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import {
@@ -147,6 +147,33 @@ function ExplorePage() {
       fetchNextPage();
     }
   }, [page, loadedPages, hasNextPage, isFetchingNextPage]);
+
+  // 无限滚动: 哨兵元素进入视口时自动展开下一页 (仍走 URL 的 page 单一数据源)。
+  // 防频繁触发: 仅当已加载页数追平目标页 (loadedPages >= page) 且不在加载中时才追加,
+  // 每次追加都需等一次 fetch 往返, 天然节流。rootMargin 提前 200px 预拉, 移动端更顺滑。
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0]?.isIntersecting &&
+          hasMore &&
+          !isFetchingNextPage &&
+          loadedPages >= page
+        ) {
+          navigate({
+            search: (prev) => ({ ...prev, page: page + 1 }),
+            resetScroll: false,
+          });
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, isFetchingNextPage, loadedPages, page, navigate]);
 
   // Category chips collapse to 2 rows; a toggle appears only when they overflow.
   const chipsRef = useRef<HTMLDivElement>(null);
@@ -420,22 +447,30 @@ function ExplorePage() {
           </div>
         )}
 
-        {/* Load more */}
+        {/* Load more — 滚动到哨兵元素时自动加载; 按钮作为无障碍 / 兜底入口 */}
         {hasMore && (
-          <div className="mt-10 flex justify-center">
-            <Button
-              variant="outline"
-              disabled={isFetchingNextPage}
-              onClick={() =>
-                navigate({
-                  search: (prev) => ({ ...prev, page: page + 1 }),
-                  // 追加加载时保持滚动位置, 不跳回页首
-                  resetScroll: false,
-                })
-              }
-            >
-              {isFetchingNextPage ? m.gallery_loading() : m.gallery_load_more()}
-            </Button>
+          <div
+            ref={loadMoreRef}
+            className="mt-10 flex justify-center"
+          >
+            {isFetchingNextPage ? (
+              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                <Loader2 className="size-4 animate-spin" />
+                {m.gallery_loading()}
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  navigate({
+                    search: (prev) => ({ ...prev, page: page + 1 }),
+                    resetScroll: false,
+                  })
+                }
+              >
+                {m.gallery_load_more()}
+              </Button>
+            )}
           </div>
         )}
 
