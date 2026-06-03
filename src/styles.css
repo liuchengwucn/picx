@@ -203,6 +203,25 @@ a:hover { color: var(--academic-brown-deep); }
   box-shadow: 0 8px 32px rgba(45,42,36,0.12);
 }
 
+/* gallery 顶部筛选栏:玻璃底 + 底部羽化,
+   避免 backdrop-blur 矩形硬切边造成的生硬模糊。
+   背景独立成 ::before 层, 可自适应 chips 折叠/展开高度,
+   且 mask 只羽化背景、不影响搜索框/标签内容。 */
+.filter-bar { position: relative; }
+.filter-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  bottom: -24px;               /* 向下延伸到 mb-6 间距, 羽化带落在卡片之外 */
+  z-index: -1;
+  pointer-events: none;
+  background: var(--header-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+
 /* 导航链接 */
 .nav-link { position: relative; text-decoration: none; color: var(--ink-soft); }
 .nav-link::after {
