@@ -9,10 +9,19 @@ export interface RelatedPaper {
   tldr: Record<string, string> | null;
 }
 
+export function shuffleArray<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 /**
  * Merge category-matched candidates (primary) with recent-fallback candidates
- * into a deduped list of at most `limit`, category matches first. Pure so it
- * can be unit-tested without a database.
+ * into a deduped list of at most `limit`, category matches first. Both pools
+ * are shuffled before merging so repeated visits surface different papers.
  */
 export function mergeRelated(
   primary: RelatedPaper[],
@@ -21,7 +30,7 @@ export function mergeRelated(
 ): RelatedPaper[] {
   const out: RelatedPaper[] = [];
   const seen = new Set<string>();
-  for (const p of [...primary, ...fallback]) {
+  for (const p of [...shuffleArray(primary), ...shuffleArray(fallback)]) {
     if (out.length >= limit) break;
     if (!p.shortId || seen.has(p.shortId)) continue;
     seen.add(p.shortId);
@@ -40,9 +49,15 @@ export async function selectRelatedPapers<
   TSchema extends Record<string, unknown>,
 >(
   db: DrizzleD1Database<TSchema>,
-  opts: { excludePaperId: string; categories: string[]; limit?: number },
+  opts: {
+    excludePaperId: string;
+    categories: string[];
+    limit?: number;
+    poolSize?: number;
+  },
 ): Promise<RelatedPaper[]> {
   const limit = opts.limit ?? 3;
+  const poolSize = opts.poolSize ?? 15;
   const base = and(
     eq(papers.isPublic, true),
     eq(papers.isListedInGallery, true),
@@ -93,11 +108,11 @@ export async function selectRelatedPapers<
       .innerJoin(paperResults, eq(paperResults.paperId, papers.id))
       .where(and(base, catMatch))
       .orderBy(desc(papers.publishedAt))
-      .limit(limit);
+      .limit(poolSize);
     primary = toRelated(rows);
   }
 
-  // 2) fallback: most recent public papers, fetching enough to fill after dedup.
+  // 2) fallback: most recent public papers, fetching a pool for variety.
   let fallback: RelatedPaper[] = [];
   if (primary.length < limit) {
     const rows = await db
@@ -106,7 +121,7 @@ export async function selectRelatedPapers<
       .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
       .where(base)
       .orderBy(desc(papers.publishedAt))
-      .limit(limit + primary.length);
+      .limit(poolSize);
     fallback = toRelated(rows);
   }
 
