@@ -36,6 +36,42 @@ type PaperStatus =
 
 const MAX_RETRIES = 3;
 
+// tldr 生成/翻译针对网关瞬时限流(429)/超时的重试次数。
+// tldr 是「非关键步骤」(失败仅回退到 summary 兜底), 但每日 cron 批量入队时
+// 这一步靠后的 4 连发最容易踩到限流, 故给较多次数 + 指数退避兜稳。
+const TLDR_RETRIES = 5;
+
+/**
+ * 通用重试: 指数退避 + 抖动。最多重试 `retries` 次(共 retries+1 次尝试)。
+ * 每次失败回调 `onRetry`(用于日志), 全部失败则抛出最后一次错误。
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  opts: {
+    retries: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    onRetry?: (attempt: number, error: unknown) => void;
+  },
+): Promise<T> {
+  const { retries, baseDelayMs = 500, maxDelayMs = 8000, onRetry } = opts;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt === retries) break;
+      onRetry?.(attempt + 1, error);
+      // 指数退避 + ±25% 抖动, 避免多篇并发同时重试形成新的尖峰
+      const backoff = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
+      const jitter = backoff * (0.75 + Math.random() * 0.5);
+      await new Promise((resolve) => setTimeout(resolve, jitter));
+    }
+  }
+  throw lastError;
+}
+
 export default {
   async queue(batch: MessageBatch<QueueMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
@@ -430,31 +466,76 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
   // Step 4.6: 生成多语言 TL;DR (用于 gallery 卡片)
   // 非关键步骤: 失败不应中断论文处理, 读取时可从 summaries 兜底。
+  // 每个语言独立重试、独立成败: 某个翻译失败只丢该语言, 不再「全有或全无」。
+  // 仅当 base tldr 重试耗尽才整体放弃(无 base 无法翻译), 读取时回退 summary。
   let tldr: Record<string, string> | undefined;
+  let baseTldr: string | null = null;
   try {
-    const baseTldr = await generateTldr(summary, aiConfig, language);
-    tldr = { [language]: baseTldr };
-
-    if (msg.extraLanguages && msg.extraLanguages.length > 0) {
-      const tldrTranslations = await Promise.all(
-        msg.extraLanguages.map((lang) =>
-          translateTldr(baseTldr, lang, aiConfig),
-        ),
-      );
-      for (let i = 0; i < msg.extraLanguages.length; i++) {
-        tldr[msg.extraLanguages[i]] = tldrTranslations[i];
-      }
-    }
-    log(
-      "generate-tldr",
-      `Generated tldr in ${Object.keys(tldr).length} language(s)`,
+    baseTldr = await withRetry(
+      () => generateTldr(summary, aiConfig, language),
+      {
+        retries: TLDR_RETRIES,
+        onRetry: (attempt, error) =>
+          logWarn(
+            "generate-tldr",
+            `Base tldr generation retry ${attempt}/${TLDR_RETRIES} (${language})`,
+            error,
+          ),
+      },
     );
   } catch (error) {
     logWarn(
       "generate-tldr",
-      "Tldr generation failed, gallery will fall back to summary",
+      `Base tldr generation failed after ${TLDR_RETRIES} retries, gallery will fall back to summary`,
       error,
     );
+  }
+
+  if (baseTldr) {
+    const result: Record<string, string> = { [language]: baseTldr };
+    const others = (msg.extraLanguages ?? []).filter((l) => l !== language);
+
+    if (others.length > 0) {
+      const settled = await Promise.allSettled(
+        others.map((lang) =>
+          withRetry(() => translateTldr(baseTldr as string, lang, aiConfig), {
+            retries: TLDR_RETRIES,
+            onRetry: (attempt, error) =>
+              logWarn(
+                "generate-tldr",
+                `Tldr translation retry ${attempt}/${TLDR_RETRIES} (${lang})`,
+                error,
+              ),
+          }),
+        ),
+      );
+      const failed: string[] = [];
+      settled.forEach((s, i) => {
+        if (s.status === "fulfilled") {
+          result[others[i]] = s.value;
+        } else {
+          failed.push(others[i]);
+          logWarn(
+            "generate-tldr",
+            `Tldr translation gave up for ${others[i]} after ${TLDR_RETRIES} retries`,
+            s.reason,
+          );
+        }
+      });
+      if (failed.length > 0) {
+        logWarn(
+          "generate-tldr",
+          `Tldr partially generated: kept [${Object.keys(result).join(", ")}], missing [${failed.join(", ")}]`,
+        );
+      }
+    }
+
+    tldr = result;
+    log(
+      "generate-tldr",
+      `Generated tldr in ${Object.keys(tldr).length} language(s)`,
+    );
+  } else {
     tldr = undefined;
   }
 
