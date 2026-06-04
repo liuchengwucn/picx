@@ -150,7 +150,7 @@ function ExplorePage() {
 
   // 无限滚动: 哨兵元素进入视口时自动展开下一页 (仍走 URL 的 page 单一数据源)。
   // 防频繁触发: 仅当已加载页数追平目标页 (loadedPages >= page) 且不在加载中时才追加,
-  // 每次追加都需等一次 fetch 往返, 天然节流。rootMargin 提前 200px 预拉, 移动端更顺滑。
+  // 每次追加都需等一次 fetch 往返, 天然节流。
   const loadMoreRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = loadMoreRef.current;
@@ -169,7 +169,6 @@ function ExplorePage() {
           });
         }
       },
-      { rootMargin: "200px" },
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -447,6 +446,30 @@ function ExplorePage() {
           </div>
         )}
 
+        {/* Upload CTA — invite browsers to turn their own paper into a whiteboard */}
+        {papers.length > 0 && (
+          <section className="rise-in mt-16">
+            <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[linear-gradient(135deg,var(--parchment-warm),var(--surface-strong))] px-6 py-8 text-center shadow-[0_4px_16px_rgba(45,42,36,0.06)] sm:px-10 sm:py-10">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] shadow-[0_6px_18px_rgba(139,111,71,0.28)]">
+                <Sparkles className="h-6 w-6 text-white" />
+              </div>
+              <h2 className="mb-2 font-serif text-2xl font-bold text-[var(--ink)]">
+                {m.gallery_cta_title()}
+              </h2>
+              <p className="mx-auto mb-6 max-w-md text-[var(--ink-soft)]">
+                {m.gallery_cta_desc()}
+              </p>
+              <Link
+                to="/papers"
+                className="inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold !text-white no-underline shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)]"
+              >
+                <Sparkles className="h-4 w-4" />
+                {m.papers_upload()}
+              </Link>
+            </div>
+          </section>
+        )}
+
         {/* Load more — 滚动到哨兵元素时自动加载; 按钮作为无障碍 / 兜底入口 */}
         {hasMore && (
           <div
@@ -472,30 +495,6 @@ function ExplorePage() {
               </Button>
             )}
           </div>
-        )}
-
-        {/* Upload CTA — invite browsers to turn their own paper into a whiteboard */}
-        {papers.length > 0 && (
-          <section className="rise-in mt-16">
-            <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[linear-gradient(135deg,var(--parchment-warm),var(--surface-strong))] px-6 py-8 text-center shadow-[0_4px_16px_rgba(45,42,36,0.06)] sm:px-10 sm:py-10">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] shadow-[0_6px_18px_rgba(139,111,71,0.28)]">
-                <Sparkles className="h-6 w-6 text-white" />
-              </div>
-              <h2 className="mb-2 font-serif text-2xl font-bold text-[var(--ink)]">
-                {m.gallery_cta_title()}
-              </h2>
-              <p className="mx-auto mb-6 max-w-md text-[var(--ink-soft)]">
-                {m.gallery_cta_desc()}
-              </p>
-              <Link
-                to="/papers"
-                className="inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold !text-white no-underline shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)]"
-              >
-                <Sparkles className="h-4 w-4" />
-                {m.papers_upload()}
-              </Link>
-            </div>
-          </section>
         )}
       </div>
     </main>
