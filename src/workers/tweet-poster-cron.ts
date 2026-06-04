@@ -13,6 +13,7 @@ import {
   type TelegramCredentials,
 } from "#/lib/telegram-client";
 import { pickTldr } from "#/lib/tldr";
+import { renderWhiteboardImage } from "#/lib/whiteboard-render";
 import { capCandidates, RECENT_WINDOW_HOURS } from "#/lib/x-candidate";
 import { buildTweetCaption } from "#/lib/x-caption";
 import { postTweet, uploadMedia, type XCredentials } from "#/lib/x-client";
@@ -147,14 +148,12 @@ export default {
     const caption = buildTweetCaption({ tldr, categories });
 
     try {
-      // 取带水印白板图 → 上传到 X 作为媒体附件（比贴链接分发权重高很多）。
-      const imgRes = await fetch(paperImageUrl(selected.shortId));
-      if (!imgRes.ok) {
-        throw new Error(
-          `Fetch image failed ${imgRes.status}: ${selected.shortId}`,
-        );
+      // 内联渲染带水印白板图（D1 + R2 + Photon），上传到 X 作为媒体附件。
+      // 不再 fetch 公网 image 端点：worker 回环打自己的 zone 易触发 522 超时。
+      const imageData = await renderWhiteboardImage(selected.shortId, env);
+      if (!imageData) {
+        throw new Error(`Render image failed: ${selected.shortId}`);
       }
-      const imageData = new Uint8Array(await imgRes.arrayBuffer());
       const mediaId = await uploadMedia(imageData, xCreds);
 
       const { tweetId } = await postTweet(caption, xCreds, [mediaId]);
