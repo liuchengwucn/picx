@@ -28,6 +28,9 @@ const getOpt = (f, def) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : def;
 };
 const DRY_RUN = hasFlag("--dry-run");
+// --retry-failed: 重跑「分类调用失败被静默钉成 other」的行(categories=["other"]
+// 且 tags 为空),而非默认的 categories IS NULL 行。
+const RETRY_FAILED = hasFlag("--retry-failed");
 const LIMIT = Number(getOpt("--limit", "0"));
 const BATCH = Math.max(1, Number(getOpt("--batch", "10")));
 const CONCURRENCY = Math.max(1, Number(getOpt("--concurrency", "3")));
@@ -115,7 +118,7 @@ Rules:
         { role: "user", content: text.slice(0, 3500) },
       ],
       temperature: 0.2,
-      max_tokens: 200,
+      max_tokens: 400, // 200 偏紧:分类+3-5 tag 的 JSON 偶尔被截断成无法解析
     }),
   });
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
@@ -149,6 +152,76 @@ function parseClassification(content) {
   }
 }
 
+// 分类带重试:把「other + 空 tags」当作失败(正常分类必带 tag),指数退避重试。
+async function classifyWithRetry(text, retries = 3) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const r = await classify(text);
+      if (
+        r.tags.length === 0 &&
+        r.categories.length === 1 &&
+        r.categories[0] === "other"
+      ) {
+        throw new Error("empty/garbled classification");
+      }
+      return r;
+    } catch (e) {
+      lastErr = e;
+      if (i < retries) {
+        await new Promise((res) => setTimeout(res, 500 * 2 ** i));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+// 处理单行:解析 summaries → 选文本 → 重试分类(耗尽兜底 other)→ 写回。
+// 返回 "updated" | "skipped" | "failed"。
+async function reclassifyRow(row) {
+  let summaries;
+  try {
+    summaries =
+      typeof row.summaries === "string"
+        ? JSON.parse(row.summaries)
+        : row.summaries;
+  } catch (e) {
+    console.warn(`  ✗ ${row.id}: bad summaries JSON (${e.message})`);
+    return "failed";
+  }
+  const text = pickText(summaries, row.summaryLanguage);
+  if (!text) {
+    console.warn(`  - ${row.id}: no usable summary, skipped`);
+    return "skipped";
+  }
+  let categories;
+  let tags;
+  try {
+    ({ categories, tags } = await classifyWithRetry(text));
+  } catch {
+    // 重试耗尽:兜底 ["other"](与产线一致)。
+    categories = ["other"];
+    tags = [];
+  }
+  try {
+    if (DRY_RUN) {
+      console.log(
+        `  • ${row.id}: cats=[${categories.join(",")}] tags=[${tags.join(",")}]`,
+      );
+      return "updated";
+    }
+    await d1Remote(
+      "UPDATE paper_results SET categories = ?, tags = ? WHERE id = ?",
+      [JSON.stringify(categories), JSON.stringify(tags), row.id],
+    );
+    console.log(`  ✓ ${row.id}: [${categories.join(",")}]`);
+    return "updated";
+  } catch (e) {
+    console.warn(`  ✗ ${row.id}: ${e.message}`);
+    return "failed";
+  }
+}
+
 function pickText(summaries, summaryLanguage) {
   const present = LANGS.filter((l) => summaries[l]?.trim());
   if (present.length === 0) return null;
@@ -179,6 +252,35 @@ async function main() {
   }
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY in .dev.vars");
 
+  // --retry-failed:一次性取出「失败特征」行(categories=["other"] 且 tags 为空)重跑。
+  // 不走 NULL 的批量重查循环 —— 持续失败的行重写后仍匹配,会导致死循环。
+  if (RETRY_FAILED) {
+    const rows = await d1Remote(
+      `SELECT id, summaries, summary_language AS summaryLanguage
+       FROM paper_results
+       WHERE categories = '["other"]' AND (tags = '[]' OR tags IS NULL)
+       ${LIMIT ? `LIMIT ${LIMIT}` : ""}`,
+    );
+    console.log(
+      `[backfill-cat] retry-failed: ${rows.length} row(s) match failure signature.${DRY_RUN ? " (DRY RUN)" : ""}`,
+    );
+    let updated = 0, failed = 0, skipped = 0;
+    await pool(
+      rows,
+      async (row) => {
+        const r = await reclassifyRow(row);
+        if (r === "updated") updated++;
+        else if (r === "failed") failed++;
+        else skipped++;
+      },
+      CONCURRENCY,
+    );
+    console.log(
+      `[backfill-cat] done. processed=${rows.length} updated=${updated} failed=${failed} skipped=${skipped}`,
+    );
+    return;
+  }
+
   const [{ total }] = await d1Remote(
     "SELECT count(*) AS total FROM paper_results WHERE categories IS NULL",
   );
@@ -200,41 +302,9 @@ async function main() {
       rows,
       async (row) => {
         processed++;
-        let summaries;
-        try {
-          summaries =
-            typeof row.summaries === "string"
-              ? JSON.parse(row.summaries)
-              : row.summaries;
-        } catch (e) {
-          failed++;
-          console.warn(`  ✗ ${row.id}: bad summaries JSON (${e.message})`);
-          return;
-        }
-        const text = pickText(summaries, row.summaryLanguage);
-        if (!text) {
-          console.warn(`  - ${row.id}: no usable summary, skipped`);
-          return;
-        }
-        try {
-          const { categories, tags } = await classify(text);
-          if (DRY_RUN) {
-            console.log(
-              `  • ${row.id}: cats=[${categories.join(",")}] tags=[${tags.join(",")}]`,
-            );
-            updated++;
-            return;
-          }
-          await d1Remote(
-            "UPDATE paper_results SET categories = ?, tags = ? WHERE id = ?",
-            [JSON.stringify(categories), JSON.stringify(tags), row.id],
-          );
-          updated++;
-          console.log(`  ✓ ${row.id}: [${categories.join(",")}]`);
-        } catch (e) {
-          failed++;
-          console.warn(`  ✗ ${row.id}: ${e.message}`);
-        }
+        const r = await reclassifyRow(row);
+        if (r === "updated") updated++;
+        else if (r === "failed") failed++;
       },
       CONCURRENCY,
     );

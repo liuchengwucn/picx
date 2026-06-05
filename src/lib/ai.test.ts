@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { parseClassification } from "./ai";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { type AIConfig, classifyPaper, parseClassification } from "./ai";
 
 describe("parseClassification", () => {
   it("extracts valid categories and tags from clean JSON", () => {
@@ -34,5 +34,63 @@ describe("parseClassification", () => {
   it("returns safe fallback on garbage", () => {
     const out = parseClassification("not json at all");
     expect(out).toEqual({ categories: ["other"], tags: [] });
+  });
+});
+
+describe("classifyPaper", () => {
+  const config: AIConfig = {
+    openaiApiKey: "test-key",
+    geminiApiKey: "test-key",
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubFetch(impl: () => Promise<unknown>) {
+    vi.stubGlobal("fetch", vi.fn(impl as never));
+  }
+
+  it("returns parsed categories/tags on a valid response", async () => {
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          { message: { content: '{"categories":["llm"],"tags":["rag"]}' } },
+        ],
+      }),
+    }));
+    const out = await classifyPaper("some paper text", config);
+    expect(out).toEqual({ categories: ["llm"], tags: ["rag"] });
+  });
+
+  it("throws on a non-ok response so the caller can retry", async () => {
+    stubFetch(async () => ({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      text: async () => "overloaded",
+    }));
+    await expect(classifyPaper("x", config)).rejects.toThrow();
+  });
+
+  it("throws on an unparseable/garbled body (the silent-other bug)", async () => {
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "Sorry, I cannot do that." } }],
+      }),
+    }));
+    await expect(classifyPaper("x", config)).rejects.toThrow();
+  });
+
+  it("throws when categories come back empty with no tags (truncated JSON)", async () => {
+    stubFetch(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"categories":[],"tags":[]}' } }],
+      }),
+    }));
+    await expect(classifyPaper("x", config)).rejects.toThrow();
   });
 });

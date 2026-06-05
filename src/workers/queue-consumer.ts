@@ -41,6 +41,10 @@ const MAX_RETRIES = 3;
 // 这一步靠后的 4 连发最容易踩到限流, 故给较多次数 + 指数退避兜稳。
 const TLDR_RETRIES = 5;
 
+// 分类同样是「非关键步骤」(失败回退 ["other"]),但缺重试时一次瞬时
+// API 抖动/截断就会把论文永久误分类成 other。给它和 tldr 同等的重试兜底。
+const CLASSIFY_RETRIES = 3;
+
 /**
  * 通用重试: 指数退避 + 抖动。最多重试 `retries` 次(共 retries+1 次尝试)。
  * 每次失败回调 `onRetry`(用于日志), 全部失败则抛出最后一次错误。
@@ -424,7 +428,23 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     [summary, whiteboardInsights, classification] = await Promise.all([
       generateSummary(text, aiConfig, language),
       generateWhiteboardInsights(text, aiConfig),
-      classifyPaper(text, aiConfig),
+      // 分类失败不应中断整篇处理:重试兜稳瞬时抖动,重试耗尽才回退 ["other"]。
+      withRetry(() => classifyPaper(text, aiConfig), {
+        retries: CLASSIFY_RETRIES,
+        onRetry: (attempt, error) =>
+          log(
+            "classify",
+            `Classification retry ${attempt}/${CLASSIFY_RETRIES}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+      }).catch((error) => {
+        console.error(
+          `Classification failed after ${CLASSIFY_RETRIES} retries, defaulting to ["other"]:`,
+          error,
+        );
+        return { categories: ["other"], tags: [] };
+      }),
     ]);
 
     log(

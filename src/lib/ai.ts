@@ -1157,7 +1157,8 @@ export function parseClassification(content: string): {
 
 /**
  * 调用 LLM 给论文分类并产出自由 tag。语言无关,用英文摘要/正文即可。
- * 失败时安全兜底(分类不该让整篇处理失败)。
+ * 失败时**抛错**(由调用方 withRetry 重试,重试耗尽再兜底 ["other"])。
+ * 不在此吞掉异常:否则一次瞬时抖动/截断就会把论文永久钉成 ["other"]。
  */
 export async function classifyPaper(
   text: string,
@@ -1179,39 +1180,48 @@ Rules:
 - Output ONLY a JSON object, no prose, no code fences:
 {"categories":["..."],"tags":["..."]}`;
 
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.openaiApiKey}`,
-    };
-    if (config.cfApiToken) {
-      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
-    }
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: text.slice(0, 3500) },
-        ],
-        temperature: 0.2,
-        max_tokens: 200,
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Classify API failed: ${response.status} ${response.statusText}`,
-      );
-    }
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = data.choices?.[0]?.message?.content ?? "";
-    return parseClassification(content);
-  } catch (error) {
-    console.error("Failed to classify paper:", error);
-    return { categories: ["other"], tags: [] };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${config.openaiApiKey}`,
+  };
+  if (config.cfApiToken) {
+    headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
   }
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text.slice(0, 3500) },
+      ],
+      temperature: 0.2,
+      // 200 太紧:分类 + 3-5 个 tag 的 JSON 偶尔会被截断成无法解析,
+      // 进而落到 ["other"] 兜底。留足余量避免截断。
+      max_tokens: 400,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Classify API failed: ${response.status} ${response.statusText}`,
+    );
+  }
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const content = data.choices?.[0]?.message?.content ?? "";
+  const result = parseClassification(content);
+  // parseClassification 永不抛错:解析失败/截断/无合法分类都返回
+  // { categories:["other"], tags:[] }。而正常分类必带 3-5 个 tag,
+  // 所以「other + 空 tags」就是调用失败的特征 —— 抛错让上层 withRetry
+  // 重试,而非把瞬时失败固化成 ["other"]。
+  if (
+    result.tags.length === 0 &&
+    result.categories.length === 1 &&
+    result.categories[0] === "other"
+  ) {
+    throw new Error("Classification produced no usable result (empty/garbled)");
+  }
+  return result;
 }
