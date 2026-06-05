@@ -91,6 +91,7 @@ async function handler({ request }: { request: Request }) {
       changefreq: "daily",
       lastmod: latestPaperDate,
     },
+    { url: `${origin}/reader`, priority: "0.8", changefreq: "monthly" },
     { url: `${origin}/about`, priority: "0.5", changefreq: "monthly" },
   ];
 
