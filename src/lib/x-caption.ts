@@ -54,3 +54,23 @@ export function buildTweetCaption(input: CaptionInput): string {
 
   return tldr ? `${tldr}\n\n${hashtags}` : hashtags;
 }
+
+/**
+ * tldr 缺失时的发推兜底:把 Markdown 摘要压成单行纯文本
+ *(去标题/强调/链接/图片/代码/列表符号/LaTeX 记号并合并空白),
+ * 长度截断交给 buildTweetCaption。仅在 tldr 生成曾失败时使用。
+ */
+export function summaryToTweetText(summary: string): string {
+  return summary
+    .replace(/```[\s\S]*?```/g, " ") // 代码块
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ") // 图片(须在链接之前)
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // 链接保留文字
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "") // 标题
+    .replace(/^\s{0,3}>\s?/gm, "") // 引用
+    .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/gm, "") // 列表符号
+    .replace(/`([^`]*)`/g, "$1") // 行内代码
+    .replace(/[*_~]/g, "") // 强调/删除线
+    .replace(/\$+/g, "") // LaTeX $ 记号
+    .replace(/\s+/g, " ") // 合并空白
+    .trim();
+}

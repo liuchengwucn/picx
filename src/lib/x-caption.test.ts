@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTweetCaption } from "./x-caption";
+import { buildTweetCaption, summaryToTweetText } from "./x-caption";
 
 describe("buildTweetCaption", () => {
   it("includes tldr and hashtags from categories", () => {
@@ -53,5 +53,42 @@ describe("buildTweetCaption", () => {
       categories: ["retrieval-rag"],
     });
     expect(out).toBe("#RAG");
+  });
+});
+
+describe("summaryToTweetText", () => {
+  it("strips headings, emphasis and collapses to a single line", () => {
+    const md = "## Key Idea\n\nWe propose a **fast** method that is _simple_.";
+    expect(summaryToTweetText(md)).toBe(
+      "Key Idea We propose a fast method that is simple.",
+    );
+  });
+
+  it("keeps link text, drops urls and images", () => {
+    const md = "See [the repo](https://example.com) ![fig](img.png) for code.";
+    expect(summaryToTweetText(md)).toBe("See the repo for code.");
+  });
+
+  it("removes list markers, blockquotes, inline code and LaTeX markers", () => {
+    const md = "> quote\n- item one\n- item two\nuse `npm` with $x^2$ math";
+    expect(summaryToTweetText(md)).toBe(
+      "quote item one item two use npm with x^2 math",
+    );
+  });
+
+  it("drops fenced code blocks", () => {
+    const md = "before\n```js\nconst a = 1;\n```\nafter";
+    expect(summaryToTweetText(md)).toBe("before after");
+  });
+
+  it("produces a tweetable body when fed through buildTweetCaption", () => {
+    const md = "# Title\n\nA **clear** contribution.";
+    const out = buildTweetCaption({
+      tldr: summaryToTweetText(md),
+      categories: ["llm"],
+    });
+    expect(out).toContain("Title A clear contribution.");
+    expect(out).toContain("#LLM");
+    expect(out).not.toContain("**");
   });
 });

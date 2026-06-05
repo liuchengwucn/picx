@@ -15,7 +15,7 @@ import {
 import { pickTldr } from "#/lib/tldr";
 import { renderWhiteboardImage } from "#/lib/whiteboard-render";
 import { capCandidates, RECENT_WINDOW_HOURS } from "#/lib/x-candidate";
-import { buildTweetCaption } from "#/lib/x-caption";
+import { buildTweetCaption, summaryToTweetText } from "#/lib/x-caption";
 import { postTweet, uploadMedia, type XCredentials } from "#/lib/x-client";
 import { recentSinceMs } from "#/lib/x-schedule";
 import type { Env } from "#/types/env";
@@ -117,6 +117,7 @@ export default {
         shortId: papers.shortId,
         upvotes: papers.upvotes,
         tldr: paperResults.tldr,
+        summaries: paperResults.summaries,
         categories: paperResults.categories,
       })
       .from(papers)
@@ -143,9 +144,14 @@ export default {
       return;
     }
 
-    const tldr = pickTldr(selected.tldr, "en") ?? "";
+    // tldr 生成曾失败(字段为空)时回退到 summary(压成纯文本),
+    // 避免发出空正文推文——与 gallery 的读时兜底保持一致。
+    const tldrText = pickTldr(selected.tldr, "en");
+    const summaryText = pickTldr(selected.summaries, "en");
+    const body =
+      tldrText ?? (summaryText ? summaryToTweetText(summaryText) : "");
     const categories = selected.categories ?? [];
-    const caption = buildTweetCaption({ tldr, categories });
+    const caption = buildTweetCaption({ tldr: body, categories });
 
     try {
       // 内联渲染带水印白板图（D1 + R2 + Photon），上传到 X 作为媒体附件。
