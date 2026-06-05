@@ -1268,9 +1268,20 @@ a:hover { color: var(--academic-brown-deep); }
   border-radius: 12px;
 }
 .reader-table-wrap table {
+  /* 不强行塞进容器宽度:按内容自然排布,过宽时由 .reader-table-wrap 横向滚动,
+     避免多列宽表被压成逐字折行(如 "2048" → "20/48")。 */
+  width: auto;
+  min-width: 100%;
   margin: 0;
   font-size: 0.9em;
   font-family: var(--reader-sans);
+}
+.reader-table-wrap :is(th, td) {
+  /* 短词不在词内断行;长文本仍可在空格处换行 */
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+  vertical-align: top;
 }
 
 /* 公式 */

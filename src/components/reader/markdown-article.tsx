@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogTitle } from "#/components/ui/dialog";
 import {
   rehypeHeadingIds,
   rehypeNotranslate,
+  rehypeTableMath,
   rehypeUnwrapImages,
 } from "./rehype-plugins";
 import type { ReaderSettings } from "./use-reader-settings";
@@ -27,10 +28,12 @@ function readerUrlTransform(url: string): string {
   return url.startsWith("data:image/") ? url : defaultUrlTransform(url);
 }
 
-// 顺序很重要:先 rehype-raw 解析内嵌 HTML(MinerU 偶有 HTML 表格)→ katex 渲染公式
-// → highlight 代码 → 生成标题 id → 拆出仅含图片的段落 → 最后给公式/代码打 notranslate。
+// 顺序很重要:先 rehype-raw 解析内嵌 HTML(MinerU 表格是 HTML)→ 把表格里残留的 $...$ 转成
+// 公式 span → katex 渲染公式 → highlight 代码 → 生成标题 id → 拆出仅含图片的段落 → 最后给
+// 公式/代码打 notranslate。
 const REHYPE_PLUGINS: PluggableList = [
   rehypeRaw,
+  rehypeTableMath,
   rehypeKatex,
   rehypeHighlight,
   rehypeHeadingIds,
