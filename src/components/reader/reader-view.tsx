@@ -1,4 +1,11 @@
-import { FilePlus2, FileText, List, X } from "lucide-react";
+import {
+  FilePlus2,
+  FileText,
+  List,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
+} from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
@@ -24,6 +31,10 @@ export function ReaderView({
   const { settings, update, reset } = useReaderSettings();
   const { items, activeId, jumpTo } = useToc(articleRef, markdown);
   const [tocOpen, setTocOpen] = useState(false);
+  const [tocCollapsed, setTocCollapsed] = useState(false);
+
+  // 无标题可生成目录时,桌面端也并为单栏(不留空白边栏)。
+  const hideSidebar = tocCollapsed || items.length === 0;
 
   const handleJump = (id: string) => {
     jumpTo(id);
@@ -75,13 +86,26 @@ export function ReaderView({
         <ReadingProgress targetRef={articleRef} />
       </div>
 
-      <div className="reader-layout">
-        <aside className="reader-sidebar">
-          <span className="reader-sidebar-heading">{m.reader_toc()}</span>
-          <div className="reader-sidebar-scroll">
-            <TocList items={items} activeId={activeId} onJump={handleJump} />
-          </div>
-        </aside>
+      <div className={cn("reader-layout", hideSidebar && "is-toc-collapsed")}>
+        {hideSidebar ? null : (
+          <aside className="reader-sidebar">
+            <div className="reader-sidebar-head">
+              <span className="reader-sidebar-heading">{m.reader_toc()}</span>
+              <button
+                type="button"
+                className="reader-toc-collapse-btn"
+                onClick={() => setTocCollapsed(true)}
+                aria-label={m.reader_toc_hide()}
+                title={m.reader_toc_hide()}
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="reader-sidebar-scroll">
+              <TocList items={items} activeId={activeId} onJump={handleJump} />
+            </div>
+          </aside>
+        )}
 
         <div className="min-w-0">
           <MarkdownArticle
@@ -93,6 +117,20 @@ export function ReaderView({
 
         <div className="reader-rail-balance" aria-hidden />
       </div>
+
+      {/* 收起目录后,左侧留一个重新展开的吸附按钮(仅桌面) */}
+      {tocCollapsed && items.length > 0 ? (
+        <button
+          type="button"
+          className="reader-toc-reopen"
+          onClick={() => setTocCollapsed(false)}
+          aria-label={m.reader_toc_show()}
+          title={m.reader_toc_show()}
+        >
+          <PanelLeftOpen className="h-4 w-4" />
+          <span className="reader-toc-reopen-label">{m.reader_toc()}</span>
+        </button>
+      ) : null}
 
       {/* 移动端目录抽屉 */}
       {tocOpen ? (

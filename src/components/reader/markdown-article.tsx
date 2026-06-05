@@ -1,6 +1,6 @@
 import "katex/dist/katex.min.css";
 import type { CSSProperties, RefObject } from "react";
-import { useState } from "react";
+import { memo, useCallback, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -35,13 +35,20 @@ interface MarkdownArticleProps {
   articleRef: RefObject<HTMLElement | null>;
 }
 
-export function MarkdownArticle({
+/**
+ * 只依赖 markdown 的渲染子树,用 memo 隔离。
+ *
+ * 关键:字体/字号/宽度/行距等阅读设置只是 CSS 变量(挂在外层 <article>),纯样式变化
+ * 本不该重新解析文档。隔离后,调设置时 react-markdown 不再重跑 rehype-raw/katex/highlight
+ * 这套重管线 —— 长文「切字体/设置巨卡」即由此根治。components 与插件引用均保持稳定。
+ */
+const RenderedMarkdown = memo(function RenderedMarkdown({
   markdown,
-  settings,
-  articleRef,
-}: MarkdownArticleProps) {
-  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
-
+  onZoom,
+}: {
+  markdown: string;
+  onZoom: (src: string) => void;
+}) {
   const components: Components = {
     a: ({ href, children }) => (
       <a href={href} target="_blank" rel="noopener noreferrer">
@@ -60,7 +67,7 @@ export function MarkdownArticle({
           <button
             type="button"
             className="reader-figure-btn"
-            onClick={() => url && setZoomSrc(url)}
+            onClick={() => url && onZoom(url)}
             aria-label={alt || "Zoom figure"}
           >
             <img src={url} alt={alt ?? ""} loading="lazy" />
@@ -70,6 +77,26 @@ export function MarkdownArticle({
       );
     },
   };
+
+  return (
+    <Markdown
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={REHYPE_PLUGINS}
+      components={components}
+    >
+      {markdown}
+    </Markdown>
+  );
+});
+
+export function MarkdownArticle({
+  markdown,
+  settings,
+  articleRef,
+}: MarkdownArticleProps) {
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
+  // 稳定引用,避免破坏 RenderedMarkdown 的 memo。
+  const onZoom = useCallback((src: string) => setZoomSrc(src), []);
 
   return (
     <>
@@ -85,13 +112,7 @@ export function MarkdownArticle({
           } as CSSProperties
         }
       >
-        <Markdown
-          remarkPlugins={REMARK_PLUGINS}
-          rehypePlugins={REHYPE_PLUGINS}
-          components={components}
-        >
-          {markdown}
-        </Markdown>
+        <RenderedMarkdown markdown={markdown} onZoom={onZoom} />
       </article>
 
       <Dialog

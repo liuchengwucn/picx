@@ -2,13 +2,16 @@ import { getDocument } from "pdfjs-serverless";
 
 import type { AIConfig } from "./ai";
 import { reviewPaperTailCandidate } from "./ai";
+import {
+  matchesPaperTailHeading,
+  normalizeHeadingCandidate,
+} from "./paper-tail";
 
 const MIN_MAIN_TEXT_CHARS = 200;
 const PAPER_TAIL_REVIEW_CONFIDENCE_THRESHOLD = 0.75;
 const PREVIOUS_CONTEXT_CHARS = 1200;
 const CANDIDATE_CONTEXT_CHARS = 1200;
 const NEXT_CONTEXT_CHARS = 2400;
-const MAX_CANDIDATE_LINE_LENGTH = 120;
 
 interface ExtractedPDFPage extends PDFPageText {
   startOffset: number;
@@ -63,54 +66,6 @@ function normalizePageText(text: string): string {
     .replace(/ *\n */g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function normalizeHeadingCandidate(line: string): string {
-  let normalized = line
-    .normalize("NFKC")
-    .replace(/[‐‑‒–—]/g, "-")
-    .replace(/[ \t\u00a0\u3000]+/g, " ")
-    .trim();
-
-  normalized = normalized.replace(/^[[(【（「『]+/, "");
-  normalized = normalized.replace(/[\])】）」』]+$/, "");
-  normalized = normalized.replace(/^[#*\-–—]+\s*/, "");
-  normalized = normalized.replace(/[：:;,.\-–—]+$/, "").trim();
-  normalized = normalized.replace(
-    /^第\s*[0-9ivxlcdm一二三四五六七八九十百千]+\s*[章节節部]\s*/iu,
-    "",
-  );
-  normalized = normalized.replace(
-    /^(?:section|sec\.?|chapter|part)\s+[0-9ivxlcdm]+[.:：-]?\s*/iu,
-    "",
-  );
-  normalized = normalized.replace(
-    /^[0-9ivxlcdm]+(?:\.[0-9ivxlcdm]+)*[)\].:：-]?\s*/iu,
-    "",
-  );
-
-  return normalized.trim();
-}
-
-function matchesPaperTailHeading(normalizedLine: string): boolean {
-  if (!normalizedLine || normalizedLine.length > MAX_CANDIDATE_LINE_LENGTH) {
-    return false;
-  }
-
-  const patterns = [
-    /^(references|reference)$/iu,
-    /^(bibliography|references and notes)$/iu,
-    /^(appendix|appendices)(?:\s+[a-z0-9]+)?$/iu,
-    /^(supplementary|supplemental)(?:\s+(?:material|materials|information|appendix|appendices))?$/iu,
-    /^(acknowledg?ments?)$/iu,
-    /^(author contributions?)$/iu,
-    /^(conflicts? of interest|competing interests?)$/iu,
-    /^(data availability|ethics statement)$/iu,
-    /^(参考文献|附录|附錄|致谢|致謝|作者贡献|作者貢獻)$/u,
-    /^(付録|補遺|補足資料|補足情報|謝辞|著者貢献|利益相反|データ可用性|倫理声明)(?:\s*[a-z0-9一二三四五六七八九十]+)?$/u,
-  ];
-
-  return patterns.some((pattern) => pattern.test(normalizedLine));
 }
 
 function extractPageTextFromItems(

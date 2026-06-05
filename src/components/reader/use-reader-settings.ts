@@ -16,12 +16,12 @@ export interface ReaderSettings {
 export const READER_DEFAULTS: ReaderSettings = {
   font: "serif",
   fontSize: 19,
-  measure: 72,
+  measure: 80,
   lineHeight: 1.8,
 };
 
 export const FONT_SIZE_RANGE = { min: 15, max: 26, step: 1 } as const;
-export const MEASURE_RANGE = { min: 56, max: 92, step: 4 } as const;
+export const MEASURE_RANGE = { min: 60, max: 104, step: 4 } as const;
 export const LINE_HEIGHT_RANGE = { min: 1.4, max: 2.2, step: 0.1 } as const;
 
 const STORAGE_KEY = "reader-settings";

@@ -70,4 +70,41 @@ describe("renderZip", () => {
     expect(markdown).not.toContain("images/a.png");
     expect(markdown).not.toContain("./images/a.png");
   });
+
+  it("inlines when the zip nests content under a subdirectory", () => {
+    // full.md 在子目录里、图片路径相对 md 写,zip 条目却带子目录前缀。
+    const zip = zipSync({
+      "doc/full.md": strToU8("# T\n\n![fig](images/a.png)\n"),
+      "doc/images/a.png": MINIMAL_PNG,
+    });
+
+    const { markdown } = renderZip(zip);
+
+    expect(markdown).toContain("data:image/png;base64,");
+    expect(markdown).not.toContain("](images/a.png)");
+  });
+
+  it("inlines a bare filename reference via unique basename", () => {
+    const zip = zipSync({
+      "full.md": strToU8("# T\n\n![fig](a.png)\n"),
+      "images/a.png": MINIMAL_PNG,
+    });
+
+    const { markdown } = renderZip(zip);
+
+    expect(markdown).toContain("data:image/png;base64,");
+    expect(markdown).not.toContain("](a.png)");
+  });
+
+  it("inlines an inline HTML <img src> reference", () => {
+    const zip = zipSync({
+      "full.md": strToU8('# T\n\n<img src="images/a.png" alt="x" />\n'),
+      "images/a.png": MINIMAL_PNG,
+    });
+
+    const { markdown } = renderZip(zip);
+
+    expect(markdown).toContain("data:image/png;base64,");
+    expect(markdown).not.toContain('src="images/a.png"');
+  });
 });

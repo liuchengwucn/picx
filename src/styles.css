@@ -597,6 +597,70 @@ a:hover { color: var(--academic-brown-deep); }
   color: var(--sienna);
   background: color-mix(in srgb, var(--sienna) 14%, transparent);
 }
+
+/* ---- 上传前裁剪预览 ---- */
+.reader-trim-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.4rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-family: var(--font-sans);
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.reader-trim-stat-from {
+  color: var(--ink-soft);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--sienna) 60%, transparent);
+}
+.reader-trim-stat-arrow {
+  width: 18px;
+  height: 18px;
+  color: var(--ink-soft);
+}
+.reader-trim-stat-to {
+  color: var(--academic-brown-deep);
+}
+.reader-trim-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+}
+.reader-trim-actions .reader-primary-btn,
+.reader-trim-actions .reader-ghost-btn {
+  justify-content: center;
+}
+@media (min-width: 420px) {
+  .reader-trim-actions {
+    flex-direction: row;
+    justify-content: center;
+  }
+}
+.reader-trim-cancel {
+  margin-top: 0.9rem;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.reader-trim-cancel:hover {
+  color: var(--academic-brown-deep);
+}
+.reader-trim-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .reader-steps {
   display: flex;
   flex-direction: column;
@@ -768,7 +832,7 @@ a:hover { color: var(--academic-brown-deep); }
   color: var(--ink-soft);
 }
 
-/* ---- 目录 ---- */
+/* ---- 目录(可折叠树) ---- */
 .reader-toc-list {
   list-style: none;
   margin: 0;
@@ -776,37 +840,83 @@ a:hover { color: var(--academic-brown-deep); }
   display: flex;
   flex-direction: column;
   gap: 0.05rem;
+}
+.reader-toc-list[data-depth="0"] {
   border-left: 1px solid var(--line);
 }
-.reader-toc-list li[data-level="2"] .reader-toc-link {
-  padding-left: 1.4rem;
+.reader-toc-list .reader-toc-list {
+  margin-left: 0.5rem;
+  padding-left: 0.45rem;
+  border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
-.reader-toc-list li[data-level="3"] .reader-toc-link {
-  padding-left: 2.2rem;
-  font-size: 0.82em;
+.reader-toc-row {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+  border-radius: 0 6px 6px 0;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.reader-toc-row:hover {
+  background: color-mix(in srgb, var(--academic-brown) 8%, transparent);
+}
+.reader-toc-row:has(.reader-toc-link.is-active) {
+  border-left-color: var(--academic-brown);
+  background: color-mix(in srgb, var(--academic-brown) 10%, transparent);
+}
+.reader-toc-row:has(.reader-toc-link.has-active) {
+  border-left-color: color-mix(in srgb, var(--academic-brown) 45%, transparent);
+}
+.reader-toc-fold,
+.reader-toc-fold-spacer {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+.reader-toc-fold {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 0;
+  transition: color 150ms ease, background 150ms ease;
+}
+.reader-toc-fold:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--academic-brown) 16%, transparent);
+}
+.reader-toc-chevron {
+  width: 13px;
+  height: 13px;
+  transition: transform 160ms ease;
+}
+.reader-toc-chevron.is-open {
+  transform: rotate(90deg);
 }
 .reader-toc-link {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
   background: transparent;
   border: 0;
   cursor: pointer;
-  padding: 0.4rem 0.6rem;
-  margin-left: -1px;
+  padding: 0.35rem 0.5rem;
   font-family: var(--font-sans);
   font-size: 0.875rem;
   line-height: 1.35;
   color: var(--ink-soft);
-  border-left: 2px solid transparent;
-  border-radius: 0 6px 6px 0;
-  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+  transition: color 160ms ease;
 }
-.reader-toc-tick {
-  display: none;
+.reader-toc-list[data-depth="2"] .reader-toc-link,
+.reader-toc-list[data-depth="3"] .reader-toc-link {
+  font-size: 0.82rem;
 }
 .reader-toc-text {
   overflow: hidden;
@@ -815,13 +925,83 @@ a:hover { color: var(--academic-brown-deep); }
 }
 .reader-toc-link:hover {
   color: var(--ink);
-  background: color-mix(in srgb, var(--academic-brown) 8%, transparent);
 }
 .reader-toc-link.is-active {
   color: var(--academic-brown-deep);
   font-weight: 600;
-  border-left-color: var(--academic-brown);
-  background: color-mix(in srgb, var(--academic-brown) 10%, transparent);
+}
+.reader-toc-link.has-active {
+  color: var(--academic-brown-deep);
+}
+
+/* ---- 侧栏:收起/重新展开 ---- */
+.reader-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.reader-toc-collapse-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+.reader-toc-collapse-btn:hover {
+  color: var(--ink);
+  background: var(--surface-strong);
+  border-color: var(--line);
+}
+.reader-toc-reopen {
+  display: none;
+}
+.reader-toc-reopen-label {
+  letter-spacing: 0.02em;
+}
+@media (min-width: 1024px) {
+  .reader-layout.is-toc-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .reader-layout.is-toc-collapsed .reader-rail-balance {
+    display: none;
+  }
+  .reader-toc-reopen {
+    position: fixed;
+    left: 0;
+    top: 140px;
+    z-index: 25;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.7rem 0.5rem 0.5rem;
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ink);
+    background: var(--surface-strong);
+    border: 1px solid var(--line);
+    border-left: 0;
+    border-radius: 0 12px 12px 0;
+    box-shadow: 4px 4px 16px rgba(45, 42, 36, 0.1);
+    cursor: pointer;
+    transition: transform 160ms ease, background 160ms ease, color 160ms ease;
+  }
+  .reader-toc-reopen:hover {
+    background: var(--parchment);
+    color: var(--academic-brown-deep);
+    transform: translateX(2px);
+  }
+}
+@media (min-width: 1440px) {
+  .reader-layout.is-toc-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ---- 移动端目录抽屉 ---- */
@@ -974,7 +1154,7 @@ a:hover { color: var(--academic-brown-deep); }
 
 /* ---- 正文排版(由阅读设置经 CSS 变量驱动) ---- */
 .reader-prose {
-  max-width: var(--reader-measure, 72ch);
+  max-width: var(--reader-measure, 80ch);
   margin-inline: auto;
   font-size: var(--reader-font-size, 19px);
   line-height: var(--reader-leading, 1.8);

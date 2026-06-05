@@ -1,10 +1,15 @@
-import { type RefObject, useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { type RefObject, useEffect, useMemo, useState } from "react";
 import { cn } from "#/lib/utils";
 
 export interface TocItem {
   id: string;
   text: string;
   level: number;
+}
+
+interface TocNode extends TocItem {
+  children: TocNode[];
 }
 
 /**
@@ -88,6 +93,31 @@ export function useToc(
   return { items, activeId, jumpTo };
 }
 
+/** 把扁平的 h1–h3 列表按层级构造成树,供折叠。 */
+function buildTree(items: TocItem[]): TocNode[] {
+  const root: TocNode[] = [];
+  const stack: TocNode[] = [];
+  for (const item of items) {
+    const node: TocNode = { ...item, children: [] };
+    while (stack.length > 0 && stack[stack.length - 1].level >= item.level) {
+      stack.pop();
+    }
+    if (stack.length > 0) {
+      stack[stack.length - 1].children.push(node);
+    } else {
+      root.push(node);
+    }
+    stack.push(node);
+  }
+  return root;
+}
+
+function subtreeHasId(node: TocNode, id: string): boolean {
+  return (
+    node.id === id || node.children.some((child) => subtreeHasId(child, id))
+  );
+}
+
 interface TocListProps {
   items: TocItem[];
   activeId: string;
@@ -96,30 +126,109 @@ interface TocListProps {
 }
 
 export function TocList({ items, activeId, onJump, className }: TocListProps) {
+  const tree = useMemo(() => buildTree(items), [items]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+  const toggle = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   if (items.length === 0) {
     return null;
   }
+
   return (
     <nav aria-label="Table of contents" className={cn("reader-toc", className)}>
-      <ul className="reader-toc-list">
-        {items.map((item) => {
-          const isActive = item.id === activeId;
-          return (
-            <li key={item.id} data-level={item.level}>
+      <TocTree
+        nodes={tree}
+        depth={0}
+        activeId={activeId}
+        collapsed={collapsed}
+        onToggle={toggle}
+        onJump={onJump}
+      />
+    </nav>
+  );
+}
+
+function TocTree({
+  nodes,
+  depth,
+  activeId,
+  collapsed,
+  onToggle,
+  onJump,
+}: {
+  nodes: TocNode[];
+  depth: number;
+  activeId: string;
+  collapsed: Set<string>;
+  onToggle: (id: string) => void;
+  onJump: (id: string) => void;
+}) {
+  return (
+    <ul className="reader-toc-list" data-depth={depth}>
+      {nodes.map((node) => {
+        const hasChildren = node.children.length > 0;
+        const isOpen = !collapsed.has(node.id);
+        const isActive = node.id === activeId;
+        // 折叠且当前阅读位置落在该子树内时,给父节点一个轻提示。
+        const hasActiveHidden =
+          hasChildren && !isOpen && subtreeHasId(node, activeId);
+
+        return (
+          <li key={node.id}>
+            <div className="reader-toc-row">
+              {hasChildren ? (
+                <button
+                  type="button"
+                  className="reader-toc-fold"
+                  onClick={() => onToggle(node.id)}
+                  aria-expanded={isOpen}
+                  aria-label={isOpen ? "Collapse section" : "Expand section"}
+                >
+                  <ChevronRight
+                    className={cn("reader-toc-chevron", isOpen && "is-open")}
+                  />
+                </button>
+              ) : (
+                <span className="reader-toc-fold-spacer" aria-hidden />
+              )}
               <button
                 type="button"
-                onClick={() => onJump(item.id)}
+                onClick={() => onJump(node.id)}
                 aria-current={isActive ? "location" : undefined}
-                className={cn("reader-toc-link", isActive && "is-active")}
-                title={item.text}
+                className={cn(
+                  "reader-toc-link",
+                  isActive && "is-active",
+                  hasActiveHidden && "has-active",
+                )}
+                title={node.text}
               >
-                <span className="reader-toc-tick" aria-hidden />
-                <span className="reader-toc-text">{item.text}</span>
+                <span className="reader-toc-text">{node.text}</span>
               </button>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+            </div>
+            {hasChildren && isOpen ? (
+              <TocTree
+                nodes={node.children}
+                depth={depth + 1}
+                activeId={activeId}
+                collapsed={collapsed}
+                onToggle={onToggle}
+                onJump={onJump}
+              />
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
