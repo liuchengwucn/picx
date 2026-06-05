@@ -162,7 +162,7 @@ export function TocList({ items, activeId, onJump, className }: TocListProps) {
   }
 
   return (
-    <nav aria-label="Table of contents" className={cn("reader-toc", className)}>
+    <nav aria-label="Table of contents" className={className}>
       <TocTree
         nodes={tree}
         depth={0}
@@ -191,7 +191,14 @@ function TocTree({
   onJump: (id: string) => void;
 }) {
   return (
-    <ul className="reader-toc-list" data-depth={depth}>
+    <ul
+      className={cn(
+        "m-0 flex list-none flex-col gap-[0.05rem] p-0",
+        depth === 0
+          ? "border-l border-[var(--line)]"
+          : "ml-2 border-l border-[color-mix(in_srgb,var(--line)_70%,transparent)] pl-[0.45rem]",
+      )}
+    >
       {nodes.map((node) => {
         const hasChildren = node.children.length > 0;
         const isOpen = !collapsed.has(node.id);
@@ -202,34 +209,52 @@ function TocTree({
 
         return (
           <li key={node.id}>
-            <div className="reader-toc-row">
+            <div
+              className={cn(
+                "flex items-center gap-[0.1rem] -ml-px rounded-r-[6px] border-l-2 transition-[background,border-color] duration-[160ms] hover:bg-[color-mix(in_srgb,var(--academic-brown)_8%,transparent)]",
+                isActive
+                  ? "border-[var(--academic-brown)] bg-[color-mix(in_srgb,var(--academic-brown)_10%,transparent)]"
+                  : hasActiveHidden
+                    ? "border-[color-mix(in_srgb,var(--academic-brown)_45%,transparent)]"
+                    : "border-transparent",
+              )}
+            >
               {hasChildren ? (
                 <button
                   type="button"
-                  className="reader-toc-fold"
+                  className="grid h-[18px] w-[18px] flex-none cursor-pointer place-items-center rounded-[5px] border-0 bg-transparent p-0 text-[var(--ink-soft)] transition-[color,background] duration-150 hover:bg-[color-mix(in_srgb,var(--academic-brown)_16%,transparent)] hover:text-[var(--ink)]"
                   onClick={() => onToggle(node.id)}
                   aria-expanded={isOpen}
                   aria-label={isOpen ? "Collapse section" : "Expand section"}
                 >
                   <ChevronRight
-                    className={cn("reader-toc-chevron", isOpen && "is-open")}
+                    className={cn(
+                      "h-[13px] w-[13px] transition-transform duration-[160ms]",
+                      isOpen && "rotate-90",
+                    )}
                   />
                 </button>
               ) : (
-                <span className="reader-toc-fold-spacer" aria-hidden />
+                <span className="h-[18px] w-[18px] flex-none" aria-hidden />
               )}
               <button
                 type="button"
                 onClick={() => onJump(node.id)}
                 aria-current={isActive ? "location" : undefined}
                 className={cn(
-                  "reader-toc-link",
-                  isActive && "is-active",
-                  hasActiveHidden && "has-active",
+                  "relative flex min-w-0 flex-auto cursor-pointer items-center border-0 bg-transparent px-2 py-[0.35rem] text-left leading-[1.35] transition-colors duration-[160ms]",
+                  depth >= 2 ? "text-[0.82rem]" : "text-[0.875rem]",
+                  isActive
+                    ? "font-semibold text-[var(--academic-brown-deep)]"
+                    : hasActiveHidden
+                      ? "text-[var(--academic-brown-deep)]"
+                      : "text-[var(--ink-soft)] hover:text-[var(--ink)]",
                 )}
                 title={node.text}
               >
-                <span className="reader-toc-text">{node.text}</span>
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap">
+                  {node.text}
+                </span>
               </button>
             </div>
             {hasChildren && isOpen ? (

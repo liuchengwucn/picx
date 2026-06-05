@@ -2,6 +2,7 @@ import { FileText, FunctionSquare, Languages, UploadCloud } from "lucide-react";
 import { type DragEvent, useRef, useState } from "react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
+import { PRIMARY_BTN } from "./reader-ui";
 
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
 
@@ -43,7 +44,9 @@ export function UploadZone({ onFile }: UploadZoneProps) {
   return (
     <div className="page-wrap py-12 sm:py-20">
       <div className="stagger-in mx-auto max-w-2xl text-center">
-        <span className="reader-eyebrow">{m.reader_eyebrow()}</span>
+        <span className="inline-block rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-[0.85rem] py-[0.35rem] text-[0.72rem] font-bold uppercase tracking-[0.22em] text-[var(--academic-brown)]">
+          {m.reader_eyebrow()}
+        </span>
         <h1 className="display-title mt-4 text-balance text-4xl font-bold leading-[1.08] tracking-tight text-[var(--ink)] sm:text-5xl">
           {m.reader_hero_title()}
         </h1>
@@ -55,9 +58,11 @@ export function UploadZone({ onFile }: UploadZoneProps) {
       {/* biome-ignore lint/a11y/noStaticElementInteractions: 拖拽区,主操作由内部 button 触发 */}
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: 同上,键盘可达性由内部 button 提供 */}
       <div
+        data-dragging={dragging || undefined}
         className={cn(
-          "reader-dropzone stagger-in mt-10",
-          dragging && "is-dragging",
+          "group stagger-in relative mx-auto mt-10 flex w-[min(640px,100%)] cursor-pointer flex-col items-center overflow-hidden rounded-[22px] border-[1.5px] border-dashed border-[color-mix(in_srgb,var(--academic-brown)_45%,transparent)] bg-[linear-gradient(165deg,var(--surface-strong),var(--surface))] px-6 py-12 text-center shadow-[0_2px_18px_rgba(45,42,36,0.07)] [transition:border-color_200ms_ease,box-shadow_240ms_ease,transform_240ms_cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-[3px] hover:border-[var(--academic-brown)] hover:shadow-[0_12px_34px_rgba(45,42,36,0.12)]",
+          dragging &&
+            "-translate-y-[3px] border-solid border-[var(--gold)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--gold)_22%,transparent),0_14px_40px_rgba(45,42,36,0.16)]",
         )}
         onDragOver={(e) => {
           e.preventDefault();
@@ -67,8 +72,11 @@ export function UploadZone({ onFile }: UploadZoneProps) {
         onDrop={onDrop}
         onClick={() => inputRef.current?.click()}
       >
-        <div className="reader-dropzone-glow" aria-hidden />
-        <div className="reader-dropzone-icon">
+        <div
+          className="pointer-events-none absolute inset-x-[30%] bottom-auto top-[-40%] h-[60%] bg-[radial-gradient(closest-side,color-mix(in_srgb,var(--gold)_24%,transparent),transparent_70%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-data-[dragging]:opacity-100"
+          aria-hidden
+        />
+        <div className="grid h-16 w-16 place-items-center rounded-[18px] bg-[linear-gradient(150deg,var(--academic-brown),var(--academic-brown-deep))] text-white shadow-[0_8px_22px_rgba(139,111,71,0.32)]">
           <UploadCloud className="h-8 w-8" />
         </div>
         <p className="mt-5 text-lg font-semibold text-[var(--ink)]">
@@ -79,7 +87,7 @@ export function UploadZone({ onFile }: UploadZoneProps) {
         </p>
         <button
           type="button"
-          className="reader-primary-btn mt-6"
+          className={cn(PRIMARY_BTN, "mt-6")}
           onClick={(e) => {
             e.stopPropagation();
             inputRef.current?.click();
@@ -140,8 +148,10 @@ function Feature({
   body: string;
 }) {
   return (
-    <div className="reader-feature">
-      <span className="reader-feature-icon">{icon}</span>
+    <div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] px-[1.15rem] py-[1.1rem] text-left">
+      <span className="inline-grid h-[34px] w-[34px] place-items-center rounded-[10px] bg-[color-mix(in_srgb,var(--academic-brown)_12%,transparent)] text-[var(--academic-brown-deep)]">
+        {icon}
+      </span>
       <h3 className="mt-3 text-sm font-semibold text-[var(--ink)]">{title}</h3>
       <p className="mt-1 text-xs leading-relaxed text-[var(--ink-soft)]">
         {body}

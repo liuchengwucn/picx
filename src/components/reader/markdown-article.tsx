@@ -68,23 +68,32 @@ const RenderedMarkdown = memo(function RenderedMarkdown({
       </a>
     ),
     table: ({ children }) => (
-      <div className="reader-table-wrap">
+      <div className="my-[1.7em] overflow-x-auto rounded-[12px] border border-[var(--line)]">
         <table>{children}</table>
       </div>
     ),
     img: ({ src, alt }) => {
       const url = typeof src === "string" ? src : "";
       return (
-        <figure className="reader-figure">
+        <figure className="my-[1.9em] text-center">
           <button
             type="button"
-            className="reader-figure-btn"
+            className="group inline-block max-w-full cursor-zoom-in rounded-[12px] border-0 bg-transparent p-0 leading-[0]"
             onClick={() => url && onZoom(url)}
             aria-label={alt || "Zoom figure"}
           >
-            <img src={url} alt={alt ?? ""} loading="lazy" />
+            <img
+              src={url}
+              alt={alt ?? ""}
+              loading="lazy"
+              className="h-auto max-w-full rounded-[12px] border border-[var(--line)] bg-[#fdfdfb] [transition:transform_220ms_cubic-bezier(0.16,1,0.3,1),box-shadow_220ms_ease] group-hover:-translate-y-[2px] group-hover:shadow-[0_10px_28px_rgba(45,42,36,0.16)]"
+            />
           </button>
-          {alt ? <figcaption>{alt}</figcaption> : null}
+          {alt ? (
+            <figcaption className="mt-[0.75em] font-[family-name:var(--reader-sans)] text-[0.82em] leading-[1.5] text-[var(--ink-soft)]">
+              {alt}
+            </figcaption>
+          ) : null}
         </figure>
       );
     },

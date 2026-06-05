@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
+import { GHOST_BTN, PRIMARY_BTN, STATUS_CARD, STATUS_ICON } from "./reader-ui";
 
 export type ProgressPhase = "uploading" | "processing" | "rendering" | "error";
 
@@ -35,8 +36,13 @@ export function ConvertProgress({
   if (phase === "error") {
     return (
       <div className="page-wrap flex min-h-[60vh] items-center justify-center py-12">
-        <div className="reader-status-card rise-in text-center">
-          <span className="reader-status-icon is-error">
+        <div className={cn(STATUS_CARD, "rise-in text-center")}>
+          <span
+            className={cn(
+              STATUS_ICON,
+              "text-[var(--sienna)] bg-[color-mix(in_srgb,var(--sienna)_14%,transparent)]",
+            )}
+          >
             <AlertTriangle className="h-7 w-7" />
           </span>
           <h2 className="mt-5 text-xl font-semibold text-[var(--ink)]">
@@ -46,19 +52,11 @@ export function ConvertProgress({
             {errorMessage || m.reader_error_generic()}
           </p>
           <div className="mt-6 flex items-center justify-center gap-3">
-            <button
-              type="button"
-              className="reader-primary-btn"
-              onClick={onRetry}
-            >
+            <button type="button" className={PRIMARY_BTN} onClick={onRetry}>
               <RefreshCw className="h-4 w-4" />
               {m.reader_retry()}
             </button>
-            <button
-              type="button"
-              className="reader-ghost-btn"
-              onClick={onReset}
-            >
+            <button type="button" className={GHOST_BTN} onClick={onReset}>
               <RotateCcw className="h-4 w-4" />
               {m.reader_choose_other()}
             </button>
@@ -77,8 +75,13 @@ export function ConvertProgress({
 
   return (
     <div className="page-wrap flex min-h-[60vh] items-center justify-center py-12">
-      <div className="reader-status-card rise-in text-center">
-        <span className="reader-status-icon">
+      <div className={cn(STATUS_CARD, "rise-in text-center")}>
+        <span
+          className={cn(
+            STATUS_ICON,
+            "text-[var(--academic-brown-deep)] bg-[color-mix(in_srgb,var(--academic-brown)_14%,transparent)]",
+          )}
+        >
           <FileText className="h-7 w-7" />
         </span>
         <h2 className="mt-5 text-xl font-semibold text-[var(--ink)]">
@@ -90,7 +93,7 @@ export function ConvertProgress({
           </p>
         ) : null}
 
-        <ol className="reader-steps mt-8">
+        <ol className="mt-8 flex flex-col gap-[0.4rem] mx-auto w-max max-w-full text-left list-none p-0">
           {steps.map((label, index) => {
             const state =
               index < activeStep
@@ -99,17 +102,34 @@ export function ConvertProgress({
                   ? "active"
                   : "pending";
             return (
-              <li key={label} className={cn("reader-step", `is-${state}`)}>
-                <span className="reader-step-dot">
+              <li
+                key={label}
+                className={cn(
+                  "flex items-center gap-3 px-[0.2rem] py-[0.4rem] transition-colors duration-200",
+                  state === "pending"
+                    ? "text-[var(--ink-soft)]"
+                    : "text-[var(--ink)]",
+                )}
+              >
+                <span
+                  className={cn(
+                    "grid place-items-center w-[26px] h-[26px] rounded-full border-[1.5px] text-xs font-bold shrink-0",
+                    state === "done"
+                      ? "border-[var(--olive)] text-white bg-[var(--olive)]"
+                      : state === "active"
+                        ? "border-[var(--academic-brown)] text-[var(--academic-brown-deep)] bg-[var(--surface)]"
+                        : "border-[var(--line)] text-[var(--ink-soft)] bg-[var(--surface)]",
+                  )}
+                >
                   {state === "done" ? (
                     <Check className="h-3.5 w-3.5" />
                   ) : state === "active" ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <span className="reader-step-num">{index + 1}</span>
+                    <span>{index + 1}</span>
                   )}
                 </span>
-                <span className="reader-step-label">{label}</span>
+                <span className="text-[0.92rem] font-semibold">{label}</span>
               </li>
             );
           })}

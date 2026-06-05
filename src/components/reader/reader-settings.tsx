@@ -2,6 +2,7 @@ import { Minus, Plus, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
+import { TOOL_BTN } from "./reader-ui";
 import {
   FONT_SIZE_RANGE,
   LINE_HEIGHT_RANGE,
@@ -43,7 +44,7 @@ export function ReaderSettingsMenu({
         onClick={() => setOpen((v) => !v)}
         aria-label={m.reader_settings()}
         aria-expanded={open}
-        className="reader-tool-btn"
+        className={TOOL_BTN}
       >
         <SlidersHorizontal className="h-4 w-4" />
         <span className="hidden sm:inline">{m.reader_settings()}</span>
@@ -57,7 +58,15 @@ export function ReaderSettingsMenu({
             className="fixed inset-0 z-40 cursor-default"
             onClick={() => setOpen(false)}
           />
-          <div className="reader-popover absolute right-0 top-[calc(100%+0.5rem)] z-50 w-72">
+          <div
+            className={cn(
+              "animate-in fade-in slide-in-from-bottom-3 duration-[180ms]",
+              "absolute right-0 top-[calc(100%+0.5rem)] z-50 w-72",
+              "flex flex-col gap-[0.85rem] rounded-[16px] border border-[var(--line)] p-[0.9rem]",
+              "bg-[linear-gradient(165deg,var(--surface-strong),var(--surface))]",
+              "shadow-[0_16px_44px_rgba(45,42,36,0.18)] backdrop-blur-[14px]",
+            )}
+          >
             <Section label={m.reader_typeface()}>
               <div className="grid grid-cols-2 gap-1.5">
                 <SegButton
@@ -117,7 +126,13 @@ export function ReaderSettingsMenu({
             <button
               type="button"
               onClick={onReset}
-              className="reader-reset-btn"
+              className={cn(
+                "inline-flex items-center justify-center gap-[0.4rem] cursor-pointer",
+                "rounded-[9px] border border-[var(--line)] bg-transparent p-[0.45rem]",
+                "text-[0.78rem] font-semibold text-[var(--ink-soft)]",
+                "transition-[color,border-color] duration-150",
+                "hover:text-[var(--ink)] hover:border-[var(--academic-brown)]",
+              )}
             >
               <RotateCcw className="h-3.5 w-3.5" />
               {m.reader_reset()}
@@ -137,8 +152,10 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="reader-popover-section">
-      <span className="reader-popover-label">{label}</span>
+    <div className="flex flex-col gap-[0.45rem]">
+      <span className="text-[0.7rem] font-bold uppercase tracking-[0.1em] text-[var(--ink-soft)]">
+        {label}
+      </span>
       {children}
     </div>
   );
@@ -157,7 +174,14 @@ function SegButton({
     <button
       type="button"
       onClick={onClick}
-      className={cn("reader-seg", active && "is-active")}
+      className={cn(
+        "inline-flex items-center justify-center gap-[0.3rem] cursor-pointer",
+        "rounded-[9px] border border-[var(--line)] bg-[var(--surface)] px-[0.3rem] py-[0.42rem]",
+        "text-[0.8rem] font-semibold text-[var(--ink-soft)] transition-all duration-150",
+        "hover:text-[var(--ink)] hover:border-[var(--academic-brown)]",
+        active &&
+          "text-white border-transparent shadow-[0_4px_12px_rgba(139,111,71,0.24)] bg-[linear-gradient(150deg,var(--academic-brown),var(--academic-brown-deep))]",
+      )}
     >
       {children}
     </button>
@@ -180,20 +204,22 @@ function Stepper({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="reader-stepper">
+    <div className="flex items-center justify-between rounded-[9px] border border-[var(--line)] bg-[var(--surface)] p-[0.25rem]">
       <button
         type="button"
-        className="reader-stepper-btn"
+        className={STEPPER_BTN}
         disabled={value <= min}
         onClick={() => onChange(Math.max(min, value - step))}
         aria-label="decrease"
       >
         <Minus className="h-3.5 w-3.5" />
       </button>
-      <span className="reader-stepper-value">{display}</span>
+      <span className="text-[0.85rem] font-bold tabular-nums text-[var(--ink)]">
+        {display}
+      </span>
       <button
         type="button"
-        className="reader-stepper-btn"
+        className={STEPPER_BTN}
         disabled={value >= max}
         onClick={() => onChange(Math.min(max, value + step))}
         aria-label="increase"
@@ -203,3 +229,10 @@ function Stepper({
     </div>
   );
 }
+
+const STEPPER_BTN = cn(
+  "grid place-items-center w-[30px] h-[30px] rounded-[7px] border-0",
+  "bg-transparent text-[var(--ink)] cursor-pointer transition-[background] duration-150",
+  "enabled:hover:bg-[color-mix(in_srgb,var(--academic-brown)_14%,transparent)]",
+  "disabled:opacity-[0.35] disabled:cursor-not-allowed",
+);
