@@ -15,7 +15,11 @@ import {
 import { pickTldr } from "#/lib/tldr";
 import { renderWhiteboardImage } from "#/lib/whiteboard-render";
 import { capCandidates, RECENT_WINDOW_HOURS } from "#/lib/x-candidate";
-import { buildTweetCaption, summaryToTweetText } from "#/lib/x-caption";
+import {
+  buildReplyText,
+  buildTweetCaption,
+  summaryToTweetText,
+} from "#/lib/x-caption";
 import { postTweet, uploadMedia, type XCredentials } from "#/lib/x-client";
 import { recentSinceMs } from "#/lib/x-schedule";
 import type { Env } from "#/types/env";
@@ -162,7 +166,9 @@ export default {
       }
       const mediaId = await uploadMedia(imageData, xCreds);
 
-      const { tweetId } = await postTweet(caption, xCreds, [mediaId]);
+      const { tweetId } = await postTweet(caption, xCreds, {
+        mediaIds: [mediaId],
+      });
       await db.insert(tweetQueue).values({
         paperId: selected.id,
         caption,
@@ -171,6 +177,29 @@ export default {
         sentAt: new Date(now),
       });
       console.log("[TweetPoster] posted", selected.id, tweetId);
+
+      // 主推（图片）已发出 → 在其下追发一条带链接的回复推。
+      // X 对外链降权，故把 picx.dev 链接拆到回复里，不拉低主推分发权重。
+      // 回复推失败不回滚主推（无法撤回）：仅记日志 + Telegram 告警。
+      try {
+        const { tweetId: replyId } = await postTweet(
+          buildReplyText(selected.shortId),
+          xCreds,
+          { replyToTweetId: tweetId },
+        );
+        console.log("[TweetPoster] reply posted", selected.id, replyId);
+      } catch (replyErr) {
+        console.error(
+          "[TweetPoster] reply failed",
+          selected.id,
+          String(replyErr),
+        );
+        await notify(
+          tg,
+          null,
+          `⚠️ 主推已发，但链接回复失败：${String(replyErr)}\nhttps://x.com/i/web/status/${tweetId}`,
+        );
+      }
       // 成功回执：纯文本 + 推文链接（不带白板图与文案）。
       // 标注「今日第 N 篇」，区分 22:00 / 22:30 / 23:00 三次发送。
       await notify(

@@ -126,18 +126,24 @@ export async function uploadMedia(
   return data.media_id_string;
 }
 
-/** 发推。可选附带已上传的媒体。失败抛错（含状态码与响应体）。 */
+/**
+ * 发推。可选附带已上传的媒体，或作为某条推的回复（in_reply_to_tweet_id）。
+ * 失败抛错（含状态码与响应体）。
+ */
 export async function postTweet(
   text: string,
   creds: XCredentials,
-  mediaIds?: string[],
+  opts: { mediaIds?: string[]; replyToTweetId?: string } = {},
 ): Promise<PostTweetResult> {
   const url = "https://api.twitter.com/2/tweets";
   const auth = await buildAuthHeader("POST", url, creds);
 
   const body: Record<string, unknown> = { text };
-  if (mediaIds?.length) {
-    body.media = { media_ids: mediaIds };
+  if (opts.mediaIds?.length) {
+    body.media = { media_ids: opts.mediaIds };
+  }
+  if (opts.replyToTweetId) {
+    body.reply = { in_reply_to_tweet_id: opts.replyToTweetId };
   }
 
   const res = await fetch(url, {

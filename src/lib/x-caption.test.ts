@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildTweetCaption, summaryToTweetText } from "./x-caption";
+import {
+  buildReplyText,
+  buildTweetCaption,
+  summaryToTweetText,
+} from "./x-caption";
 
 describe("buildTweetCaption", () => {
   it("includes tldr and hashtags from categories", () => {
@@ -53,6 +57,20 @@ describe("buildTweetCaption", () => {
       categories: ["retrieval-rag"],
     });
     expect(out).toBe("#RAG");
+  });
+});
+
+describe("buildReplyText", () => {
+  it("builds a lead-in plus https-less picx.dev paper link", () => {
+    expect(buildReplyText("abc123")).toBe(
+      "Full visual summary 👇\npicx.dev/p/abc123",
+    );
+  });
+
+  it("never includes a url scheme", () => {
+    const out = buildReplyText("xyz");
+    expect(out).not.toContain("https://");
+    expect(out).not.toContain("http://");
   });
 });
 

@@ -1,3 +1,5 @@
+import { paperPageUrl } from "./embed-code";
+
 const TWEET_MAX = 280;
 
 const CATEGORY_HASHTAGS: Record<string, string> = {
@@ -53,6 +55,16 @@ export function buildTweetCaption(input: CaptionInput): string {
   }
 
   return tldr ? `${tldr}\n\n${hashtags}` : hashtags;
+}
+
+/**
+ * 链接回复文案 = 引导语 + 去 https 的 picx.dev 论文链接。
+ * 主推（图片）下追发一条回复推；X 对外链降权，故把链接拆到回复里。
+ * 去掉 https:// 显示更干净（X 仍会转 t.co 并抓 og:image 卡片）。
+ */
+export function buildReplyText(shortId: string): string {
+  const url = paperPageUrl(shortId).replace(/^https?:\/\//, "");
+  return `Full visual summary 👇\n${url}`;
 }
 
 /**
