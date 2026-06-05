@@ -42,3 +42,7 @@ GEMINI_MODEL=gemini-3.1-flash-image-preview
 # https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/openrouter
 # or https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/google-ai-studio
 CF_API_TOKEN=your-cloudflare-api-token
+
+# ===== MinerU (PDF → HTML reader) =====
+# 标准 API token,从 https://mineru.net 获取
+MINERU_TOKEN=your-mineru-token

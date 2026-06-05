@@ -36,6 +36,7 @@ interface AppEnvBindings {
   GEMINI_MODEL?: string;
   CF_API_TOKEN?: string;
   API_KEY_ENCRYPTION_SECRET: string;
+  MINERU_TOKEN?: string;
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
