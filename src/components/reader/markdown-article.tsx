@@ -1,7 +1,7 @@
 import "katex/dist/katex.min.css";
 import type { CSSProperties, RefObject } from "react";
 import { memo, useCallback, useState } from "react";
-import Markdown, { type Components } from "react-markdown";
+import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -17,6 +17,15 @@ import {
 import type { ReaderSettings } from "./use-reader-settings";
 
 const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath];
+
+/**
+ * react-markdown 默认的 urlTransform 把 `data:` 当作不安全协议过滤成空串,内联的 base64
+ * 图片 src 因此变空 —— 这正是「图片不显示」的真因(与 zip 路径解析无关,在渲染层下游)。
+ * 这里放行 data:image/,其余 URL 仍交回默认实现保证安全。
+ */
+function readerUrlTransform(url: string): string {
+  return url.startsWith("data:image/") ? url : defaultUrlTransform(url);
+}
 
 // 顺序很重要:先 rehype-raw 解析内嵌 HTML(MinerU 偶有 HTML 表格)→ katex 渲染公式
 // → highlight 代码 → 生成标题 id → 拆出仅含图片的段落 → 最后给公式/代码打 notranslate。
@@ -82,6 +91,7 @@ const RenderedMarkdown = memo(function RenderedMarkdown({
     <Markdown
       remarkPlugins={REMARK_PLUGINS}
       rehypePlugins={REHYPE_PLUGINS}
+      urlTransform={readerUrlTransform}
       components={components}
     >
       {markdown}

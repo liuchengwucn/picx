@@ -1,14 +1,5 @@
-import {
-  Minus,
-  Monitor,
-  Moon,
-  Plus,
-  RotateCcw,
-  SlidersHorizontal,
-  Sun,
-} from "lucide-react";
+import { Minus, Plus, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { getThemeMode, setThemeMode, type ThemeMode } from "#/lib/theme";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import {
@@ -24,28 +15,13 @@ interface ReaderSettingsMenuProps {
   onReset: () => void;
 }
 
-const THEME_OPTIONS: {
-  value: ThemeMode;
-  icon: typeof Sun;
-  label: () => string;
-}[] = [
-  { value: "light", icon: Sun, label: () => m.theme_light() },
-  { value: "dark", icon: Moon, label: () => m.theme_dark() },
-  { value: "auto", icon: Monitor, label: () => m.theme_auto() },
-];
-
 export function ReaderSettingsMenu({
   settings,
   onChange,
   onReset,
 }: ReaderSettingsMenuProps) {
   const [open, setOpen] = useState(false);
-  const [theme, setTheme] = useState<ThemeMode>("auto");
   const wrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setTheme(getThemeMode());
-  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -59,11 +35,6 @@ export function ReaderSettingsMenu({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
-
-  const pickTheme = (mode: ThemeMode) => {
-    setTheme(mode);
-    setThemeMode(mode);
-  };
 
   return (
     <div ref={wrapRef} className="relative">
@@ -87,21 +58,6 @@ export function ReaderSettingsMenu({
             onClick={() => setOpen(false)}
           />
           <div className="reader-popover absolute right-0 top-[calc(100%+0.5rem)] z-50 w-72">
-            <Section label={m.reader_theme()}>
-              <div className="grid grid-cols-3 gap-1.5">
-                {THEME_OPTIONS.map(({ value, icon: Icon, label }) => (
-                  <SegButton
-                    key={value}
-                    active={theme === value}
-                    onClick={() => pickTheme(value)}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {label()}
-                  </SegButton>
-                ))}
-              </div>
-            </Section>
-
             <Section label={m.reader_typeface()}>
               <div className="grid grid-cols-2 gap-1.5">
                 <SegButton

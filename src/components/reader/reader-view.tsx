@@ -58,7 +58,7 @@ export function ReaderView({
             {items.length > 0 ? (
               <button
                 type="button"
-                className="reader-tool-btn lg:hidden"
+                className="reader-tool-btn reader-toc-toggle"
                 onClick={() => setTocOpen(true)}
                 aria-label={m.reader_toc()}
               >

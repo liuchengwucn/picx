@@ -767,6 +767,13 @@ a:hover { color: var(--academic-brown-deep); }
   border-color: var(--academic-brown);
   transform: translateY(-1px);
 }
+/* 移动端目录按钮:桌面端(≥1024px)已有常驻侧栏目录,隐藏之。用复合选择器压过未分层的
+   .reader-tool-btn —— Tailwind 的 lg:hidden 在 @layer 内,会被未分层规则覆盖而失效。 */
+@media (min-width: 1024px) {
+  .reader-tool-btn.reader-toc-toggle {
+    display: none;
+  }
+}
 
 .reader-progress {
   height: 2px;
@@ -816,8 +823,14 @@ a:hover { color: var(--academic-brown-deep); }
   }
 }
 @media (min-width: 1440px) {
+  /* 放宽容器:三栏布局下 1280px 上限会把正文挤到约 688px(比 measure 还窄,宽度滑块因此饱和
+     失效)。1600px 给正文约 1008px,足以兑现 measure 上限。toolbar 同步加宽以对齐。 */
   .reader-layout {
+    width: min(1600px, 100%);
     grid-template-columns: 16rem minmax(0, 1fr) 16rem;
+  }
+  .reader-toolbar-inner {
+    width: min(1600px, 100%);
   }
   .reader-rail-balance {
     display: block;

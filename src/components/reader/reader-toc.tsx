@@ -13,6 +13,19 @@ interface TocNode extends TocItem {
 }
 
 /**
+ * 计算标题在目录中的层级。MinerU 常把各级章节标题输出成同一 HTML 级别(如全是 h2),
+ * 仅按标签级别会让目录全成同级兄弟、失去层次。优先用章节编号前缀("3.2.1" → 第 3 层)
+ * 推断深度,无编号时回退到标签级别(h1→0, h2→1, h3→2)。
+ */
+export function headingLevel(text: string, tagLevel: number): number {
+  const match = text.match(/^\s*(\d+(?:\.\d+)*)\.?\s+\S/);
+  if (match) {
+    return match[1].split(".").length;
+  }
+  return tagLevel - 1;
+}
+
+/**
  * 从已渲染的文章 DOM 中提取 h1–h3 生成目录,并用 IntersectionObserver 做滚动高亮(scroll-spy)。
  * 跳转用 scrollIntoView,锚点偏移由 CSS scroll-margin-top 负责。
  */
@@ -35,11 +48,14 @@ export function useToc(
     ).filter((h) => h.id);
 
     setItems(
-      headings.map((h) => ({
-        id: h.id,
-        text: h.textContent ?? "",
-        level: Number(h.tagName[1]),
-      })),
+      headings.map((h) => {
+        const text = h.textContent ?? "";
+        return {
+          id: h.id,
+          text,
+          level: headingLevel(text, Number(h.tagName[1])),
+        };
+      }),
     );
 
     if (headings.length === 0) {
@@ -94,7 +110,7 @@ export function useToc(
 }
 
 /** 把扁平的 h1–h3 列表按层级构造成树,供折叠。 */
-function buildTree(items: TocItem[]): TocNode[] {
+export function buildTree(items: TocItem[]): TocNode[] {
   const root: TocNode[] = [];
   const stack: TocNode[] = [];
   for (const item of items) {
