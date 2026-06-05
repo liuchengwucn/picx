@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   ConvertProgress,
@@ -9,8 +8,8 @@ import {
 import { ReaderView } from "#/components/reader/reader-view";
 import { AnalyzingCard, TrimReview } from "#/components/reader/trim-review";
 import { UploadZone } from "#/components/reader/upload-zone";
-import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient, startGitHubSignIn } from "#/lib/auth-client";
 import type { TrimPlan } from "#/lib/pdf-trim";
 import { m } from "#/paraglide/messages";
 
@@ -33,7 +32,7 @@ type Phase =
 
 function ReaderPage() {
   const trpc = useTRPC();
-  const { session, isSessionPending } = useRequireAuth("/reader");
+  const { data: session } = authClient.useSession();
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [file, setFile] = useState<File | null>(null);
@@ -143,6 +142,11 @@ function ReaderPage() {
   }
 
   async function startConversion(f: File) {
+    // 阅读器页面对所有人可见,但真正上传前才要求登录。
+    if (!session) {
+      void startGitHubSignIn("/reader");
+      return;
+    }
     if (pdfUrlRef.current) {
       URL.revokeObjectURL(pdfUrlRef.current);
     }
@@ -241,13 +245,6 @@ function ReaderPage() {
     }
   }
 
-  if (isSessionPending) {
-    return <ReaderAuthLoading />;
-  }
-  if (!session) {
-    return <ReaderAuthLoading redirecting />;
-  }
-
   if (phase === "reading" && doc) {
     return (
       <main>
@@ -305,19 +302,6 @@ function ReaderPage() {
         onRetry={retry}
         onReset={reset}
       />
-    </main>
-  );
-}
-
-function ReaderAuthLoading({ redirecting }: { redirecting?: boolean }) {
-  return (
-    <main className="page-wrap flex min-h-[60vh] items-center justify-center py-12">
-      <div className="text-center">
-        <Loader2 className="mx-auto h-6 w-6 animate-spin text-[var(--academic-brown)]" />
-        <p className="mt-3 text-sm text-[var(--ink-soft)]">
-          {redirecting ? m.reader_auth_redirect() : m.reader_auth_loading()}
-        </p>
-      </div>
     </main>
   );
 }

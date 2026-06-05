@@ -1,4 +1,4 @@
-import { FileText, FunctionSquare, Languages, UploadCloud } from "lucide-react";
+import { FileText, FunctionSquare, Puzzle, UploadCloud } from "lucide-react";
 import { type DragEvent, useRef, useState } from "react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
@@ -124,7 +124,7 @@ export function UploadZone({ onFile }: UploadZoneProps) {
           body={m.reader_feature_formula_body()}
         />
         <Feature
-          icon={<Languages className="h-4 w-4" />}
+          icon={<Puzzle className="h-4 w-4" />}
           title={m.reader_feature_translate_title()}
           body={m.reader_feature_translate_body()}
         />

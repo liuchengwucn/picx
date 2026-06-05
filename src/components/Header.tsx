@@ -1,13 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { BookOpenText, FileText, Globe, Info } from "lucide-react";
-import { authClient } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
 import BetterAuthHeader from "../integrations/better-auth/header-user.tsx";
 import ParaglideLocaleSwitcher from "./LocaleSwitcher.tsx";
 import ThemeToggle from "./ThemeToggle";
 
 export default function Header() {
-  const { data: session } = authClient.useSession();
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-[var(--header-bg)] px-2 sm:px-4 backdrop-blur-lg">
       <nav className="page-wrap flex items-center gap-x-1.5 sm:gap-x-4 py-3 sm:py-4">
@@ -38,16 +36,14 @@ export default function Header() {
             <FileText className="h-4 w-4" />
             <span className="hidden md:inline">{m.nav_papers()}</span>
           </Link>
-          {session ? (
-            <Link
-              to="/reader"
-              className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0 p-2 md:p-0"
-              activeProps={{ className: "nav-link is-active" }}
-            >
-              <BookOpenText className="h-4 w-4" />
-              <span className="hidden md:inline">{m.nav_reader()}</span>
-            </Link>
-          ) : null}
+          <Link
+            to="/reader"
+            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0 p-2 md:p-0"
+            activeProps={{ className: "nav-link is-active" }}
+          >
+            <BookOpenText className="h-4 w-4" />
+            <span className="hidden md:inline">{m.nav_reader()}</span>
+          </Link>
           <Link
             to="/about"
             className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0 p-2 md:p-0"
