@@ -327,7 +327,7 @@
   "reader_drop_title": "Drop your PDF here",
   "reader_drop_hint": "or click to choose a file",
   "reader_drop_button": "Choose PDF",
-  "reader_drop_note": "Up to 100 MB / 200 pages · processed in your browser, nothing is stored",
+  "reader_drop_note": "Up to 100 MB / 200 pages · processed in your browser, kept only on this device",
   "reader_err_type": "Please choose a PDF file.",
   "reader_err_size": "The file exceeds the 100 MB limit.",
   "reader_url_label": "or paste a PDF URL",

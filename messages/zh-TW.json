@@ -327,7 +327,7 @@
   "reader_drop_title": "把 PDF 拖到這裡",
   "reader_drop_hint": "或點擊選擇檔案",
   "reader_drop_button": "選擇 PDF",
-  "reader_drop_note": "單檔 ≤ 100 MB / 200 頁 · 於瀏覽器內處理，不留存任何資料",
+  "reader_drop_note": "單檔 ≤ 100 MB / 200 頁 · 於瀏覽器內處理，僅保存在本機",
   "reader_err_type": "請選擇 PDF 檔案。",
   "reader_err_size": "檔案超過 100 MB 上限。",
   "reader_url_label": "或貼上 PDF 網址",

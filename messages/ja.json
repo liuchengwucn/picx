@@ -327,7 +327,7 @@
   "reader_drop_title": "ここに PDF をドロップ",
   "reader_drop_hint": "またはクリックして選択",
   "reader_drop_button": "PDF を選択",
-  "reader_drop_note": "1 ファイル 100 MB / 200 ページまで · ブラウザ内で処理し、保存しません",
+  "reader_drop_note": "1 ファイル 100 MB / 200 ページまで · ブラウザ内で処理し、この端末にのみ保存",
   "reader_err_type": "PDF ファイルを選択してください。",
   "reader_err_size": "ファイルが 100 MB の上限を超えています。",
   "reader_url_label": "または PDF の URL を貼り付け",
