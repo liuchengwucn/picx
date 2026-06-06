@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAllowedPdfUrl } from "./pdf-url";
+import { isAllowedPdfUrl, pdfFilenameFromUrl } from "./pdf-url";
 
 describe("isAllowedPdfUrl", () => {
   it("accepts an https public URL", () => {
@@ -67,5 +67,38 @@ describe("isAllowedPdfUrl", () => {
       ok: false,
       reason: "host",
     });
+  });
+});
+
+describe("pdfFilenameFromUrl", () => {
+  it("prefers a Content-Disposition filename", () => {
+    expect(
+      pdfFilenameFromUrl(
+        "https://x.com/dl",
+        'attachment; filename="paper.pdf"',
+      ),
+    ).toBe("paper.pdf");
+  });
+
+  it("falls back to the URL's last path segment", () => {
+    expect(pdfFilenameFromUrl("https://x.com/files/report.pdf")).toBe(
+      "report.pdf",
+    );
+  });
+
+  it("adds a .pdf suffix when the segment has none", () => {
+    expect(pdfFilenameFromUrl("https://arxiv.org/pdf/2301.00001")).toBe(
+      "2301.00001.pdf",
+    );
+  });
+
+  it("ignores the query string", () => {
+    expect(pdfFilenameFromUrl("https://x.com/download?id=5")).toBe(
+      "download.pdf",
+    );
+  });
+
+  it("falls back to document.pdf for a root URL", () => {
+    expect(pdfFilenameFromUrl("https://x.com/")).toBe("document.pdf");
   });
 });

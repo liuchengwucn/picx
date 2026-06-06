@@ -55,3 +55,48 @@ export function isAllowedPdfUrl(raw: string): UrlCheck {
   }
   return { ok: true, url };
 }
+
+/** Keep a safe, ASCII-ish filename and guarantee a .pdf extension. */
+function ensurePdfName(name: string): string {
+  const cleaned = name
+    .replace(/[/\\?%*:|"<>]/g, "") // strip reserved path chars
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional control-char strip
+    .replace(/[\x00-\x1f]/g, "") // strip control chars
+    .replace(/\s+/g, "_")
+    .slice(0, 120)
+    .trim();
+  if (!cleaned) {
+    return "document.pdf";
+  }
+  return /\.pdf$/i.test(cleaned) ? cleaned : `${cleaned}.pdf`;
+}
+
+/** Derive a download filename from Content-Disposition, else the URL path. */
+export function pdfFilenameFromUrl(
+  finalUrl: string,
+  contentDisposition?: string | null,
+): string {
+  if (contentDisposition) {
+    const star = contentDisposition.match(
+      /filename\*=(?:UTF-8'')?([^;]+)/i,
+    )?.[1];
+    const plain = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1];
+    const raw = star ?? plain;
+    if (raw) {
+      try {
+        return ensurePdfName(decodeURIComponent(raw.trim()));
+      } catch {
+        return ensurePdfName(raw.trim());
+      }
+    }
+  }
+  try {
+    const seg = new URL(finalUrl).pathname.split("/").filter(Boolean).pop();
+    if (seg) {
+      return ensurePdfName(decodeURIComponent(seg));
+    }
+  } catch {
+    // fall through to default
+  }
+  return "document.pdf";
+}
