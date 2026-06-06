@@ -38,8 +38,9 @@ export async function hashBytes(
 ): Promise<string> {
   const view =
     bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer);
-  // crypto.subtle.digest 直接接受 ArrayBufferView,会尊重 byteOffset/byteLength。
-  const digest = await crypto.subtle.digest("SHA-256", view);
+  // digest 直接读视图(尊重 byteOffset/length),零拷贝。TS 5.7 把 TypedArray 泛
+  // 型化为 Uint8Array<ArrayBufferLike>,与 DOM 的 BufferSource 不匹配,故断言。
+  const digest = await crypto.subtle.digest("SHA-256", view as BufferSource);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
