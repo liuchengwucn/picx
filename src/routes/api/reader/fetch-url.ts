@@ -1,7 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "#/lib/auth";
 import { isPdfBuffer } from "#/lib/pdf-bytes";
-import { isAllowedPdfUrl, pdfFilenameFromUrl } from "#/lib/pdf-url";
+import {
+  isAllowedPdfUrl,
+  PDF_FETCH_HEADERS,
+  pdfFilenameFromUrl,
+} from "#/lib/pdf-url";
 
 /**
  * Server-side PDF download for the Reader "import from URL" flow.
@@ -45,7 +49,11 @@ async function fetchFollowingRedirects(
     if (!check.ok) {
       throw new FetchUrlError("Enter a valid https PDF URL", 400);
     }
-    const resp = await fetch(current, { redirect: "manual", signal });
+    const resp = await fetch(current, {
+      redirect: "manual",
+      signal,
+      headers: PDF_FETCH_HEADERS,
+    });
     if (resp.status >= 300 && resp.status < 400) {
       await resp.body?.cancel();
       const location = resp.headers.get("location");

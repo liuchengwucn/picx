@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isAllowedPdfUrl, pdfFilenameFromUrl } from "./pdf-url";
+import {
+  isAllowedPdfUrl,
+  PDF_FETCH_HEADERS,
+  pdfFilenameFromUrl,
+} from "./pdf-url";
+
+describe("PDF_FETCH_HEADERS", () => {
+  // Regression guard: workerd's fetch sends NO User-Agent by default, which
+  // trips Cloudflare-fronted hosts' bot management — they answer with a 403
+  // "Just a moment…" challenge page instead of the PDF, surfacing to the user
+  // as "Couldn't fetch that URL". A browser-like UA makes them serve the file.
+  it("sends a non-empty, browser-like User-Agent", () => {
+    expect(PDF_FETCH_HEADERS["User-Agent"]).toMatch(/Mozilla\/5\.0/);
+  });
+});
 
 describe("isAllowedPdfUrl", () => {
   it("accepts an https public URL", () => {

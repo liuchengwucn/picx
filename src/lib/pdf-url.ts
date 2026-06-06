@@ -8,6 +8,20 @@ export type UrlCheck =
   | { ok: true; url: URL }
   | { ok: false; reason: "invalid" | "protocol" | "host" };
 
+/**
+ * Request headers for the server-side PDF download.
+ *
+ * workerd's `fetch()` sends no User-Agent by default. Many PDF hosts sit behind
+ * Cloudflare bot management, which answers a UA-less request with a 403
+ * "Just a moment…" challenge page instead of the file — the Reader then reports
+ * "Couldn't fetch that URL". A normal browser UA makes those hosts serve the PDF.
+ */
+export const PDF_FETCH_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
+};
+
 const PRIVATE_IPV4 = [
   /^0\./,
   /^10\./,
