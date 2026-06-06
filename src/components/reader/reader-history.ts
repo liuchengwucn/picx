@@ -32,7 +32,7 @@ export function utf8Bytes(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
-/** 字节的 SHA-256,返回 64 位小写十六进制。 */
+/** 字节的 SHA-256,返回 64 字符小写十六进制。 */
 export async function hashBytes(
   bytes: ArrayBuffer | Uint8Array,
 ): Promise<string> {

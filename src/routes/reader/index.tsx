@@ -320,7 +320,6 @@ function ReaderPage() {
       pdfUrlRef.current = null;
     }
     lastUrlRef.current = null;
-    pendingMetaRef.current = { id: entry.id, source: entry.source };
     setFile(null);
     setPdfUrl(null);
     setBatchId(null);
@@ -348,6 +347,7 @@ function ReaderPage() {
       pdfUrlRef.current = null;
     }
     lastUrlRef.current = null;
+    pendingMetaRef.current = null;
     setFile(null);
     setPdfUrl(null);
     setBatchId(null);
