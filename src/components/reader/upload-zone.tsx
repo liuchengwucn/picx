@@ -169,10 +169,6 @@ export function UploadZone({ onFile, onUrl }: UploadZoneProps) {
             {m.reader_url_button()}
           </button>
         </div>
-
-        <p className="mt-2 text-left text-xs text-[var(--ink-soft)]">
-          {m.reader_url_label()}
-        </p>
       </div>
 
       {error ? (
