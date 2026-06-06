@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "#/lib/auth";
 import { createBatch } from "#/lib/mineru";
+import { isPdfBuffer } from "#/lib/pdf-bytes";
 
 /**
  * PDF 上传中转：浏览器把 PDF 字节 POST 到本路由，服务端建 MinerU 批次并把字节
@@ -17,14 +18,9 @@ import { createBatch } from "#/lib/mineru";
 
 // Worker 内存上限 128MB，缓冲整文件中转；Cloudflare 请求体上限多数套餐为 100MB。
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
-const PDF_SIGNATURE = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
 
 interface AppEnvBindings {
   MINERU_TOKEN?: string;
-}
-
-function isPdfBuffer(buffer: Uint8Array): boolean {
-  return PDF_SIGNATURE.every((byte, index) => buffer[index] === byte);
 }
 
 function jsonError(message: string, status: number): Response {
