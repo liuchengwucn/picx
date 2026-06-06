@@ -54,13 +54,13 @@ export function RecentReads({ entries, onOpen, onRemove }: RecentReadsProps) {
       <ul className="flex flex-col gap-1.5">
         {entries.map((entry) => (
           <li key={entry.id}>
-            <div className="group relative flex items-center gap-3 overflow-hidden rounded-[14px] border border-[var(--line)] bg-[linear-gradient(165deg,var(--surface-strong),var(--surface))] px-3.5 py-3 shadow-[0_2px_10px_rgba(45,42,36,0.05)] transition-[border-color,transform,box-shadow] duration-[180ms] hover:-translate-y-px hover:border-[var(--academic-brown)] hover:shadow-[0_8px_24px_rgba(45,42,36,0.1)]">
+            <div className="group relative flex items-center gap-3 overflow-hidden rounded-[14px] border border-[var(--line)] bg-[linear-gradient(165deg,var(--surface-strong),var(--surface))] px-3.5 py-3 shadow-[0_2px_10px_rgba(45,42,36,0.05)] transition-[border-color,transform,box-shadow] duration-[180ms] hover:-translate-y-px hover:border-[var(--academic-brown)] hover:shadow-[0_8px_24px_rgba(45,42,36,0.1)] focus-within:-translate-y-px focus-within:border-[var(--academic-brown)] focus-within:shadow-[0_8px_24px_rgba(45,42,36,0.1)]">
               <button
                 type="button"
                 onClick={() => onOpen(entry)}
                 className="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-1 bg-transparent text-left outline-none"
               >
-                <span className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-[family-name:var(--reader-serif)] text-[0.96rem] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown-deep)]">
+                <span className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-[family-name:var(--reader-serif)] text-[0.96rem] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown-deep)] group-focus-within:text-[var(--academic-brown-deep)]">
                   {entry.title}
                 </span>
                 <span className="flex max-w-full items-center gap-2 text-[0.72rem] text-[var(--ink-soft)]">
@@ -89,7 +89,7 @@ export function RecentReads({ entries, onOpen, onRemove }: RecentReadsProps) {
                 onClick={() => onRemove(entry.id)}
                 aria-label={m.reader_recent_delete()}
                 title={m.reader_recent_delete()}
-                className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-[8px] border border-transparent bg-transparent text-[var(--ink-soft)] opacity-0 outline-none transition-[opacity,color,background,border-color] duration-150 hover:border-[var(--line)] hover:bg-[var(--parchment)] hover:text-[var(--sienna)] focus-visible:opacity-100 focus-visible:border-[var(--academic-brown)] group-hover:opacity-100"
+                className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-[8px] border border-transparent bg-transparent text-[var(--ink-soft)] opacity-0 outline-none transition-[opacity,color,background,border-color] duration-150 hover:border-[var(--line)] hover:bg-[var(--parchment)] hover:text-[var(--sienna)] focus-visible:opacity-100 focus-visible:border-[var(--academic-brown)] group-hover:opacity-100 group-focus-within:opacity-100"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
