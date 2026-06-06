@@ -24,7 +24,15 @@ function isPrivateHost(hostname: string): boolean {
   }
   // IPv6 literals contain a colon; only then check loopback / unique-local.
   if (host.includes(":")) {
-    if (host === "::1" || host.startsWith("fc") || host.startsWith("fd")) {
+    // IPv6: loopback ::1, ULA fc00::/7 (fc/fd), link-local fe80::/10, and
+    // IPv4-mapped (::ffff:…) which could otherwise smuggle a private IPv4.
+    if (
+      host === "::1" ||
+      host.startsWith("fc") ||
+      host.startsWith("fd") ||
+      host.startsWith("fe80") ||
+      host.startsWith("::ffff:")
+    ) {
       return true;
     }
   }

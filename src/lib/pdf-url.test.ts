@@ -54,6 +54,17 @@ describe("isAllowedPdfUrl", () => {
     expect(isAllowedPdfUrl("https://foo.localhost/a.pdf").ok).toBe(false);
   });
 
+  it("rejects IPv4-mapped IPv6 (::ffff:) reaching private hosts", () => {
+    expect(isAllowedPdfUrl("https://[::ffff:127.0.0.1]/a.pdf").ok).toBe(false);
+    expect(isAllowedPdfUrl("https://[::ffff:169.254.169.254]/x").ok).toBe(
+      false,
+    );
+  });
+
+  it("rejects IPv6 link-local (fe80::/10)", () => {
+    expect(isAllowedPdfUrl("https://[fe80::1]/a.pdf").ok).toBe(false);
+  });
+
   it("reports the reason on rejection", () => {
     expect(isAllowedPdfUrl("not a url")).toEqual({
       ok: false,
