@@ -182,6 +182,30 @@ function ReaderPage() {
     }
   }
 
+  async function startConversionFromUrl(pdfRemoteUrl: string) {
+    if (!session) {
+      void startGitHubSignIn("/reader");
+      return;
+    }
+    setFile(null);
+    setPdfUrl(pdfRemoteUrl);
+    setDoc(null);
+    setBatchId(null);
+    setErrorMessage(null);
+    setTrimPlan(null);
+    setPhase("uploading");
+    try {
+      await runUpload(
+        new Blob([JSON.stringify({ url: pdfRemoteUrl })], {
+          type: "application/json",
+        }),
+        "url-import.pdf",
+      );
+    } catch (err) {
+      failWith(err);
+    }
+  }
+
   async function confirmTrim() {
     if (!file || !trimPlan) {
       return;
@@ -261,7 +285,7 @@ function ReaderPage() {
   if (phase === "idle") {
     return (
       <main>
-        <UploadZone onFile={startConversion} />
+        <UploadZone onFile={startConversion} onUrl={startConversionFromUrl} />
       </main>
     );
   }

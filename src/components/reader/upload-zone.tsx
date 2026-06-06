@@ -1,5 +1,12 @@
-import { FileText, FunctionSquare, Puzzle, UploadCloud } from "lucide-react";
+import {
+  FileText,
+  FunctionSquare,
+  Link,
+  Puzzle,
+  UploadCloud,
+} from "lucide-react";
 import { type DragEvent, useRef, useState } from "react";
+import { isAllowedPdfUrl } from "#/lib/pdf-url";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { PRIMARY_BTN } from "./reader-ui";
@@ -8,16 +15,28 @@ const MAX_PDF_BYTES = 100 * 1024 * 1024;
 
 interface UploadZoneProps {
   onFile: (file: File) => void;
+  onUrl: (url: string) => void;
 }
 
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 }
 
-export function UploadZone({ onFile }: UploadZoneProps) {
+export function UploadZone({ onFile, onUrl }: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [url, setUrl] = useState("");
+
+  const submitUrl = () => {
+    const trimmed = url.trim();
+    if (!trimmed || !isAllowedPdfUrl(trimmed).ok) {
+      setError(m.reader_err_url());
+      return;
+    }
+    setError(null);
+    onUrl(trimmed);
+  };
 
   const accept = (file: File | undefined | null) => {
     if (!file) {
@@ -109,6 +128,51 @@ export function UploadZone({ onFile }: UploadZoneProps) {
             e.target.value = "";
           }}
         />
+      </div>
+
+      {/* URL input row */}
+      <div className="mx-auto mt-5 w-[min(640px,100%)]">
+        {/* "or" divider */}
+        <div className="relative mb-5 flex items-center gap-3">
+          <div className="h-px flex-1 bg-[var(--line)]" />
+          <span className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-[var(--ink-soft)]">
+            or
+          </span>
+          <div className="h-px flex-1 bg-[var(--line)]" />
+        </div>
+
+        <div className="flex items-stretch gap-2">
+          <div className="relative min-w-0 flex-auto">
+            <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--ink-soft)]">
+              <Link className="h-4 w-4" />
+            </span>
+            <input
+              type="url"
+              inputMode="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  submitUrl();
+                }
+              }}
+              placeholder={m.reader_url_placeholder()}
+              aria-label={m.reader_url_label()}
+              className="w-full rounded-[12px] border border-[var(--line)] bg-[var(--surface)] py-3 pl-9 pr-4 text-sm text-[var(--ink)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-[var(--ink-soft)] focus:border-[var(--academic-brown)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--academic-brown)_14%,transparent)]"
+            />
+          </div>
+          <button
+            type="button"
+            className={cn(PRIMARY_BTN, "shrink-0")}
+            onClick={submitUrl}
+          >
+            {m.reader_url_button()}
+          </button>
+        </div>
+
+        <p className="mt-2 text-left text-xs text-[var(--ink-soft)]">
+          {m.reader_url_label()}
+        </p>
       </div>
 
       {error ? (
