@@ -361,6 +361,8 @@
   "reader_width": "Width",
   "reader_line_height": "Line spacing",
   "reader_reset": "Reset to defaults",
+  "reader_recent_title": "Recent reads",
+  "reader_recent_delete": "Remove from recent",
   "reader_new_document": "New",
   "reader_toc": "Contents",
   "reader_toc_hide": "Hide contents",

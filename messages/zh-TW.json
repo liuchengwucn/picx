@@ -361,6 +361,8 @@
   "reader_width": "寬度",
   "reader_line_height": "行距",
   "reader_reset": "恢復預設",
+  "reader_recent_title": "最近閱讀",
+  "reader_recent_delete": "從最近閱讀移除",
   "reader_new_document": "新文件",
   "reader_toc": "目錄",
   "reader_toc_hide": "收起目錄",

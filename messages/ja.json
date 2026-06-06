@@ -361,6 +361,8 @@
   "reader_width": "幅",
   "reader_line_height": "行間",
   "reader_reset": "初期設定に戻す",
+  "reader_recent_title": "最近読んだもの",
+  "reader_recent_delete": "履歴から削除",
   "reader_new_document": "新規",
   "reader_toc": "目次",
   "reader_toc_hide": "目次を隠す",
