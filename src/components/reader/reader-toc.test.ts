@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildTree, headingLevel, type TocItem } from "./reader-toc";
+import {
+  buildTree,
+  defaultCollapsed,
+  headingLevel,
+  type TocItem,
+} from "./reader-toc";
 
 describe("headingLevel", () => {
   it("从章节编号前缀推断深度", () => {
@@ -29,22 +34,22 @@ describe("headingLevel", () => {
   });
 });
 
-describe("buildTree", () => {
-  // 模拟 MinerU 把各级标题都输出成 h2 的真实情形:层级要靠编号恢复。
-  const items: TocItem[] = [
-    { id: "t", text: "Attention Is All You Need", level: 0 },
-    { id: "abs", text: "Abstract", level: 1 },
-    { id: "1", text: "1 Introduction", level: 1 },
-    { id: "3", text: "3 Model Architecture", level: 1 },
-    { id: "3.1", text: "3.1 Encoder and Decoder Stacks", level: 2 },
-    { id: "3.2", text: "3.2 Attention", level: 2 },
-    { id: "3.2.1", text: "3.2.1 Scaled Dot-Product Attention", level: 3 },
-    { id: "3.2.2", text: "3.2.2 Multi-Head Attention", level: 3 },
-    { id: "ref", text: "References", level: 1 },
-  ];
+// 模拟 MinerU 把各级标题都输出成 h2 的真实情形:层级要靠编号恢复。
+const sampleItems: TocItem[] = [
+  { id: "t", text: "Attention Is All You Need", level: 0 },
+  { id: "abs", text: "Abstract", level: 1 },
+  { id: "1", text: "1 Introduction", level: 1 },
+  { id: "3", text: "3 Model Architecture", level: 1 },
+  { id: "3.1", text: "3.1 Encoder and Decoder Stacks", level: 2 },
+  { id: "3.2", text: "3.2 Attention", level: 2 },
+  { id: "3.2.1", text: "3.2.1 Scaled Dot-Product Attention", level: 3 },
+  { id: "3.2.2", text: "3.2.2 Multi-Head Attention", level: 3 },
+  { id: "ref", text: "References", level: 1 },
+];
 
+describe("buildTree", () => {
   it("把扁平列表按编号恢复出层级", () => {
-    const tree = buildTree(items);
+    const tree = buildTree(sampleItems);
     // 单一 h1 标题作为根
     expect(tree).toHaveLength(1);
     const root = tree[0];
@@ -61,5 +66,22 @@ describe("buildTree", () => {
     // 「3.2」下嵌 3.2.1 / 3.2.2
     const attn = model?.children.find((n) => n.id === "3.2");
     expect(attn?.children.map((n) => n.id)).toEqual(["3.2.1", "3.2.2"]);
+  });
+});
+
+describe("defaultCollapsed", () => {
+  it("默认折叠第三层(小节)及更深,只保留标题/章/节展开", () => {
+    const collapsed = defaultCollapsed(buildTree(sampleItems));
+    // 含子节点的「节」(3.2, level 2)被折叠 → 其下 3.2.1/3.2.2 默认隐藏
+    expect(collapsed.has("3.2")).toBe(true);
+    // 「章」(3, level 1, 含子节点)保持展开,以便看到 3.1/3.2
+    expect(collapsed.has("3")).toBe(false);
+    // 文档标题(level 0, 含子节点)保持展开
+    expect(collapsed.has("t")).toBe(false);
+    // 无子节点的条目不进折叠集合(折叠它们没有意义)
+    expect(collapsed.has("3.1")).toBe(false);
+    expect(collapsed.has("abs")).toBe(false);
+    // 当前样例里只有 3.2 满足「节级及更深 + 含子节点」
+    expect([...collapsed].sort()).toEqual(["3.2"]);
   });
 });

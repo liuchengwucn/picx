@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import { type RefObject, useEffect, useMemo, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "#/lib/utils";
 
 export interface TocItem {
@@ -8,7 +8,7 @@ export interface TocItem {
   level: number;
 }
 
-interface TocNode extends TocItem {
+export interface TocNode extends TocItem {
   children: TocNode[];
 }
 
@@ -128,6 +128,28 @@ export function buildTree(items: TocItem[]): TocNode[] {
   return root;
 }
 
+/**
+ * 计算目录的默认折叠集合:折叠「节」级(level ≥ 2)及更深、且含子节点的条目,
+ * 让长论文目录首次打开时只展开到「章 > 节」,小节(3.2.1 等)默认收起。
+ * level 取自章节编号深度(见 headingLevel),不受是否存在 h1 文档标题影响。
+ */
+export function defaultCollapsed(tree: TocNode[]): Set<string> {
+  const collapsed = new Set<string>();
+  const walk = (nodes: TocNode[]) => {
+    for (const node of nodes) {
+      if (node.children.length === 0) {
+        continue;
+      }
+      if (node.level >= 2) {
+        collapsed.add(node.id);
+      }
+      walk(node.children);
+    }
+  };
+  walk(tree);
+  return collapsed;
+}
+
 function subtreeHasId(node: TocNode, id: string): boolean {
   return (
     node.id === id || node.children.some((child) => subtreeHasId(child, id))
@@ -144,6 +166,15 @@ interface TocListProps {
 export function TocList({ items, activeId, onJump, className }: TocListProps) {
   const tree = useMemo(() => buildTree(items), [items]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+  // 目录结构变化(首次加载/切换文档)时,重置为默认折叠:只展开到「章 > 节」,小节默认收起。
+  // 用 items(外部 props)引用而非 tree(useMemo,缓存可能失效)判断,避免内容未变时误重置、
+  // 丢掉用户手动展开的状态;items 仅在内容变化时换引用。
+  const appliedItemsRef = useRef<TocItem[] | null>(null);
+  if (appliedItemsRef.current !== items) {
+    appliedItemsRef.current = items;
+    setCollapsed(defaultCollapsed(tree));
+  }
 
   const toggle = (id: string) => {
     setCollapsed((prev) => {
