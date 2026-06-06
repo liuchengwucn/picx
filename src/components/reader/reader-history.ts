@@ -1,3 +1,5 @@
+import { useCallback, useEffect, useState } from "react";
+
 export type ReaderHistorySource =
   | { kind: "upload"; name: string }
   | { kind: "url"; name: string; url: string };
@@ -251,4 +253,42 @@ export async function recordRead(
   for (const id of selectEvictions(all, budget)) {
     await deleteEntry(id);
   }
+}
+
+/**
+ * 读取/记录/删除当前账号的阅读历史。重开逻辑不在此(需 page 的 setDoc/setPhase),
+ * 由 ReaderPage 拿 entry 自行处理。水合策略同 useReaderSettings:首帧空,挂载后注入。
+ */
+export function useReaderHistory(userId: string | null) {
+  const [entries, setEntries] = useState<ReaderHistoryEntry[]>([]);
+
+  const refresh = useCallback(async () => {
+    if (!userId) {
+      setEntries([]);
+      return;
+    }
+    setEntries(await listEntries(userId));
+  }, [userId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const record = useCallback(
+    async (input: RecordInput) => {
+      await recordRead(input);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const remove = useCallback(
+    async (id: string) => {
+      await deleteEntry(id);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  return { entries, record, remove };
 }
