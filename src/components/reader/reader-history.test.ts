@@ -45,6 +45,12 @@ describe("hashBytes", () => {
     const c = await hashBytes(new Uint8Array([1, 2, 4]).buffer);
     expect(a).not.toBe(c);
   });
+
+  it("接受 Uint8Array 输入", async () => {
+    const fromBuffer = await hashBytes(new Uint8Array([9, 8, 7]).buffer);
+    const fromView = await hashBytes(new Uint8Array([9, 8, 7]));
+    expect(fromView).toBe(fromBuffer);
+  });
 });
 
 describe("mergeEntry", () => {
@@ -86,7 +92,7 @@ describe("selectEvictions", () => {
       entry({ id: "mid", sizeBytes: 60, lastReadAt: 2 }),
       entry({ id: "new", sizeBytes: 60, lastReadAt: 3 }),
     ];
-    // 总 180 > 100 → 淘汰 old(120>100)→ 再淘汰 mid(60<=100)止
+    // 总 180 → 淘汰 old → 剩 120 > 100 → 淘汰 mid → 剩 60 ≤ 100 → 止
     expect(selectEvictions(list, 100)).toEqual(["old", "mid"]);
   });
 
@@ -106,6 +112,18 @@ describe("sanitizeEntry", () => {
     expect(sanitizeEntry(null)).toBeNull();
     expect(sanitizeEntry({ id: "x" })).toBeNull();
     expect(sanitizeEntry({ ...entry({}), sizeBytes: "no" })).toBeNull();
+  });
+
+  it("url 来源带 url 时通过", () => {
+    const e = entry({
+      source: { kind: "url", name: "p.pdf", url: "https://e/p.pdf" },
+    });
+    expect(sanitizeEntry(e)).toEqual(e);
+  });
+
+  it("url 来源缺 url 时返回 null", () => {
+    const bad = { ...entry({}), source: { kind: "url", name: "p.pdf" } };
+    expect(sanitizeEntry(bad)).toBeNull();
   });
 });
 

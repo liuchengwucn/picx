@@ -1,8 +1,6 @@
-export interface ReaderHistorySource {
-  kind: "upload" | "url";
-  name: string;
-  url?: string;
-}
+export type ReaderHistorySource =
+  | { kind: "upload"; name: string }
+  | { kind: "url"; name: string; url: string };
 
 export interface ReaderHistoryEntry {
   id: string;
@@ -37,14 +35,9 @@ export async function hashBytes(
   bytes: ArrayBuffer | Uint8Array,
 ): Promise<string> {
   const view =
-    bytes instanceof Uint8Array
-      ? bytes
-      : new Uint8Array(bytes as ArrayBuffer);
-  // crypto.subtle 需要 ArrayBuffer 视图;切片确保是独立 ArrayBuffer。
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    view.slice().buffer,
-  );
+    bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer);
+  // crypto.subtle.digest 直接接受 ArrayBufferView,会尊重 byteOffset/byteLength。
+  const digest = await crypto.subtle.digest("SHA-256", view);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -105,16 +98,21 @@ export function sanitizeEntry(raw: unknown): ReaderHistoryEntry | null {
   ) {
     return null;
   }
+  let source: ReaderHistorySource;
+  if (src.kind === "upload") {
+    source = { kind: "upload", name: src.name };
+  } else {
+    if (typeof src.url !== "string") {
+      return null;
+    }
+    source = { kind: "url", name: src.name, url: src.url };
+  }
   return {
     id: r.id,
     userId: r.userId,
     title: r.title,
     markdown: r.markdown,
-    source: {
-      kind: src.kind,
-      name: src.name,
-      url: typeof src.url === "string" ? src.url : undefined,
-    },
+    source,
     createdAt: r.createdAt,
     lastReadAt: r.lastReadAt,
     sizeBytes: r.sizeBytes,
