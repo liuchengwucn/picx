@@ -10,7 +10,12 @@ import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { GHOST_BTN, PRIMARY_BTN, STATUS_CARD, STATUS_ICON } from "./reader-ui";
 
-export type ProgressPhase = "uploading" | "processing" | "rendering" | "error";
+export type ProgressPhase =
+  | "fetching"
+  | "uploading"
+  | "processing"
+  | "rendering"
+  | "error";
 
 interface ConvertProgressProps {
   phase: ProgressPhase;
@@ -20,7 +25,10 @@ interface ConvertProgressProps {
   onReset: () => void;
 }
 
-const PHASE_TO_STEP: Record<Exclude<ProgressPhase, "error">, number> = {
+const PHASE_TO_STEP: Record<
+  Exclude<ProgressPhase, "fetching" | "error">,
+  number
+> = {
   uploading: 0,
   processing: 1,
   rendering: 2,
@@ -33,6 +41,29 @@ export function ConvertProgress({
   onRetry,
   onReset,
 }: ConvertProgressProps) {
+  if (phase === "fetching") {
+    return (
+      <div className="page-wrap flex min-h-[60vh] items-center justify-center py-12">
+        <div className={cn(STATUS_CARD, "rise-in text-center")}>
+          <span
+            className={cn(
+              STATUS_ICON,
+              "text-[var(--academic-brown-deep)] bg-[color-mix(in_srgb,var(--academic-brown)_14%,transparent)]",
+            )}
+          >
+            <Loader2 className="h-7 w-7 animate-spin" />
+          </span>
+          <h2 className="mt-5 text-xl font-semibold text-[var(--ink)]">
+            {m.reader_fetching_title()}
+          </h2>
+          <p className="mx-auto mt-2 max-w-sm text-sm text-[var(--ink-soft)]">
+            {m.reader_fetching_hint()}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (phase === "error") {
     return (
       <div className="page-wrap flex min-h-[60vh] items-center justify-center py-12">
