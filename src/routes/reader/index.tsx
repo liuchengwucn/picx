@@ -22,6 +22,7 @@ export const Route = createFileRoute("/reader/")({
 
 type Phase =
   | "idle"
+  | "fetching"
   | "analyzing"
   | "confirm"
   | "uploading"
@@ -182,25 +183,50 @@ function ReaderPage() {
     }
   }
 
-  async function startConversionFromUrl(pdfRemoteUrl: string) {
+  async function startFromUrl(rawUrl: string) {
+    // Reader is public, but importing requires login (same gate as upload).
     if (!session) {
       void startGitHubSignIn("/reader");
       return;
     }
+    if (pdfUrlRef.current) {
+      URL.revokeObjectURL(pdfUrlRef.current);
+      pdfUrlRef.current = null;
+    }
     setFile(null);
-    setPdfUrl(pdfRemoteUrl);
+    setPdfUrl(null);
     setDoc(null);
     setBatchId(null);
     setErrorMessage(null);
     setTrimPlan(null);
-    setPhase("uploading");
+    setPhase("fetching");
+
     try {
-      await runUpload(
-        new Blob([JSON.stringify({ url: pdfRemoteUrl })], {
-          type: "application/json",
-        }),
-        "url-import.pdf",
-      );
+      const resp = await fetch("/api/reader/fetch-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: rawUrl }),
+      });
+      if (!resp.ok) {
+        let message: string = m.reader_error_upload();
+        try {
+          const data = (await resp.json()) as { error?: string };
+          if (data?.error) {
+            message = data.error;
+          }
+        } catch {
+          // non-JSON response; keep default
+        }
+        throw new Error(message);
+      }
+      const blob = await resp.blob();
+      const headerName = resp.headers.get("X-Filename");
+      const filename = headerName
+        ? decodeURIComponent(headerName)
+        : "document.pdf";
+      const file = new File([blob], filename, { type: "application/pdf" });
+      // Hand off to the existing local-upload path (analyze → trim → upload).
+      await startConversion(file);
     } catch (err) {
       failWith(err);
     }
@@ -285,7 +311,7 @@ function ReaderPage() {
   if (phase === "idle") {
     return (
       <main>
-        <UploadZone onFile={startConversion} onUrl={startConversionFromUrl} />
+        <UploadZone onFile={startConversion} onUrl={startFromUrl} />
       </main>
     );
   }
@@ -314,7 +340,10 @@ function ReaderPage() {
   }
 
   const progressPhase: ProgressPhase =
-    phase === "uploading" || phase === "processing" || phase === "rendering"
+    phase === "fetching" ||
+    phase === "uploading" ||
+    phase === "processing" ||
+    phase === "rendering"
       ? phase
       : "error";
   return (
