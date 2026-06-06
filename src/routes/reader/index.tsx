@@ -38,6 +38,19 @@ type Phase =
   | "reading"
   | "error";
 
+// /api/reader/fetch-url returns a STABLE error CODE; localise it here (lazy so
+// the active locale is read at error time). "blocked" is the bot-wall case —
+// its copy tells the user to download the PDF and re-upload via "Choose another".
+const URL_IMPORT_ERROR: Record<string, () => string> = {
+  bad_url: () => m.reader_err_url(),
+  blocked: () => m.reader_err_blocked(),
+  not_pdf: () => m.reader_err_not_pdf(),
+  too_large: () => m.reader_err_size(),
+  timeout: () => m.reader_err_fetch(),
+  fetch_failed: () => m.reader_err_fetch(),
+  unauthorized: () => m.reader_error_generic(),
+};
+
 function ReaderPage() {
   const trpc = useTRPC();
   const { data: session } = authClient.useSession();
@@ -249,8 +262,11 @@ function ReaderPage() {
         let message: string = m.reader_error_upload();
         try {
           const data = (await resp.json()) as { error?: string };
-          if (data?.error) {
-            message = data.error;
+          const resolve = data?.error
+            ? URL_IMPORT_ERROR[data.error]
+            : undefined;
+          if (resolve) {
+            message = resolve();
           }
         } catch {
           // non-JSON response; keep default

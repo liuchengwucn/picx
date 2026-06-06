@@ -22,6 +22,27 @@ export const PDF_FETCH_HEADERS: Record<string, string> = {
   Accept: "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
 };
 
+/**
+ * Map a fetched response's HTTP status to a stable error code, or `null` when
+ * the body should be downloaded and inspected (2xx). The client localises the
+ * code into a message — see ERR_MESSAGES in routes/reader/index.tsx.
+ *
+ * 403/429/503 almost always mean a bot wall / rate limit / anti-DDoS interstitial
+ * (e.g. Cloudflare's "Just a moment…" page), so we tell the user to download the
+ * PDF themselves rather than the misleading generic "couldn't fetch".
+ */
+export function pdfFetchErrorCode(
+  status: number,
+): "blocked" | "fetch_failed" | null {
+  if (status === 403 || status === 429 || status === 503) {
+    return "blocked";
+  }
+  if (status < 200 || status >= 300) {
+    return "fetch_failed";
+  }
+  return null;
+}
+
 const PRIVATE_IPV4 = [
   /^0\./,
   /^10\./,

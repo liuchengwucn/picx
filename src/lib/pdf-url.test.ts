@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isAllowedPdfUrl,
   PDF_FETCH_HEADERS,
+  pdfFetchErrorCode,
   pdfFilenameFromUrl,
 } from "./pdf-url";
 
@@ -12,6 +13,25 @@ describe("PDF_FETCH_HEADERS", () => {
   // as "Couldn't fetch that URL". A browser-like UA makes them serve the file.
   it("sends a non-empty, browser-like User-Agent", () => {
     expect(PDF_FETCH_HEADERS["User-Agent"]).toMatch(/Mozilla\/5\.0/);
+  });
+});
+
+describe("pdfFetchErrorCode", () => {
+  it("flags bot-wall / rate-limit statuses as blocked", () => {
+    expect(pdfFetchErrorCode(403)).toBe("blocked");
+    expect(pdfFetchErrorCode(429)).toBe("blocked");
+    expect(pdfFetchErrorCode(503)).toBe("blocked");
+  });
+
+  it("flags other non-2xx as a generic fetch failure", () => {
+    expect(pdfFetchErrorCode(404)).toBe("fetch_failed");
+    expect(pdfFetchErrorCode(500)).toBe("fetch_failed");
+    expect(pdfFetchErrorCode(302)).toBe("fetch_failed");
+  });
+
+  it("returns null for 2xx so the body gets inspected", () => {
+    expect(pdfFetchErrorCode(200)).toBeNull();
+    expect(pdfFetchErrorCode(206)).toBeNull();
   });
 });
 

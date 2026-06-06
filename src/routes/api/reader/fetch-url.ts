@@ -4,6 +4,7 @@ import { isPdfBuffer } from "#/lib/pdf-bytes";
 import {
   isAllowedPdfUrl,
   PDF_FETCH_HEADERS,
+  pdfFetchErrorCode,
   pdfFilenameFromUrl,
 } from "#/lib/pdf-url";
 
@@ -22,16 +23,21 @@ const MAX_PDF_BYTES = 100 * 1024 * 1024; // mirrors /api/reader/upload
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;
 
+/**
+ * `error` is a STABLE CODE (not a human string) — the client maps it to a
+ * localised message (see ERR_MESSAGES in routes/reader/index.tsx). Codes:
+ * bad_url | unauthorized | blocked | not_pdf | too_large | timeout | fetch_failed
+ */
 class FetchUrlError extends Error {
   status: number;
-  constructor(message: string, status: number) {
-    super(message);
+  constructor(code: string, status: number) {
+    super(code);
     this.status = status;
   }
 }
 
-function jsonError(message: string, status: number): Response {
-  return new Response(JSON.stringify({ error: message }), {
+function jsonError(code: string, status: number): Response {
+  return new Response(JSON.stringify({ error: code }), {
     status,
     headers: { "Content-Type": "application/json" },
   });
@@ -47,7 +53,7 @@ async function fetchFollowingRedirects(
     // Re-validate the host on every hop, including the initial URL (hop 0) — anti-SSRF.
     const check = isAllowedPdfUrl(current);
     if (!check.ok) {
-      throw new FetchUrlError("Enter a valid https PDF URL", 400);
+      throw new FetchUrlError("bad_url", 400);
     }
     const resp = await fetch(current, {
       redirect: "manual",
@@ -58,25 +64,25 @@ async function fetchFollowingRedirects(
       await resp.body?.cancel();
       const location = resp.headers.get("location");
       if (!location) {
-        throw new FetchUrlError("Couldn't fetch that URL", 502);
+        throw new FetchUrlError("fetch_failed", 502);
       }
       current = new URL(location, current).toString();
       continue;
     }
     return resp;
   }
-  throw new FetchUrlError("Couldn't fetch that URL", 502);
+  throw new FetchUrlError("fetch_failed", 502);
 }
 
 /** Read the body with a hard size cap; aborts mid-stream if exceeded. */
 async function readCapped(resp: Response): Promise<Uint8Array> {
   const declared = resp.headers.get("content-length");
   if (declared && Number(declared) > MAX_PDF_BYTES) {
-    throw new FetchUrlError("File exceeds the 100MB limit", 413);
+    throw new FetchUrlError("too_large", 413);
   }
   const reader = resp.body?.getReader();
   if (!reader) {
-    throw new FetchUrlError("Couldn't fetch that URL", 502);
+    throw new FetchUrlError("fetch_failed", 502);
   }
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -88,7 +94,7 @@ async function readCapped(resp: Response): Promise<Uint8Array> {
     total += value.byteLength;
     if (total > MAX_PDF_BYTES) {
       await reader.cancel();
-      throw new FetchUrlError("File exceeds the 100MB limit", 413);
+      throw new FetchUrlError("too_large", 413);
     }
     chunks.push(value);
   }
@@ -105,7 +111,7 @@ async function handler({ request }: { request: Request }) {
   // Auth: reuse better-auth server session (review-guest has none → blocked).
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
-    return jsonError("You must be logged in to import", 401);
+    return jsonError("unauthorized", 401);
   }
 
   let url: string;
@@ -113,27 +119,30 @@ async function handler({ request }: { request: Request }) {
     const body = (await request.json()) as { url?: string };
     url = (body.url ?? "").trim();
   } catch {
-    return jsonError("Enter a valid https PDF URL", 400);
+    return jsonError("bad_url", 400);
   }
 
   const check = isAllowedPdfUrl(url);
   if (!check.ok) {
-    return jsonError("Enter a valid https PDF URL", 400);
+    return jsonError("bad_url", 400);
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const resp = await fetchFollowingRedirects(url, controller.signal);
-    if (!resp.ok) {
-      return jsonError("Couldn't fetch that URL", 502);
+    // 403/429/503 → almost certainly a bot wall; don't download the challenge body.
+    const statusCode = pdfFetchErrorCode(resp.status);
+    if (statusCode) {
+      await resp.body?.cancel();
+      return jsonError(statusCode, 502);
     }
     const buffer = await readCapped(resp);
     if (buffer.byteLength === 0) {
-      return jsonError("Couldn't fetch that URL", 502);
+      return jsonError("fetch_failed", 502);
     }
     if (!isPdfBuffer(buffer)) {
-      return jsonError("That URL is not a PDF", 400);
+      return jsonError("not_pdf", 400);
     }
     const filename = pdfFilenameFromUrl(
       resp.url || url,
@@ -151,10 +160,10 @@ async function handler({ request }: { request: Request }) {
       return jsonError(error.message, error.status);
     }
     if (error instanceof Error && error.name === "AbortError") {
-      return jsonError("Couldn't fetch that URL", 504);
+      return jsonError("timeout", 504);
     }
     console.error("Reader fetch-url failed:", error);
-    return jsonError("Couldn't fetch that URL", 502);
+    return jsonError("fetch_failed", 502);
   } finally {
     clearTimeout(timeout);
   }
