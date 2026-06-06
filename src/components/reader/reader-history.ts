@@ -118,3 +118,123 @@ export function sanitizeEntry(raw: unknown): ReaderHistoryEntry | null {
     sizeBytes: r.sizeBytes,
   };
 }
+
+const DB_NAME = "picx-reader";
+const STORE = "history";
+const USER_INDEX = "by-user";
+
+function isAvailable(): boolean {
+  return typeof indexedDB !== "undefined";
+}
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: "id" });
+        store.createIndex(USER_INDEX, "userId", { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function txDone(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export async function getEntry(
+  id: string,
+): Promise<ReaderHistoryEntry | undefined> {
+  if (!isAvailable()) {
+    return undefined;
+  }
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).get(id);
+    const raw = await new Promise<unknown>((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return sanitizeEntry(raw) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function listEntries(
+  userId: string,
+): Promise<ReaderHistoryEntry[]> {
+  if (!isAvailable() || !userId) {
+    return [];
+  }
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).index(USER_INDEX).getAll(userId);
+    const rows = await new Promise<unknown[]>((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result as unknown[]);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return rows
+      .map(sanitizeEntry)
+      .filter((e): e is ReaderHistoryEntry => e !== null)
+      .sort((a, b) => b.lastReadAt - a.lastReadAt);
+  } catch {
+    return [];
+  }
+}
+
+export async function putEntry(entry: ReaderHistoryEntry): Promise<void> {
+  if (!isAvailable()) {
+    return;
+  }
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(entry);
+    await txDone(tx);
+    db.close();
+  } catch {
+    // 配额超限等:静默,交由 recordRead 的淘汰兜底。
+  }
+}
+
+export async function deleteEntry(id: string): Promise<void> {
+  if (!isAvailable()) {
+    return;
+  }
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(id);
+    await txDone(tx);
+    db.close();
+  } catch {
+    // 忽略
+  }
+}
+
+/** 读-改-写一次新阅读:合并 → 落库 → 按预算淘汰。失败静默降级。 */
+export async function recordRead(input: RecordInput): Promise<void> {
+  if (!isAvailable() || !input.userId) {
+    return;
+  }
+  const prev = await getEntry(input.id);
+  const entry = mergeEntry(prev, input);
+  await putEntry(entry);
+  const all = await listEntries(input.userId);
+  for (const id of selectEvictions(all, HISTORY_BUDGET_BYTES)) {
+    await deleteEntry(id);
+  }
+}

@@ -1,10 +1,15 @@
+import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import {
+  deleteEntry,
+  getEntry,
   HISTORY_BUDGET_BYTES,
   hashBytes,
+  listEntries,
   mergeEntry,
   type ReaderHistoryEntry,
   type RecordInput,
+  recordRead,
   sanitizeEntry,
   selectEvictions,
   utf8Bytes,
@@ -129,4 +134,62 @@ describe("sanitizeEntry", () => {
 
 it("预算常量为 150MB", () => {
   expect(HISTORY_BUDGET_BYTES).toBe(150 * 1024 * 1024);
+});
+
+describe("store(fake-indexeddb)", () => {
+  function input(over: Partial<RecordInput>): RecordInput {
+    return {
+      id: "id",
+      userId: "u1",
+      title: "t",
+      markdown: "m",
+      source: { kind: "upload", name: "a.pdf" },
+      now: 1,
+      ...over,
+    };
+  }
+
+  it("recordRead 落库后能按 userId 列出", async () => {
+    await recordRead(input({ id: "a", userId: "u1", now: 10 }));
+    const list = await listEntries("u1");
+    expect(list.map((e) => e.id)).toContain("a");
+  });
+
+  it("listEntries 按 lastReadAt 倒序", async () => {
+    await recordRead(input({ id: "x1", userId: "order", now: 1 }));
+    await recordRead(input({ id: "x2", userId: "order", now: 3 }));
+    await recordRead(input({ id: "x3", userId: "order", now: 2 }));
+    const ids = (await listEntries("order")).map((e) => e.id);
+    expect(ids).toEqual(["x2", "x3", "x1"]);
+  });
+
+  it("按 userId 隔离:只返回本账号", async () => {
+    await recordRead(input({ id: "ma", userId: "A", now: 1 }));
+    await recordRead(input({ id: "mb", userId: "B", now: 1 }));
+    expect((await listEntries("A")).map((e) => e.id)).toEqual(["ma"]);
+  });
+
+  it("同 id 重复 record 只更新不新增,且保留 createdAt", async () => {
+    await recordRead(input({ id: "dup", userId: "D", title: "Old", now: 5 }));
+    await recordRead(input({ id: "dup", userId: "D", title: "New", now: 9 }));
+    const list = await listEntries("D");
+    expect(list).toHaveLength(1);
+    expect(list[0].title).toBe("New");
+    expect(list[0].createdAt).toBe(5);
+    expect(list[0].lastReadAt).toBe(9);
+  });
+
+  it("deleteEntry 删除指定记录", async () => {
+    await recordRead(input({ id: "del", userId: "X", now: 1 }));
+    await deleteEntry("del");
+    expect(await getEntry("del")).toBeUndefined();
+  });
+
+  it("超预算时旧记录被淘汰", async () => {
+    const big = "x".repeat(80 * 1024 * 1024); // 80MB,两篇超 150MB 预算
+    await recordRead(input({ id: "old", userId: "E", markdown: big, now: 1 }));
+    await recordRead(input({ id: "new", userId: "E", markdown: big, now: 2 }));
+    const ids = (await listEntries("E")).map((e) => e.id);
+    expect(ids).toEqual(["new"]);
+  });
 });
