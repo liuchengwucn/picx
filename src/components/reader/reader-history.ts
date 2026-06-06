@@ -128,6 +128,9 @@ function isAvailable(): boolean {
 }
 
 function openDb(): Promise<IDBDatabase> {
+  if (typeof indexedDB === "undefined") {
+    return Promise.reject(new Error("IndexedDB unavailable"));
+  }
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = () => {
@@ -156,18 +159,20 @@ export async function getEntry(
   if (!isAvailable()) {
     return undefined;
   }
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDb();
+    db = await openDb();
     const tx = db.transaction(STORE, "readonly");
     const req = tx.objectStore(STORE).get(id);
     const raw = await new Promise<unknown>((resolve, reject) => {
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
-    db.close();
     return sanitizeEntry(raw) ?? undefined;
   } catch {
     return undefined;
+  } finally {
+    db?.close();
   }
 }
 
@@ -177,21 +182,23 @@ export async function listEntries(
   if (!isAvailable() || !userId) {
     return [];
   }
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDb();
+    db = await openDb();
     const tx = db.transaction(STORE, "readonly");
     const req = tx.objectStore(STORE).index(USER_INDEX).getAll(userId);
     const rows = await new Promise<unknown[]>((resolve, reject) => {
       req.onsuccess = () => resolve(req.result as unknown[]);
       req.onerror = () => reject(req.error);
     });
-    db.close();
     return rows
       .map(sanitizeEntry)
       .filter((e): e is ReaderHistoryEntry => e !== null)
       .sort((a, b) => b.lastReadAt - a.lastReadAt);
   } catch {
     return [];
+  } finally {
+    db?.close();
   }
 }
 
@@ -199,14 +206,16 @@ export async function putEntry(entry: ReaderHistoryEntry): Promise<void> {
   if (!isAvailable()) {
     return;
   }
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDb();
+    db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
     tx.objectStore(STORE).put(entry);
     await txDone(tx);
-    db.close();
   } catch {
     // 配额超限等:静默,交由 recordRead 的淘汰兜底。
+  } finally {
+    db?.close();
   }
 }
 
@@ -214,19 +223,24 @@ export async function deleteEntry(id: string): Promise<void> {
   if (!isAvailable()) {
     return;
   }
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDb();
+    db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
     tx.objectStore(STORE).delete(id);
     await txDone(tx);
-    db.close();
   } catch {
     // 忽略
+  } finally {
+    db?.close();
   }
 }
 
 /** 读-改-写一次新阅读:合并 → 落库 → 按预算淘汰。失败静默降级。 */
-export async function recordRead(input: RecordInput): Promise<void> {
+export async function recordRead(
+  input: RecordInput,
+  budget: number = HISTORY_BUDGET_BYTES,
+): Promise<void> {
   if (!isAvailable() || !input.userId) {
     return;
   }
@@ -234,7 +248,7 @@ export async function recordRead(input: RecordInput): Promise<void> {
   const entry = mergeEntry(prev, input);
   await putEntry(entry);
   const all = await listEntries(input.userId);
-  for (const id of selectEvictions(all, HISTORY_BUDGET_BYTES)) {
+  for (const id of selectEvictions(all, budget)) {
     await deleteEntry(id);
   }
 }

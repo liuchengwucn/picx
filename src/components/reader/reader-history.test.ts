@@ -1,5 +1,6 @@
 import "fake-indexeddb/auto";
-import { describe, expect, it } from "vitest";
+import { IDBFactory } from "fake-indexeddb";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   deleteEntry,
   getEntry,
@@ -136,6 +137,11 @@ it("预算常量为 150MB", () => {
   expect(HISTORY_BUDGET_BYTES).toBe(150 * 1024 * 1024);
 });
 
+beforeEach(() => {
+  // 每个用例用全新 IDB,隔离结构化而非依赖不同 id。
+  globalThis.indexedDB = new IDBFactory();
+});
+
 describe("store(fake-indexeddb)", () => {
   function input(over: Partial<RecordInput>): RecordInput {
     return {
@@ -186,9 +192,16 @@ describe("store(fake-indexeddb)", () => {
   });
 
   it("超预算时旧记录被淘汰", async () => {
-    const big = "x".repeat(80 * 1024 * 1024); // 80MB,两篇超 150MB 预算
-    await recordRead(input({ id: "old", userId: "E", markdown: big, now: 1 }));
-    await recordRead(input({ id: "new", userId: "E", markdown: big, now: 2 }));
+    const SMALL_BUDGET = 150;
+    const big = "x".repeat(100); // 每篇 100 字节,两篇 200 > 150 预算
+    await recordRead(
+      input({ id: "old", userId: "E", markdown: big, now: 1 }),
+      SMALL_BUDGET,
+    );
+    await recordRead(
+      input({ id: "new", userId: "E", markdown: big, now: 2 }),
+      SMALL_BUDGET,
+    );
     const ids = (await listEntries("E")).map((e) => e.id);
     expect(ids).toEqual(["new"]);
   });
