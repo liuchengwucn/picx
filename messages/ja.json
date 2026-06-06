@@ -333,6 +333,7 @@
   "reader_url_label": "または PDF の URL を貼り付け",
   "reader_url_placeholder": "https://…",
   "reader_url_button": "開く",
+  "reader_url_or": "または",
   "reader_err_url": "有効な https の PDF URL を入力してください。",
   "reader_fetching_title": "PDF を取得しています…",
   "reader_fetching_hint": "URL からダウンロード中です。少々お待ちください。",

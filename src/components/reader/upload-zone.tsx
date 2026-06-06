@@ -136,7 +136,7 @@ export function UploadZone({ onFile, onUrl }: UploadZoneProps) {
         <div className="relative mb-5 flex items-center gap-3">
           <div className="h-px flex-1 bg-[var(--line)]" />
           <span className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-[var(--ink-soft)]">
-            or
+            {m.reader_url_or()}
           </span>
           <div className="h-px flex-1 bg-[var(--line)]" />
         </div>

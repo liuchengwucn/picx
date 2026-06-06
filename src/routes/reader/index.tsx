@@ -47,6 +47,7 @@ function ReaderPage() {
   const [trimBusy, setTrimBusy] = useState(false);
 
   const pdfUrlRef = useRef<string | null>(null);
+  const lastUrlRef = useRef<string | null>(null);
 
   const statusQuery = useQuery({
     ...trpc.reader.getStatus.queryOptions({ batchId: batchId ?? "" }),
@@ -189,6 +190,7 @@ function ReaderPage() {
       void startGitHubSignIn("/reader");
       return;
     }
+    lastUrlRef.current = rawUrl;
     if (pdfUrlRef.current) {
       URL.revokeObjectURL(pdfUrlRef.current);
       pdfUrlRef.current = null;
@@ -277,6 +279,7 @@ function ReaderPage() {
       URL.revokeObjectURL(pdfUrlRef.current);
       pdfUrlRef.current = null;
     }
+    lastUrlRef.current = null;
     setFile(null);
     setPdfUrl(null);
     setBatchId(null);
@@ -290,6 +293,8 @@ function ReaderPage() {
   function retry() {
     if (file) {
       void startConversion(file);
+    } else if (lastUrlRef.current) {
+      void startFromUrl(lastUrlRef.current);
     } else {
       reset();
     }

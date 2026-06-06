@@ -333,6 +333,7 @@
   "reader_url_label": "或貼上 PDF 網址",
   "reader_url_placeholder": "https://…",
   "reader_url_button": "開啟",
+  "reader_url_or": "或",
   "reader_err_url": "請輸入有效的 https PDF 網址。",
   "reader_fetching_title": "正在取得 PDF…",
   "reader_fetching_hint": "正在從網址下載，請稍候。",

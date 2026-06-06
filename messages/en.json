@@ -333,6 +333,7 @@
   "reader_url_label": "or paste a PDF URL",
   "reader_url_placeholder": "https://…",
   "reader_url_button": "Open",
+  "reader_url_or": "or",
   "reader_err_url": "Enter a valid https PDF URL.",
   "reader_fetching_title": "Fetching PDF…",
   "reader_fetching_hint": "Downloading from the URL. This may take a moment.",
