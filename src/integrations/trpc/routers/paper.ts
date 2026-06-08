@@ -23,6 +23,7 @@ import {
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
 import { escapeLike, parseSort } from "#/lib/gallery-search";
+import { submitIndexNow } from "#/lib/indexnow";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
 import { selectRelatedPapers } from "#/lib/related-papers";
 import {
@@ -31,8 +32,25 @@ import {
   isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
 import { generateShortId } from "#/lib/short-id";
+import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey } from "#/lib/tldr";
 import { protectedProcedure, publicProcedure, router } from "../init";
+
+/**
+ * 论文公开上架后, 通知 IndexNow 抓取其页面与 Markdown 视图 (fire-and-forget)。
+ * 仅当论文真正对外可见 (isPublic && isListedInGallery) 时才 ping。
+ */
+function pingIndexNow(
+  env: { INDEXNOW_KEY?: string },
+  shortId: string | null,
+): void {
+  if (!shortId) return;
+  void submitIndexNow({
+    siteUrl: SITE_URL,
+    key: env.INDEXNOW_KEY,
+    urls: [`${SITE_URL}/p/${shortId}`, `${SITE_URL}/p/${shortId}.md`],
+  });
+}
 
 /**
  * 从结构化 Markdown 摘要中抽取一段简短片段, 作为 tldr 的兜底
@@ -790,6 +808,11 @@ export const paperRouter = router({
         .where(eq(papers.id, input.paperId))
         .returning();
 
+      // 只有真正对外可见的论文才值得通知 IndexNow。
+      if (updatedPaper.isPublic && updatedPaper.isListedInGallery) {
+        pingIndexNow(ctx.env, updatedPaper.shortId);
+      }
+
       return {
         success: true,
         isPublic: updatedPaper.isPublic,
@@ -862,6 +885,11 @@ export const paperRouter = router({
         })
         .where(eq(papers.id, input.paperId))
         .returning();
+
+      // 上架画廊即首次对外可见, 通知 IndexNow 抓取。
+      if (updatedPaper.isPublic && updatedPaper.isListedInGallery) {
+        pingIndexNow(ctx.env, updatedPaper.shortId);
+      }
 
       return {
         success: true,

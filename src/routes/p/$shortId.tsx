@@ -345,6 +345,13 @@ export const Route = createFileRoute("/p/$shortId")({
           rel: "canonical",
           href: `${SITE_URL}/p/${ssrMeta.shortId}`,
         },
+        // 指向纯 Markdown 视图, 让支持内容协商的 AI 客户端 (Claude/Cursor 等)
+        // 直接取低噪音版本。
+        {
+          rel: "alternate",
+          type: "text/markdown",
+          href: `${SITE_URL}/p/${ssrMeta.shortId}.md`,
+        },
       ],
       scripts: [
         {

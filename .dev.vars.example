@@ -46,3 +46,9 @@ CF_API_TOKEN=your-cloudflare-api-token
 # ===== MinerU (PDF → HTML reader) =====
 # 标准 API token,从 https://mineru.net 获取
 MINERU_TOKEN=your-mineru-token
+
+# ===== IndexNow (Optional, GEO) =====
+# 论文上架画廊时通知 Bing/IndexNow 抓取 (驱动 Copilot/DuckDuckGo 的 AI 搜索)。
+# 任意 8-128 位十六进制字符串; 内容会公开挂在 /indexnow-key.txt。
+# 留空则整体关闭 IndexNow 通知。
+INDEXNOW_KEY=

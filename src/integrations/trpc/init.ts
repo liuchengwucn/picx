@@ -37,6 +37,7 @@ interface AppEnvBindings {
   CF_API_TOKEN?: string;
   API_KEY_ENCRYPTION_SECRET: string;
   MINERU_TOKEN?: string;
+  INDEXNOW_KEY?: string;
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {

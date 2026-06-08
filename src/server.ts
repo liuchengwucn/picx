@@ -1,8 +1,54 @@
 import handler from "@tanstack/react-start/server-entry";
+import { drizzle } from "drizzle-orm/d1";
+import { prefersMarkdown } from "#/lib/content-negotiation";
+import { loadPaperMarkdown } from "#/lib/paper-markdown";
 import type { Env } from "#/types/env";
 import arxivCron from "#/workers/arxiv-cron";
 import queueConsumer from "#/workers/queue-consumer";
 import tweetPosterCron from "#/workers/tweet-poster-cron";
+
+const MARKDOWN_HEADERS = {
+  "Content-Type": "text/markdown; charset=utf-8",
+  "Cache-Control": "public, max-age=3600, s-maxage=86400",
+} as const;
+
+/**
+ * 把公开论文页以 Markdown 形式返回, 给 AI 检索爬虫低噪音内容。两种入口:
+ *  - `/p/{shortId}.md`            —— 显式扩展 (TanStack 路由层表达不了, 在此拦截)
+ *  - `/p/{shortId}` + Accept: text/markdown —— 内容协商 (非 UA 嗅探, 不是 cloaking)
+ * 命中扩展名却查无此文 → 404; 内容协商查无此文 → 返回 null 交给正常 HTML 渲染。
+ */
+async function tryServePaperMarkdown(
+  request: Request,
+  env: Env,
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  const lang = url.searchParams.get("lang");
+
+  const explicit = url.pathname.match(/^\/p\/([^/]+?)\.md$/);
+  if (explicit) {
+    const db = drizzle(env.DB);
+    const md = await loadPaperMarkdown(db, explicit[1], lang);
+    if (md === null) {
+      return new Response("Not found", {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+    return new Response(md, { headers: MARKDOWN_HEADERS });
+  }
+
+  const negotiated = url.pathname.match(/^\/p\/([^/]+)$/);
+  if (negotiated && prefersMarkdown(request.headers.get("accept"))) {
+    const db = drizzle(env.DB);
+    const md = await loadPaperMarkdown(db, negotiated[1], lang);
+    if (md !== null) {
+      return new Response(md, { headers: MARKDOWN_HEADERS });
+    }
+  }
+
+  return null;
+}
 
 const ARXIV_CRON = "0 0 * * *";
 // 北京时间 22:00 / 22:30 / 23:00（UTC 14:00 / 14:30 / 15:00）三次触发，
@@ -48,6 +94,12 @@ export default {
       return new Response(`Scheduled handler triggered: ${cron}`, {
         status: 200,
       });
+    }
+
+    // 公开论文的 Markdown 视图 (扩展名 / 内容协商), 命中则直接返回。
+    if (pathname.startsWith("/p/")) {
+      const md = await tryServePaperMarkdown(request, env);
+      if (md) return md;
     }
 
     // env/ctx 由 @cloudflare/vite-plugin 的 cloudflare:workers async context 注入，
