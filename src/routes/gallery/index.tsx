@@ -155,21 +155,19 @@ function ExplorePage() {
   useEffect(() => {
     const el = loadMoreRef.current;
     if (!el || !hasMore) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (
-          entries[0]?.isIntersecting &&
-          hasMore &&
-          !isFetchingNextPage &&
-          loadedPages >= page
-        ) {
-          navigate({
-            search: (prev) => ({ ...prev, page: page + 1 }),
-            resetScroll: false,
-          });
-        }
-      },
-    );
+    const observer = new IntersectionObserver((entries) => {
+      if (
+        entries[0]?.isIntersecting &&
+        hasMore &&
+        !isFetchingNextPage &&
+        loadedPages >= page
+      ) {
+        navigate({
+          search: (prev) => ({ ...prev, page: page + 1 }),
+          resetScroll: false,
+        });
+      }
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, [hasMore, isFetchingNextPage, loadedPages, page, navigate]);
@@ -472,10 +470,7 @@ function ExplorePage() {
 
         {/* Load more — 滚动到哨兵元素时自动加载; 按钮作为无障碍 / 兜底入口 */}
         {hasMore && (
-          <div
-            ref={loadMoreRef}
-            className="mt-10 flex justify-center"
-          >
+          <div ref={loadMoreRef} className="mt-10 flex justify-center">
             {isFetchingNextPage ? (
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
                 <Loader2 className="size-4 animate-spin" />

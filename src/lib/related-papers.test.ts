@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   mergeRelated,
-  shuffleArray,
   type RelatedPaper,
+  shuffleArray,
 } from "./related-papers";
 
 const p = (shortId: string): RelatedPaper => ({
