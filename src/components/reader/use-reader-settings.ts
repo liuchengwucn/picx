@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 export type ReaderFont = "serif" | "sans";
+export type ReaderAlign = "left" | "justify";
 
 export interface ReaderSettings {
   /** 正文字体:衬线(适合长文阅读)/ 无衬线 */
@@ -11,6 +12,8 @@ export interface ReaderSettings {
   measure: number;
   /** 行距(无单位倍数) */
   lineHeight: number;
+  /** 文本对齐:左对齐 / 两端对齐 */
+  textAlign: ReaderAlign;
 }
 
 export const READER_DEFAULTS: ReaderSettings = {
@@ -18,6 +21,7 @@ export const READER_DEFAULTS: ReaderSettings = {
   fontSize: 19,
   measure: 80,
   lineHeight: 1.8,
+  textAlign: "left",
 };
 
 export const FONT_SIZE_RANGE = { min: 15, max: 26, step: 1 } as const;
@@ -48,6 +52,7 @@ function sanitize(input: Partial<ReaderSettings>): ReaderSettings {
       LINE_HEIGHT_RANGE.min,
       LINE_HEIGHT_RANGE.max,
     ),
+    textAlign: input.textAlign === "justify" ? "justify" : "left",
   };
 }
 

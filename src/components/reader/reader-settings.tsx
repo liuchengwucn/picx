@@ -7,6 +7,7 @@ import {
   FONT_SIZE_RANGE,
   LINE_HEIGHT_RANGE,
   MEASURE_RANGE,
+  type ReaderAlign,
   type ReaderSettings,
 } from "./use-reader-settings";
 
@@ -121,6 +122,25 @@ export function ReaderSettingsMenu({
                   onChange({ lineHeight: Math.round(v * 10) / 10 })
                 }
               />
+            </Section>
+
+            <Section label={m.reader_text_align()}>
+              <div className="grid grid-cols-2 gap-1.5">
+                <SegButton
+                  active={settings.textAlign === "left"}
+                  onClick={() => onChange({ textAlign: "left" as ReaderAlign })}
+                >
+                  {m.reader_align_left()}
+                </SegButton>
+                <SegButton
+                  active={settings.textAlign === "justify"}
+                  onClick={() =>
+                    onChange({ textAlign: "justify" as ReaderAlign })
+                  }
+                >
+                  {m.reader_align_justify()}
+                </SegButton>
+              </div>
             </Section>
 
             <button

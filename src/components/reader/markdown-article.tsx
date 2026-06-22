@@ -2,6 +2,7 @@ import "katex/dist/katex.min.css";
 import type { CSSProperties, RefObject } from "react";
 import { memo, useCallback, useState } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
+import { cn } from "#/lib/utils";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -125,7 +126,10 @@ export function MarkdownArticle({
       <article
         ref={articleRef}
         data-reader-font={settings.font}
-        className="reader-prose prose"
+        className={cn(
+          "reader-prose prose",
+          settings.textAlign === "justify" && "text-justify",
+        )}
         style={
           {
             "--reader-font-size": `${settings.fontSize}px`,
