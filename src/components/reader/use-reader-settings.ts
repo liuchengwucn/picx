@@ -21,7 +21,7 @@ export const READER_DEFAULTS: ReaderSettings = {
   fontSize: 19,
   measure: 80,
   lineHeight: 1.8,
-  textAlign: "left",
+  textAlign: "justify",
 };
 
 export const FONT_SIZE_RANGE = { min: 15, max: 26, step: 1 } as const;
