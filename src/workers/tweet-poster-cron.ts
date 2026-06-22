@@ -99,9 +99,13 @@ export default {
 
     const sinceMs = recentSinceMs(now, RECENT_WINDOW_HOURS);
 
-    // 今日（同一 24h 窗口内）已成功发出的篇数，用于通知文案标注「今日第 N 篇」。
+    // 北京时间当天 00:00 起算，避免 24h 滚动窗口把昨天同时段的推文计入。
+    const BEIJING_OFFSET_MS = 8 * 3_600_000;
+    const todayStartMs =
+      Math.floor((now + BEIJING_OFFSET_MS) / 86_400_000) * 86_400_000 -
+      BEIJING_OFFSET_MS;
     const sentToday = seen.filter(
-      (r) => r.sentAt != null && r.sentAt.getTime() >= sinceMs,
+      (r) => r.sentAt != null && r.sentAt.getTime() >= todayStartMs,
     ).length;
 
     // 候选：guest + 近 24h + 已完成 + 有默认白板 + upvotes 非 NULL + 未投递过。
