@@ -91,11 +91,10 @@ export default {
       return;
     }
 
-    // 已投递过的 paper_id（sent + error 都算，避免重复）。规模小，取全表。
+    // 取全表投递记录仅用于统计今日已发数；去重放在候选查询的子查询里。
     const seen = await db
-      .select({ paperId: tweetQueue.paperId, sentAt: tweetQueue.sentAt })
+      .select({ sentAt: tweetQueue.sentAt })
       .from(tweetQueue);
-    const seenIds = seen.map((r) => r.paperId);
 
     const sinceMs = recentSinceMs(now, RECENT_WINDOW_HOURS);
 
@@ -138,9 +137,15 @@ export default {
       )
       .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
       .where(
-        seenIds.length > 0
-          ? and(baseWhere, notInArray(papers.id, seenIds))
-          : baseWhere,
+        and(
+          baseWhere,
+          // 去重必须用子查询：内联 ID 列表会随 tweet_queue 增长超过 D1
+          // 单查询 100 绑定参数上限，导致 handler 静默崩溃。
+          notInArray(
+            papers.id,
+            db.select({ id: tweetQueue.paperId }).from(tweetQueue),
+          ),
+        ),
       )
       .orderBy(desc(papers.upvotes));
 
