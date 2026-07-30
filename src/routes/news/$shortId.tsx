@@ -137,6 +137,7 @@ export const Route = createFileRoute("/news/$shortId")({
       scripts: [
         {
           type: "application/ld+json",
+          // 防止 </script> 逃逸：children 经 dangerouslySetInnerHTML 注入，必须转义 <
           children: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "NewsArticle",
@@ -151,7 +152,7 @@ export const Route = createFileRoute("/news/$shortId")({
               name: "PicX",
               url: SITE_URL,
             },
-          }),
+          }).replace(/</g, "\\u003c"),
         },
       ],
     };

@@ -134,7 +134,8 @@ function buildScholarlyArticleJsonLd(input: {
       name: "PicX",
       url: SITE_URL,
     },
-  });
+    // 防止 </script> 逃逸：children 经 dangerouslySetInnerHTML 注入，必须转义 <
+  }).replace(/</g, "\\u003c");
 }
 
 export const Route = createFileRoute("/p/$shortId")({

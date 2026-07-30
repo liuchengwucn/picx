@@ -15,7 +15,8 @@ export function hitToItem(hit: AlgoliaHit): NormalizedItem | null {
   if (!hit.title) return null;
   const hnUrl = `https://news.ycombinator.com/item?id=${hit.objectID}`;
   return {
-    url: hit.url ?? hnUrl,
+    // 与 rss 适配器一致：只接受 http(s) 链接，其余（javascript:/ftp: 等）回退 HN 讨论页
+    url: hit.url?.startsWith("http") ? hit.url : hnUrl,
     title: hit.title,
     author: hit.author,
     publishedAt: new Date(hit.created_at_i * 1000),
