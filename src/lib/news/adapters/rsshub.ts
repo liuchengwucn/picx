@@ -13,11 +13,12 @@ export async function fetchRsshub(
   const items = await fetchFeed(`${baseUrl.replace(/\/$/, "")}${route}`);
   return items.map((item) => {
     const text = stripHtml(item.title);
+    const chars = [...text]; // 按 Unicode code point 切分，避免把 emoji 等代理对拦腰截断
     return {
       ...item,
       title:
-        text.length > TWEET_TITLE_MAX
-          ? `${text.slice(0, TWEET_TITLE_MAX)}…`
+        chars.length > TWEET_TITLE_MAX
+          ? `${chars.slice(0, TWEET_TITLE_MAX).join("")}…`
           : text,
       extra: { ...item.extra, isTweet: true },
     };

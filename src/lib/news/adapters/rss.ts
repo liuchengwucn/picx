@@ -9,6 +9,8 @@ const MAX_ITEMS_PER_FEED = 50;
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
+  // 防止 <title>0755</title> 之类被强转成 number
+  parseTagValue: false,
 });
 
 function asArray<T>(value: T | T[] | undefined): T[] {
@@ -25,37 +27,84 @@ function textOf(node: unknown): string {
   return "";
 }
 
+// 命名实体表：fast-xml-parser 不解码 CDATA/文本中的实体，真实 feed 常见 &#8217; 等数字实体
+// 以及一小撮排版用命名实体，这里覆盖常见集合（不追求完整 HTML5 实体表）
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  mdash: "—",
+  ndash: "–",
+  hellip: "…",
+  rsquo: "’",
+  lsquo: "‘",
+  ldquo: "“",
+  rdquo: "”",
+  middot: "·",
+};
+
 export function stripHtml(html: string): string {
   return html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ") // 先整块删除脚本/样式，避免其内容混入正文
     .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_match, dec: string) => {
+      try {
+        return String.fromCodePoint(Number(dec));
+      } catch {
+        return "";
+      }
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => {
+      try {
+        return String.fromCodePoint(Number.parseInt(hex, 16));
+      } catch {
+        return "";
+      }
+    })
+    .replace(
+      /&([a-z]+);/gi,
+      (match, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? match,
+    )
+    .replace(/&amp;/g, "&") // 必须最后解码，否则会把 &amp;lt; 之类的双重转义提前展开
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function extractImages(html: string): NewsMedia[] {
+  const seen = new Set<string>();
   const media: NewsMedia[] = [];
   for (const match of html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
-    if (match[1].startsWith("http"))
-      media.push({ type: "image", url: match[1] });
+    const url = match[1];
+    if (!url.startsWith("http") || seen.has(url)) continue;
+    seen.add(url);
+    media.push({ type: "image", url });
     if (media.length >= 4) break;
   }
   return media;
 }
 
+const MAX_FUTURE_SKEW_MS = 10 * 60 * 1000;
+
 function parseDate(value: unknown): Date | null {
   const date = new Date(textOf(value));
-  return Number.isNaN(date.getTime()) ? null : date;
+  if (Number.isNaN(date.getTime())) return null;
+  // 部分源的服务器时钟不准，会把条目发布时间标成未来，导致排序永远置顶；钳制为当前时间
+  if (date.getTime() > Date.now() + MAX_FUTURE_SKEW_MS) return new Date();
+  return date;
 }
 
-/** 解析 RSS 2.0 或 Atom，容忍字段缺失；无法确定链接的条目丢弃 */
+/**
+ * 解析 RSS 2.0 或 Atom，容忍字段缺失；无法确定链接的条目丢弃。
+ * 若根结构既非 rss.channel 也非 feed（例如源挂了返回一个 200 的 HTML 错误页），
+ * 视为解析失败并抛出，交由调用方计入来源失败计数；只有「确实是 feed 但零条目」才返回 []。
+ */
 export function parseFeed(xml: string): NormalizedItem[] {
   const doc = parser.parse(xml);
+  if (!doc?.rss?.channel && !doc?.feed) {
+    throw new Error("parseFeed: unrecognized feed format");
+  }
   const items: NormalizedItem[] = [];
 
   const rssItems = asArray<Record<string, unknown>>(doc?.rss?.channel?.item);
@@ -69,7 +118,8 @@ export function parseFeed(xml: string): NormalizedItem[] {
     const enclosureUrl = enclosure?.["@_url"];
     if (
       typeof enclosureUrl === "string" &&
-      String(enclosure?.["@_type"] ?? "").startsWith("image")
+      String(enclosure?.["@_type"] ?? "").startsWith("image") &&
+      !media.some((m) => m.url === enclosureUrl)
     ) {
       media.unshift({ type: "image", url: enclosureUrl });
     }
@@ -120,6 +170,7 @@ export async function fetchFeed(url: string): Promise<NormalizedItem[]> {
       Accept:
         "application/rss+xml, application/atom+xml, application/xml, text/xml",
     },
+    signal: AbortSignal.timeout(15_000), // 单个源挂起不应拖垮整轮抓取
   });
   if (!response.ok) throw new Error(`feed ${url}: HTTP ${response.status}`);
   return parseFeed(await response.text());

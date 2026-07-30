@@ -45,13 +45,46 @@ describe("parseFeed", () => {
       excerpt: "Sparse experts.",
     });
   });
-  it("returns empty for unknown xml", () => {
-    expect(parseFeed("<html></html>")).toEqual([]);
+  it("throws on unrecognized root structure instead of silently returning []", () => {
+    // 200 的 HTML 错误页也会被 fast-xml-parser 解析成对象，但既非 rss.channel 也非 feed，
+    // 必须抛出，否则死掉的源永远不会被计入失败计数
+    expect(() => parseFeed("<html></html>")).toThrow(
+      /unrecognized feed format/,
+    );
+  });
+
+  it("returns [] for a recognized feed with zero items", () => {
+    expect(
+      parseFeed(
+        '<?xml version="1.0"?><rss version="2.0"><channel><title>Empty</title></channel></rss>',
+      ),
+    ).toEqual([]);
   });
 });
 
 describe("stripHtml", () => {
   it("removes tags and decodes basic entities", () => {
     expect(stripHtml("<p>a &amp; b</p>")).toBe("a & b");
+  });
+
+  it("decodes numeric decimal and hex entities", () => {
+    const apostrophe = String.fromCodePoint(0x2019);
+    expect(stripHtml("I&#8217;ve seen &#x2019; things")).toBe(
+      `I${apostrophe}ve seen ${apostrophe} things`,
+    );
+  });
+
+  it("decodes &amp; last so double-escaped entities are not over-decoded", () => {
+    expect(stripHtml("literal &amp;lt;div&amp;gt;")).toBe(
+      "literal &lt;div&gt;",
+    );
+  });
+
+  it("removes script/style elements including their body", () => {
+    expect(
+      stripHtml(
+        '<p>keep</p><script>alert("x")</script><style>.a{color:red}</style><p>me</p>',
+      ),
+    ).toBe("keep me");
   });
 });
