@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  isNotFound,
+  Link,
+  notFound,
+} from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import { ArrowLeft, Clock, ExternalLink, MessageSquare } from "lucide-react";
 import { Badge } from "#/components/ui/badge";
@@ -31,8 +36,9 @@ type SerializableByShortId = Omit<ByShortIdOutput, "items"> & {
 
 export const Route = createFileRoute("/news/$shortId")({
   component: NewsStoryPage,
-  // 客户端导航时 NOT_FOUND 会从 loader 抛出（SSR 分支返回 null 由组件兜底）
+  // 客户端导航时 NOT_FOUND 会从 loader 抛出（SSR 分支查不到则 throw notFound() 返回 404）
   errorComponent: StoryNotFound,
+  notFoundComponent: StoryNotFound,
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR) {
       // SSR: 直接读 D1，让爬虫拿到有内容的首个 HTML 响应而不是骨架屏。
@@ -67,7 +73,8 @@ export const Route = createFileRoute("/news/$shortId")({
           )
           .limit(1);
 
-        if (!story) return { ssrData: null };
+        // 查不到故事：抛 notFound() 让 SSR 返回真正的 404 状态码（而非 200 骨架屏）
+        if (!story) throw notFound();
 
         const items = await db
           .select({
@@ -98,7 +105,9 @@ export const Route = createFileRoute("/news/$shortId")({
           items,
         } satisfies ByShortIdOutput as SerializableByShortId;
         return { ssrData };
-      } catch {
+      } catch (error) {
+        // notFound 必须穿透；其余错误（DB 不可用等）降级为 CSR 兜底
+        if (isNotFound(error)) throw error;
         return { ssrData: null };
       }
     }
