@@ -399,5 +399,6 @@
   "news_empty_title": "No stories yet",
   "news_empty_desc": "The aggregation pipeline runs hourly. Check back soon.",
   "news_timeline": "Coverage timeline",
-  "news_back": "Back to News"
+  "news_back": "Back to News",
+  "news_not_found": "This story does not exist or has been removed."
 }

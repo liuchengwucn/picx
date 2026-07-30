@@ -399,5 +399,6 @@
   "news_empty_title": "暫無資訊",
   "news_empty_desc": "聚合管道每小時執行一次，稍後再來看看。",
   "news_timeline": "報導時間線",
-  "news_back": "返回資訊"
+  "news_back": "返回資訊",
+  "news_not_found": "該資訊不存在或已被移除。"
 }

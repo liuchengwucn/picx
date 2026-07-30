@@ -399,5 +399,6 @@
   "news_empty_title": "暂无资讯",
   "news_empty_desc": "聚合管道每小时运行一次，稍后再来看看。",
   "news_timeline": "报道时间线",
-  "news_back": "返回资讯"
+  "news_back": "返回资讯",
+  "news_not_found": "该资讯不存在或已被移除。"
 }

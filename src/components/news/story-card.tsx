@@ -47,10 +47,7 @@ export function StoryCard({ story, delay }: StoryCardProps) {
     >
       {/* 标题+摘要整块可点进详情;footer 的外链留在 Link 外,互不干扰 */}
       <Link
-        // 详情路由 /news/$shortId 由后续任务创建;路由落地后这两个指令会报 unused,届时删除
-        // @ts-expect-error route created in a later task
         to="/news/$shortId"
-        // @ts-expect-error route created in a later task
         params={{ shortId: story.shortId }}
         className="block no-underline"
       >
