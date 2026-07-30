@@ -1,3 +1,8 @@
+/** Workers AI binding 的最小结构类型（项目未引入 @cloudflare/workers-types 的全局 Ai） */
+export interface WorkersAi {
+  run(model: string, options: Record<string, unknown>): Promise<unknown>;
+}
+
 /**
  * Cloudflare Workers Environment Bindings
  */
@@ -37,4 +42,11 @@ export interface Env {
   // Telegram：仅在 X 发推失败时告警，供人工补发
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+
+  /** Workers AI binding（news 聚合用 @cf/baai/bge-m3 做 embedding） */
+  AI: WorkersAi;
+  /** 自建 RSSHub 实例地址（可选；未配置时 rsshub 类型来源整体跳过） */
+  RSSHUB_BASE_URL?: string;
+  /** news 流水线专用模型覆盖（可选；缺省回落 OPENAI_MODEL） */
+  NEWS_OPENAI_MODEL?: string;
 }
