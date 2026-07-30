@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  customType,
   index,
   integer,
   sqliteTable,
@@ -343,5 +344,165 @@ export const tweetQueue = sqliteTable(
   },
   (table) => ({
     statusIdx: index("tweet_queue_status_idx").on(table.status),
+  }),
+);
+
+// ==== News Aggregation Tables ====
+
+// D1 的 BLOB 经 Workers binding 读回是 number[] 而非 ArrayBuffer（drizzle-orm#926），
+// 用 customType 统一转换为 Float32Array。写入按社区验证的 number[] 形式。
+export const float32Blob = customType<{
+  data: Float32Array;
+  driverData: number[];
+}>({
+  dataType: () => "blob",
+  toDriver: (value) =>
+    Array.from(
+      new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
+    ),
+  fromDriver: (value) => new Float32Array(Uint8Array.from(value).buffer),
+});
+
+// rss/rsshub: { url } 或 { route }；hn: { queries, minPoints }
+export type NewsSourceConfig = {
+  url?: string;
+  route?: string;
+  queries?: string[];
+  minPoints?: number;
+};
+
+export type NewsMedia = {
+  type: "image" | "video";
+  url: string;
+  width?: number;
+  height?: number;
+};
+
+// 按平台分开展示的参考信号（明确不聚合成单一标量、不参与排序）
+export type StorySignalsSummary = {
+  domains: string[];
+  hn?: { points: number; comments: number; url: string };
+  xAccounts?: number;
+};
+
+export const newsSources = sqliteTable(
+  "news_sources",
+  {
+    // 种子数据用可读固定 id（如 "src-openai-blog"），便于 INSERT OR IGNORE 幂等 seed
+    id: text("id").primaryKey(),
+    type: text("type", { enum: ["rss", "rsshub", "hn"] }).notNull(),
+    name: text("name").notNull(),
+    config: text("config", { mode: "json" })
+      .notNull()
+      .$type<NewsSourceConfig>(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    lastFetchedAt: integer("last_fetched_at", { mode: "timestamp" }),
+    lastError: text("last_error"),
+    // 连续失败达到阈值自动禁用，避免死源每小时空转
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    enabledIdx: index("news_sources_enabled_idx").on(table.enabled, table.type),
+  }),
+);
+
+export const newsStories = sqliteTable(
+  "news_stories",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    shortId: text("short_id").notNull().unique(),
+    // 四语 key: en / zh-cn / zh-tw / ja（与 lib/tldr.ts 的 normalizeLocaleKey 对齐，可复用 pickTldr）
+    title: text("title", { mode: "json" })
+      .notNull()
+      .$type<Record<string, string>>(),
+    summary: text("summary", { mode: "json" })
+      .notNull()
+      .$type<Record<string, string>>(),
+    // 不加 FK：与 news_items 互相引用会形成环，迁移与删除都会麻烦
+    primaryItemId: text("primary_item_id"),
+    centroid: float32Blob("centroid").notNull(),
+    itemCount: integer("item_count").notNull().default(0),
+    sourceCount: integer("source_count").notNull().default(0),
+    signalsSummary: text("signals_summary", {
+      mode: "json",
+    }).$type<StorySignalsSummary>(),
+    tags: text("tags", { mode: "json" }).$type<string[]>(),
+    // 有新成员并入置真，summarize 阶段处理完置假——崩溃可恢复的幂等标记（D1 无事务）
+    dirty: integer("dirty", { mode: "boolean" }).notNull().default(true),
+    firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull(),
+    lastActivityAt: integer("last_activity_at", {
+      mode: "timestamp",
+    }).notNull(),
+    status: text("status", { enum: ["active", "archived", "hidden"] })
+      .notNull()
+      .default("active"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    statusFirstSeenIdx: index("news_stories_status_first_seen_idx").on(
+      table.status,
+      table.firstSeenAt,
+    ),
+    statusActivityIdx: index("news_stories_status_activity_idx").on(
+      table.status,
+      table.lastActivityAt,
+    ),
+    dirtyIdx: index("news_stories_dirty_idx").on(table.dirty),
+  }),
+);
+
+export const newsItems = sqliteTable(
+  "news_items",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => newsSources.id, { onDelete: "cascade" }),
+    // 归一化 URL 的 SHA-256，同一链接被多来源/多账号提及时只保留一行（更新 signals）
+    urlHash: text("url_hash").notNull().unique(),
+    url: text("url").notNull(),
+    title: text("title").notNull(),
+    excerpt: text("excerpt"),
+    author: text("author"),
+    publishedAt: integer("published_at", { mode: "timestamp" }).notNull(),
+    fetchedAt: integer("fetched_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    // 平台原生指标（HN: {points, comments}），展示与回刷用，不做跨平台聚合
+    signals: text("signals", { mode: "json" }).$type<Record<string, number>>(),
+    media: text("media", { mode: "json" }).$type<NewsMedia[]>(),
+    // 各来源异构字段兜底（hnId/hnUrl、isTweet 等）
+    extra: text("extra", { mode: "json" }).$type<Record<string, unknown>>(),
+    relevanceScore: integer("relevance_score"),
+    embedding: float32Blob("embedding"),
+    storyId: text("story_id").references(() => newsStories.id, {
+      onDelete: "set null",
+    }),
+    status: text("status", { enum: ["pending", "clustered", "rejected"] })
+      .notNull()
+      .default("pending"),
+  },
+  (table) => ({
+    statusIdx: index("news_items_status_idx").on(table.status, table.fetchedAt),
+    storyIdx: index("news_items_story_idx").on(
+      table.storyId,
+      table.publishedAt,
+    ),
+    sourceIdx: index("news_items_source_idx").on(
+      table.sourceId,
+      table.publishedAt,
+    ),
   }),
 );
