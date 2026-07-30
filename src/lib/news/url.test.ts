@@ -20,6 +20,11 @@ describe("normalizeUrl", () => {
   it("keeps root path slash", () => {
     expect(normalizeUrl("https://a.com/")).toBe("https://a.com/");
   });
+  it("strips trailing slash even when query present", () => {
+    expect(normalizeUrl("https://a.com/post/?id=1")).toBe(
+      normalizeUrl("https://a.com/post?id=1"),
+    );
+  });
 });
 
 describe("hashUrl", () => {

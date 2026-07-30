@@ -30,4 +30,9 @@ describe("mergeCentroid", () => {
     );
     expect(Array.from(merged)).toEqual([2, 2]);
   });
+  it("throws on dimension mismatch", () => {
+    expect(() =>
+      mergeCentroid(new Float32Array([1, 1]), 1, new Float32Array([1])),
+    ).toThrow(/dimension mismatch/);
+  });
 });

@@ -18,6 +18,11 @@ export function mergeCentroid(
   count: number,
   next: Float32Array,
 ): Float32Array {
+  if (centroid.length !== next.length) {
+    throw new Error(
+      `mergeCentroid: dimension mismatch ${centroid.length} vs ${next.length}`,
+    );
+  }
   const merged = new Float32Array(centroid.length);
   for (let i = 0; i < centroid.length; i++) {
     merged[i] = (centroid[i] * count + next[i]) / (count + 1);

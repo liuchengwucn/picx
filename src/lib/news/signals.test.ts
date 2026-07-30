@@ -10,6 +10,9 @@ const rss = (url: string) => ({
 });
 
 describe("buildSignalsSummary", () => {
+  it("returns empty domains for no items", () => {
+    expect(buildSignalsSummary([])).toEqual({ domains: [] });
+  });
   it("dedupes domains preserving order", () => {
     const s = buildSignalsSummary([
       rss("https://openai.com/a"),
