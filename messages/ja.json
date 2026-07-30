@@ -385,5 +385,19 @@
   "reader_error_parse": "この PDF を解析できませんでした。",
   "reader_error_upload": "アップロードに失敗しました。再試行してください。",
   "reader_auth_redirect": "サインインへ移動中…",
-  "reader_auth_loading": "読み込み中…"
+  "reader_auth_loading": "読み込み中…",
+  "nav_news": "ニュース",
+  "news_page_title": "AI最前線ニュース - PicX",
+  "news_page_desc": "AIコミュニティが今注目しているニュースを毎時集約。",
+  "news_heading": "AI最前線ニュース",
+  "news_subheading": "AIコミュニティが今話題にしていること",
+  "news_sort_latest": "新着",
+  "news_sort_active": "更新順",
+  "news_sources_count": "{count} ソース",
+  "news_hn_points": "{points} ポイント",
+  "news_x_mentions": "{count} アカウント",
+  "news_empty_title": "まだニュースがありません",
+  "news_empty_desc": "集約パイプラインは1時間ごとに実行されます。しばらくしてからご確認ください。",
+  "news_timeline": "報道タイムライン",
+  "news_back": "ニュース一覧へ"
 }
