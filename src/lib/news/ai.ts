@@ -221,7 +221,9 @@ export async function embedTexts(
     }),
   ]).finally(() => clearTimeout(timer));
   if (!result.data || result.data.length !== texts.length) {
-    throw new Error("news-ai: unexpected bge-m3 response shape");
+    // 把响应片段带进错误信息，否则线上只能看到"shape 不对"而无从排查
+    const snippet = JSON.stringify(result)?.slice(0, 300);
+    throw new Error(`news-ai: unexpected bge-m3 response shape: ${snippet}`);
   }
   return result.data.map((vector) => {
     const embedding = new Float32Array(vector);
