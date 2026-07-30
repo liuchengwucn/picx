@@ -1,8 +1,8 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { paperResults, papers } from "#/db/schema";
+import { newsStories, paperResults, papers } from "#/db/schema";
 import { buildLlmsFullTxt } from "#/lib/llms-txt";
 import { SITE_URL } from "#/lib/site-url";
 
@@ -10,9 +10,12 @@ interface AppEnvBindings {
   DB: D1Database;
 }
 
-// 完整版字节上限。llms-full.txt 习惯在几十 KB 量级; 超出的论文整篇丢弃并注明,
-// 避免静默截断。
+// 完整版字节上限。llms-full.txt 习惯在几十 KB 量级; 超出的论文/story 整篇丢弃并
+// 注明, 避免静默截断。
 const MAX_BYTES = 200_000;
+
+// 新闻 story 的上限, 同样是"最新即可"的站点地图逻辑。
+const MAX_STORIES = 100;
 
 /**
  * `/llms-full.txt` —— 在 llms.txt 概要之上内联每篇公开论文的英文完整摘要,
@@ -55,6 +58,26 @@ async function handler() {
     // Degrade to overview-only llms-full.txt
   }
 
+  let storyRows: Array<{
+    shortId: string;
+    title: unknown;
+    summary: unknown;
+  }> = [];
+  try {
+    storyRows = await db
+      .select({
+        shortId: newsStories.shortId,
+        title: newsStories.title,
+        summary: newsStories.summary,
+      })
+      .from(newsStories)
+      .where(sql`${newsStories.status} != 'hidden'`) // 字面量谓词：partial index 要求，勿改成 ne()
+      .orderBy(desc(newsStories.firstSeenAt))
+      .limit(MAX_STORIES);
+  } catch {
+    // Degrade to llms-full.txt without news stories
+  }
+
   const txt = buildLlmsFullTxt({
     siteUrl: SITE_URL,
     maxBytes: MAX_BYTES,
@@ -72,6 +95,13 @@ async function handler() {
           sourceUrl: r.sourceUrl,
         };
       }),
+    stories: storyRows
+      .map((r) => ({
+        shortId: r.shortId,
+        title: (r.title as Record<string, string>).en ?? "",
+        summary: (r.summary as Record<string, string>).en ?? "",
+      }))
+      .filter((s) => s.title !== ""),
   });
 
   return new Response(txt, {

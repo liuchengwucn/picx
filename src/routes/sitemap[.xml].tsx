@@ -1,8 +1,8 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { papers, whiteboardImages } from "#/db/schema";
+import { newsStories, papers, whiteboardImages } from "#/db/schema";
 import { escapeHtml } from "#/lib/embed-code";
 import { PAPER_CATEGORY_SLUGS } from "#/lib/paper-categories";
 
@@ -63,6 +63,21 @@ async function handler({ request }: { request: Request }) {
     // Degrade gracefully to static-only sitemap
   }
 
+  let stories: Array<{ shortId: string; lastActivityAt: Date }> = [];
+  try {
+    stories = await db
+      .select({
+        shortId: newsStories.shortId,
+        lastActivityAt: newsStories.lastActivityAt,
+      })
+      .from(newsStories)
+      .where(sql`${newsStories.status} != 'hidden'`) // 字面量谓词：partial index 要求，勿改成 ne()
+      .orderBy(desc(newsStories.firstSeenAt))
+      .limit(1000);
+  } catch {
+    // Degrade gracefully to sitemap without news stories
+  }
+
   // publicPapers 已按 publishedAt 倒序, 取最新一篇的发布日作为首页/画廊的
   // lastmod —— 在 sitemap 顶部给出"内容刚更新"的新鲜度信号, 这是 Google
   // 现在真正参考的字段 (changefreq/priority 已被忽略)。
@@ -92,6 +107,7 @@ async function handler({ request }: { request: Request }) {
       lastmod: latestPaperDate,
     },
     { url: `${origin}/reader`, priority: "0.8", changefreq: "monthly" },
+    { url: `${origin}/news`, priority: "0.8", changefreq: "hourly" },
     { url: `${origin}/about`, priority: "0.5", changefreq: "monthly" },
   ];
 
@@ -116,7 +132,19 @@ async function handler({ request }: { request: Request }) {
     lastmod: latestPaperDate,
   }));
 
-  const allRoutes = [...staticRoutes, ...categoryRoutes, ...paperRoutes];
+  const storyRoutes: SitemapRoute[] = stories.map((s) => ({
+    url: `${origin}/news/${s.shortId}`,
+    priority: "0.6",
+    changefreq: "daily",
+    lastmod: s.lastActivityAt.toISOString().split("T")[0],
+  }));
+
+  const allRoutes = [
+    ...staticRoutes,
+    ...categoryRoutes,
+    ...paperRoutes,
+    ...storyRoutes,
+  ];
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">

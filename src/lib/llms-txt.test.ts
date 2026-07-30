@@ -67,6 +67,40 @@ describe("buildLlmsTxt", () => {
     expect(txt).toContain("(https://picx.dev/gallery)");
     expect(txt).toContain("(https://picx.dev/about)");
   });
+
+  it("always links the news page, regardless of stories", () => {
+    const txt = buildLlmsTxt({ siteUrl, papers });
+    expect(txt).toContain("(https://picx.dev/news)");
+  });
+
+  it("renders a Latest AI News section when stories are present", () => {
+    const txt = buildLlmsTxt({
+      siteUrl,
+      papers,
+      stories: [
+        {
+          shortId: "story1",
+          title: "OpenAI Ships New Model",
+          summary: "A".repeat(200),
+        },
+      ],
+    });
+    expect(txt).toContain("## Latest AI News");
+    expect(txt).toContain(
+      "[OpenAI Ships New Model](https://picx.dev/news/story1)",
+    );
+    // Summary truncated to 150 chars with an ellipsis appended.
+    expect(txt).toContain(`${"A".repeat(150)}...`);
+    expect(txt).not.toContain("A".repeat(151));
+  });
+
+  it("omits the Latest AI News section when stories is absent or empty", () => {
+    const txtAbsent = buildLlmsTxt({ siteUrl, papers });
+    expect(txtAbsent).not.toContain("## Latest AI News");
+
+    const txtEmpty = buildLlmsTxt({ siteUrl, papers, stories: [] });
+    expect(txtEmpty).not.toContain("## Latest AI News");
+  });
 });
 
 describe("buildLlmsFullTxt", () => {
@@ -97,5 +131,38 @@ describe("buildLlmsFullTxt", () => {
   it("notes when papers were omitted for size", () => {
     const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 700 });
     expect(txt.toLowerCase()).toContain("omitted");
+  });
+
+  it("inlines a Latest AI News section with full story summaries", () => {
+    const stories = [
+      {
+        shortId: "story1",
+        title: "OpenAI Ships New Model",
+        summary: "Full detailed summary of the story goes here.",
+      },
+    ];
+    const txt = buildLlmsFullTxt({
+      siteUrl,
+      papers,
+      stories,
+      maxBytes: 100_000,
+    });
+    expect(txt).toContain("## Latest AI News");
+    expect(txt).toContain("## OpenAI Ships New Model");
+    expect(txt).toContain("- **Permalink:** https://picx.dev/news/story1");
+    expect(txt).toContain("Full detailed summary of the story goes here.");
+  });
+
+  it("omits the Latest AI News section when stories is absent or empty", () => {
+    const txtAbsent = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 100_000 });
+    expect(txtAbsent).not.toContain("## Latest AI News");
+
+    const txtEmpty = buildLlmsFullTxt({
+      siteUrl,
+      papers,
+      stories: [],
+      maxBytes: 100_000,
+    });
+    expect(txtEmpty).not.toContain("## Latest AI News");
   });
 });
