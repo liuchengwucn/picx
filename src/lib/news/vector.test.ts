@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cosineSimilarity, mergeCentroid } from "./vector";
+import { cosineSimilarity, meanVector, mergeCentroid } from "./vector";
 
 describe("cosineSimilarity", () => {
   it("identical vectors → 1", () => {
@@ -33,6 +33,38 @@ describe("mergeCentroid", () => {
   it("throws on dimension mismatch", () => {
     expect(() =>
       mergeCentroid(new Float32Array([1, 1]), 1, new Float32Array([1])),
+    ).toThrow(/dimension mismatch/);
+  });
+});
+
+describe("meanVector", () => {
+  it("averages all members", () => {
+    const mean = meanVector([
+      new Float32Array([0, 10]),
+      new Float32Array([2, 20]),
+      new Float32Array([4, 30]),
+    ]);
+    expect(Array.from(mean)).toEqual([2, 20]);
+  });
+  it("single vector → itself", () => {
+    expect(Array.from(meanVector([new Float32Array([3, -1])]))).toEqual([
+      3, -1,
+    ]);
+  });
+  it("self-heals a double-merged centroid", () => {
+    // 重复并入：a 被算了两次，增量 centroid 偏向 a；全量重算应回到真实均值
+    const a = new Float32Array([0, 0]);
+    const b = new Float32Array([4, 4]);
+    const skewed = mergeCentroid(mergeCentroid(a, 1, a), 2, b);
+    expect(Array.from(skewed)).not.toEqual([2, 2]);
+    expect(Array.from(meanVector([a, b]))).toEqual([2, 2]);
+  });
+  it("throws on empty input", () => {
+    expect(() => meanVector([])).toThrow(/empty input/);
+  });
+  it("throws on dimension mismatch", () => {
+    expect(() =>
+      meanVector([new Float32Array([1, 1]), new Float32Array([1])]),
     ).toThrow(/dimension mismatch/);
   });
 });

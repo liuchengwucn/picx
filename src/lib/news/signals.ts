@@ -26,10 +26,11 @@ export function buildSignalsSummary(items: SignalInput[]): StorySignalsSummary {
     domains: domains.slice(0, MAX_DOMAINS),
   };
 
-  // HN：取 points 最高的一条(同一 story 可能被多次提交)
+  // HN：取 points 最高的一条(同一 story 可能被多次提交)。
+  // 按 extra.hnUrl 判定而非 sourceType='hn'：HN 帖与 RSS 条目常共享同一 canonical URL，
+  // urlHash 去重后行可能挂在 rss 来源上，只有 extra 里的 hnUrl 才是 HN 身份的可靠标记。
   let best: { points: number; comments: number; url: string } | undefined;
   for (const item of items) {
-    if (item.sourceType !== "hn") continue;
     const points = item.signals?.points ?? 0;
     const hnUrl =
       typeof item.extra?.hnUrl === "string" ? item.extra.hnUrl : null;

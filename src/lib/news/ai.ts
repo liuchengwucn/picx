@@ -198,16 +198,28 @@ export async function generateStoryContent(
 const EMBEDDING_DIM = 1024;
 
 // Ai 是 @cloudflare/workers-types 的全局环境类型，无需 import
+const EMBEDDING_TIMEOUT_MS = 30_000;
+
 export async function embedTexts(
   ai: Ai,
   texts: string[],
 ): Promise<Float32Array[]> {
-  const result = (await ai.run("@cf/baai/bge-m3", {
-    text: texts,
-    truncate_inputs: true,
-  })) as {
-    data?: number[][];
-  };
+  type EmbeddingResponse = { data?: number[][] };
+  // ai.run 不接受 AbortSignal，只能用 race 兜住挂死的调用——流水线在 cron 里跑，
+  // 单次 embedding 卡住会吃掉整轮的 wall-clock 预算。
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    ai.run("@cf/baai/bge-m3", {
+      text: texts,
+      truncate_inputs: true,
+    }) as Promise<EmbeddingResponse>,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new NewsAiError("news-ai: embedding timeout")),
+        EMBEDDING_TIMEOUT_MS,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
   if (!result.data || result.data.length !== texts.length) {
     throw new Error("news-ai: unexpected bge-m3 response shape");
   }

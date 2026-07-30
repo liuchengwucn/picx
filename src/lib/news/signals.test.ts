@@ -44,6 +44,28 @@ describe("buildSignalsSummary", () => {
       url: "https://news.ycombinator.com/item?id=2",
     });
   });
+  it("detects HN by extra.hnUrl even on an rss-sourced row", () => {
+    // URL 撞车去重后，HN 帖的 signals/extra 会落在 rss 来源的行上
+    const s = buildSignalsSummary([
+      {
+        url: "https://openai.com/blog/x",
+        author: null,
+        signals: { points: 42, comments: 7 },
+        extra: { hnUrl: "https://news.ycombinator.com/item?id=9" },
+        sourceType: "rss",
+      },
+    ]);
+    expect(s.hn).toEqual({
+      points: 42,
+      comments: 7,
+      url: "https://news.ycombinator.com/item?id=9",
+    });
+  });
+  it("ignores rows without hnUrl", () => {
+    expect(
+      buildSignalsSummary([rss("https://openai.com/a")]).hn,
+    ).toBeUndefined();
+  });
   it("counts distinct X accounts", () => {
     const tweet = (author: string) => ({
       url: `https://nitter/${author}`,

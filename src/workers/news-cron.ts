@@ -1,6 +1,7 @@
-import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { drizzle } from "drizzle-orm/d1";
+import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { newsItems, newsSources, newsStories } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { fetchHn, fetchHnItemSignals } from "#/lib/news/adapters/hn";
@@ -15,7 +16,7 @@ import {
 import { buildSignalsSummary } from "#/lib/news/signals";
 import type { NormalizedItem } from "#/lib/news/types";
 import { hashUrl } from "#/lib/news/url";
-import { cosineSimilarity, mergeCentroid } from "#/lib/news/vector";
+import { cosineSimilarity, meanVector, mergeCentroid } from "#/lib/news/vector";
 import { generateShortId } from "#/lib/short-id";
 import type { Env } from "#/types/env";
 
@@ -32,11 +33,21 @@ const MAX_CLUSTER_PER_ROUND = 60;
 const MAX_SUMMARIZE_PER_ROUND = 30;
 const MAX_HN_REFRESH_PER_ROUND = 50;
 const MAX_SOURCE_FAILURES = 10;
+// Cron 触发的硬上限是 15 分钟；留 4 分钟余量，让平台 kill 永远不会落在写入中途。
+// 各阶段在循环边界主动收手，未处理的积压下一轮继续（所有阶段都按状态幂等取活）。
+const ROUND_BUDGET_MS = 11 * 60_000;
 
 type Db = DrizzleD1Database;
 
 function log(step: string, message: string) {
   console.log(`[NewsCron][${step}] ${message}`);
+}
+
+/** 循环边界的时间预算检查。超时即让出，剩余工作交给下一轮 cron。 */
+function pastDeadline(deadline: number, step: string): boolean {
+  if (Date.now() <= deadline) return false;
+  log(step, "deadline reached, deferring rest to next round");
+  return true;
 }
 
 function aiConfigFromEnv(env: Env): AIConfig {
@@ -70,20 +81,22 @@ async function fetchForSource(
       return fetchRsshub(env.RSSHUB_BASE_URL, source.config);
     case "hn":
       // HN 必须用宽回看窗（72h）：新帖需要时间攒分，短窗+分数阈值组合会永远抓不到内容
-      // （实测 3h 窗口命中 0 条）。重复条目靠 urlHash onConflict 去重并回刷 signals。
+      // （实测 3h 窗口命中 0 条）。重复条目靠 urlHash onConflict 去重并合并 signals/extra。
       return fetchHn(source.config, windowStart());
   }
 }
 
-async function fetchStage(db: Db, env: Env): Promise<void> {
+async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
   const sources = await db
     .select()
     .from(newsSources)
     .where(eq(newsSources.enabled, true));
   for (const source of sources) {
+    if (pastDeadline(deadline, "fetch")) break;
     try {
       const items = await fetchForSource(source, env);
       let inserted = 0;
+      let itemErrors = 0;
       for (const item of items) {
         // 单条容错：feed 里偶见坏 URL（hashUrl 会抛 TypeError），不能拖垮同来源其余条目
         let urlHash: string;
@@ -96,30 +109,54 @@ async function fetchStage(db: Db, env: Env): Promise<void> {
           );
           continue;
         }
-        const rows = await db
-          .insert(newsItems)
-          .values({
-            sourceId: source.id,
-            urlHash,
-            url: item.url,
-            title: item.title.slice(0, 500),
-            excerpt: item.excerpt ?? null,
-            author: item.author ?? null,
-            publishedAt: item.publishedAt,
-            signals: item.signals ?? null,
-            media: item.media ?? null,
-            extra: item.extra ?? null,
-          })
-          .onConflictDoNothing()
-          .returning({ id: newsItems.id });
-        if (rows.length > 0) {
-          inserted++;
-        } else if (item.signals) {
-          // 同一链接再次出现（如另一账号转发）：只回刷平台信号
-          await db
-            .update(newsItems)
-            .set({ signals: item.signals })
-            .where(eq(newsItems.urlHash, urlHash));
+        // 写入单条失败（D1 抖动等）只记数，不进 source 失败计数：
+        // 否则 10 次瞬时写错就会误禁一个健康来源。
+        try {
+          const rows = await db
+            .insert(newsItems)
+            .values({
+              sourceId: source.id,
+              urlHash,
+              url: item.url,
+              title: item.title.slice(0, 500),
+              excerpt: item.excerpt ?? null,
+              author: item.author ?? null,
+              publishedAt: item.publishedAt,
+              signals: item.signals ?? null,
+              media: item.media ?? null,
+              extra: item.extra ?? null,
+            })
+            .onConflictDoNothing()
+            .returning({ id: newsItems.id });
+          if (rows.length > 0) {
+            inserted++;
+          } else if (item.signals || item.extra) {
+            // 同一 canonical URL 被多来源命中（HN 帖 vs 原文 RSS，或另一账号转发）。
+            // 必须合并而不是丢弃：先入者若是 RSS，HN 的 hnId/hnUrl 会被吃掉，
+            // 于是 points 既不展示也永远不会被 refresh 阶段回刷。
+            // json_patch 在 SQLite 侧做 RFC 7386 合并，保住已有键（如 isTweet），
+            // 同名键以新值为准，且不需要先读回旧 extra。
+            // Pick 自 drizzle 的 set-source 类型：键名/值类型都对着表结构校验，
+            // 字段改名或键打错会直接编译失败，而不是悄悄写进不存在的列。
+            const patch: Pick<
+              SQLiteUpdateSetSource<typeof newsItems>,
+              "signals" | "extra"
+            > = {};
+            if (item.signals) patch.signals = item.signals;
+            if (item.extra) {
+              patch.extra = sql`json_patch(coalesce(${newsItems.extra}, '{}'), ${JSON.stringify(item.extra)})`;
+            }
+            await db
+              .update(newsItems)
+              .set(patch)
+              .where(eq(newsItems.urlHash, urlHash));
+          }
+        } catch (error) {
+          itemErrors++;
+          console.error(
+            `[NewsCron][fetch] ${source.id}: item write failed (${item.url.slice(0, 120)}):`,
+            error,
+          );
         }
       }
       await db
@@ -130,7 +167,10 @@ async function fetchStage(db: Db, env: Env): Promise<void> {
           consecutiveFailures: 0,
         })
         .where(eq(newsSources.id, source.id));
-      log("fetch", `${source.id}: ${items.length} fetched, ${inserted} new`);
+      log(
+        "fetch",
+        `${source.id}: ${items.length} fetched, ${inserted} new${itemErrors > 0 ? `, ${itemErrors} write errors` : ""}`,
+      );
     } catch (error) {
       const failures = source.consecutiveFailures + 1;
       await db
@@ -151,7 +191,7 @@ async function fetchStage(db: Db, env: Env): Promise<void> {
 
 // ---- Stage 2: filter ----
 
-async function filterStage(db: Db, env: Env): Promise<void> {
+async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
   const pending = await db
     .select({
       id: newsItems.id,
@@ -165,26 +205,36 @@ async function filterStage(db: Db, env: Env): Promise<void> {
     .limit(MAX_FILTER_PER_ROUND);
   if (pending.length === 0) return;
 
+  const config = aiConfigFromEnv(env);
+  let scored = 0;
   for (let i = 0; i < pending.length; i += FILTER_BATCH_SIZE) {
+    if (pastDeadline(deadline, "filter")) break;
     const batch = pending.slice(i, i + FILTER_BATCH_SIZE);
-    const scores = await scoreRelevance(batch, aiConfigFromEnv(env));
-    // 逐条更新即可：每轮 ≤150 条，远低于 D1 paid 档 1000 查询/次的限制
-    for (let j = 0; j < batch.length; j++) {
-      await db
-        .update(newsItems)
-        .set({
-          relevanceScore: scores[j],
-          status: scores[j] < RELEVANCE_THRESHOLD ? "rejected" : "pending",
-        })
-        .where(eq(newsItems.id, batch[j].id));
+    // 单批失败（模型返回长度不符/限流）不牵连其他批；未打分的条目下轮重取
+    try {
+      const scores = await scoreRelevance(batch, config);
+      // 逐条 UPDATE：相对 LLM 调用耗时可忽略。真正的约束是 cron 15 分钟 wall-clock，
+      // 已由 deadline 守卫在批边界兜住。
+      for (let j = 0; j < batch.length; j++) {
+        await db
+          .update(newsItems)
+          .set({
+            relevanceScore: scores[j],
+            status: scores[j] < RELEVANCE_THRESHOLD ? "rejected" : "pending",
+          })
+          .where(eq(newsItems.id, batch[j].id));
+      }
+      scored += batch.length;
+    } catch (error) {
+      console.error(`[NewsCron][filter] batch at offset ${i} failed:`, error);
     }
   }
-  log("filter", `scored ${pending.length} items`);
+  log("filter", `scored ${scored}/${pending.length} items`);
 }
 
 // ---- Stage 3: embed ----
 
-async function embedStage(db: Db, env: Env): Promise<void> {
+async function embedStage(db: Db, env: Env, deadline: number): Promise<void> {
   const items = await db
     .select({
       id: newsItems.id,
@@ -195,7 +245,7 @@ async function embedStage(db: Db, env: Env): Promise<void> {
     .where(
       and(
         eq(newsItems.status, "pending"),
-        gt(newsItems.relevanceScore, RELEVANCE_THRESHOLD - 1),
+        gte(newsItems.relevanceScore, RELEVANCE_THRESHOLD),
         isNull(newsItems.embedding),
       ),
     )
@@ -203,29 +253,43 @@ async function embedStage(db: Db, env: Env): Promise<void> {
   if (items.length === 0) return;
 
   const CHUNK = 20;
+  let embedded = 0;
   for (let i = 0; i < items.length; i += CHUNK) {
+    if (pastDeadline(deadline, "embed")) break;
     const chunk = items.slice(i, i + CHUNK);
-    const vectors = await embedTexts(
-      env.AI,
-      chunk.map(
-        (item) => `${item.title}\n${(item.excerpt ?? "").slice(0, 512)}`,
-      ),
-    );
-    for (let j = 0; j < chunk.length; j++) {
-      await db
-        .update(newsItems)
-        .set({ embedding: vectors[j] })
-        .where(eq(newsItems.id, chunk[j].id));
+    // 单块失败（Workers AI 超时/限流）不牵连其他块；embedding 仍为 null，下轮重取
+    try {
+      const vectors = await embedTexts(
+        env.AI,
+        chunk.map(
+          (item) => `${item.title}\n${(item.excerpt ?? "").slice(0, 512)}`,
+        ),
+      );
+      for (let j = 0; j < chunk.length; j++) {
+        await db
+          .update(newsItems)
+          .set({ embedding: vectors[j] })
+          .where(eq(newsItems.id, chunk[j].id));
+      }
+      embedded += chunk.length;
+    } catch (error) {
+      console.error(`[NewsCron][embed] chunk at offset ${i} failed:`, error);
     }
   }
-  log("embed", `embedded ${items.length} items`);
+  log("embed", `embedded ${embedded}/${items.length} items`);
 }
 
 // ---- Stage 4: cluster ----
 
-async function clusterStage(db: Db, env: Env): Promise<void> {
+async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
+  // 显式投影：media/extra 可达数 KB，聚类用不到，别白拉过来
   const items = await db
-    .select()
+    .select({
+      id: newsItems.id,
+      title: newsItems.title,
+      excerpt: newsItems.excerpt,
+      embedding: newsItems.embedding,
+    })
     .from(newsItems)
     .where(
       and(
@@ -257,106 +321,126 @@ async function clusterStage(db: Db, env: Env): Promise<void> {
   const config = aiConfigFromEnv(env);
   let merged = 0;
   let created = 0;
+  let failed = 0;
 
   for (const item of items) {
-    const embedding = item.embedding as Float32Array;
-    const scored = active
-      .map((story) => ({
-        story,
-        sim: cosineSimilarity(embedding, story.centroid),
-      }))
-      .filter((entry) => entry.sim >= SIM_CANDIDATE_THRESHOLD)
-      .sort((a, b) => b.sim - a.sim)
-      .slice(0, TOP_K);
+    if (pastDeadline(deadline, "cluster")) break;
+    // 单条失败不牵连其余：item 仍是 pending，下轮重判（写入顺序保证幂等）
+    try {
+      const embedding = item.embedding as Float32Array;
+      const scored = active
+        .map((story) => ({
+          story,
+          sim: cosineSimilarity(embedding, story.centroid),
+        }))
+        .filter((entry) => entry.sim >= SIM_CANDIDATE_THRESHOLD)
+        .sort((a, b) => b.sim - a.sim)
+        .slice(0, TOP_K);
 
-    let target: (typeof active)[number] | null = null;
-    if (scored.length > 0) {
-      const idx = await judgeAssignment(
-        { title: item.title, excerpt: item.excerpt },
-        scored.map((entry) => ({
-          // Record<string, string> 上 en 可能缺失（旧数据/异常），?? 兜底
-          title: entry.story.title.en ?? "",
-          summary: entry.story.summary.en ?? "",
-        })),
-        config,
-      );
-      if (idx !== null) target = scored[idx].story;
-    }
+      let target: (typeof active)[number] | null = null;
+      if (scored.length > 0) {
+        const idx = await judgeAssignment(
+          { title: item.title, excerpt: item.excerpt },
+          scored.map((entry) => ({
+            // Record<string, string> 上 en 可能缺失（旧数据/异常），?? 兜底
+            title: entry.story.title.en ?? "",
+            summary: entry.story.summary.en ?? "",
+          })),
+          config,
+        );
+        if (idx !== null) target = scored[idx].story;
+      }
 
-    const now = new Date();
-    if (target) {
-      // D1 无事务：先更新 story 再更新 item；若中间崩溃，item 仍是 pending，下轮幂等重判
-      const newCentroid = mergeCentroid(
-        target.centroid,
-        target.itemCount,
-        embedding,
-      );
-      await db
-        .update(newsStories)
-        .set({
-          centroid: newCentroid,
-          itemCount: target.itemCount + 1,
-          lastActivityAt: now,
-          dirty: true,
-          updatedAt: now,
-        })
-        .where(eq(newsStories.id, target.id));
-      await db
-        .update(newsItems)
-        .set({ storyId: target.id, status: "clustered" })
-        .where(eq(newsItems.id, item.id));
-      target.centroid = newCentroid;
-      target.itemCount += 1;
-      merged++;
-    } else {
-      const [story] = await db
-        .insert(newsStories)
-        .values({
-          shortId: generateShortId(),
-          // 占位内容：summarize 阶段会用 LLM 覆盖为四语版本
+      const now = new Date();
+      if (target) {
+        // D1 无事务：先更新 story 再更新 item；若中间崩溃，item 仍是 pending，
+        // 下轮会再并入一次 → itemCount/centroid 偏高。summarize 阶段从成员全量
+        // 重算两者来自愈，所以这里的增量偏差是可收敛的。
+        const newCentroid = mergeCentroid(
+          target.centroid,
+          target.itemCount,
+          embedding,
+        );
+        await db
+          .update(newsStories)
+          .set({
+            centroid: newCentroid,
+            itemCount: target.itemCount + 1,
+            lastActivityAt: now,
+            dirty: true,
+            updatedAt: now,
+          })
+          .where(eq(newsStories.id, target.id));
+        await db
+          .update(newsItems)
+          .set({ storyId: target.id, status: "clustered" })
+          .where(eq(newsItems.id, item.id));
+        target.centroid = newCentroid;
+        target.itemCount += 1;
+        merged++;
+      } else {
+        const [story] = await db
+          .insert(newsStories)
+          .values({
+            shortId: generateShortId(),
+            // 占位内容：summarize 阶段会用 LLM 覆盖为四语版本
+            title: { en: item.title },
+            summary: { en: item.excerpt ?? item.title },
+            primaryItemId: item.id,
+            centroid: embedding,
+            itemCount: 1,
+            sourceCount: 1,
+            dirty: true,
+            firstSeenAt: now,
+            lastActivityAt: now,
+          })
+          .returning({ id: newsStories.id });
+        await db
+          .update(newsItems)
+          .set({ storyId: story.id, status: "clustered" })
+          .where(eq(newsItems.id, item.id));
+        active.push({
+          id: story.id,
           title: { en: item.title },
           summary: { en: item.excerpt ?? item.title },
-          primaryItemId: item.id,
           centroid: embedding,
           itemCount: 1,
-          sourceCount: 1,
-          dirty: true,
-          firstSeenAt: now,
-          lastActivityAt: now,
-        })
-        .returning({ id: newsStories.id });
-      await db
-        .update(newsItems)
-        .set({ storyId: story.id, status: "clustered" })
-        .where(eq(newsItems.id, item.id));
-      active.push({
-        id: story.id,
-        title: { en: item.title },
-        summary: { en: item.excerpt ?? item.title },
-        centroid: embedding,
-        itemCount: 1,
-      });
-      created++;
+        });
+        created++;
+      }
+    } catch (error) {
+      failed++;
+      console.error(`[NewsCron][cluster] item ${item.id} failed:`, error);
     }
   }
   log(
     "cluster",
-    `${items.length} items → ${merged} merged, ${created} new stories`,
+    `${items.length} items → ${merged} merged, ${created} new stories${failed > 0 ? `, ${failed} failed` : ""}`,
   );
 }
 
 // ---- Stage 5: summarize ----
 
-async function summarizeStage(db: Db, env: Env): Promise<void> {
+async function summarizeStage(
+  db: Db,
+  env: Env,
+  deadline: number,
+): Promise<void> {
   const dirtyStories = await db
     .select({ id: newsStories.id })
     .from(newsStories)
     // dirty 的 partial index 只认字面量谓词，不能用 eq()（绑定参数会退化为全表扫描）
     .where(and(sql`${newsStories.dirty} = 1`, eq(newsStories.status, "active")))
+    // 活跃度倒序：反复失败的 poison story 无法永久占满这 MAX_SUMMARIZE_PER_ROUND 个名额，
+    // 新鲜 story 始终优先。poison story 的放弃路径是 72h 后被 archiveStage 置为
+    // archived —— status 不再是 active，自然退出本查询的轮换。
+    .orderBy(desc(newsStories.lastActivityAt))
     .limit(MAX_SUMMARIZE_PER_ROUND);
   const config = aiConfigFromEnv(env);
+  let done = 0;
 
   for (const { id } of dirtyStories) {
+    if (pastDeadline(deadline, "summarize")) break;
     try {
       const members = await db
         .select({
@@ -366,6 +450,7 @@ async function summarizeStage(db: Db, env: Env): Promise<void> {
           author: newsItems.author,
           signals: newsItems.signals,
           extra: newsItems.extra,
+          embedding: newsItems.embedding,
           sourceId: newsItems.sourceId,
           sourceName: newsSources.name,
           sourceType: newsSources.type,
@@ -374,7 +459,15 @@ async function summarizeStage(db: Db, env: Env): Promise<void> {
         .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
         .where(eq(newsItems.storyId, id))
         .orderBy(newsItems.publishedAt);
-      if (members.length === 0) continue;
+      if (members.length === 0) {
+        // 无成员：cluster 阶段崩溃留下的孤儿。清掉 dirty 让它退出轮换，
+        // 实体本身由 archiveStage 的孤儿清理负责删除。
+        await db
+          .update(newsStories)
+          .set({ dirty: false })
+          .where(eq(newsStories.id, id));
+        continue;
+      }
 
       const content = await generateStoryContent(
         members.map((m) => ({
@@ -384,6 +477,12 @@ async function summarizeStage(db: Db, env: Env): Promise<void> {
         })),
         config,
       );
+      // itemCount/sourceCount/centroid 一律从成员全量重算，自愈 cluster 阶段
+      // 可能的重复并入（D1 无事务 → story 已更新但 item 更新失败）。
+      // centroid 尤其重要：mergeCentroid 是增量的，偏差不会自己消失。
+      const memberEmbeddings = members
+        .map((m) => m.embedding)
+        .filter((e): e is Float32Array => e !== null);
       await db
         .update(newsStories)
         .set({
@@ -392,23 +491,29 @@ async function summarizeStage(db: Db, env: Env): Promise<void> {
           tags: content.tags,
           itemCount: members.length,
           sourceCount: new Set(members.map((m) => m.sourceId)).size,
+          ...(memberEmbeddings.length > 0
+            ? { centroid: meanVector(memberEmbeddings) }
+            : {}),
           signalsSummary: buildSignalsSummary(members),
           dirty: false,
           updatedAt: new Date(),
         })
         .where(eq(newsStories.id, id));
+      done++;
     } catch (error) {
       // 失败保持 dirty=true，下轮重试
       console.error(`[NewsCron][summarize] story ${id} failed:`, error);
     }
   }
   if (dirtyStories.length > 0)
-    log("summarize", `processed ${dirtyStories.length} dirty stories`);
+    log("summarize", `processed ${done}/${dirtyStories.length} dirty stories`);
 }
 
 // ---- Stage 6: refresh HN signals ----
 
-async function refreshStage(db: Db): Promise<void> {
+async function refreshStage(db: Db, deadline: number): Promise<void> {
+  // 按 extra.hnId 取活，而不是 join sourceType='hn'：HN 帖与原文 RSS 共享 canonical URL 时，
+  // 去重后行可能挂在 rss 来源上，但 extra 里带着 hnId —— 那才是可回刷的判据。
   const items = await db
     .select({
       id: newsItems.id,
@@ -416,30 +521,38 @@ async function refreshStage(db: Db): Promise<void> {
       storyId: newsItems.storyId,
     })
     .from(newsItems)
-    .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
     .where(
       and(
-        eq(newsSources.type, "hn"),
+        sql`json_extract(${newsItems.extra}, '$.hnId') is not null`,
         gt(newsItems.publishedAt, windowStart()),
         eq(newsItems.status, "clustered"),
       ),
     )
+    // 新帖优先：分数变化几乎都发生在前几小时，且避免超过 limit 时总是回刷同一批
+    .orderBy(desc(newsItems.publishedAt))
     .limit(MAX_HN_REFRESH_PER_ROUND);
 
   const touchedStories = new Set<string>();
+  let refreshed = 0;
   for (const item of items) {
+    if (pastDeadline(deadline, "refresh")) break;
     const hnId = typeof item.extra?.hnId === "string" ? item.extra.hnId : null;
     if (!hnId) continue;
-    const signals = await fetchHnItemSignals(hnId);
-    if (!signals) continue;
-    await db
-      .update(newsItems)
-      .set({ signals })
-      .where(eq(newsItems.id, item.id));
-    if (item.storyId) touchedStories.add(item.storyId);
+    try {
+      const signals = await fetchHnItemSignals(hnId);
+      if (!signals) continue;
+      await db
+        .update(newsItems)
+        .set({ signals })
+        .where(eq(newsItems.id, item.id));
+      if (item.storyId) touchedStories.add(item.storyId);
+      refreshed++;
+    } catch (error) {
+      console.error(`[NewsCron][refresh] hn item ${hnId} failed:`, error);
+    }
   }
 
-  // 只重建 signalsSummary，不触发 LLM 重摘要
+  // 只重建 signalsSummary，不触发 LLM 重摘要（这里仍需 sourceType 供 xAccounts 统计）
   for (const storyId of touchedStories) {
     const members = await db
       .select({
@@ -463,7 +576,7 @@ async function refreshStage(db: Db): Promise<void> {
   if (items.length > 0)
     log(
       "refresh",
-      `refreshed ${items.length} HN items, ${touchedStories.size} stories`,
+      `refreshed ${refreshed}/${items.length} HN items, ${touchedStories.size} stories`,
     );
 }
 
@@ -507,14 +620,15 @@ export default {
     _ctx: ExecutionContext,
   ): Promise<void> {
     const db = drizzle(env.DB);
+    const deadline = Date.now() + ROUND_BUDGET_MS;
     // 阶段串行、独立容错：单阶段失败不阻塞后续（所有阶段幂等，下轮 cron 续跑）
     const stages: Array<[string, () => Promise<void>]> = [
-      ["fetch", () => fetchStage(db, env)],
-      ["filter", () => filterStage(db, env)],
-      ["embed", () => embedStage(db, env)],
-      ["cluster", () => clusterStage(db, env)],
-      ["summarize", () => summarizeStage(db, env)],
-      ["refresh", () => refreshStage(db)],
+      ["fetch", () => fetchStage(db, env, deadline)],
+      ["filter", () => filterStage(db, env, deadline)],
+      ["embed", () => embedStage(db, env, deadline)],
+      ["cluster", () => clusterStage(db, env, deadline)],
+      ["summarize", () => summarizeStage(db, env, deadline)],
+      ["refresh", () => refreshStage(db, deadline)],
       ["archive", () => archiveStage(db)],
     ];
     for (const [name, run] of stages) {

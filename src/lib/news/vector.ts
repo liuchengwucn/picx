@@ -29,3 +29,30 @@ export function mergeCentroid(
   }
   return merged;
 }
+
+/**
+ * 从全部成员向量重算均值。用于 summarize 阶段自愈 centroid：
+ * mergeCentroid 是增量的，一旦发生重复并入（D1 无事务，story 更新成功但 item 更新失败，
+ * 下轮又并入一次）偏差会永久留在 centroid 里，只有全量重算能纠回。
+ */
+export function meanVector(vectors: Float32Array[]): Float32Array {
+  if (vectors.length === 0) {
+    throw new Error("meanVector: empty input");
+  }
+  const dim = vectors[0].length;
+  const mean = new Float32Array(dim);
+  for (const vector of vectors) {
+    if (vector.length !== dim) {
+      throw new Error(
+        `meanVector: dimension mismatch ${vector.length} vs ${dim}`,
+      );
+    }
+    for (let i = 0; i < dim; i++) {
+      mean[i] += vector[i];
+    }
+  }
+  for (let i = 0; i < dim; i++) {
+    mean[i] /= vectors.length;
+  }
+  return mean;
+}
