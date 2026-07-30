@@ -395,6 +395,7 @@
   "news_sort_active": "Recently updated",
   "news_sources_count": "{count} sources",
   "news_hn_points": "{points} points",
+  "news_hn_comments": "{count} comments",
   "news_x_mentions": "{count} X accounts",
   "news_empty_title": "No stories yet",
   "news_empty_desc": "The aggregation pipeline runs hourly. Check back soon.",

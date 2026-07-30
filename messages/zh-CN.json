@@ -395,6 +395,7 @@
   "news_sort_active": "最近更新",
   "news_sources_count": "{count} 个来源",
   "news_hn_points": "{points} 分",
+  "news_hn_comments": "{count} 条评论",
   "news_x_mentions": "{count} 个 X 账号",
   "news_empty_title": "暂无资讯",
   "news_empty_desc": "聚合管道每小时运行一次，稍后再来看看。",

@@ -109,6 +109,8 @@ export function StoryCard({ story, delay }: StoryCardProps) {
           >
             <MessageSquare className="h-3 w-3" />
             {m.news_hn_points({ points: hn.points.toString() })}
+            {" · "}
+            {m.news_hn_comments({ count: hn.comments.toString() })}
           </a>
         )}
         {typeof xAccounts === "number" && xAccounts > 0 && (

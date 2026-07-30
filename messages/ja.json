@@ -395,6 +395,7 @@
   "news_sort_active": "更新順",
   "news_sources_count": "{count} ソース",
   "news_hn_points": "{points} ポイント",
+  "news_hn_comments": "{count} コメント",
   "news_x_mentions": "{count} アカウント",
   "news_empty_title": "まだニュースがありません",
   "news_empty_desc": "集約パイプラインは1時間ごとに実行されます。しばらくしてからご確認ください。",

@@ -234,6 +234,8 @@ function NewsStoryPage() {
                   >
                     <MessageSquare className="h-3 w-3" />
                     {m.news_hn_points({ points: hn.points.toString() })}
+                    {" · "}
+                    {m.news_hn_comments({ count: hn.comments.toString() })}
                   </a>
                 )}
                 {data.tags.map((tag) => (
@@ -270,6 +272,11 @@ function NewsStoryPage() {
                     now,
                     locale,
                   );
+                  const hnUrl =
+                    typeof item.extra?.hnUrl === "string"
+                      ? item.extra.hnUrl
+                      : null;
+                  const showHnLink = hnUrl !== null && hnUrl !== item.url;
                   return (
                     <li key={item.url} className="relative pb-8 last:pb-0">
                       <span
@@ -295,17 +302,30 @@ function NewsStoryPage() {
                         {item.author && <span>{item.author}</span>}
                         <time>{itemTimeAgo}</time>
                       </div>
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="group mt-1.5 inline-flex items-start gap-1.5 no-underline"
-                      >
-                        <span className="font-serif text-base font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
-                          {item.title}
-                        </span>
-                        <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-[var(--ink-soft)] transition-colors group-hover:text-[var(--academic-brown)]" />
-                      </a>
+                      <div className="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1">
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="group inline-flex items-start gap-1.5 no-underline"
+                        >
+                          <span className="font-serif text-base font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
+                            {item.title}
+                          </span>
+                          <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-[var(--ink-soft)] transition-colors group-hover:text-[var(--academic-brown)]" />
+                        </a>
+                        {showHnLink && (
+                          <a
+                            href={hnUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="group inline-flex items-center gap-1 self-start text-xs text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            HN
+                          </a>
+                        )}
+                      </div>
                       {item.excerpt && (
                         <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--ink-soft)]">
                           {item.excerpt}

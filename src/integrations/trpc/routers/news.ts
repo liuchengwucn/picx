@@ -51,8 +51,9 @@ export const newsRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const localeKey = normalizeLocaleKey(input.locale ?? "en");
       const offset = (input.page - 1) * input.limit;
-      // 字面量谓词：feed 的 partial index（WHERE status != 'hidden'）只匹配字面量，ne() 会失去索引
-      const visible = sql`${newsStories.status} != 'hidden'`;
+      // 字面量谓词：feed 的 partial index（WHERE status != 'hidden'）只匹配字面量，ne()/eq() 会失去索引
+      // dirty=0：占位 story（未生成四语摘要）不进公开列表与 SEO，避免英文占位与半成品外泄
+      const visible = sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`;
       const orderBy =
         input.sort === "latest"
           ? desc(newsStories.firstSeenAt)
@@ -106,6 +107,8 @@ export const newsRouter = createTRPCRouter({
         .where(
           and(
             eq(newsStories.shortId, input),
+            // 有意不过滤 dirty：直达链接展示未生成四语摘要的 story 也没问题，
+            // 占位内容（英文标题/摘要）是真实内容，只是还没被四语覆盖。
             sql`${newsStories.status} != 'hidden'`,
           ),
         )

@@ -71,7 +71,10 @@ async function handler({ request }: { request: Request }) {
         lastActivityAt: newsStories.lastActivityAt,
       })
       .from(newsStories)
-      .where(sql`${newsStories.status} != 'hidden'`) // 字面量谓词：partial index 要求，勿改成 ne()
+      // 字面量谓词：partial index 要求，勿改成 ne()/eq()；dirty=0 排除未生成四语摘要的占位 story
+      .where(
+        sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
+      )
       .orderBy(desc(newsStories.firstSeenAt))
       .limit(1000);
   } catch {

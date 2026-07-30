@@ -87,6 +87,7 @@ async function fetchForSource(
 }
 
 async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
+  const ingestCutoff = windowStart();
   const sources = await db
     .select()
     .from(newsSources)
@@ -98,6 +99,8 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
       let inserted = 0;
       let itemErrors = 0;
       for (const item of items) {
+        // 冷启动保护：feed 里的历史文章不入库（否则首轮会把多年旧文当新闻），窗口与聚类窗口一致
+        if (item.publishedAt < ingestCutoff) continue;
         // 单条容错：feed 里偶见坏 URL（hashUrl 会抛 TypeError），不能拖垮同来源其余条目
         let urlHash: string;
         try {
