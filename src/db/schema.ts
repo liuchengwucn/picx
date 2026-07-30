@@ -369,6 +369,9 @@ export const float32Blob = customType<{
         : ArrayBuffer.isView(raw)
           ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
           : new Uint8Array(raw as number[]);
+    if (bytes.byteLength % 4 !== 0) {
+      throw new Error(`float32Blob: invalid byte length ${bytes.byteLength}`);
+    }
     return new Float32Array(
       bytes.buffer,
       bytes.byteOffset,
@@ -458,6 +461,8 @@ export const newsStories = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (table) => ({
+    // 注意：partial index 只匹配字面量谓词。查询必须写 sql`... != 'hidden'` / sql`... = 1`，
+    // 用 drizzle 的 ne()/eq()（绑定参数）会静默退化为全表扫描。下面两组 partial index 均适用。
     // feed 列表：status != 'hidden' + 时间倒序，用 partial index 才能走索引免排序
     feedRecentIdx: index("news_stories_feed_recent_idx")
       .on(table.firstSeenAt)
