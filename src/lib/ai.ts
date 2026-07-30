@@ -11,6 +11,7 @@ export interface AIConfig {
   cfApiToken?: string;
 }
 
+import { extractFirstJsonObject } from "#/lib/json-extract";
 import {
   normalizeCategorySlugs,
   PAPER_CATEGORY_SLUGS,
@@ -19,6 +20,8 @@ import {
   buildPromptFromTemplate,
   getSystemDefaultPromptTemplate,
 } from "#/lib/prompt-validation";
+
+export { extractFirstJsonObject } from "#/lib/json-extract";
 
 export interface PaperTailReviewInput {
   candidateTitle: string;
@@ -967,32 +970,6 @@ If you cannot find a clear title, return "Untitled Paper".`;
       `Title extraction failed: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
-}
-
-function extractFirstJsonObject(content: string): string | null {
-  const start = content.indexOf("{");
-
-  if (start === -1) {
-    return null;
-  }
-
-  let depth = 0;
-
-  for (let index = start; index < content.length; index++) {
-    const char = content[index];
-
-    if (char === "{") {
-      depth += 1;
-    } else if (char === "}") {
-      depth -= 1;
-
-      if (depth === 0) {
-        return content.slice(start, index + 1);
-      }
-    }
-  }
-
-  return null;
 }
 
 function parsePaperTailReviewResult(content: string): PaperTailReviewResult {

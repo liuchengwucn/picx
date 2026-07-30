@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { judgeAssignment } from "./ai";
 
-// 手动评估脚本（golden cases）：不进 CI，无 key 时自动 skip。
-// 运行：OPENAI_API_KEY=sk-... OPENAI_MODEL=... mac npx vitest run src/lib/news/ai.eval.test.ts
+// 手动评估脚本（golden cases）：不进 CI，需显式 opt-in 才会跑（避免任何配了
+// OPENAI_API_KEY 的开发者环境意外触发真实调用）。
+// 运行：NEWS_EVAL=1 OPENAI_API_KEY=sk-... OPENAI_MODEL=... mac npx vitest run src/lib/news/ai.eval.test.ts
 const apiKey = process.env.OPENAI_API_KEY;
+const enabled = !!process.env.NEWS_EVAL && !!apiKey;
 const config = {
   openaiApiKey: apiKey ?? "",
   openaiBaseUrl: process.env.OPENAI_BASE_URL,
@@ -23,7 +25,7 @@ const CANDIDATES = [
   },
 ];
 
-describe.skipIf(!apiKey)("judgeAssignment golden cases", () => {
+describe.skipIf(!enabled)("judgeAssignment golden cases", () => {
   it("merges same-event coverage from another source", async () => {
     const idx = await judgeAssignment(
       {
@@ -57,5 +59,18 @@ describe.skipIf(!apiKey)("judgeAssignment golden cases", () => {
       config,
     );
     expect(idx).toBeNull();
+  }, 30_000);
+  it("merges replication coverage of the same interpretability paper", async () => {
+    const idx = await judgeAssignment(
+      {
+        title:
+          "Anthropic's new interpretability paper on feature circuits gets replicated",
+        excerpt:
+          "An independent team reproduced the feature-circuit tracing results.",
+      },
+      CANDIDATES,
+      config,
+    );
+    expect(idx).toBe(1);
   }, 30_000);
 });
