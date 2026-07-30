@@ -360,7 +360,21 @@ export const float32Blob = customType<{
     Array.from(
       new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
     ),
-  fromDriver: (value) => new Float32Array(Uint8Array.from(value).buffer),
+  fromDriver: (value) => {
+    // 防御：D1 目前返回 number[]，但官方文档口径是 ArrayBuffer（workers-sdk#8642），两者都兼容
+    const raw = value as unknown;
+    const bytes =
+      raw instanceof ArrayBuffer
+        ? new Uint8Array(raw)
+        : ArrayBuffer.isView(raw)
+          ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+          : new Uint8Array(raw as number[]);
+    return new Float32Array(
+      bytes.buffer,
+      bytes.byteOffset,
+      bytes.byteLength / 4,
+    );
+  },
 });
 
 // rss/rsshub: { url } 或 { route }；hn: { queries, minPoints }
@@ -385,30 +399,24 @@ export type StorySignalsSummary = {
   xAccounts?: number;
 };
 
-export const newsSources = sqliteTable(
-  "news_sources",
-  {
-    // 种子数据用可读固定 id（如 "src-openai-blog"），便于 INSERT OR IGNORE 幂等 seed
-    id: text("id").primaryKey(),
-    type: text("type", { enum: ["rss", "rsshub", "hn"] }).notNull(),
-    name: text("name").notNull(),
-    config: text("config", { mode: "json" })
-      .notNull()
-      .$type<NewsSourceConfig>(),
-    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-    lastFetchedAt: integer("last_fetched_at", { mode: "timestamp" }),
-    lastError: text("last_error"),
-    // 连续失败达到阈值自动禁用，避免死源每小时空转
-    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
-    createdAt: integer("created_at", { mode: "timestamp" })
-      .notNull()
-      .$defaultFn(() => new Date()),
-  },
-  (table) => ({
-    enabledIdx: index("news_sources_enabled_idx").on(table.enabled, table.type),
-  }),
-);
+// 注意：不要硬删来源（news_items.source_id 级联删除会连带删条目、留下悬空的 story 统计），用 enabled=false 停用。
+export const newsSources = sqliteTable("news_sources", {
+  // 种子数据用可读固定 id（如 "src-openai-blog"），便于 INSERT OR IGNORE 幂等 seed
+  id: text("id").primaryKey(),
+  type: text("type", { enum: ["rss", "rsshub", "hn"] }).notNull(),
+  name: text("name").notNull(),
+  config: text("config", { mode: "json" }).notNull().$type<NewsSourceConfig>(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  lastFetchedAt: integer("last_fetched_at", { mode: "timestamp" }),
+  lastError: text("last_error"),
+  // 连续失败达到阈值自动禁用，避免死源每小时空转
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
 
+// 注意：不要硬删 story（news_items.story_id 置 NULL 后条目会卡在 clustered 状态），用 status='hidden' 下架；无成员的孤儿 story 由管道清理。
 export const newsStories = sqliteTable(
   "news_stories",
   {
@@ -434,6 +442,7 @@ export const newsStories = sqliteTable(
     tags: text("tags", { mode: "json" }).$type<string[]>(),
     // 有新成员并入置真，summarize 阶段处理完置假——崩溃可恢复的幂等标记（D1 无事务）
     dirty: integer("dirty", { mode: "boolean" }).notNull().default(true),
+    // story 首次聚合时间，feed 默认排序键（与 created_at 同刻，语义独立保留）
     firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull(),
     lastActivityAt: integer("last_activity_at", {
       mode: "timestamp",
@@ -449,15 +458,22 @@ export const newsStories = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (table) => ({
-    statusFirstSeenIdx: index("news_stories_status_first_seen_idx").on(
-      table.status,
-      table.firstSeenAt,
-    ),
+    // feed 列表：status != 'hidden' + 时间倒序，用 partial index 才能走索引免排序
+    feedRecentIdx: index("news_stories_feed_recent_idx")
+      .on(table.firstSeenAt)
+      .where(sql`${table.status} != 'hidden'`),
+    feedActiveIdx: index("news_stories_feed_active_idx")
+      .on(table.lastActivityAt)
+      .where(sql`${table.status} != 'hidden'`),
+    // 聚类窗口：status = 'active' AND last_activity_at > cutoff
     statusActivityIdx: index("news_stories_status_activity_idx").on(
       table.status,
       table.lastActivityAt,
     ),
-    dirtyIdx: index("news_stories_dirty_idx").on(table.dirty),
+    // summarize 扫描：dirty 行远少于总量，partial 更小
+    dirtyIdx: index("news_stories_dirty_idx")
+      .on(table.dirty)
+      .where(sql`${table.dirty} = 1`),
   }),
 );
 
@@ -485,6 +501,7 @@ export const newsItems = sqliteTable(
     media: text("media", { mode: "json" }).$type<NewsMedia[]>(),
     // 各来源异构字段兜底（hnId/hnUrl、isTweet 等）
     extra: text("extra", { mode: "json" }).$type<Record<string, unknown>>(),
+    // LLM 相关性×质量分，0-100 整数（低于阈值 status='rejected'）
     relevanceScore: integer("relevance_score"),
     embedding: float32Blob("embedding"),
     storyId: text("story_id").references(() => newsStories.id, {

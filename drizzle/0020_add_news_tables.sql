@@ -35,7 +35,6 @@ CREATE TABLE `news_sources` (
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `news_sources_enabled_idx` ON `news_sources` (`enabled`,`type`);--> statement-breakpoint
 CREATE TABLE `news_stories` (
 	`id` text PRIMARY KEY NOT NULL,
 	`short_id` text NOT NULL,
@@ -56,6 +55,7 @@ CREATE TABLE `news_stories` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `news_stories_short_id_unique` ON `news_stories` (`short_id`);--> statement-breakpoint
-CREATE INDEX `news_stories_status_first_seen_idx` ON `news_stories` (`status`,`first_seen_at`);--> statement-breakpoint
+CREATE INDEX `news_stories_feed_recent_idx` ON `news_stories` (`first_seen_at`) WHERE "news_stories"."status" != 'hidden';--> statement-breakpoint
+CREATE INDEX `news_stories_feed_active_idx` ON `news_stories` (`last_activity_at`) WHERE "news_stories"."status" != 'hidden';--> statement-breakpoint
 CREATE INDEX `news_stories_status_activity_idx` ON `news_stories` (`status`,`last_activity_at`);--> statement-breakpoint
-CREATE INDEX `news_stories_dirty_idx` ON `news_stories` (`dirty`);
+CREATE INDEX `news_stories_dirty_idx` ON `news_stories` (`dirty`) WHERE "news_stories"."dirty" = 1;

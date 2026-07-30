@@ -145,7 +145,7 @@
     {
       "idx": 20,
       "version": "6",
-      "when": 1785394640548,
+      "when": 1785395541709,
       "tag": "0020_add_news_tables",
       "breakpoints": true
     }

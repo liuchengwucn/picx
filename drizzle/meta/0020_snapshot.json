@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "12bccc5f-bab4-4666-a88b-b980ae9fc0e1",
+  "id": "dcf47c65-210e-4d81-a9a8-78c018423ba7",
   "prevId": "7d1e9a02-2f3b-4c5d-9e6f-0a1b2c3d4019",
   "tables": {
     "account": {
@@ -465,16 +465,7 @@
           "autoincrement": false
         }
       },
-      "indexes": {
-        "news_sources_enabled_idx": {
-          "name": "news_sources_enabled_idx",
-          "columns": [
-            "enabled",
-            "type"
-          ],
-          "isUnique": false
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -608,13 +599,21 @@
           ],
           "isUnique": true
         },
-        "news_stories_status_first_seen_idx": {
-          "name": "news_stories_status_first_seen_idx",
+        "news_stories_feed_recent_idx": {
+          "name": "news_stories_feed_recent_idx",
           "columns": [
-            "status",
             "first_seen_at"
           ],
-          "isUnique": false
+          "isUnique": false,
+          "where": "\"news_stories\".\"status\" != 'hidden'"
+        },
+        "news_stories_feed_active_idx": {
+          "name": "news_stories_feed_active_idx",
+          "columns": [
+            "last_activity_at"
+          ],
+          "isUnique": false,
+          "where": "\"news_stories\".\"status\" != 'hidden'"
         },
         "news_stories_status_activity_idx": {
           "name": "news_stories_status_activity_idx",
@@ -629,7 +628,8 @@
           "columns": [
             "dirty"
           ],
-          "isUnique": false
+          "isUnique": false,
+          "where": "\"news_stories\".\"dirty\" = 1"
         }
       },
       "foreignKeys": {},
