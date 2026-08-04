@@ -162,6 +162,13 @@
       "when": 1785830615462,
       "tag": "0022_drop_news_stories_feed_recent_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785840030584,
+      "tag": "0023_sync_news_source_config",
+      "breakpoints": true
     }
   ]
 }

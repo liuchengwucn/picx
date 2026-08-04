@@ -11,7 +11,7 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   -- Anthropic engineering/research/red-team pages have no official feeds either; same mirror repo.
   -- Note: the research mirror's item titles carry scraped concatenation artifacts (date/category
   -- prefixes, trailing description text); titleClean='scraped-research' strips them at ingest.
-  -- Already-inserted rows need a manual UPDATE of config to add "titleClean":"scraped-research".
+  -- Already-inserted rows are synced by migration drizzle/0023_sync_news_source_config.sql.
   ('src-anthropic-eng',      'rss', 'Anthropic Engineering', '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml"}', 1, 0, strftime('%s','now')),
   ('src-anthropic-research', 'rss', 'Anthropic Research',    '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml","titleClean":"scraped-research"}', 1, 0, strftime('%s','now')),
   ('src-anthropic-red',      'rss', 'Anthropic Red Team',    '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_red.xml"}', 1, 0, strftime('%s','now')),
@@ -30,7 +30,7 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   ('src-simonwillison',  'rss', 'Simon Willison',          '{"url":"https://simonwillison.net/atom/everything/"}', 1, 0, strftime('%s','now')),
   -- 科学空间双域名（spaces.ac.cn / kexue.fm），feed 用 spaces.ac.cn，verified 2026-08-03
   ('src-kexue-fm',       'rss', '科学空间 (苏剑林)',        '{"url":"https://spaces.ac.cn/feed"}', 1, 0, strftime('%s','now')),
-  -- HN 于 2026-08-04 启用（此前禁用）；已入库的行需手动 UPDATE enabled
+  -- HN 于 2026-08-04 启用（此前禁用）；已入库的行由迁移 drizzle/0023_sync_news_source_config.sql 同步
   ('src-hn',             'hn',  'Hacker News',             '{"queries":["LLM","OpenAI","Anthropic","DeepSeek","Gemini","Qwen","Mistral","llama","pretraining","transformer"],"minPoints":40}', 1, 0, strftime('%s','now')),
   -- 国产厂商博客：自建 RSSHub（rsshub.picx.dev）自定义路由，verified 2026-08-04（14 路由清单见 docs/rsshub-routes-handoff.md）
   -- 需要 RSSHUB_BASE_URL + RSSHUB_ACCESS_KEY secrets
@@ -39,10 +39,10 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   ('src-kimi-blog',        'rsshub', 'Kimi Blog (Moonshot)',   '{"route":"/kimi/blog"}', 1, 0, strftime('%s','now')),
   ('src-seed-blog',        'rsshub', 'ByteDance Seed Blog',    '{"route":"/byteseed/blog"}', 1, 0, strftime('%s','now')),
   ('src-seed-papers',      'rsshub', 'ByteDance Seed Papers',  '{"route":"/byteseed/papers"}', 1, 0, strftime('%s','now')),
-  -- minimax 路由 2026-08-04 由 /minimax/news 改为 /minimax/blog（旧路由已在 RSSHub 侧移除）；已入库的行需手动 UPDATE config
+  -- minimax 路由 2026-08-04 由 /minimax/news 改为 /minimax/blog（旧路由已在 RSSHub 侧移除）；已入库的行由迁移 0023 同步
   ('src-minimax-news',     'rsshub', 'MiniMax Blog',           '{"route":"/minimax/blog"}', 1, 0, strftime('%s','now')),
   ('src-hunyuan-blog',     'rsshub', '腾讯混元 Blog',           '{"route":"/hunyuan/blog"}', 1, 0, strftime('%s','now')),
-  -- zhipu 路由 2026-08-04 由 /zhipu/news 改为 /zhipu/research（旧路由已在 RSSHub 侧移除）；已入库的行需手动 UPDATE config
+  -- zhipu 路由 2026-08-04 由 /zhipu/news 改为 /zhipu/research（旧路由已在 RSSHub 侧移除）；已入库的行由迁移 0023 同步
   -- 冷缓存首渲染 >30s 远超 15s 超时；依赖 RSSHub 侧缓存 TTL ≥2h，偶发失败靠下轮 cron 自愈
   ('src-zhipu-news',       'rsshub', '智谱 Research',           '{"route":"/zhipu/research"}', 1, 0, strftime('%s','now')),
   ('src-zai-releases',     'rsshub', 'Z.ai Release Notes',     '{"route":"/zai/release-notes"}', 1, 0, strftime('%s','now')),
