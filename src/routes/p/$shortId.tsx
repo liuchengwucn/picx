@@ -70,6 +70,7 @@ import {
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
+import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -565,17 +566,22 @@ function PaperDetailPage() {
     paper.status === "completed"
       ? "mx-auto w-[min(1200px,calc(100%_-_2rem))] py-8 xl:w-[min(1520px,calc(100%_-_2rem))]"
       : "page-wrap py-8";
-  // 放宽只服务于三栏那一段。面包屑 / 分享条 / 相关论文属于站内通用区块，跟着变
-  // 1520px 会和其它页面的 1200px 基线错开，所以单独收回来。
+  // 放宽只服务于三栏那一段。面包屑 / 分享条 / 相关论文让开聊天栏的宽度
+  // （360px 栏 + 24px gap = 384px），正好铺满 grid 的第 1-2 列：
+  // 1520 − 384 = 1136 = 300 + 24 + 812。这样面包屑与左栏左对齐、相关论文卡片
+  // 右边界收在聊天面板起点，而不是各自居中后与网格错位。
   const narrowBlockClassName =
-    paper.status === "completed" ? "mx-auto w-full max-w-[1200px]" : "";
+    paper.status === "completed" ? "xl:mr-[384px]" : "";
 
   return (
     <main className={containerClassName}>
       <div className="stagger-in">
         {/* Breadcrumb */}
         <nav
-          className={`flex items-start gap-1 text-sm text-[var(--ink-soft)] ${narrowBlockClassName}`}
+          className={cn(
+            "flex items-start gap-1 text-sm text-[var(--ink-soft)]",
+            narrowBlockClassName,
+          )}
         >
           <Link to="/papers" className="hover:text-[var(--ink)] shrink-0">
             {m.papers_title()}
@@ -588,7 +594,7 @@ function PaperDetailPage() {
 
         {/* Share Banner - only show to owner */}
         {isOwner && (
-          <div className={narrowBlockClassName}>
+          <div className={cn(narrowBlockClassName)}>
             <ShareBanner
               paperId={paper.id}
               shortId={paper.shortId ?? shortId}
@@ -1028,7 +1034,7 @@ function PaperDetailPage() {
         {/* Related papers — real, crawlable internal links (SSR-rendered). */}
         {relatedPapers.length > 0 && (
           <section
-            className={`mt-10 ${narrowBlockClassName}`}
+            className={cn("mt-10", narrowBlockClassName)}
             aria-labelledby={relatedHeadingId}
           >
             <h2

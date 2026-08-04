@@ -508,6 +508,9 @@ function PaperChatConversation({
     }
 
     streamingSessionIdRef.current = sessionId;
+    // 主动发言就是「我要看新内容」：哪怕刚才上滚在读前文，也弹回底部跟自己的
+    // 消息和随后的回答
+    stickToBottomRef.current = true;
     onInputChange("");
     void sendMessage({ text }, { body: { sessionId } });
   };
