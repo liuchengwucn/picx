@@ -51,6 +51,9 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   ('src-mimo-blog',        'rsshub', '小米 MiMo Blog',          '{"route":"/mimo/blog"}', 1, 0, strftime('%s','now')),
   ('src-mimo-paper',       'rsshub', '小米 MiMo Papers',        '{"route":"/mimo/paper"}', 1, 0, strftime('%s','now')),
   ('src-ernie-blog',       'rsshub', 'Baidu ERNIE Blog',       '{"route":"/ernie/blog"}', 1, 0, strftime('%s','now')),
+  -- 中文 AI 媒体（全文路由，verified 2026-08-04）；量子位混有泛科技报道，靠相关性打分层过滤
+  ('src-qbitai-news',      'rsshub', '量子位',                  '{"route":"/qbitai/news"}', 1, 0, strftime('%s','now')),
+  ('src-jiqizhixin',       'rsshub', '机器之心',                '{"route":"/jiqizhixin/articles"}', 1, 0, strftime('%s','now')),
   -- X 资讯账号（isTweet 标记推文特化；实例已就绪，等用户确认后置 enabled=1）
   ('src-x-karpathy',     'rsshub', 'X @karpathy',          '{"route":"/twitter/user/karpathy","isTweet":true}', 0, 0, strftime('%s','now')),
   ('src-x-akhaliq',      'rsshub', 'X @_akhaliq',          '{"route":"/twitter/user/_akhaliq","isTweet":true}', 0, 0, strftime('%s','now')),
