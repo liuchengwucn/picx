@@ -37,4 +37,20 @@ export interface Env {
   // Telegram：仅在 X 发推失败时告警，供人工补发
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+
+  // Workers AI binding（news 聚合用 @cf/baai/bge-m3 做 embedding）
+  AI: Ai;
+  // Workers AI REST API 凭据（可选）：两者齐备时 embed 走 REST 而非 binding，
+  // 供 binding 不可用的环境（如本地 dev 关闭 remote bindings）使用；生产不配置
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  WORKERS_AI_API_TOKEN?: string;
+  // 自建 RSSHub 实例地址（可选；未配置时 rsshub 类型来源整体跳过）
+  RSSHUB_BASE_URL?: string;
+  RSSHUB_ACCESS_KEY?: string;
+  // news 流水线专用模型覆盖（可选；缺省回落 OPENAI_MODEL）
+  NEWS_OPENAI_MODEL?: string;
+  // 生产环境手动触发 /__scheduled 的密钥（可选；未配置时生产一律 404）
+  CRON_TRIGGER_KEY?: string;
+  // news 摄入/活跃窗口小时数覆盖（可选；仅用于历史回填等运维场景，默认 72）
+  NEWS_INGEST_WINDOW_HOURS?: string;
 }

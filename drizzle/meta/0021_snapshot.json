@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dcf47c65-210e-4d81-a9a8-78c018423ba7",
-  "prevId": "7d1e9a02-2f3b-4c5d-9e6f-0a1b2c3d4019",
+  "id": "3b70f204-62cf-40eb-ba66-152eecf79094",
+  "prevId": "dcf47c65-210e-4d81-a9a8-78c018423ba7",
   "tables": {
     "account": {
       "name": "account",
@@ -561,6 +561,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "earliest_published_at": {
+          "name": "earliest_published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "last_activity_at": {
           "name": "last_activity_at",
           "type": "integer",
@@ -603,6 +610,14 @@
           "name": "news_stories_feed_recent_idx",
           "columns": [
             "first_seen_at"
+          ],
+          "isUnique": false,
+          "where": "\"news_stories\".\"status\" != 'hidden'"
+        },
+        "news_stories_feed_published_idx": {
+          "name": "news_stories_feed_published_idx",
+          "columns": [
+            "earliest_published_at"
           ],
           "isUnique": false,
           "where": "\"news_stories\".\"status\" != 'hidden'"

@@ -42,7 +42,10 @@ const config = defineConfig({
       outdir: "./src/paraglide",
       strategy: ["localStorage", "preferredLanguage", "baseLocale"],
     }),
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    // 本地 dev 不建 remote preview 会话（AI binding 是 remote-only，在部分网络下
+    // 隧道不可达会导致 dev server 启动失败）；embed 在 dev 走 REST 回退，
+    // 见 news-cron 的 embedProvider
+    cloudflare({ viteEnvironment: { name: "ssr" }, remoteBindings: false }),
     tsconfigPaths({ projects: ["./tsconfig.json"] }),
     tailwindcss(),
     tanstackStart(),

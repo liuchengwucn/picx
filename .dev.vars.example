@@ -52,3 +52,11 @@ MINERU_TOKEN=your-mineru-token
 # 任意 8-128 位十六进制字符串; 内容会公开挂在 /indexnow-key.txt。
 # 留空则整体关闭 IndexNow 通知。
 INDEXNOW_KEY=
+
+# ===== News Aggregation (Optional) =====
+# RSSHUB_BASE_URL=https://your-rsshub.example.com
+# NEWS_OPENAI_MODEL=gpt-5.2-instant
+
+# ===== Ops (Optional) =====
+# Secret key to allow manual /__scheduled?cron=...&key=... triggers in production
+# CRON_TRIGGER_KEY=<long-random-string>

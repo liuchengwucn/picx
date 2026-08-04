@@ -145,8 +145,29 @@
     {
       "idx": 20,
       "version": "6",
-      "when": 1785835709745,
-      "tag": "0020_complex_shadowcat",
+      "when": 1785395541709,
+      "tag": "0020_add_news_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1785829836629,
+      "tag": "0021_add_story_earliest_published",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1785830615462,
+      "tag": "0022_drop_news_stories_feed_recent_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785840030584,
+      "tag": "0023_sync_news_source_config",
       "breakpoints": true
     }
   ]

@@ -414,5 +414,22 @@
   "chat_error_session_full": "This conversation reached 200 messages. Start a new one to continue.",
   "chat_error_rate_limited_minute": "You're sending messages faster than we can answer. Wait a minute and try again.",
   "chat_error_rate_limited_day": "You've hit today's message limit. It resets tomorrow.",
-  "chat_error_too_many_sessions": "You have too many conversations on this paper. Delete one to start another."
+  "chat_error_too_many_sessions": "You have too many conversations on this paper. Delete one to start another.",
+  "nav_news": "News",
+  "news_page_title": "AI Frontier News - PicX",
+  "news_page_desc": "What the AI community is talking about — aggregated hourly from lab blogs, researcher blogs, X and Hacker News.",
+  "news_heading": "AI Frontier News",
+  "news_subheading": "What the AI community is talking about right now",
+  "news_sort_latest": "Latest",
+  "news_sort_active": "Recently updated",
+  "news_reports_count": "{count} reports",
+  "news_sources_count": "{count} sources",
+  "news_hn_points": "{points} points",
+  "news_hn_comments": "{count} comments",
+  "news_x_mentions": "{count} X accounts",
+  "news_empty_title": "No stories yet",
+  "news_empty_desc": "The aggregation pipeline runs hourly. Check back soon.",
+  "news_timeline": "Coverage timeline",
+  "news_back": "Back to News",
+  "news_not_found": "This story does not exist or has been removed."
 }

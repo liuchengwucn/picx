@@ -55,6 +55,7 @@
     "clsx": "^2.1.1",
     "drizzle-kit": "^0.31.8",
     "drizzle-orm": "^0.45.0",
+    "fast-xml-parser": "^5.10.1",
     "fflate": "^0.8.3",
     "katex": "^0.16.35",
     "lucide-react": "^0.561.0",
