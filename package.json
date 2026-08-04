@@ -19,6 +19,7 @@
     "db:backfill-tldr": "node scripts/backfill-tldr.mjs",
     "db:backfill-categories": "node scripts/backfill-categories.mjs",
     "db:backfill-upvotes": "node scripts/backfill-upvotes.mjs",
+    "db:backfill-paper-text": "node scripts/backfill-paper-text.mjs",
     "format": "biome format",
     "lint": "biome lint",
     "typecheck": "tsc --noEmit",
