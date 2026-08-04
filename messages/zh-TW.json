@@ -385,5 +385,22 @@
   "reader_error_parse": "無法解析這個 PDF。",
   "reader_error_upload": "上傳失敗，請重試。",
   "reader_auth_redirect": "正在跳轉登入…",
-  "reader_auth_loading": "載入中…"
+  "reader_auth_loading": "載入中…",
+  "nav_news": "資訊",
+  "news_page_title": "AI 前沿資訊 - PicX",
+  "news_page_desc": "AI 圈正在關注什麼——每小時聚合自實驗室官博、研究者部落格、X 與 Hacker News。",
+  "news_heading": "AI 前沿資訊",
+  "news_subheading": "AI 圈此刻正在討論的新聞",
+  "news_sort_latest": "最新",
+  "news_sort_active": "最近更新",
+  "news_reports_count": "{count} 篇報導",
+  "news_sources_count": "{count} 個來源",
+  "news_hn_points": "{points} 分",
+  "news_hn_comments": "{count} 則留言",
+  "news_x_mentions": "{count} 個 X 帳號",
+  "news_empty_title": "暫無資訊",
+  "news_empty_desc": "聚合管道每小時執行一次，稍後再來看看。",
+  "news_timeline": "報導時間線",
+  "news_back": "返回資訊",
+  "news_not_found": "該資訊不存在或已被移除。"
 }

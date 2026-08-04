@@ -1,0 +1,1 @@
+DROP INDEX `news_stories_feed_recent_idx`;

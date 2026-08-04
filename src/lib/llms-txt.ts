@@ -27,6 +27,31 @@ interface LlmsFullPaper extends LlmsTxtPaper {
   sourceUrl: string | null;
 }
 
+interface LlmsTxtStory {
+  shortId: string;
+  title: string;
+  summary: string;
+}
+
+// llms.txt 里每条新闻摘要截断到这个字符数, 保持索引平铺、不喧宾夺主。
+const STORY_SUMMARY_TRUNCATE_LENGTH = 150;
+
+// 标题/摘要来自 AI 生成的用户可见文本，可能含换行, 会破坏逐行的 markdown 结构
+function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+// 链接文字还需转义反斜杠与方括号 (单趟替换, 避免二次转义), 否则 "]" 会提前终结 markdown 链接
+function linkText(text: string): string {
+  return collapseWhitespace(text).replace(/[\\[\]]/g, "\\$&");
+}
+
+function truncate(text: string, maxLength: number): string {
+  return text.length > maxLength
+    ? `${text.slice(0, maxLength).trimEnd()}...`
+    : text;
+}
+
 function header(siteUrl: string): string {
   return [
     "# PicX",
@@ -38,6 +63,7 @@ function header(siteUrl: string): string {
     "## Pages",
     "",
     `- [Gallery](${siteUrl}/gallery): Browse every visual paper summary, updated daily.`,
+    `- [AI News](${siteUrl}/news): Hourly-aggregated frontier AI/LLM news stories.`,
     `- [About](${siteUrl}/about): What PicX is and how it works.`,
   ].join("\n");
 }
@@ -45,18 +71,32 @@ function header(siteUrl: string): string {
 export function buildLlmsTxt(input: {
   siteUrl: string;
   papers: LlmsTxtPaper[];
+  stories?: LlmsTxtStory[];
 }): string {
   const lines = [header(input.siteUrl), "", "## Papers", ""];
   for (const p of input.papers) {
-    const link = `- [${p.title}](${input.siteUrl}/p/${p.shortId}.md)`;
-    lines.push(p.tldr ? `${link}: ${p.tldr}` : link);
+    const link = `- [${linkText(p.title)}](${input.siteUrl}/p/${p.shortId}.md)`;
+    lines.push(p.tldr ? `${link}: ${collapseWhitespace(p.tldr)}` : link);
+  }
+  if (input.stories && input.stories.length > 0) {
+    lines.push("", "## Latest AI News", "");
+    for (const s of input.stories) {
+      const link = `- [${linkText(s.title)}](${input.siteUrl}/news/${s.shortId})`;
+      const summary = truncate(
+        collapseWhitespace(s.summary),
+        STORY_SUMMARY_TRUNCATE_LENGTH,
+      );
+      lines.push(summary ? `${link}: ${summary}` : link);
+    }
   }
   return `${lines.join("\n")}\n`;
 }
 
 function paperBlock(siteUrl: string, p: LlmsFullPaper): string {
-  const lines = [`## ${p.title}`];
-  if (p.tldr) lines.push("", `> ${p.tldr}`);
+  // 标题里的换行会截断 heading, 折叠成单行; 正文 summary 保持原始 markdown
+  const lines = [`## ${collapseWhitespace(p.title)}`];
+  // tldr 折叠成单行, 否则换行会逃出 blockquote
+  if (p.tldr) lines.push("", `> ${collapseWhitespace(p.tldr)}`);
   const source =
     p.sourceType === "arxiv" && p.sourceUrl
       ? `[arXiv](${p.sourceUrl})`
@@ -72,9 +112,20 @@ function paperBlock(siteUrl: string, p: LlmsFullPaper): string {
   return lines.join("\n");
 }
 
+function storyBlock(siteUrl: string, s: LlmsTxtStory): string {
+  return [
+    `## ${collapseWhitespace(s.title)}`,
+    "",
+    `- **Permalink:** ${siteUrl}/news/${s.shortId}`,
+    "",
+    s.summary,
+  ].join("\n");
+}
+
 export function buildLlmsFullTxt(input: {
   siteUrl: string;
   papers: LlmsFullPaper[];
+  stories?: LlmsTxtStory[];
   maxBytes: number;
 }): string {
   const encoder = new TextEncoder();
@@ -101,5 +152,42 @@ export function buildLlmsFullTxt(input: {
   const omitted = input.papers.length - included;
   const footer =
     omitted > 0 ? `\n_${omitted} more paper(s) omitted for size._\n` : "";
-  return head + body + footer;
+  body += footer;
+
+  // 新闻 story 作为独立小节追加在论文之后, 复用同一套字节预算机制: 逐条累加、
+  // 超预算就整条丢弃并在小节末尾注明——预算是相对 head+body 之后剩余空间算的,
+  // 所以论文占满预算时这个小节干脆不出现(不会输出孤立的空标题)。
+  const stories = input.stories ?? [];
+  let storiesSection = "";
+  if (stories.length > 0) {
+    const sectionHeading = "\n## Latest AI News\n";
+    let storiesBody = "";
+    let storiesIncluded = 0;
+    for (const s of stories) {
+      const block = `\n${storyBlock(input.siteUrl, s)}\n`;
+      const omittedCount = stories.length - storiesIncluded - 1;
+      const note =
+        omittedCount > 0
+          ? `\n_${omittedCount} more stor${omittedCount === 1 ? "y" : "ies"} omitted for size._\n`
+          : "";
+      if (
+        byteLen(head + body + sectionHeading + storiesBody + block + note) >
+        input.maxBytes
+      ) {
+        break;
+      }
+      storiesBody += block;
+      storiesIncluded += 1;
+    }
+    if (storiesIncluded > 0) {
+      const storiesOmitted = stories.length - storiesIncluded;
+      const storiesFooter =
+        storiesOmitted > 0
+          ? `\n_${storiesOmitted} more stor${storiesOmitted === 1 ? "y" : "ies"} omitted for size._\n`
+          : "";
+      storiesSection = sectionHeading + storiesBody + storiesFooter;
+    }
+  }
+
+  return head + body + storiesSection;
 }
