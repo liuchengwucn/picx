@@ -21,8 +21,8 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   ('src-simonwillison',  'rss', 'Simon Willison',          '{"url":"https://simonwillison.net/atom/everything/"}', 1, 0, strftime('%s','now')),
   -- 科学空间双域名（spaces.ac.cn / kexue.fm），feed 用 spaces.ac.cn，verified 2026-08-03
   ('src-kexue-fm',       'rss', '科学空间 (苏剑林)',        '{"url":"https://spaces.ac.cn/feed"}', 1, 0, strftime('%s','now')),
-  -- HN 暂不启用（2026-08-03 用户决定）
-  ('src-hn',             'hn',  'Hacker News',             '{"queries":["LLM","OpenAI","Anthropic","DeepSeek","Gemini","Qwen","Mistral","llama","pretraining","transformer"],"minPoints":40}', 0, 0, strftime('%s','now')),
+  -- HN 于 2026-08-04 启用（此前禁用）；已入库的行需手动 UPDATE enabled
+  ('src-hn',             'hn',  'Hacker News',             '{"queries":["LLM","OpenAI","Anthropic","DeepSeek","Gemini","Qwen","Mistral","llama","pretraining","transformer"],"minPoints":40}', 1, 0, strftime('%s','now')),
   -- 国产厂商博客：自建 RSSHub（rsshub.picx.dev）自定义路由，verified 2026-08-04（14 路由清单见 docs/rsshub-routes-handoff.md）
   -- 需要 RSSHUB_BASE_URL + RSSHUB_ACCESS_KEY secrets
   ('src-deepseek-news',    'rsshub', 'DeepSeek News',          '{"route":"/deepseek/news"}', 1, 0, strftime('%s','now')),
