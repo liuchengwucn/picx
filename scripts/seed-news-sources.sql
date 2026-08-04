@@ -19,8 +19,22 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   ('src-ahead-of-ai',    'rss', 'Ahead of AI (Raschka)',   '{"url":"https://magazine.sebastianraschka.com/feed"}', 1, 0, strftime('%s','now')),
   ('src-interconnects',  'rss', 'Interconnects',           '{"url":"https://www.interconnects.ai/feed"}', 1, 0, strftime('%s','now')),
   ('src-simonwillison',  'rss', 'Simon Willison',          '{"url":"https://simonwillison.net/atom/everything/"}', 1, 0, strftime('%s','now')),
-  ('src-hn',             'hn',  'Hacker News',             '{"queries":["LLM","OpenAI","Anthropic","DeepSeek","Gemini","Qwen","Mistral","llama","pretraining","transformer"],"minPoints":40}', 1, 0, strftime('%s','now')),
-  -- X 资讯账号（RSSHUB_BASE_URL 就绪前保持 disabled；用户部署 RSSHub 后手动置 enabled=1）
-  ('src-x-karpathy',     'rsshub', 'X @karpathy',          '{"route":"/twitter/user/karpathy"}', 0, 0, strftime('%s','now')),
-  ('src-x-akhaliq',      'rsshub', 'X @_akhaliq',          '{"route":"/twitter/user/_akhaliq"}', 0, 0, strftime('%s','now')),
-  ('src-x-iscienceluvr', 'rsshub', 'X @iScienceLuvr',      '{"route":"/twitter/user/iScienceLuvr"}', 0, 0, strftime('%s','now'));
+  -- 科学空间双域名（spaces.ac.cn / kexue.fm），feed 用 spaces.ac.cn，verified 2026-08-03
+  ('src-kexue-fm',       'rss', '科学空间 (苏剑林)',        '{"url":"https://spaces.ac.cn/feed"}', 1, 0, strftime('%s','now')),
+  -- HN 暂不启用（2026-08-03 用户决定）
+  ('src-hn',             'hn',  'Hacker News',             '{"queries":["LLM","OpenAI","Anthropic","DeepSeek","Gemini","Qwen","Mistral","llama","pretraining","transformer"],"minPoints":40}', 0, 0, strftime('%s','now')),
+  -- 国产厂商博客：自建 RSSHub（rsshub.picx.dev）自定义路由，verified 2026-08-04
+  -- 详见 docs/rsshub-routes-handoff.md；需要 RSSHUB_BASE_URL + RSSHUB_ACCESS_KEY secrets
+  ('src-deepseek-news',  'rsshub', 'DeepSeek News',        '{"route":"/deepseek/news"}', 1, 0, strftime('%s','now')),
+  ('src-kimi-blog',      'rsshub', 'Kimi Blog (Moonshot)', '{"route":"/kimi/blog"}', 1, 0, strftime('%s','now')),
+  ('src-seed-blog',      'rsshub', 'ByteDance Seed Blog',  '{"route":"/byteseed/blog"}', 1, 0, strftime('%s','now')),
+  ('src-minimax-news',   'rsshub', 'MiniMax News',         '{"route":"/minimax/news"}', 1, 0, strftime('%s','now')),
+  ('src-hunyuan-blog',   'rsshub', '腾讯混元 Blog',         '{"route":"/hunyuan/blog"}', 1, 0, strftime('%s','now')),
+  -- zhipu 冷缓存耗时 ~13s 贴近 15s 超时；RSSHub 侧缓存 TTL 需 ≥2h，偶发失败靠下轮 cron 自愈
+  ('src-zhipu-news',     'rsshub', '智谱 Z.ai News',        '{"route":"/zhipu/news"}', 1, 0, strftime('%s','now')),
+  -- stepfun 官网无文章索引，路由改用 HF 模型发布动态（见 handoff 文档偏差记录）
+  ('src-stepfun-models', 'rsshub', 'StepFun 模型发布 (HF)', '{"route":"/stepfun/models"}', 1, 0, strftime('%s','now')),
+  -- X 资讯账号（isTweet 标记推文特化；实例已就绪，等用户确认后置 enabled=1）
+  ('src-x-karpathy',     'rsshub', 'X @karpathy',          '{"route":"/twitter/user/karpathy","isTweet":true}', 0, 0, strftime('%s','now')),
+  ('src-x-akhaliq',      'rsshub', 'X @_akhaliq',          '{"route":"/twitter/user/_akhaliq","isTweet":true}', 0, 0, strftime('%s','now')),
+  ('src-x-iscienceluvr', 'rsshub', 'X @iScienceLuvr',      '{"route":"/twitter/user/iScienceLuvr","isTweet":true}', 0, 0, strftime('%s','now'));

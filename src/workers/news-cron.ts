@@ -8,6 +8,7 @@ import { fetchHn, fetchHnItemSignals } from "#/lib/news/adapters/hn";
 import { fetchFeed } from "#/lib/news/adapters/rss";
 import { fetchRsshub } from "#/lib/news/adapters/rsshub";
 import {
+  type EmbedProvider,
   embedTexts,
   generateStoryContent,
   judgeAssignment,
@@ -78,7 +79,11 @@ async function fetchForSource(
         log("fetch", `skip ${source.id}: RSSHUB_BASE_URL not configured`);
         return [];
       }
-      return fetchRsshub(env.RSSHUB_BASE_URL, source.config);
+      return fetchRsshub(
+        env.RSSHUB_BASE_URL,
+        source.config,
+        env.RSSHUB_ACCESS_KEY,
+      );
     case "hn":
       // HN 必须用宽回看窗（72h）：新帖需要时间攒分，短窗+分数阈值组合会永远抓不到内容
       // （实测 3h 窗口命中 0 条）。重复条目靠 urlHash onConflict 去重并合并 signals/extra。
@@ -237,6 +242,19 @@ async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
 
 // ---- Stage 3: embed ----
 
+// 配置了 REST 凭据时 embed 走 Workers AI REST API（本地 dev 关闭 remote bindings
+// 后 AI binding 不可用的回退路径）；未配置时走 binding（生产默认）
+function embedProvider(env: Env): EmbedProvider {
+  if (env.WORKERS_AI_API_TOKEN && env.CLOUDFLARE_ACCOUNT_ID) {
+    return {
+      kind: "rest",
+      accountId: env.CLOUDFLARE_ACCOUNT_ID,
+      apiToken: env.WORKERS_AI_API_TOKEN,
+    };
+  }
+  return { kind: "binding", ai: env.AI };
+}
+
 async function embedStage(db: Db, env: Env, deadline: number): Promise<void> {
   const items = await db
     .select({
@@ -263,7 +281,7 @@ async function embedStage(db: Db, env: Env, deadline: number): Promise<void> {
     // 单块失败（Workers AI 超时/限流）不牵连其他块；embedding 仍为 null，下轮重取
     try {
       const vectors = await embedTexts(
-        env.AI,
+        embedProvider(env),
         chunk.map(
           (item) => `${item.title}\n${(item.excerpt ?? "").slice(0, 512)}`,
         ),
@@ -456,7 +474,6 @@ async function summarizeStage(
           embedding: newsItems.embedding,
           sourceId: newsItems.sourceId,
           sourceName: newsSources.name,
-          sourceType: newsSources.type,
         })
         .from(newsItems)
         .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
@@ -555,7 +572,7 @@ async function refreshStage(db: Db, deadline: number): Promise<void> {
     }
   }
 
-  // 只重建 signalsSummary，不触发 LLM 重摘要（这里仍需 sourceType 供 xAccounts 统计）
+  // 只重建 signalsSummary，不触发 LLM 重摘要（hn/xAccounts 均从 extra 判定，无需 join 来源表）
   for (const storyId of touchedStories) {
     const members = await db
       .select({
@@ -563,10 +580,8 @@ async function refreshStage(db: Db, deadline: number): Promise<void> {
         author: newsItems.author,
         signals: newsItems.signals,
         extra: newsItems.extra,
-        sourceType: newsSources.type,
       })
       .from(newsItems)
-      .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
       .where(eq(newsItems.storyId, storyId));
     await db
       .update(newsStories)

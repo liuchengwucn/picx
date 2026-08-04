@@ -6,7 +6,6 @@ const rss = (url: string) => ({
   author: null,
   signals: null,
   extra: null,
-  sourceType: "rss" as const,
 });
 
 describe("buildSignalsSummary", () => {
@@ -28,14 +27,12 @@ describe("buildSignalsSummary", () => {
         author: "a",
         signals: { points: 10, comments: 2 },
         extra: { hnUrl: "https://news.ycombinator.com/item?id=1" },
-        sourceType: "hn",
       },
       {
         url: "https://x.com/2",
         author: "b",
         signals: { points: 99, comments: 5 },
         extra: { hnUrl: "https://news.ycombinator.com/item?id=2" },
-        sourceType: "hn",
       },
     ]);
     expect(s.hn).toEqual({
@@ -52,7 +49,6 @@ describe("buildSignalsSummary", () => {
         author: null,
         signals: { points: 42, comments: 7 },
         extra: { hnUrl: "https://news.ycombinator.com/item?id=9" },
-        sourceType: "rss",
       },
     ]);
     expect(s.hn).toEqual({
@@ -66,16 +62,27 @@ describe("buildSignalsSummary", () => {
       buildSignalsSummary([rss("https://openai.com/a")]).hn,
     ).toBeUndefined();
   });
-  it("counts distinct X accounts", () => {
+  it("counts distinct X accounts by extra.isTweet", () => {
     const tweet = (author: string) => ({
       url: `https://nitter/${author}`,
       author,
       signals: null,
-      extra: null,
-      sourceType: "rsshub" as const,
+      extra: { isTweet: true },
     });
     expect(
       buildSignalsSummary([tweet("a"), tweet("a"), tweet("b")]).xAccounts,
     ).toBe(2);
+  });
+  it("does not count blog items from rsshub routes as X accounts", () => {
+    // 博客路由同样走 rsshub 类型，但没有 isTweet 标记，不应计入 xAccounts
+    const s = buildSignalsSummary([
+      {
+        url: "https://www.kimi.com/blog/kimi-k3",
+        author: "Kimi Team",
+        signals: null,
+        extra: null,
+      },
+    ]);
+    expect(s.xAccounts).toBeUndefined();
   });
 });

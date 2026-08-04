@@ -5,7 +5,6 @@ export interface SignalInput {
   author: string | null;
   signals: Record<string, number> | null;
   extra: Record<string, unknown> | null;
-  sourceType: "rss" | "rsshub" | "hn";
 }
 
 const MAX_DOMAINS = 8;
@@ -40,9 +39,11 @@ export function buildSignalsSummary(items: SignalInput[]): StorySignalsSummary {
   }
   if (best) summary.hn = best;
 
+  // 与 hnUrl 同理按 extra.isTweet 判定而非来源类型：rsshub 类型也承载博客路由，
+  // 且跨源 URL 去重后推文行可能挂在其他来源上，extra 标记才是可靠身份
   const xAuthors = new Set(
     items
-      .filter((i) => i.sourceType === "rsshub" && i.author)
+      .filter((i) => i.extra?.isTweet === true && i.author)
       .map((i) => i.author as string),
   );
   if (xAuthors.size > 0) summary.xAccounts = xAuthors.size;

@@ -199,17 +199,51 @@ const EMBEDDING_DIM = 1024;
 
 // Ai 是 @cloudflare/workers-types 的全局环境类型，无需 import
 const EMBEDDING_TIMEOUT_MS = 30_000;
+const EMBEDDING_MODEL = "@cf/baai/bge-m3";
 
-export async function embedTexts(
-  ai: Ai,
+/**
+ * binding：默认路径，Workers AI binding 直调（生产）。
+ * rest：Workers AI REST API 等价实现——供 binding 不可用的环境
+ * （如本地 dev 关闭了 remote bindings）用 API 凭据直连。
+ */
+export type EmbedProvider =
+  | { kind: "binding"; ai: Ai }
+  | { kind: "rest"; accountId: string; apiToken: string };
+
+type EmbeddingResponse = { data?: number[][] };
+
+async function runEmbedding(
+  provider: EmbedProvider,
   texts: string[],
-): Promise<Float32Array[]> {
-  type EmbeddingResponse = { data?: number[][] };
+): Promise<EmbeddingResponse> {
+  if (provider.kind === "rest") {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${provider.accountId}/ai/run/${EMBEDDING_MODEL}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${provider.apiToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text: texts, truncate_inputs: true }),
+        signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new NewsAiError(
+        `news-ai: embedding REST ${response.status} ${body.slice(0, 200)}`,
+        response.status,
+      );
+    }
+    const data = (await response.json()) as { result?: EmbeddingResponse };
+    return data.result ?? {};
+  }
   // ai.run 不接受 AbortSignal，只能用 race 兜住挂死的调用——流水线在 cron 里跑，
   // 单次 embedding 卡住会吃掉整轮的 wall-clock 预算。
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const result = await Promise.race([
-    ai.run("@cf/baai/bge-m3", {
+  return Promise.race([
+    provider.ai.run(EMBEDDING_MODEL, {
       text: texts,
       truncate_inputs: true,
     }) as Promise<EmbeddingResponse>,
@@ -220,6 +254,13 @@ export async function embedTexts(
       );
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+export async function embedTexts(
+  provider: EmbedProvider,
+  texts: string[],
+): Promise<Float32Array[]> {
+  const result = await runEmbedding(provider, texts);
   if (!result.data || result.data.length !== texts.length) {
     // 把响应片段带进错误信息，否则线上只能看到"shape 不对"而无从排查
     const snippet = JSON.stringify(result)?.slice(0, 300);

@@ -381,11 +381,13 @@ export const float32Blob = customType<{
 });
 
 // rss/rsshub: { url } 或 { route }；hn: { queries, minPoints }
+// isTweet: rsshub 路由是否为推文源（标题截短 + extra.isTweet 标记）；博客类路由不设
 export type NewsSourceConfig = {
   url?: string;
   route?: string;
   queries?: string[];
   minPoints?: number;
+  isTweet?: boolean;
 };
 
 export type NewsMedia = {
