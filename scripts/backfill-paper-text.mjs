@@ -17,13 +17,21 @@
  *
  * Safety:
  *   - Idempotent & resumable: skips papers whose text object already exists.
- *   - Per-paper try/catch: one failure never aborts the batch.
+ *   - Per-paper try/catch: one failure never aborts the batch — EXCEPT
+ *     r2Exists() failures that aren't a plain "key missing" (e.g. auth/login
+ *     errors), which abort the whole run immediately so a bad credential
+ *     doesn't produce hundreds of misleading per-paper "FAILED" lines.
  *   - --dry-run lists what would be done without writing.
+ *   - --local runs entirely against the local D1/R2 emulation (via wrangler),
+ *     no Cloudflare API credentials required or used.
+ *   - Row-count guard: compares the fetched paper list against a COUNT(*)
+ *     with the same WHERE clause and aborts on mismatch, to catch silent
+ *     truncation instead of quietly backfilling a partial set.
  *
  * Usage (run on the host):
  *   node scripts/backfill-paper-text.mjs [--dry-run] [--limit N] [--local]
  *
- * Defaults: remote bucket, no limit.
+ * Defaults: remote (D1 REST + R2 --remote), no limit.
  *
  * If the D1 REST fetch() call fails with a network error on the host, retry
  * with NODE_USE_ENV_PROXY=1 (see project memory: X repost proxy).
@@ -49,7 +57,14 @@ const REMOTE = !hasFlag("--local");
 const LIMIT = Number(getOpt("--limit", "0"));
 
 function loadDevVars() {
-  const raw = readFileSync(join(projectRoot, ".dev.vars"), "utf8");
+  let raw;
+  try {
+    raw = readFileSync(join(projectRoot, ".dev.vars"), "utf8");
+  } catch {
+    // .dev.vars is only required for --remote; --local doesn't need any
+    // Cloudflare API credentials.
+    return {};
+  }
   const env = {};
   for (const line of raw.split("\n")) {
     const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
@@ -69,7 +84,19 @@ const E = loadDevVars();
 // bucket_name for the PAPERS_BUCKET binding, per wrangler.jsonc.
 const BUCKET = "picx-papers-apac";
 
-async function d1Query(sql) {
+// Thrown for errors that must abort the whole run rather than being counted
+// as a single paper's failure (e.g. auth/login problems surfacing through
+// r2Exists — see its comment below).
+class FatalError extends Error {}
+
+function wrangler(cmd) {
+  return execFileSync("npx", ["wrangler", ...cmd], {
+    cwd: projectRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+async function d1Remote(sql) {
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${E.CLOUDFLARE_ACCOUNT_ID}/d1/database/${E.CLOUDFLARE_D1_DATABASE_ID}/query`,
     {
@@ -82,15 +109,29 @@ async function d1Query(sql) {
     },
   );
   const json = await res.json();
-  if (!json.success) throw new Error(JSON.stringify(json.errors));
+  if (!json.success) throw new Error(`D1 query failed: ${JSON.stringify(json.errors)}`);
   return json.result[0].results;
 }
 
-function wrangler(cmd) {
-  return execFileSync("npx", ["wrangler", ...cmd], {
-    cwd: projectRoot,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+function d1Local(sql) {
+  const out = execFileSync(
+    "npx",
+    ["wrangler", "d1", "execute", "DB", "--local", "--json", "--command", sql],
+    { cwd: projectRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
+  // In this environment wrangler prints a "Proxy environment variables
+  // detected." notice on stdout before the JSON array — slice from the
+  // first '[' to isolate the actual payload (confirmed by manual testing).
+  const jsonStart = out.indexOf("[");
+  if (jsonStart === -1) {
+    throw new Error(`wrangler d1 execute produced no JSON: ${out.slice(0, 200)}`);
+  }
+  const parsed = JSON.parse(out.slice(jsonStart));
+  return parsed[0].results;
+}
+
+async function d1Query(sql) {
+  return REMOTE ? d1Remote(sql) : d1Local(sql);
 }
 
 // `--file /dev/null` does not work here: when this script is invoked via the
@@ -98,13 +139,26 @@ function wrangler(cmd) {
 // no longer resolves to a real device on the target side (confirmed by
 // manual testing: wrangler throws EACCES trying to open the translated
 // path). Use a real scratch file instead.
+//
+// Distinguishing "key missing" from other errors matters: wrangler's 404
+// ("The specified key does not exist.", confirmed by manual testing) means
+// "not backfilled yet"; anything else (auth/login/network) is a systemic
+// problem that would otherwise get silently swallowed as "doesn't exist" and
+// then produce a wall of misleading per-paper download/upload failures. Bail
+// out immediately instead via FatalError.
 function r2Exists(key, probePath) {
   const flag = REMOTE ? "--remote" : "--local";
   try {
     wrangler(["r2", "object", "get", `${BUCKET}/${key}`, "--file", probePath, flag]);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    const stderr = err?.stderr ? err.stderr.toString() : String(err);
+    if (/does not exist/i.test(stderr)) {
+      return false;
+    }
+    throw new FatalError(
+      `r2 object get failed for a reason other than "key missing" (likely auth/login) — aborting run: ${stderr.slice(0, 300)}`,
+    );
   }
 }
 
@@ -112,7 +166,7 @@ function r2Exists(key, probePath) {
 function normalizePageText(text) {
   return text
     .replace(/\r/g, "\n")
-    .replace(/[ \t\f\v 　]+/g, " ")
+    .replace(/[ \t\f\v 　]+/g, " ")
     .replace(/ *\n */g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -168,42 +222,77 @@ async function extractRawText(buffer) {
   return joinPagesContinuously(pageTexts);
 }
 
-const flag = REMOTE ? "--remote" : "--local";
-const papers = await d1Query(
-  `SELECT id, pdf_r2_key FROM papers WHERE status = 'completed' AND deleted_at IS NULL ORDER BY created_at${LIMIT > 0 ? ` LIMIT ${LIMIT}` : ""}`,
-);
-console.log(`Found ${papers.length} completed papers`);
+const WHERE = "status = 'completed' AND deleted_at IS NULL";
 
-let done = 0;
-let skipped = 0;
-let failed = 0;
-const tmp = mkdtempSync(join(tmpdir(), "paper-text-"));
-const probePath = join(tmp, "probe");
-for (const p of papers) {
-  const textKey = `paper-text/${p.id}.txt`;
-  try {
-    if (r2Exists(textKey, probePath)) {
-      skipped++;
-      continue;
+async function main() {
+  if (REMOTE) {
+    const required = [
+      "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
+      "CLOUDFLARE_D1_DATABASE_ID",
+    ];
+    const missing = required.filter((k) => !E[k]);
+    if (missing.length > 0) {
+      throw new Error(
+        `Missing ${missing.join(", ")} in .dev.vars (required for --remote; pass --local to run against the local D1/R2 emulation instead)`,
+      );
     }
-    if (DRY_RUN) {
-      console.log(`[dry-run] would backfill ${p.id} from ${p.pdf_r2_key}`);
-      done++;
-      continue;
-    }
-    const pdfPath = join(tmp, "cur.pdf");
-    wrangler(["r2", "object", "get", `${BUCKET}/${p.pdf_r2_key}`, "--file", pdfPath, flag]);
-    const text = await extractRawText(readFileSync(pdfPath));
-    if (!text.trim()) throw new Error("extracted text is empty");
-    const txtPath = join(tmp, "cur.txt");
-    writeFileSync(txtPath, text);
-    wrangler(["r2", "object", "put", `${BUCKET}/${textKey}`, "--file", txtPath, "--content-type", "text/plain", flag]);
-    done++;
-    console.log(`[${done}] ${p.id}: ${text.length} chars`);
-  } catch (err) {
-    failed++;
-    console.error(`FAILED ${p.id}: ${String(err).slice(0, 200)}`);
   }
+
+  const flag = REMOTE ? "--remote" : "--local";
+
+  const [{ total }] = await d1Query(`SELECT COUNT(*) AS total FROM papers WHERE ${WHERE}`);
+  const papers = await d1Query(
+    `SELECT id, pdf_r2_key FROM papers WHERE ${WHERE} ORDER BY created_at${LIMIT > 0 ? ` LIMIT ${LIMIT}` : ""}`,
+  );
+  const expected = LIMIT > 0 ? Math.min(Number(total), LIMIT) : Number(total);
+  if (papers.length !== expected) {
+    throw new Error(
+      `Row count mismatch: COUNT(*)=${total}${LIMIT > 0 ? `, limit=${LIMIT}` : ""}, but SELECT returned ${papers.length} row(s) (expected ${expected}). Possible truncation — aborting instead of backfilling a partial set.`,
+    );
+  }
+  console.log(`Found ${papers.length} completed papers`);
+
+  let done = 0;
+  let skipped = 0;
+  let failed = 0;
+  const tmp = mkdtempSync(join(tmpdir(), "paper-text-"));
+  const probePath = join(tmp, "probe");
+  for (const p of papers) {
+    const textKey = `paper-text/${p.id}.txt`;
+    try {
+      if (r2Exists(textKey, probePath)) {
+        skipped++;
+        continue;
+      }
+      if (DRY_RUN) {
+        console.log(`[dry-run] would backfill ${p.id} from ${p.pdf_r2_key}`);
+        done++;
+        continue;
+      }
+      const pdfPath = join(tmp, "cur.pdf");
+      wrangler(["r2", "object", "get", `${BUCKET}/${p.pdf_r2_key}`, "--file", pdfPath, flag]);
+      const text = await extractRawText(readFileSync(pdfPath));
+      if (!text.trim()) throw new Error("extracted text is empty");
+      const txtPath = join(tmp, "cur.txt");
+      writeFileSync(txtPath, text);
+      wrangler(["r2", "object", "put", `${BUCKET}/${textKey}`, "--file", txtPath, "--content-type", "text/plain", flag]);
+      done++;
+      console.log(`[${done}] ${p.id}: ${text.length} chars`);
+    } catch (err) {
+      if (err instanceof FatalError) {
+        rmSync(tmp, { recursive: true, force: true });
+        throw err;
+      }
+      failed++;
+      console.error(`FAILED ${p.id}: ${String(err).slice(0, 200)}`);
+    }
+  }
+  rmSync(tmp, { recursive: true, force: true });
+  console.log(`Done. ok=${done} skipped=${skipped} failed=${failed}`);
 }
-rmSync(tmp, { recursive: true, force: true });
-console.log(`Done. ok=${done} skipped=${skipped} failed=${failed}`);
+
+main().catch((e) => {
+  console.error("[backfill-text] fatal:", e);
+  process.exit(1);
+});
