@@ -12,7 +12,15 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -20,22 +28,34 @@ import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
   DialogTrigger,
 } from "#/components/ui/dialog";
 import { useTRPC } from "#/integrations/trpc/react";
+import {
+  CHAT_CLIENT_LIMITS,
+  CHAT_ERROR_CODES,
+  type ChatErrorCode,
+} from "#/lib/chat-errors";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
-/** 与服务端 CHAT_LIMITS.maxInputChars 对齐（/api/chat 超出直接 413） */
-const MAX_INPUT_CHARS = 4000;
+/** 与服务端 CHAT_LIMITS.maxInputChars 同源（/api/chat 超出直接 413） */
+const MAX_INPUT_CHARS = CHAT_CLIENT_LIMITS.maxInputChars;
 /** 只在接近上限时才露出计数器，平时不干扰书写 */
-const COUNTER_VISIBLE_FROM = 3600;
+const COUNTER_VISIBLE_FROM = Math.floor(MAX_INPUT_CHARS * 0.9);
+/** 只有贴近底部时才自动跟随流式输出，用户上滚回看时不把他拽回去 */
+const STICK_TO_BOTTOM_PX = 80;
 
 /**
- * react-markdown 生成的 DOM 没有 class 可挂，项目也没装 typography 插件
- * （preflight 会把列表/标题的默认样式清掉），所以排版全靠这里的后代选择器。
+ * react-markdown 生成的 DOM 没有 class 可挂，只能靠后代选择器排版。
+ *
+ * 这里没用站内常见的 `prose`（typography 插件是装了的）：prose 的字号/行距/垂直
+ * 节奏是按正文栏宽调的，塞进 360px 的侧栏会显得又大又松，而且它自带 max-width
+ * 与一堆需要 `max-w-none`、`prose-sm` 层层压回去的默认值。侧栏只需要一套更紧的
+ * 排版，直接写清单比对抗 prose 更短也更可控。
  */
 const MARKDOWN_CLASS = [
   "text-sm leading-relaxed break-words text-[var(--ink)]",
@@ -79,7 +99,13 @@ function resolveChatErrorMessage(error: unknown): string {
       // 非 JSON body（网关错误页等）→ 落到通用文案
     }
   }
-  switch (code) {
+  // 用 find 而不是 includes + as：只有真正被收窄成 ChatErrorCode 的变量，
+  // 才能让下面 default 分支里的 never 赋值起到穷尽检查作用
+  const known: ChatErrorCode | undefined = CHAT_ERROR_CODES.find(
+    (candidate) => candidate === code,
+  );
+  if (!known) return m.chat_error_generic();
+  switch (known) {
     case "unauthorized":
       return m.chat_error_unauthorized();
     case "message_too_long":
@@ -90,8 +116,18 @@ function resolveChatErrorMessage(error: unknown): string {
       return m.chat_error_rate_limited_minute();
     case "rate_limited_day":
       return m.chat_error_rate_limited_day();
-    default:
+    // 这些码用户无从自处（会话被删/无权/请求畸形/流中断），一律通用文案
+    case "bad_request":
+    case "session_not_found":
+    case "forbidden":
+    case "stream_failed":
       return m.chat_error_generic();
+    default: {
+      // 码表新增码却忘了在这里映射时，此处编译期报错
+      const exhaustive: never = known;
+      void exhaustive;
+      return m.chat_error_generic();
+    }
   }
 }
 
@@ -163,7 +199,27 @@ function SourceFootnotes({ sources }: { sources: SourceLink[] }) {
   );
 }
 
-function ChatMessage({ message }: { message: UIMessage }) {
+/** 模型生成的链接一律新开标签页，且不给外链传递权重 */
+const MARKDOWN_COMPONENTS = {
+  a: ({
+    children,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a {...props} target="_blank" rel="noopener noreferrer nofollow">
+      {children}
+    </a>
+  ),
+};
+
+/**
+ * memo：流式期间只有最后一条消息在变，前面几十条不该跟着 re-render
+ * （每条都要重跑 react-markdown 的解析）。
+ */
+const ChatMessage = memo(function ChatMessage({
+  message,
+}: {
+  message: UIMessage;
+}) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -185,7 +241,10 @@ function ChatMessage({ message }: { message: UIMessage }) {
               key={`${message.id}-text-${index}`}
               className={MARKDOWN_CLASS}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={MARKDOWN_COMPONENTS}
+              >
                 {part.text}
               </ReactMarkdown>
             </div>
@@ -211,17 +270,26 @@ function ChatMessage({ message }: { message: UIMessage }) {
       {sources.length > 0 && <SourceFootnotes sources={sources} />}
     </div>
   );
-}
+});
 
 interface ConversationProps {
   paperShortId: string;
   /** 浮层形态下由面板自己渲染关闭按钮，避免和头部控件叠在一起 */
   onClose?: () => void;
+  /** 草稿提在 PaperChat 层：抽屉关闭会卸载整棵子树，state 留这儿会丢 */
+  input: string;
+  onInputChange: (value: string) => void;
 }
 
-function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
+function PaperChatConversation({
+  paperShortId,
+  onClose,
+  input,
+  onInputChange,
+}: ConversationProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const sessionListId = useId();
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null,
@@ -229,7 +297,6 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
   // useChat 只在 id 变化时重建 Chat。id 里刻意不含 sessionId：首次发言会隐式
   // 建会话，若 id 跟着变，正在流式的回答会被整条丢掉。
   const [chatEpoch, setChatEpoch] = useState(0);
-  const [input, setInput] = useState("");
   const [isSessionListOpen, setIsSessionListOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
@@ -254,6 +321,11 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
     }),
     enabled: !!selectedSessionId,
   });
+  /**
+   * 历史还在路上。此时禁止发送：hydrate 用的是 setMessages(整表覆盖)，若这期间
+   * 已经开流，历史一到就会把刚发出去的用户消息和正在写的回答一起抹掉。
+   */
+  const isHydrating = !!selectedSessionId && messagesQuery.isLoading;
 
   const transport = useMemo(
     () =>
@@ -300,6 +372,8 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
   const { messages, sendMessage, setMessages, status, stop } = useChat({
     id: `paper-chat:${paperShortId}:${chatEpoch}`,
     transport,
+    // 流式 chunk 可以来得比一帧还密；50ms 合批，省掉大量无意义的整表重渲染
+    throttle: 50,
     onError: (error) => {
       toast.error(resolveChatErrorMessage(error));
     },
@@ -338,11 +412,15 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
     setMessages(history as unknown as UIMessage[]);
   }, [selectedSessionId, messagesQuery.data, setMessages]);
 
-  // 流式每来一个 chunk，最后一条消息都是新对象 → 依赖它即可持续贴底
+  // 流式每来一个 chunk，最后一条消息都是新对象 → 依赖它即可持续贴底。
+  // 但只在用户本来就贴着底时跟随：他上滚回看前文时把视口拽回去是最烦人的交互。
   const lastMessage = messages[messages.length - 1];
   useEffect(() => {
     const node = scrollRef.current;
     if (!node || !lastMessage) return;
+    const distanceFromBottom =
+      node.scrollHeight - node.scrollTop - node.clientHeight;
+    if (distanceFromBottom > STICK_TO_BOTTOM_PX) return;
     node.scrollTop = node.scrollHeight;
   }, [lastMessage]);
 
@@ -378,8 +456,11 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
 
   const handleSend = async () => {
     const text = input.trim();
-    // createSession 还在飞时再按一次回车会建出第二个空会话
-    if (!text || isBusy || createSessionMutation.isPending) return;
+    // createSession 还在飞时再按一次回车会建出第二个空会话；
+    // isHydrating 期间发出去的消息会被随后到达的历史覆盖掉
+    if (!text || isBusy || isHydrating || createSessionMutation.isPending) {
+      return;
+    }
 
     let sessionId = selectedSessionId;
     if (!sessionId) {
@@ -413,14 +494,13 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
     }
 
     streamingSessionIdRef.current = sessionId;
-    setInput("");
+    onInputChange("");
     void sendMessage({ text }, { body: { sessionId } });
   };
 
   const activeSession = sessions.find(
     (session) => session.id === selectedSessionId,
   );
-  const isHydrating = !!selectedSessionId && messagesQuery.isLoading;
   const showThinking = status === "submitted";
 
   return (
@@ -459,8 +539,9 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
           type="button"
           onClick={() => setIsSessionListOpen((open) => !open)}
           aria-expanded={isSessionListOpen}
+          aria-controls={sessionListId}
           title={m.chat_sessions_label()}
-          className="mt-1.5 flex w-full items-center gap-1 text-left text-xs text-[var(--ink-soft)] hover:text-[var(--ink)]"
+          className="mt-1.5 flex w-full items-center gap-1 rounded-sm text-left text-xs text-[var(--ink-soft)] hover:text-[var(--ink)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
         >
           <span className="truncate">
             {activeSession
@@ -476,7 +557,10 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
         </button>
 
         {isSessionListOpen && (
-          <ul className="mt-2 max-h-52 space-y-0.5 overflow-y-auto">
+          <ul
+            id={sessionListId}
+            className="mt-2 max-h-52 space-y-0.5 overflow-y-auto"
+          >
             {sessions.length === 0 && (
               <li className="px-1 py-1 text-xs text-[var(--ink-soft)]">
                 {m.chat_sessions_empty()}
@@ -521,7 +605,7 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
                     <button
                       type="button"
                       onClick={() => openSession(session.id)}
-                      className="min-w-0 flex-1 truncate text-left text-xs text-[var(--ink)]"
+                      className="min-w-0 flex-1 truncate rounded-sm text-left text-xs text-[var(--ink)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
                     >
                       {session.title ?? m.chat_session_untitled()}
                     </button>
@@ -542,9 +626,12 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
         )}
       </div>
 
-      {/* 对话区 */}
+      {/* 对话区。role=log + polite：新回答播报给读屏，但不打断当前朗读 */}
       <div
         ref={scrollRef}
+        role="log"
+        aria-live="polite"
+        aria-label={m.chat_title()}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4"
       >
         {isHydrating ? (
@@ -568,12 +655,12 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
         )}
       </div>
 
-      {/* 输入区 */}
-      <div className="border-t border-[var(--line)] px-3 py-3">
+      {/* 输入区。textarea 本身无边框，焦点环挂在外层容器上才看得见 */}
+      <div className="border-t border-[var(--line)] px-3 py-3 focus-within:ring-1 focus-within:ring-[var(--academic-brown)]/40">
         <div className="flex items-end gap-2">
           <textarea
             value={input}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(event) => onInputChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== "Enter" || event.shiftKey) return;
               // 中文/日文输入法选字时的 Enter 属于组合过程，不能当成发送
@@ -601,7 +688,9 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
             <Button
               size="icon-sm"
               onClick={() => void handleSend()}
-              disabled={!input.trim() || createSessionMutation.isPending}
+              disabled={
+                !input.trim() || isHydrating || createSessionMutation.isPending
+              }
               aria-label={m.chat_send()}
               title={m.chat_send()}
             >
@@ -674,14 +763,21 @@ export function PaperChat({
   isSignedIn,
   onSignIn,
 }: PaperChatProps) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   // 两种形态共用一份对话组件，但绝不能同时挂载：那会跑出两个 useChat 实例，
   // 各自持有半截历史。SSR/首帧按宽屏渲染（aside 自带 hidden xl:block 兜底）。
   const [isWideViewport, setIsWideViewport] = useState(true);
+  // 草稿留在这一层：抽屉关闭会卸载整个对话子树，state 放里面等于清空输入框
+  const [input, setInput] = useState("");
+  const sheetDescriptionId = useId();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(min-width: 1280px)");
+    // 用 rem 而非 px：Tailwind 的 xl 是 80rem，写死 1280px 会在用户调大浏览器
+    // 默认字号时和断点错位，出现「两栏布局但面板不见了」。
+    const mediaQuery = window.matchMedia("(min-width: 80rem)");
     const sync = (matches: boolean) => {
       setIsWideViewport(matches);
       if (matches) setIsSheetOpen(false);
@@ -692,6 +788,19 @@ export function PaperChat({
     return () => mediaQuery.removeEventListener("change", onChange);
   }, []);
 
+  const handleSheetOpenChange = (open: boolean) => {
+    setIsSheetOpen(open);
+    // 抽屉关着的这段时间里，被中断的流仍可能由服务端的 waitUntil 落库；
+    // 重新打开时先把 chat 相关缓存标脏，别拿旧快照当历史。
+    if (!open) return;
+    void queryClient.invalidateQueries({
+      queryKey: trpc.chat.getMessages.pathKey(),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: trpc.chat.listSessions.pathKey(),
+    });
+  };
+
   if (isWideViewport) {
     return (
       <aside
@@ -701,7 +810,11 @@ export function PaperChat({
         )}
       >
         {isSignedIn ? (
-          <PaperChatConversation paperShortId={paperShortId} />
+          <PaperChatConversation
+            paperShortId={paperShortId}
+            input={input}
+            onInputChange={setInput}
+          />
         ) : (
           <SignInPrompt onSignIn={onSignIn} />
         )}
@@ -715,7 +828,7 @@ export function PaperChat({
   // 按钮，若留下一个真实 grid item 会白白多出一行 gap。
   return (
     <div className="contents">
-      <Dialog open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+      <Dialog open={isSheetOpen} onOpenChange={handleSheetOpenChange}>
         <DialogTrigger asChild>
           <Button
             size="icon-lg"
@@ -731,13 +844,19 @@ export function PaperChat({
             "top-auto bottom-0 left-1/2 flex w-full max-w-none translate-y-0 flex-col gap-0 overflow-hidden rounded-t-2xl rounded-b-none border-[var(--line)] bg-[var(--parchment)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-b-2xl",
             isSignedIn && "h-[86dvh]",
           )}
+          aria-describedby={sheetDescriptionId}
         >
           <DialogTitle className="sr-only">{m.chat_title()}</DialogTitle>
+          <DialogDescription id={sheetDescriptionId} className="sr-only">
+            {m.chat_empty_hint()}
+          </DialogDescription>
           <div className="min-h-0 flex-1">
             {isSignedIn ? (
               <PaperChatConversation
                 paperShortId={paperShortId}
                 onClose={closeSheet}
+                input={input}
+                onInputChange={setInput}
               />
             ) : (
               <SignInPrompt onSignIn={onSignIn} onClose={closeSheet} />

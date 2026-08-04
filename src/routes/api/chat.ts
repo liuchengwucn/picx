@@ -23,6 +23,7 @@ import {
   getChatModel,
   loadAccessiblePaper,
 } from "#/lib/chat";
+import type { ChatErrorCode } from "#/lib/chat-errors";
 import {
   getReviewGuestServerSession,
   isReviewGuestModeEnabled,
@@ -54,11 +55,10 @@ const bodySchema = z.object({
 });
 
 /**
- * `error` 是稳定 CODE（不是给人看的文案），前端按 code 映射 i18n 文案。Codes:
- * unauthorized | bad_request | message_too_long | session_not_found | forbidden
- * | session_full | rate_limited_minute | rate_limited_day
+ * `error` 是稳定 CODE（不是给人看的文案），前端按 code 映射 i18n 文案。
+ * 码表见 #/lib/chat-errors，前后端共用，新增码必须先加进那张表。
  */
-function jsonError(code: string, status: number): Response {
+function jsonError(code: ChatErrorCode, status: number): Response {
   return new Response(JSON.stringify({ error: code }), {
     status,
     headers: { "Content-Type": "application/json" },
@@ -205,7 +205,7 @@ async function handler({ request }: { request: Request }) {
     // （默认实现返回 "An error occurred."，且会泄露服务端错误细节的风险）
     onError: (error) => {
       console.error("[chat] stream error:", error);
-      return "stream_failed";
+      return "stream_failed" satisfies ChatErrorCode;
     },
     // v7: onFinish 已 deprecated，改名 onEnd（形状不变，仍有 responseMessage）
     onEnd: async ({ responseMessage }) => {

@@ -557,8 +557,17 @@ function PaperDetailPage() {
       ] ?? result.summary)
     : null;
 
+  // 三栏生效时把容器从 1200px 放宽到 1520px，否则 300+360 两条侧栏会把正文压到
+  // ~490px。这里没沿用 .page-wrap 再加 xl:w-*：styles.css 里的 .page-wrap 是
+  // 无 layer 的裸类，优先级高于 Tailwind 的 utilities layer，覆盖不动；改成直接
+  // 写等价 utility。两个分支都是完整字符串，Tailwind 静态扫描能收到。
+  const containerClassName =
+    paper.status === "completed"
+      ? "mx-auto w-[min(1200px,calc(100%_-_2rem))] py-8 xl:w-[min(1520px,calc(100%_-_2rem))]"
+      : "page-wrap py-8";
+
   return (
-    <main className="page-wrap py-8">
+    <main className={containerClassName}>
       <div className="stagger-in">
         {/* Breadcrumb */}
         <nav className="flex items-start gap-1 text-sm text-[var(--ink-soft)]">
@@ -586,10 +595,9 @@ function PaperDetailPage() {
           />
         )}
 
-        {/* 论文 completed 时才有提问面板：xl+ 让出第三栏（内容宽度封顶 1200px，
-            左栏同时收窄），xl 以下折叠成右下角悬浮按钮，不占版面。未完成的论文
-            必须退回两栏，否则右侧空出 360px 死区把正文挤偏。
-            两个模板写成完整字符串，保证 Tailwind 静态扫描能收到。 */}
+        {/* 论文 completed 时才有提问面板：xl+ 让出第三栏（配合上面放宽的容器，
+            正文仍有 ~810px），xl 以下折叠成右下角悬浮按钮，不占版面。未完成的
+            论文必须退回两栏，否则右侧空出 360px 死区把正文挤偏。 */}
         <div
           className={
             paper.status === "completed"

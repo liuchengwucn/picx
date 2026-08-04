@@ -5,6 +5,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { z } from "zod";
 import type * as schema from "#/db/schema";
 import { chatMessages, paperResults, papers } from "#/db/schema";
+import { CHAT_CLIENT_LIMITS } from "#/lib/chat-errors";
 import { buildPaperMarkdown } from "#/lib/llm-markdown";
 import { loadPaperText } from "#/lib/paper-text";
 import { SITE_URL } from "#/lib/site-url";
@@ -15,7 +16,8 @@ type Db = DrizzleD1Database<typeof schema>;
 export const CHAT_LIMITS = {
   perMinute: 30,
   perDay: 500,
-  maxInputChars: 4000,
+  // 与前端输入框共用同一个数值来源，别在这里写字面量
+  maxInputChars: CHAT_CLIENT_LIMITS.maxInputChars,
   maxMessagesPerSession: 200,
   /** 送入模型的历史窗口（最近 N 条），历史全量仍在 D1 */
   historyWindow: 50,
