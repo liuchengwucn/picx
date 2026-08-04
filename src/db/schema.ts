@@ -398,6 +398,8 @@ export const chatMessages = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
     parts: text("parts", { mode: "json" }).notNull().$type<unknown[]>(),
+    // 毫秒精度（有意区别于其他表的秒级 timestamp）：同一秒内连续插入的
+    // user/assistant 消息需靠 created_at 保证排序，且限流窗口直接用毫秒比较
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .$defaultFn(() => new Date()),
