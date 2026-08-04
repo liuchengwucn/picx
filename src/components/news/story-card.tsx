@@ -15,7 +15,7 @@ export interface StoryCardStory {
   itemCount: number;
   sourceCount: number;
   signalsSummary: StorySignalsSummary | null;
-  firstSeenAt: Date;
+  firstSeenAt: Date | string;
   earliestPublishedAt: Date | string | null;
   lastActivityAt: Date;
   status: string;
@@ -39,6 +39,13 @@ export function StoryCard({ story, delay }: StoryCardProps) {
     new Date(story.earliestPublishedAt ?? story.firstSeenAt).getTime(),
     Date.now(),
     getLocale(),
+  );
+  const countsText = (
+    <>
+      {m.news_reports_count({ count: story.itemCount.toString() })}
+      {" · "}
+      {m.news_sources_count({ count: story.sourceCount.toString() })}
+    </>
   );
 
   return (
@@ -91,20 +98,10 @@ export function StoryCard({ story, delay }: StoryCardProps) {
                 />
               ))}
             </span>
-            <span>
-              {m.news_reports_count({ count: story.itemCount.toString() })}
-              {" · "}
-              {m.news_sources_count({ count: story.sourceCount.toString() })}
-            </span>
+            <span>{countsText}</span>
           </span>
         )}
-        {domains.length === 0 && (
-          <span>
-            {m.news_reports_count({ count: story.itemCount.toString() })}
-            {" · "}
-            {m.news_sources_count({ count: story.sourceCount.toString() })}
-          </span>
-        )}
+        {domains.length === 0 && <span>{countsText}</span>}
         {hn && (
           <a
             href={hn.url}

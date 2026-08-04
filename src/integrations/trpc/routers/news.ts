@@ -56,7 +56,8 @@ export const newsRouter = createTRPCRouter({
       // 字面量谓词：feed 的 partial index（WHERE status != 'hidden'）只匹配字面量，ne()/eq() 会失去索引
       // dirty=0：占位 story（未生成四语摘要）不进公开列表与 SEO，避免英文占位与半成品外泄
       const visible = sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`;
-      // 迁移回填后 earliestPublishedAt 永不为空，与 firstSeenAt 一样可安全排序（feedPublishedIdx 覆盖）
+      // earliestPublishedAt 展示时回退到 firstSeenAt；排序上 NULL 会排在 DESC 末尾（可接受），
+      // 命中 feedPublishedIdx
       const orderBy =
         input.sort === "latest"
           ? desc(newsStories.earliestPublishedAt)

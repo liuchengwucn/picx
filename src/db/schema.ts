@@ -447,7 +447,7 @@ export const newsStories = sqliteTable(
     tags: text("tags", { mode: "json" }).$type<string[]>(),
     // 有新成员并入置真，summarize 阶段处理完置假——崩溃可恢复的幂等标记（D1 无事务）
     dirty: integer("dirty", { mode: "boolean" }).notNull().default(true),
-    // story 首次聚合时间，feed 默认排序键（与 created_at 同刻，语义独立保留）
+    // story 首次聚合时间；展示与「最新」排序改用 earliestPublishedAt 后作为回退值（与 created_at 同刻，语义独立保留）
     firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull(),
     // 成员条目最早的 publishedAt —— 对外展示与 feed「最新」排序的时间口径
     // （firstSeenAt 是收录时间，回填/补抓时会晚于新闻实际时间）。
@@ -472,9 +472,6 @@ export const newsStories = sqliteTable(
     // 注意：partial index 只匹配字面量谓词。查询必须写 sql`... != 'hidden'` / sql`... = 1`，
     // 用 drizzle 的 ne()/eq()（绑定参数）会静默退化为全表扫描。下面两组 partial index 均适用。
     // feed 列表：status != 'hidden' + 时间倒序，用 partial index 才能走索引免排序
-    feedRecentIdx: index("news_stories_feed_recent_idx")
-      .on(table.firstSeenAt)
-      .where(sql`${table.status} != 'hidden'`),
     feedPublishedIdx: index("news_stories_feed_published_idx")
       .on(table.earliestPublishedAt)
       .where(sql`${table.status} != 'hidden'`),

@@ -155,6 +155,13 @@
       "when": 1785829836629,
       "tag": "0021_add_story_earliest_published",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1785830615462,
+      "tag": "0022_drop_news_stories_feed_recent_idx",
+      "breakpoints": true
     }
   ]
 }
