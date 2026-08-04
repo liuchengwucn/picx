@@ -5,6 +5,7 @@ import {
   convertToModelMessages,
   createUIMessageStreamResponse,
   isStepCount,
+  isToolUIPart,
   streamText,
   toUIMessageStream,
   type UIMessage,
@@ -53,6 +54,20 @@ const bodySchema = z.object({
       .max(32),
   }),
 });
+
+/**
+ * 落库前剥掉工具 part 的 `output`。readPaper 单次输出可达 ~190KB，存进 D1 后
+ * 没有任何读者：前端只用 type/state/toolCallId 渲染那行「已读论文」状态，重放给
+ * 模型时也只保留 text part。留着它等于每行几十上百 KB 死数据，还会把
+ * chat.getMessages 的响应注水到 MB 级。
+ */
+function stripToolOutput(parts: UIMessage["parts"]): unknown[] {
+  return parts.map((part) => {
+    if (!isToolUIPart(part)) return part;
+    const { output: _output, ...rest } = part as { output?: unknown };
+    return rest;
+  });
+}
 
 /**
  * `error` 是稳定 CODE（不是给人看的文案），前端按 code 映射 i18n 文案。
@@ -162,6 +177,13 @@ async function handler({ request }: { request: Request }) {
     .onConflictDoUpdate({
       target: chatMessages.id,
       set: { parts: message.parts },
+      // 只在冲突行确实属于本会话+本用户时才改写，否则静默不动（SQLite upsert 的
+      // DO UPDATE ... WHERE 里未加 excluded. 前缀的列指的是库里的原行）。
+      // 客户端自选 message.id，跨会话重用同一个 id 时不能覆盖别人/别的会话的消息。
+      setWhere: and(
+        eq(chatMessages.sessionId, sessionId),
+        eq(chatMessages.userId, userId),
+      ),
     });
   const sessionPatch: Partial<typeof chatSessions.$inferInsert> = {
     updatedAt: new Date(),
@@ -215,7 +237,7 @@ async function handler({ request }: { request: Request }) {
           sessionId,
           userId,
           role: "assistant",
-          parts: responseMessage.parts,
+          parts: stripToolOutput(responseMessage.parts),
         });
         await db
           .update(chatSessions)
