@@ -102,4 +102,12 @@ describe("cleanScrapedResearchTitle", () => {
       "Teaching why",
     );
   });
+
+  it("cuts descriptions truncated with an ellipsis", () => {
+    expect(
+      cleanScrapedResearchTitle(
+        "Jul 8, 2026AlignmentTeaching Claude whyNew research on how we reduced agentic misalignment in production…",
+      ),
+    ).toBe("Teaching Claude why");
+  });
 });
