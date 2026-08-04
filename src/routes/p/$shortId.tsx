@@ -67,7 +67,11 @@ import {
   authClient,
   startGitHubSignIn as beginGitHubSignIn,
 } from "#/lib/auth-client";
-import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+  isReviewGuestReadOnlySession,
+} from "#/lib/review-guest";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 import { cn } from "#/lib/utils";
@@ -420,6 +424,12 @@ function PaperDetailPage() {
   const { data: session, isPending: isSessionPending } =
     authClient.useSession();
   const isReadOnlyGuest = isReviewGuestReadOnlySession(session);
+  // review-guest 没有 cookie session，authClient.useSession() 永远是 null，但后端
+  // （/api/chat 与 tRPC chat router）都认它。用页面其他地方同样的口径补上，否则
+  // 演示模式下整页都按 owner 渲染，唯独聊天面板卡在「登录后即可提问」。
+  const effectiveSession =
+    session ??
+    (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
   const ssrData = loaderData.ssrData;
   const relatedPapers = loaderData.relatedPapers ?? [];
   const relatedHeadingId = useId();
@@ -1024,8 +1034,9 @@ function PaperDetailPage() {
           {paper.status === "completed" && (
             <PaperChat
               paperShortId={paper.shortId ?? shortId}
-              // review-guest 有意豁免：后端 chat router / api 都允许 guest 发消息
-              isSignedIn={!!session}
+              // 用 effectiveSession：review-guest 有意豁免，后端 chat router /
+              // api 都允许 guest 发消息，入口不能反倒把它挡在登录提示后面
+              isSignedIn={!!effectiveSession}
               onSignIn={startGitHubSignIn}
             />
           )}
