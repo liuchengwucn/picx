@@ -345,3 +345,72 @@ export const tweetQueue = sqliteTable(
     statusIdx: index("tweet_queue_status_idx").on(table.status),
   }),
 );
+
+// ============================================
+// Paper Chat Tables
+// ============================================
+
+// 论文对话会话：每用户每论文可开多个会话，永久保留
+export const chatSessions = sqliteTable(
+  "chat_sessions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    paperId: text("paper_id")
+      .notNull()
+      .references(() => papers.id, { onDelete: "cascade" }),
+    // 首条用户消息截断而来；新建未发言时为 NULL
+    title: text("title"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userPaperIdx: index("chat_sessions_user_paper_idx").on(
+      table.userId,
+      table.paperId,
+      table.updatedAt,
+    ),
+  }),
+);
+
+// 对话消息：parts 存 AI SDK UIMessage 的 parts 数组（与 @cloudflare/ai-chat /
+// Think 同格式，保留将来迁移 Think 的路径，勿改成纯文本列）。
+// user_id 冗余存储：限流按 (user_id, role, created_at) 直查，免 join。
+export const chatMessages = sqliteTable(
+  "chat_messages",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => chatSessions.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
+    parts: text("parts", { mode: "json" }).notNull().$type<unknown[]>(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    sessionIdx: index("chat_messages_session_idx").on(
+      table.sessionId,
+      table.createdAt,
+    ),
+    userRateIdx: index("chat_messages_user_rate_idx").on(
+      table.userId,
+      table.role,
+      table.createdAt,
+    ),
+  }),
+);
