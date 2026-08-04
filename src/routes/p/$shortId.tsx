@@ -24,6 +24,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { PaperChat } from "#/components/paper-chat";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 import { PublicBadge } from "#/components/papers/public-badge";
 import { RegenerateWhiteboardDialog } from "#/components/papers/regenerate-whiteboard-dialog";
@@ -585,7 +586,9 @@ function PaperDetailPage() {
           />
         )}
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">
+        {/* xl+ 起让出第三栏给提问面板（内容宽度封顶 1200px，左栏同时收窄）；
+            xl 以下面板折叠成右下角悬浮按钮，不占版面。 */}
+        <div className="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_360px]">
           <aside className="space-y-4 lg:sticky lg:top-24">
             <div className="paper-card p-6">
               <div className="flex items-center gap-3">
@@ -986,6 +989,16 @@ function PaperDetailPage() {
               </div>
             ) : null}
           </section>
+
+          {/* 论文处理完成才有可问的内容；未登录时面板只渲染登录提示 */}
+          {paper.status === "completed" && (
+            <PaperChat
+              paperShortId={paper.shortId ?? shortId}
+              // review-guest 有意豁免：后端 chat router / api 都允许 guest 发消息
+              isSignedIn={!!session}
+              onSignIn={startGitHubSignIn}
+            />
+          )}
         </div>
 
         {/* Related papers — real, crawlable internal links (SSR-rendered). */}
