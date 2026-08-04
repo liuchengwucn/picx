@@ -306,6 +306,13 @@ function PaperChatConversation({
   // 可能已经切走，用当前值会去失效一个毫不相干的会话缓存。
   const streamingSessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * 是否跟随最新内容。只由 scroll 事件写入——scroll 事件只在滚动位置真的变化时
+   * 触发，所以它读到的是「用户主动滚到哪」；而在 effect 里现算距底距离是分不清
+   * 「用户上滚了」和「内容刚变高」的：注水整段历史后 scrollTop 还是 0、距底巨大，
+   * 会被误判成用户上滚，结果会话一打开就停在最旧的一条。
+   */
+  const stickToBottomRef = useRef(true);
 
   const sessionsQuery = useQuery(
     trpc.chat.listSessions.queryOptions({ paperShortId }),
@@ -418,11 +425,16 @@ function PaperChatConversation({
   useEffect(() => {
     const node = scrollRef.current;
     if (!node || !lastMessage) return;
-    const distanceFromBottom =
-      node.scrollHeight - node.scrollTop - node.clientHeight;
-    if (distanceFromBottom > STICK_TO_BOTTOM_PX) return;
+    if (!stickToBottomRef.current) return;
     node.scrollTop = node.scrollHeight;
   }, [lastMessage]);
+
+  const handleTranscriptScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    stickToBottomRef.current =
+      node.scrollHeight - node.scrollTop - node.clientHeight <=
+      STICK_TO_BOTTOM_PX;
+  };
 
   const openSession = (sessionId: string | null) => {
     // 先把「被打断的那个会话」抠出来再 stop()：abort 不会触发 onFinish，但服务端
@@ -433,6 +445,8 @@ function PaperChatConversation({
     streamingSessionIdRef.current = null;
     hydratedSessionRef.current = null;
     didAutoSelectRef.current = true;
+    // 换了会话就该看最新的一条，别继承上一个会话「用户上滚过」的状态
+    stickToBottomRef.current = true;
     setSelectedSessionId(sessionId);
     setChatEpoch((epoch) => epoch + 1);
     setIsSessionListOpen(false);
@@ -629,6 +643,7 @@ function PaperChatConversation({
       {/* 对话区。role=log + polite：新回答播报给读屏，但不打断当前朗读 */}
       <div
         ref={scrollRef}
+        onScroll={handleTranscriptScroll}
         role="log"
         aria-live="polite"
         aria-label={m.chat_title()}
@@ -655,9 +670,13 @@ function PaperChatConversation({
         )}
       </div>
 
-      {/* 输入区。textarea 本身无边框，焦点环挂在外层容器上才看得见 */}
-      <div className="border-t border-[var(--line)] px-3 py-3 focus-within:ring-1 focus-within:ring-[var(--academic-brown)]/40">
-        <div className="flex items-end gap-2">
+      {/* 输入区。textarea 自身无边框（静息态就该像纸面而不是控件），焦点指示放在
+          内层这个有圆角、且被 p-2 从容器边缘让开的 wrapper 上：外层贴边，而
+          paper-card / DialogContent 都是 overflow-hidden，挂在那儿的 ring 会被
+          裁得只剩上边一条。这里用「描边显形 + 底色微亮」而不是 ring，既不会被裁，
+          也保住了静息态的无边框观感。 */}
+      <div className="border-t border-[var(--line)] p-2">
+        <div className="flex items-end gap-2 rounded-lg border border-transparent px-2 py-1.5 transition-colors focus-within:border-[var(--academic-brown)]/60 focus-within:bg-[var(--parchment-warm)]/60">
           <textarea
             value={input}
             onChange={(event) => onInputChange(event.target.value)}
@@ -703,7 +722,7 @@ function PaperChatConversation({
           )}
         </div>
         {input.length >= COUNTER_VISIBLE_FROM && (
-          <p className="mt-1 text-right text-[11px] tabular-nums text-[var(--ink-soft)]">
+          <p className="mt-1 pr-2 text-right text-[11px] tabular-nums text-[var(--ink-soft)]">
             {input.length} / {MAX_INPUT_CHARS}
           </p>
         )}

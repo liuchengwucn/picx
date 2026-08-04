@@ -565,12 +565,18 @@ function PaperDetailPage() {
     paper.status === "completed"
       ? "mx-auto w-[min(1200px,calc(100%_-_2rem))] py-8 xl:w-[min(1520px,calc(100%_-_2rem))]"
       : "page-wrap py-8";
+  // 放宽只服务于三栏那一段。面包屑 / 分享条 / 相关论文属于站内通用区块，跟着变
+  // 1520px 会和其它页面的 1200px 基线错开，所以单独收回来。
+  const narrowBlockClassName =
+    paper.status === "completed" ? "mx-auto w-full max-w-[1200px]" : "";
 
   return (
     <main className={containerClassName}>
       <div className="stagger-in">
         {/* Breadcrumb */}
-        <nav className="flex items-start gap-1 text-sm text-[var(--ink-soft)]">
+        <nav
+          className={`flex items-start gap-1 text-sm text-[var(--ink-soft)] ${narrowBlockClassName}`}
+        >
           <Link to="/papers" className="hover:text-[var(--ink)] shrink-0">
             {m.papers_title()}
           </Link>
@@ -582,17 +588,19 @@ function PaperDetailPage() {
 
         {/* Share Banner - only show to owner */}
         {isOwner && (
-          <ShareBanner
-            paperId={paper.id}
-            shortId={paper.shortId ?? shortId}
-            isPublic={paper.isPublic}
-            canShare={
-              paper.status === "completed" &&
-              !paper.whiteboardRegenerating &&
-              (!!defaultWhiteboard?.imageR2Key ||
-                !!whiteboardsData?.whiteboards?.length)
-            }
-          />
+          <div className={narrowBlockClassName}>
+            <ShareBanner
+              paperId={paper.id}
+              shortId={paper.shortId ?? shortId}
+              isPublic={paper.isPublic}
+              canShare={
+                paper.status === "completed" &&
+                !paper.whiteboardRegenerating &&
+                (!!defaultWhiteboard?.imageR2Key ||
+                  !!whiteboardsData?.whiteboards?.length)
+              }
+            />
+          </div>
         )}
 
         {/* 论文 completed 时才有提问面板：xl+ 让出第三栏（配合上面放宽的容器，
@@ -1019,7 +1027,10 @@ function PaperDetailPage() {
 
         {/* Related papers — real, crawlable internal links (SSR-rendered). */}
         {relatedPapers.length > 0 && (
-          <section className="mt-10" aria-labelledby={relatedHeadingId}>
+          <section
+            className={`mt-10 ${narrowBlockClassName}`}
+            aria-labelledby={relatedHeadingId}
+          >
             <h2
               id={relatedHeadingId}
               className="font-serif text-lg font-semibold text-[var(--ink)]"
