@@ -62,8 +62,15 @@ function aiConfigFromEnv(env: Env): AIConfig {
   };
 }
 
-function windowStart(): Date {
-  return new Date(Date.now() - CLUSTER_WINDOW_HOURS * 3600_000);
+function windowStart(env: Env): Date {
+  // 运维旋钮：NEWS_INGEST_WINDOW_HOURS 临时放宽摄入/活跃窗口做历史回填
+  // （如 336 = 14 天），回填完删除该变量即恢复默认 72h。上限护栏防误配。
+  const override = Number(env.NEWS_INGEST_WINDOW_HOURS);
+  const hours =
+    Number.isFinite(override) && override > 0 && override <= 24 * 90
+      ? override
+      : CLUSTER_WINDOW_HOURS;
+  return new Date(Date.now() - hours * 3600_000);
 }
 
 // ---- Stage 1: fetch ----
@@ -97,12 +104,12 @@ async function fetchForSource(
     case "hn":
       // HN 必须用宽回看窗（72h）：新帖需要时间攒分，短窗+分数阈值组合会永远抓不到内容
       // （实测 3h 窗口命中 0 条）。重复条目靠 urlHash onConflict 去重并合并 signals/extra。
-      return fetchHn(source.config, windowStart());
+      return fetchHn(source.config, windowStart(env));
   }
 }
 
 async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
-  const ingestCutoff = windowStart();
+  const ingestCutoff = windowStart(env);
   const sources = await db
     .select()
     .from(newsSources)
@@ -347,7 +354,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
     .where(
       and(
         eq(newsStories.status, "active"),
-        gt(newsStories.lastActivityAt, windowStart()),
+        gt(newsStories.lastActivityAt, windowStart(env)),
       ),
     );
 
@@ -555,7 +562,7 @@ async function summarizeStage(
 
 // ---- Stage 6: refresh HN signals ----
 
-async function refreshStage(db: Db, deadline: number): Promise<void> {
+async function refreshStage(db: Db, env: Env, deadline: number): Promise<void> {
   // 按 extra.hnId 取活，而不是 join sourceType='hn'：HN 帖与原文 RSS 共享 canonical URL 时，
   // 去重后行可能挂在 rss 来源上，但 extra 里带着 hnId —— 那才是可回刷的判据。
   const items = await db
@@ -568,7 +575,7 @@ async function refreshStage(db: Db, deadline: number): Promise<void> {
     .where(
       and(
         sql`json_extract(${newsItems.extra}, '$.hnId') is not null`,
-        gt(newsItems.publishedAt, windowStart()),
+        gt(newsItems.publishedAt, windowStart(env)),
         eq(newsItems.status, "clustered"),
       ),
     )
@@ -624,14 +631,14 @@ async function refreshStage(db: Db, deadline: number): Promise<void> {
 
 // ---- Stage 7: archive + 清理 ----
 
-async function archiveStage(db: Db): Promise<void> {
+async function archiveStage(db: Db, env: Env): Promise<void> {
   await db
     .update(newsStories)
     .set({ status: "archived", updatedAt: new Date() })
     .where(
       and(
         eq(newsStories.status, "active"),
-        lt(newsStories.lastActivityAt, windowStart()),
+        lt(newsStories.lastActivityAt, windowStart(env)),
       ),
     );
 
@@ -670,8 +677,8 @@ export default {
       ["embed", () => embedStage(db, env, deadline)],
       ["cluster", () => clusterStage(db, env, deadline)],
       ["summarize", () => summarizeStage(db, env, deadline)],
-      ["refresh", () => refreshStage(db, deadline)],
-      ["archive", () => archiveStage(db)],
+      ["refresh", () => refreshStage(db, env, deadline)],
+      ["archive", () => archiveStage(db, env)],
     ];
     for (const [name, run] of stages) {
       try {

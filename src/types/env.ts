@@ -51,4 +51,6 @@ export interface Env {
   NEWS_OPENAI_MODEL?: string;
   // 生产环境手动触发 /__scheduled 的密钥（可选；未配置时生产一律 404）
   CRON_TRIGGER_KEY?: string;
+  // news 摄入/活跃窗口小时数覆盖（可选；仅用于历史回填等运维场景，默认 72）
+  NEWS_INGEST_WINDOW_HOURS?: string;
 }
