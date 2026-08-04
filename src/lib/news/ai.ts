@@ -49,6 +49,10 @@ async function chatJson<T>(
       ],
       temperature,
       max_tokens: maxTokens,
+      // 关闭推理（OpenRouter 统一参数，非推理模型忽略）：推理型模型默认开启思考，
+      // 思考 token 计入 max_tokens，会把打分/判定这类小预算调用顶到
+      // finish_reason=length（实测单次思考可达 250+ token）；关闭后输出稳定且更省
+      reasoning: { enabled: false },
     }),
     signal: AbortSignal.timeout(60_000),
   });
