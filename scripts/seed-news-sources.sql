@@ -8,9 +8,17 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   -- community-maintained mirror from github.com/Olshansk/rss-feeds, verified valid RSS 2.0.
   ('src-anthropic-news', 'rss', 'Anthropic News',          '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml"}', 1, 0, strftime('%s','now')),
   ('src-deepmind-blog',  'rss', 'Google DeepMind Blog',    '{"url":"https://deepmind.google/blog/rss.xml"}', 1, 0, strftime('%s','now')),
-  -- Meta AI feed could not be verified: /blog/rss/ returned 404 (bot UA) and 400 (browser UA);
-  -- historically valid path, may be geo/bot-blocked. Re-check manually before enabling.
-  ('src-meta-ai-blog',   'rss', 'Meta AI Blog',            '{"url":"https://ai.meta.com/blog/rss/"}', 0, 0, strftime('%s','now')),
+  -- Anthropic engineering/research/red-team pages have no official feeds either; same mirror repo.
+  -- Note: the research mirror's item titles carry a scraped "date + category" prefix (story titles
+  -- are LLM-rewritten downstream, so impact is limited to raw timeline entries).
+  ('src-anthropic-eng',      'rss', 'Anthropic Engineering', '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml"}', 1, 0, strftime('%s','now')),
+  ('src-anthropic-research', 'rss', 'Anthropic Research',    '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml"}', 1, 0, strftime('%s','now')),
+  ('src-anthropic-red',      'rss', 'Anthropic Red Team',    '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_red.xml"}', 1, 0, strftime('%s','now')),
+  ('src-thinking-machines',  'rss', 'Thinking Machines Lab', '{"url":"https://thinkingmachines.ai/blog/index.xml"}', 1, 0, strftime('%s','now')),
+  ('src-cursor-blog',        'rss', 'Cursor Blog',           '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_cursor.xml"}', 1, 0, strftime('%s','now')),
+  -- Official feed (ai.meta.com/blog/rss/) returns 404/400 for non-browser sessions (re-verified
+  -- 2026-08-04); switched to the Olshansk/rss-feeds community mirror (same repo as Anthropic News).
+  ('src-meta-ai-blog',   'rss', 'Meta AI Blog',            '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_meta_ai.xml"}', 1, 0, strftime('%s','now')),
   ('src-mistral-news',   'rss', 'Mistral AI News',         '{"url":"https://mistral.ai/rss.xml"}', 1, 0, strftime('%s','now')),
   ('src-qwen-blog',      'rss', 'Qwen Blog',               '{"url":"https://qwenlm.github.io/blog/index.xml"}', 1, 0, strftime('%s','now')),
   ('src-hf-blog',        'rss', 'Hugging Face Blog',       '{"url":"https://huggingface.co/blog/feed.xml"}', 1, 0, strftime('%s','now')),
