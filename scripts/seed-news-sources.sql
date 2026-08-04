@@ -9,10 +9,11 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   ('src-anthropic-news', 'rss', 'Anthropic News',          '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml"}', 1, 0, strftime('%s','now')),
   ('src-deepmind-blog',  'rss', 'Google DeepMind Blog',    '{"url":"https://deepmind.google/blog/rss.xml"}', 1, 0, strftime('%s','now')),
   -- Anthropic engineering/research/red-team pages have no official feeds either; same mirror repo.
-  -- Note: the research mirror's item titles carry a scraped "date + category" prefix (story titles
-  -- are LLM-rewritten downstream, so impact is limited to raw timeline entries).
+  -- Note: the research mirror's item titles carry scraped concatenation artifacts (date/category
+  -- prefixes, trailing description text); titleClean='scraped-research' strips them at ingest.
+  -- Already-inserted rows need a manual UPDATE of config to add "titleClean":"scraped-research".
   ('src-anthropic-eng',      'rss', 'Anthropic Engineering', '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml"}', 1, 0, strftime('%s','now')),
-  ('src-anthropic-research', 'rss', 'Anthropic Research',    '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml"}', 1, 0, strftime('%s','now')),
+  ('src-anthropic-research', 'rss', 'Anthropic Research',    '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml","titleClean":"scraped-research"}', 1, 0, strftime('%s','now')),
   ('src-anthropic-red',      'rss', 'Anthropic Red Team',    '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_red.xml"}', 1, 0, strftime('%s','now')),
   ('src-thinking-machines',  'rss', 'Thinking Machines Lab', '{"url":"https://thinkingmachines.ai/blog/index.xml"}', 1, 0, strftime('%s','now')),
   ('src-cursor-blog',        'rss', 'Cursor Blog',           '{"url":"https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_cursor.xml"}', 1, 0, strftime('%s','now')),

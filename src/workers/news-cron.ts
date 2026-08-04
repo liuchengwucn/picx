@@ -15,6 +15,7 @@ import {
   scoreRelevance,
 } from "#/lib/news/ai";
 import { buildSignalsSummary } from "#/lib/news/signals";
+import { cleanScrapedResearchTitle } from "#/lib/news/title-clean";
 import type { NormalizedItem } from "#/lib/news/types";
 import { hashUrl } from "#/lib/news/url";
 import { cosineSimilarity, meanVector, mergeCentroid } from "#/lib/news/vector";
@@ -72,8 +73,17 @@ async function fetchForSource(
   env: Env,
 ): Promise<NormalizedItem[]> {
   switch (source.type) {
-    case "rss":
-      return source.config.url ? fetchFeed(source.config.url) : [];
+    case "rss": {
+      if (!source.config.url) return [];
+      const items = await fetchFeed(source.config.url);
+      if (source.config.titleClean !== "scraped-research") return items;
+      // 社区抓取镜像的标题带拼接杂质（日期/分类前缀、尾随描述），入库前清洗；
+      // 清洗结果为 null 的是导航杂质条目，整条丢弃
+      return items.flatMap((item) => {
+        const title = cleanScrapedResearchTitle(item.title);
+        return title ? [{ ...item, title }] : [];
+      });
+    }
     case "rsshub":
       if (!env.RSSHUB_BASE_URL) {
         log("fetch", `skip ${source.id}: RSSHUB_BASE_URL not configured`);

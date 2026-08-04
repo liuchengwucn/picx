@@ -382,12 +382,14 @@ export const float32Blob = customType<{
 
 // rss/rsshub: { url } 或 { route }；hn: { queries, minPoints }
 // isTweet: rsshub 路由是否为推文源（标题截短 + extra.isTweet 标记）；博客类路由不设
+// titleClean: 标题清洗策略；"scraped-research" = 社区抓取镜像的「日期+分类+描述」拼接标题
 export type NewsSourceConfig = {
   url?: string;
   route?: string;
   queries?: string[];
   minPoints?: number;
   isTweet?: boolean;
+  titleClean?: "scraped-research";
 };
 
 export type NewsMedia = {
