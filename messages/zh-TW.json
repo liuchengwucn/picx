@@ -393,6 +393,7 @@
   "news_subheading": "AI 圈此刻正在討論的新聞",
   "news_sort_latest": "最新",
   "news_sort_active": "最近更新",
+  "news_reports_count": "{count} 篇報導",
   "news_sources_count": "{count} 個來源",
   "news_hn_points": "{points} 分",
   "news_hn_comments": "{count} 則留言",

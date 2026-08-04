@@ -16,6 +16,7 @@ export interface StoryCardStory {
   sourceCount: number;
   signalsSummary: StorySignalsSummary | null;
   firstSeenAt: Date;
+  earliestPublishedAt: Date | string | null;
   lastActivityAt: Date;
   status: string;
 }
@@ -35,7 +36,7 @@ export function StoryCard({ story, delay }: StoryCardProps) {
   const xAccounts = story.signalsSummary?.xAccounts;
   const visibleTags = story.tags.slice(0, MAX_TAGS);
   const timeAgo = formatRelative(
-    new Date(story.firstSeenAt).getTime(),
+    new Date(story.earliestPublishedAt ?? story.firstSeenAt).getTime(),
     Date.now(),
     getLocale(),
   );
@@ -91,12 +92,16 @@ export function StoryCard({ story, delay }: StoryCardProps) {
               ))}
             </span>
             <span>
+              {m.news_reports_count({ count: story.itemCount.toString() })}
+              {" · "}
               {m.news_sources_count({ count: story.sourceCount.toString() })}
             </span>
           </span>
         )}
         {domains.length === 0 && (
           <span>
+            {m.news_reports_count({ count: story.itemCount.toString() })}
+            {" · "}
             {m.news_sources_count({ count: story.sourceCount.toString() })}
           </span>
         )}

@@ -75,7 +75,7 @@ async function handler({ request }: { request: Request }) {
       .where(
         sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
       )
-      .orderBy(desc(newsStories.firstSeenAt))
+      .orderBy(desc(newsStories.earliestPublishedAt))
       .limit(1000);
   } catch {
     // Degrade gracefully to sitemap without news stories

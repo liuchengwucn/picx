@@ -393,6 +393,7 @@
   "news_subheading": "AIコミュニティが今話題にしていること",
   "news_sort_latest": "新着",
   "news_sort_active": "更新順",
+  "news_reports_count": "{count} 件の報道",
   "news_sources_count": "{count} ソース",
   "news_hn_points": "{points} ポイント",
   "news_hn_comments": "{count} コメント",

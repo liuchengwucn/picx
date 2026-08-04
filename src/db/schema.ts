@@ -449,6 +449,12 @@ export const newsStories = sqliteTable(
     dirty: integer("dirty", { mode: "boolean" }).notNull().default(true),
     // story 首次聚合时间，feed 默认排序键（与 created_at 同刻，语义独立保留）
     firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull(),
+    // 成员条目最早的 publishedAt —— 对外展示与 feed「最新」排序的时间口径
+    // （firstSeenAt 是收录时间，回填/补抓时会晚于新闻实际时间）。
+    // SQLite ALTER 无法补 NOT NULL，列保持 nullable；写入路径（cluster/summarize）始终赋值，读取处回退 firstSeenAt
+    earliestPublishedAt: integer("earliest_published_at", {
+      mode: "timestamp",
+    }),
     lastActivityAt: integer("last_activity_at", {
       mode: "timestamp",
     }).notNull(),
@@ -468,6 +474,9 @@ export const newsStories = sqliteTable(
     // feed 列表：status != 'hidden' + 时间倒序，用 partial index 才能走索引免排序
     feedRecentIdx: index("news_stories_feed_recent_idx")
       .on(table.firstSeenAt)
+      .where(sql`${table.status} != 'hidden'`),
+    feedPublishedIdx: index("news_stories_feed_published_idx")
+      .on(table.earliestPublishedAt)
       .where(sql`${table.status} != 'hidden'`),
     feedActiveIdx: index("news_stories_feed_active_idx")
       .on(table.lastActivityAt)

@@ -62,6 +62,7 @@ export const Route = createFileRoute("/news/$shortId")({
             tags: newsStories.tags,
             signalsSummary: newsStories.signalsSummary,
             firstSeenAt: newsStories.firstSeenAt,
+            earliestPublishedAt: newsStories.earliestPublishedAt,
             lastActivityAt: newsStories.lastActivityAt,
           })
           .from(newsStories)
@@ -101,6 +102,7 @@ export const Route = createFileRoute("/news/$shortId")({
           tags: story.tags ?? [],
           signalsSummary: story.signalsSummary,
           firstSeenAt: story.firstSeenAt,
+          earliestPublishedAt: story.earliestPublishedAt,
           lastActivityAt: story.lastActivityAt,
           items,
         } satisfies ByShortIdOutput as SerializableByShortId;
@@ -154,7 +156,9 @@ export const Route = createFileRoute("/news/$shortId")({
             description: story.summary.en ?? description,
             url,
             mainEntityOfPage: url,
-            datePublished: new Date(story.firstSeenAt).toISOString(),
+            datePublished: new Date(
+              story.earliestPublishedAt ?? story.firstSeenAt,
+            ).toISOString(),
             dateModified: new Date(story.lastActivityAt).toISOString(),
             publisher: {
               "@type": "Organization",
@@ -197,7 +201,7 @@ function NewsStoryPage() {
   const summary = pickTldr(data.summary, localeKey) ?? "";
   const hn = data.signalsSummary?.hn;
   const timeAgo = formatRelative(
-    new Date(data.firstSeenAt).getTime(),
+    new Date(data.earliestPublishedAt ?? data.firstSeenAt).getTime(),
     now,
     locale,
   );

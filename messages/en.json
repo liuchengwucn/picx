@@ -393,6 +393,7 @@
   "news_subheading": "What the AI community is talking about right now",
   "news_sort_latest": "Latest",
   "news_sort_active": "Recently updated",
+  "news_reports_count": "{count} reports",
   "news_sources_count": "{count} sources",
   "news_hn_points": "{points} points",
   "news_hn_comments": "{count} comments",

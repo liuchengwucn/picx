@@ -1,0 +1,3 @@
+ALTER TABLE `news_stories` ADD `earliest_published_at` integer;--> statement-breakpoint
+CREATE INDEX `news_stories_feed_published_idx` ON `news_stories` (`earliest_published_at`) WHERE "news_stories"."status" != 'hidden';--> statement-breakpoint
+UPDATE news_stories SET earliest_published_at = COALESCE((SELECT MIN(published_at) FROM news_items WHERE news_items.story_id = news_stories.id), first_seen_at);

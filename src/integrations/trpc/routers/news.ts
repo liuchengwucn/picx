@@ -15,6 +15,7 @@ type StoryCardRow = Pick<
   | "sourceCount"
   | "signalsSummary"
   | "firstSeenAt"
+  | "earliestPublishedAt"
   | "lastActivityAt"
   | "status"
 >;
@@ -33,6 +34,7 @@ function localizeStory(
     sourceCount: story.sourceCount,
     signalsSummary: story.signalsSummary,
     firstSeenAt: story.firstSeenAt,
+    earliestPublishedAt: story.earliestPublishedAt,
     lastActivityAt: story.lastActivityAt,
     status: story.status,
   };
@@ -54,9 +56,10 @@ export const newsRouter = createTRPCRouter({
       // 字面量谓词：feed 的 partial index（WHERE status != 'hidden'）只匹配字面量，ne()/eq() 会失去索引
       // dirty=0：占位 story（未生成四语摘要）不进公开列表与 SEO，避免英文占位与半成品外泄
       const visible = sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`;
+      // 迁移回填后 earliestPublishedAt 永不为空，与 firstSeenAt 一样可安全排序（feedPublishedIdx 覆盖）
       const orderBy =
         input.sort === "latest"
-          ? desc(newsStories.firstSeenAt)
+          ? desc(newsStories.earliestPublishedAt)
           : desc(newsStories.lastActivityAt);
 
       // 显式投影：不要 select() 全列，避免把 4KB centroid blob 一并带出
@@ -70,6 +73,7 @@ export const newsRouter = createTRPCRouter({
           sourceCount: newsStories.sourceCount,
           signalsSummary: newsStories.signalsSummary,
           firstSeenAt: newsStories.firstSeenAt,
+          earliestPublishedAt: newsStories.earliestPublishedAt,
           lastActivityAt: newsStories.lastActivityAt,
           status: newsStories.status,
         })
@@ -101,6 +105,7 @@ export const newsRouter = createTRPCRouter({
           tags: newsStories.tags,
           signalsSummary: newsStories.signalsSummary,
           firstSeenAt: newsStories.firstSeenAt,
+          earliestPublishedAt: newsStories.earliestPublishedAt,
           lastActivityAt: newsStories.lastActivityAt,
         })
         .from(newsStories)
@@ -142,6 +147,7 @@ export const newsRouter = createTRPCRouter({
         tags: story.tags ?? [],
         signalsSummary: story.signalsSummary,
         firstSeenAt: story.firstSeenAt,
+        earliestPublishedAt: story.earliestPublishedAt,
         lastActivityAt: story.lastActivityAt,
         items,
       };
