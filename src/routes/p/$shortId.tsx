@@ -586,9 +586,17 @@ function PaperDetailPage() {
           />
         )}
 
-        {/* xl+ 起让出第三栏给提问面板（内容宽度封顶 1200px，左栏同时收窄）；
-            xl 以下面板折叠成右下角悬浮按钮，不占版面。 */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+        {/* 论文 completed 时才有提问面板：xl+ 让出第三栏（内容宽度封顶 1200px，
+            左栏同时收窄），xl 以下折叠成右下角悬浮按钮，不占版面。未完成的论文
+            必须退回两栏，否则右侧空出 360px 死区把正文挤偏。
+            两个模板写成完整字符串，保证 Tailwind 静态扫描能收到。 */}
+        <div
+          className={
+            paper.status === "completed"
+              ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_360px]"
+              : "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start"
+          }
+        >
           <aside className="space-y-4 lg:sticky lg:top-24">
             <div className="paper-card p-6">
               <div className="flex items-center gap-3">

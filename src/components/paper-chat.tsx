@@ -235,7 +235,9 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
 
   const hydratedSessionRef = useRef<string | null>(null);
   const didAutoSelectRef = useRef(false);
-  const activeSessionIdRef = useRef<string | null>(null);
+  // 流开始那一刻的 sessionId。onFinish 只认它，不认「当前选中」——流式期间用户
+  // 可能已经切走，用当前值会去失效一个毫不相干的会话缓存。
+  const streamingSessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const sessionsQuery = useQuery(
@@ -285,6 +287,16 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
     });
   }, [queryClient, trpc, paperShortId]);
 
+  const invalidateSessionMessages = useCallback(
+    (sessionId: string | null) => {
+      if (!sessionId) return;
+      void queryClient.invalidateQueries({
+        queryKey: trpc.chat.getMessages.queryKey({ sessionId }),
+      });
+    },
+    [queryClient, trpc],
+  );
+
   const { messages, sendMessage, setMessages, status, stop } = useChat({
     id: `paper-chat:${paperShortId}:${chatEpoch}`,
     transport,
@@ -293,12 +305,8 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
     },
     onFinish: () => {
       invalidateSessions();
-      const sessionId = activeSessionIdRef.current;
-      if (sessionId) {
-        void queryClient.invalidateQueries({
-          queryKey: trpc.chat.getMessages.queryKey({ sessionId }),
-        });
-      }
+      invalidateSessionMessages(streamingSessionIdRef.current);
+      streamingSessionIdRef.current = null;
     },
   });
 
@@ -318,7 +326,6 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
     if (!latest) return;
     didAutoSelectRef.current = true;
     setSelectedSessionId(latest.id);
-    activeSessionIdRef.current = latest.id;
   }, [sessions]);
 
   // 历史注入：每个会话只灌一次，避免流式过程中被后台 refetch 覆盖
@@ -340,14 +347,20 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
   }, [lastMessage]);
 
   const openSession = (sessionId: string | null) => {
+    // 先把「被打断的那个会话」抠出来再 stop()：abort 不会触发 onFinish，但服务端
+    // 的 waitUntil(consumeStream) 仍会把助手消息落库，所以它的历史缓存必须失效，
+    // 否则切回去看到的是缺一条回答的旧快照。
+    const interruptedSessionId = isBusy ? streamingSessionIdRef.current : null;
     if (isBusy) void stop();
+    streamingSessionIdRef.current = null;
     hydratedSessionRef.current = null;
     didAutoSelectRef.current = true;
-    activeSessionIdRef.current = sessionId;
     setSelectedSessionId(sessionId);
     setChatEpoch((epoch) => epoch + 1);
     setIsSessionListOpen(false);
     setPendingDeleteId(null);
+    invalidateSessionMessages(interruptedSessionId);
+    if (interruptedSessionId) invalidateSessions();
   };
 
   const handleDelete = async (sessionId: string) => {
@@ -399,7 +412,7 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
       invalidateSessions();
     }
 
-    activeSessionIdRef.current = sessionId;
+    streamingSessionIdRef.current = sessionId;
     setInput("");
     void sendMessage({ text }, { body: { sessionId } });
   };
@@ -562,10 +575,11 @@ function PaperChatConversation({ paperShortId, onClose }: ConversationProps) {
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void handleSend();
-              }
+              if (event.key !== "Enter" || event.shiftKey) return;
+              // 中文/日文输入法选字时的 Enter 属于组合过程，不能当成发送
+              if (event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              void handleSend();
             }}
             maxLength={MAX_INPUT_CHARS}
             rows={2}
