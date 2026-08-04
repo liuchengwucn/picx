@@ -342,7 +342,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       await env.PAPERS_BUCKET.put(paperTextKey(msg.paperId), rawText);
       log("persist-text", `Persisted ${rawText.length} chars to R2`);
     } catch (persistError) {
-      log("persist-text", `Failed (non-fatal): ${persistError}`);
+      logWarn("persist-text", "Persist to R2 failed (non-fatal)", persistError);
     }
   } catch (error) {
     // 如果是页数超限错误，返还 credit 并标记失败
