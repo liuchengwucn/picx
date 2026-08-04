@@ -25,10 +25,12 @@
     "check": "biome check && tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/react": "^4.0.54",
     "@better-auth/drizzle-adapter": "^1.5.3",
     "@cf-wasm/photon": "^0.3.6",
     "@cloudflare/vite-plugin": "^1.13.8",
     "@faker-js/faker": "^10.0.0",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/match-sorter-utils": "^8.19.4",
     "@tanstack/react-devtools": "^0.7.0",
@@ -46,6 +48,7 @@
     "@trpc/client": "^11.4.3",
     "@trpc/server": "^11.4.3",
     "@trpc/tanstack-react-query": "^11.4.3",
+    "ai": "^7.0.51",
     "better-auth": "^1.4.12",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
