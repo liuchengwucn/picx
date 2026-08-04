@@ -101,6 +101,39 @@ describe("buildLlmsTxt", () => {
     const txtEmpty = buildLlmsTxt({ siteUrl, papers, stories: [] });
     expect(txtEmpty).not.toContain("## Latest AI News");
   });
+
+  it("escapes brackets and flattens newlines in link text", () => {
+    const txt = buildLlmsTxt({
+      siteUrl,
+      papers: [
+        {
+          title: "RLHF [v2]\nrevisited",
+          shortId: "ghi789",
+          tldr: null,
+        },
+      ],
+    });
+    expect(txt).toContain(
+      "- [RLHF \\[v2\\] revisited](https://picx.dev/p/ghi789.md)",
+    );
+  });
+
+  it("collapses newlines in story summaries into single spaces", () => {
+    const txt = buildLlmsTxt({
+      siteUrl,
+      papers,
+      stories: [
+        {
+          shortId: "story2",
+          title: "Model ]breaks[ things",
+          summary: "Line one.\nLine two.",
+        },
+      ],
+    });
+    expect(txt).toContain(
+      "- [Model \\]breaks\\[ things](https://picx.dev/news/story2): Line one. Line two.",
+    );
+  });
 });
 
 describe("buildLlmsFullTxt", () => {
@@ -164,5 +197,29 @@ describe("buildLlmsFullTxt", () => {
       maxBytes: 100_000,
     });
     expect(txtEmpty).not.toContain("## Latest AI News");
+  });
+
+  it("flattens newlines in heading titles but leaves summary bodies raw", () => {
+    const txt = buildLlmsFullTxt({
+      siteUrl,
+      papers: [
+        {
+          ...papers[0],
+          title: "Attention\nIs All You Need",
+        },
+      ],
+      stories: [
+        {
+          shortId: "story3",
+          title: "Big\nNews",
+          summary: "Para one.\n\nPara two.",
+        },
+      ],
+      maxBytes: 100_000,
+    });
+    expect(txt).toContain("## Attention Is All You Need\n");
+    expect(txt).toContain("## Big News\n");
+    // Story summary bodies are intentionally raw markdown.
+    expect(txt).toContain("Para one.\n\nPara two.");
   });
 });

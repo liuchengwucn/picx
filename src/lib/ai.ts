@@ -21,8 +21,6 @@ import {
   getSystemDefaultPromptTemplate,
 } from "#/lib/prompt-validation";
 
-export { extractFirstJsonObject } from "#/lib/json-extract";
-
 export interface PaperTailReviewInput {
   candidateTitle: string;
   pageNumber: number;

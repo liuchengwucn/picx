@@ -36,6 +36,16 @@ interface LlmsTxtStory {
 // llms.txt 里每条新闻摘要截断到这个字符数, 保持索引平铺、不喧宾夺主。
 const STORY_SUMMARY_TRUNCATE_LENGTH = 150;
 
+// 标题/摘要来自 AI 生成的用户可见文本，可能含换行, 会破坏逐行的 markdown 结构
+function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+// 链接文字还需转义方括号, 否则 "]" 会提前终结 markdown 链接
+function linkText(text: string): string {
+  return collapseWhitespace(text).replace(/[[\]]/g, "\\$&");
+}
+
 function truncate(text: string, maxLength: number): string {
   return text.length > maxLength
     ? `${text.slice(0, maxLength).trimEnd()}...`
@@ -65,14 +75,17 @@ export function buildLlmsTxt(input: {
 }): string {
   const lines = [header(input.siteUrl), "", "## Papers", ""];
   for (const p of input.papers) {
-    const link = `- [${p.title}](${input.siteUrl}/p/${p.shortId}.md)`;
-    lines.push(p.tldr ? `${link}: ${p.tldr}` : link);
+    const link = `- [${linkText(p.title)}](${input.siteUrl}/p/${p.shortId}.md)`;
+    lines.push(p.tldr ? `${link}: ${collapseWhitespace(p.tldr)}` : link);
   }
   if (input.stories && input.stories.length > 0) {
     lines.push("", "## Latest AI News", "");
     for (const s of input.stories) {
-      const link = `- [${s.title}](${input.siteUrl}/news/${s.shortId})`;
-      const summary = truncate(s.summary, STORY_SUMMARY_TRUNCATE_LENGTH);
+      const link = `- [${linkText(s.title)}](${input.siteUrl}/news/${s.shortId})`;
+      const summary = truncate(
+        collapseWhitespace(s.summary),
+        STORY_SUMMARY_TRUNCATE_LENGTH,
+      );
       lines.push(summary ? `${link}: ${summary}` : link);
     }
   }
@@ -80,7 +93,8 @@ export function buildLlmsTxt(input: {
 }
 
 function paperBlock(siteUrl: string, p: LlmsFullPaper): string {
-  const lines = [`## ${p.title}`];
+  // 标题里的换行会截断 heading, 折叠成单行; 正文 summary 保持原始 markdown
+  const lines = [`## ${collapseWhitespace(p.title)}`];
   if (p.tldr) lines.push("", `> ${p.tldr}`);
   const source =
     p.sourceType === "arxiv" && p.sourceUrl
@@ -99,7 +113,7 @@ function paperBlock(siteUrl: string, p: LlmsFullPaper): string {
 
 function storyBlock(siteUrl: string, s: LlmsTxtStory): string {
   return [
-    `## ${s.title}`,
+    `## ${collapseWhitespace(s.title)}`,
     "",
     `- **Permalink:** ${siteUrl}/news/${s.shortId}`,
     "",

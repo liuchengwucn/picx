@@ -178,7 +178,8 @@ export async function generateStoryContent(
     config,
     SUMMARY_SYSTEM,
     user,
-    1600,
+    // 四语言 CJK 输出在 1600 时接近上限，中文媒体源加入后放宽到 2500
+    2500,
     0.2,
   );
   for (const key of LOCALE_KEYS) {
