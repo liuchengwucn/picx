@@ -4,6 +4,7 @@
  * 且日期与分类两种先后顺序都出现过；部分条目本身是干净的，需原样保留。
  */
 
+// 白名单需人工维护：Anthropic 若新增分类，这里要同步补充，否则新分类前缀剥不掉
 const CATEGORIES = [
   "Frontier Red Team",
   "Economic Research",
@@ -15,19 +16,24 @@ const CATEGORIES = [
 
 // 抓取拼接的日期前缀，形如 "Jul 28, 2026"
 const DATE_PREFIX = /^[A-Z][a-z]{2} \d{1,2}, \d{4}/;
+const DATE_ONLY = /^[A-Z][a-z]{2} \d{1,2}, \d{4}$/;
 
 // 标题与尾随描述的拼接点：小写字母紧跟「大写+小写」。lookahead 用 [A-Z][a-z]
 // 而非仅 [A-Z] 是有意的——避免 "OpenAI" 这类品牌驼峰（n 后跟大写 A、I）被误切。
 const JUNCTION = /[a-z](?=[A-Z][a-z])/g;
 // 拼接点之后至少要有这么长的文本才视为文章描述，避免误切标题内部的驼峰
 const MIN_DESCRIPTION_LENGTH = 40;
+// 拼上来的尾随文本是文章描述——完整句子、以句末标点收尾（可带右引号）；
+// 而真标题里 "GitHub"/"PyTorch" 这类驼峰品牌之后的残余不会以句末标点结尾，借此区分
+const SENTENCE_END = /[.?!]["”]?$/;
+// 前缀层数理论上不定（日期/分类可叠加、顺序不定），剥到剥不动为止；上限只是防御性护栏
+const MAX_STRIP_PASSES = 8;
 
 /** 返回清洗后的标题；null 表示该条目是抓取到的导航杂质，应整条丢弃。 */
 export function cleanScrapedResearchTitle(title: string): string | null {
   let text = title;
   let stripped = false;
-  // 日期/分类前缀顺序不定，最多剥三层保证任一排列都能剥干净
-  for (let pass = 0; pass < 3; pass++) {
+  for (let pass = 0; pass < MAX_STRIP_PASSES; pass++) {
     const date = text.match(DATE_PREFIX);
     // 日期后紧跟非空格字符才是拼接杂质
     if (date && text.length > date[0].length && text[date[0].length] !== " ") {
@@ -50,7 +56,8 @@ export function cleanScrapedResearchTitle(title: string): string | null {
   if (stripped) {
     for (const match of text.matchAll(JUNCTION)) {
       const cutAt = match.index + 1;
-      if (text.length - cutAt >= MIN_DESCRIPTION_LENGTH) {
+      const tail = text.slice(cutAt);
+      if (tail.length >= MIN_DESCRIPTION_LENGTH && SENTENCE_END.test(tail)) {
         text = text.slice(0, cutAt);
         break;
       }
@@ -58,7 +65,8 @@ export function cleanScrapedResearchTitle(title: string): string | null {
   }
   const result = text.trim();
   if (!result) return null;
-  // 纯分类名的条目是抓取到的页面导航，不是文章
+  // 纯分类名或纯日期的条目是抓取到的页面导航/元数据，不是文章
   if ((CATEGORIES as readonly string[]).includes(result)) return null;
+  if (DATE_ONLY.test(result)) return null;
   return result;
 }

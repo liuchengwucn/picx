@@ -64,4 +64,42 @@ describe("cleanScrapedResearchTitle", () => {
     expect(cleanScrapedResearchTitle("Frontier Red Team")).toBeNull();
     expect(cleanScrapedResearchTitle("Interpretability")).toBeNull();
   });
+
+  it("drops empty and date-only titles", () => {
+    expect(cleanScrapedResearchTitle("")).toBeNull();
+    expect(cleanScrapedResearchTitle("Jul 28, 2026")).toBeNull();
+  });
+
+  it("does not cut at camelCase brand names inside genuine titles", () => {
+    // 尾部无句末标点 => 不是拼接的描述句，禁止在 "GitHub" 处切断
+    expect(
+      cleanScrapedResearchTitle(
+        "Jul 8, 2026AlignmentClaude uses GitHub Actions to analyze economic data across many countries",
+      ),
+    ).toBe(
+      "Claude uses GitHub Actions to analyze economic data across many countries",
+    );
+  });
+
+  it("fully strips more than two stacked prefixes", () => {
+    expect(
+      cleanScrapedResearchTitle(
+        "Societal ImpactsAlignmentJul 8, 2026Frontier Red TeamAn off switch for dual-use knowledge in AI models",
+      ),
+    ).toBe("An off switch for dual-use knowledge in AI models");
+  });
+
+  it("enforces the minimum description length at the junction", () => {
+    const tail39 = "Now this glued description is here now.";
+    const tail40 = "Now this glued description is here okay.";
+    expect(tail39).toHaveLength(39);
+    expect(tail40).toHaveLength(40);
+    // 39 字符（差 1 达标）不切，40 字符恰好达标则切
+    expect(cleanScrapedResearchTitle(`Jul 8, 2026Teaching why${tail39}`)).toBe(
+      `Teaching why${tail39}`,
+    );
+    expect(cleanScrapedResearchTitle(`Jul 8, 2026Teaching why${tail40}`)).toBe(
+      "Teaching why",
+    );
+  });
 });

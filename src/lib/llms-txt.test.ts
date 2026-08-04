@@ -118,6 +118,22 @@ describe("buildLlmsTxt", () => {
     );
   });
 
+  it("escapes backslashes in link text before brackets", () => {
+    const txt = buildLlmsTxt({
+      siteUrl,
+      papers: [
+        {
+          title: String.raw`Escaping LaTeX \] tokens`,
+          shortId: "jkl012",
+          tldr: null,
+        },
+      ],
+    });
+    expect(txt).toContain(
+      String.raw`- [Escaping LaTeX \\\] tokens](https://picx.dev/p/jkl012.md)`,
+    );
+  });
+
   it("collapses newlines in story summaries into single spaces", () => {
     const txt = buildLlmsTxt({
       siteUrl,

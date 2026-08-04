@@ -41,9 +41,9 @@ function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-// 链接文字还需转义方括号, 否则 "]" 会提前终结 markdown 链接
+// 链接文字还需转义反斜杠与方括号 (单趟替换, 避免二次转义), 否则 "]" 会提前终结 markdown 链接
 function linkText(text: string): string {
-  return collapseWhitespace(text).replace(/[[\]]/g, "\\$&");
+  return collapseWhitespace(text).replace(/[\\[\]]/g, "\\$&");
 }
 
 function truncate(text: string, maxLength: number): string {
@@ -95,7 +95,8 @@ export function buildLlmsTxt(input: {
 function paperBlock(siteUrl: string, p: LlmsFullPaper): string {
   // 标题里的换行会截断 heading, 折叠成单行; 正文 summary 保持原始 markdown
   const lines = [`## ${collapseWhitespace(p.title)}`];
-  if (p.tldr) lines.push("", `> ${p.tldr}`);
+  // tldr 折叠成单行, 否则换行会逃出 blockquote
+  if (p.tldr) lines.push("", `> ${collapseWhitespace(p.tldr)}`);
   const source =
     p.sourceType === "arxiv" && p.sourceUrl
       ? `[arXiv](${p.sourceUrl})`
