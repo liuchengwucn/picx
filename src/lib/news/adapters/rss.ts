@@ -170,7 +170,9 @@ export async function fetchFeed(url: string): Promise<NormalizedItem[]> {
       Accept:
         "application/rss+xml, application/atom+xml, application/xml, text/xml",
     },
-    signal: AbortSignal.timeout(15_000), // 单个源挂起不应拖垮整轮抓取
+    // 覆盖 RSSHub 路由冷缓存渲染（实测 30s+）；fetch 逐源串行共享整轮 11min 预算，
+    // 不能再放宽太多——挂起源每个最多偷走一个超时周期
+    signal: AbortSignal.timeout(60_000),
   });
   if (!response.ok) throw new Error(`feed ${url}: HTTP ${response.status}`);
   return parseFeed(await response.text());
