@@ -22,6 +22,7 @@ import {
   translateTldr,
 } from "#/lib/ai";
 import { decrypt } from "#/lib/crypto";
+import { paperTextKey } from "#/lib/paper-text";
 import { downloadArxivPDF, extractPDFText, PDFPageLimitError } from "#/lib/pdf";
 import type { Env } from "#/types/env";
 
@@ -334,6 +335,14 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
     if (!text || text.trim().length === 0) {
       throw new Error("Extracted text is empty");
+    }
+
+    // 全文落盘 R2，供论文 chatbot 随取随用。失败不阻断主流程。
+    try {
+      await env.PAPERS_BUCKET.put(paperTextKey(msg.paperId), rawText);
+      log("persist-text", `Persisted ${rawText.length} chars to R2`);
+    } catch (persistError) {
+      log("persist-text", `Failed (non-fatal): ${persistError}`);
     }
   } catch (error) {
     // 如果是页数超限错误，返还 credit 并标记失败
