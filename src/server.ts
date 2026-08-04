@@ -81,13 +81,18 @@ export default {
   ): Promise<Response> {
     const pathname = new URL(request.url).pathname;
 
-    // Block scheduled test endpoint in production
+    // Scheduled test endpoint: open in dev; in production requires the
+    // CRON_TRIGGER_KEY secret via ?key= (ops escape hatch for manual runs).
     if (pathname === "/__scheduled") {
-      if (env.ENVIRONMENT === "production") {
+      const params = new URL(request.url).searchParams;
+      if (
+        env.ENVIRONMENT === "production" &&
+        (!env.CRON_TRIGGER_KEY || params.get("key") !== env.CRON_TRIGGER_KEY)
+      ) {
         return new Response("Not Found", { status: 404 });
       }
-      // In dev, allow ?cron= to choose which scheduled handler to trigger.
-      const cron = new URL(request.url).searchParams.get("cron") ?? ARXIV_CRON;
+      // ?cron= chooses which scheduled handler to trigger.
+      const cron = params.get("cron") ?? ARXIV_CRON;
       await dispatchScheduled(
         {
           scheduledTime: Date.now(),

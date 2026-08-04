@@ -49,4 +49,6 @@ export interface Env {
   RSSHUB_ACCESS_KEY?: string;
   // news 流水线专用模型覆盖（可选；缺省回落 OPENAI_MODEL）
   NEWS_OPENAI_MODEL?: string;
+  // 生产环境手动触发 /__scheduled 的密钥（可选；未配置时生产一律 404）
+  CRON_TRIGGER_KEY?: string;
 }

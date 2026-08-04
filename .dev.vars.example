@@ -56,3 +56,7 @@ INDEXNOW_KEY=
 # ===== News Aggregation (Optional) =====
 # RSSHUB_BASE_URL=https://your-rsshub.example.com
 # NEWS_OPENAI_MODEL=gpt-5.2-instant
+
+# ===== Ops (Optional) =====
+# Secret key to allow manual /__scheduled?cron=...&key=... triggers in production
+# CRON_TRIGGER_KEY=<long-random-string>
