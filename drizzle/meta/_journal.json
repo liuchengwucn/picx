@@ -169,6 +169,13 @@
       "when": 1785840030584,
       "tag": "0023_sync_news_source_config",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1785846461861,
+      "tag": "0024_strange_retro_girl",
+      "breakpoints": true
     }
   ]
 }
