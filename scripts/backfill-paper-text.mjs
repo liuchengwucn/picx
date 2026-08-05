@@ -15,6 +15,12 @@
  * NOTE: the key format must stay in sync with paperTextKey() in
  * src/lib/paper-text.ts — if that changes, update this script too.
  *
+ * NOTE: the *format* has since diverged. This script writes pdfjs plain text,
+ * while the current pipeline's primary path (MinerU) writes markdown-derived
+ * text with images stripped but tables/formulas kept. Same key, different
+ * flavour of text — both are LLM-readable prose, so consumers don't care, but
+ * don't assume backfilled objects match freshly processed ones byte-for-byte.
+ *
  * Safety:
  *   - Idempotent & resumable: skips papers whose text object already exists.
  *   - Per-paper try/catch: one failure never aborts the batch — EXCEPT

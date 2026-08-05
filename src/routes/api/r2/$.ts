@@ -18,6 +18,14 @@ async function handler({ request }: { request: Request }) {
       return new Response("Missing file key", { status: 400 });
     }
 
+    // paper-content/（原文 markdown+图片）与 paper-text/（chatbot 用全文纯文本）
+    // 都是「仅登录可见」的登录墙内内容：前者受鉴权端点 /api/paper-content/ 保护，
+    // 后者只应被服务端（chatbot readPaper / queue-consumer）经 R2 binding 直读，
+    // 均不可经本路由（无鉴权）匿名读取。用 404 而非 403，避免泄露前缀是否存在。
+    if (r2Key.startsWith("paper-content/") || r2Key.startsWith("paper-text/")) {
+      return new Response("File not found", { status: 404 });
+    }
+
     // 访问 R2 bucket
     const appEnv = env as typeof env & AppEnvBindings;
     const bucket = appEnv.PAPERS_BUCKET;

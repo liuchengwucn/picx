@@ -7,13 +7,13 @@ import {
   X,
 } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { MarkdownArticle } from "#/components/markdown-reader/markdown-article";
+import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
+import { TocList, useToc } from "#/components/markdown-reader/reader-toc";
+import { useReaderSettings } from "#/components/markdown-reader/use-reader-settings";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
-import { MarkdownArticle } from "./markdown-article";
-import { ReaderSettingsMenu } from "./reader-settings";
-import { TocList, useToc } from "./reader-toc";
 import { TOOL_BTN } from "./reader-ui";
-import { useReaderSettings } from "./use-reader-settings";
 
 interface ReaderViewProps {
   title: string;

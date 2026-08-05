@@ -16,13 +16,9 @@ import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 
-type StatusFilter =
-  | "all"
-  | "pending"
-  | "processing_text"
-  | "processing_image"
-  | "completed"
-  | "failed";
+// "processing" 覆盖 parsing / processing_text / processing_image 三个在途状态，
+// 由 paper.list 在服务端展开。
+type StatusFilter = "all" | "pending" | "processing" | "completed" | "failed";
 
 export const Route = createFileRoute("/papers/")({
   component: PapersPage,
@@ -128,7 +124,7 @@ function PapersPage() {
         >
           <TabsList>
             <TabsTrigger value="all">{m.papers_filter_all()}</TabsTrigger>
-            <TabsTrigger value="processing_text">
+            <TabsTrigger value="processing">
               {m.papers_filter_processing()}
             </TabsTrigger>
             <TabsTrigger value="completed">

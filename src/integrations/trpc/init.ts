@@ -13,8 +13,8 @@ import {
 export interface PaperQueueMessage {
   paperId: string;
   userId: string;
-  type?: "initial" | "regenerate_whiteboard"; // 消息类型，默认为 initial
-  sourceType?: "upload" | "arxiv"; // regenerate_whiteboard 不需要
+  type?: "initial" | "mineru_poll" | "regenerate_whiteboard"; // 消息类型，默认为 initial
+  sourceType?: "upload" | "arxiv"; // regenerate_whiteboard / mineru_poll 不需要
   arxivUrl?: string;
   r2Key?: string;
   language?: "en" | "zh-cn" | "zh-tw" | "ja";
@@ -22,6 +22,14 @@ export interface PaperQueueMessage {
   extraLanguages?: ("zh-cn" | "zh-tw" | "ja")[]; // 额外翻译语言
   apiConfigId?: string;
   promptId?: string;
+  /** 是否生成 whiteboard。用户上传默认 false；HF cron 传 true。 */
+  generateWhiteboard?: boolean;
+  /** mineru_poll 专用：MinerU 批次 id（也落库在 papers.mineru_batch_id）。 */
+  mineruBatchId?: string;
+  /** mineru_poll 专用：提交 MinerU 的 epoch ms，用于 20 分钟总超时判定。 */
+  mineruSubmittedAt?: number;
+  /** mineru_poll 专用：第几次延迟轮询，仅用于日志。 */
+  mineruPollAttempt?: number;
 }
 
 interface AppEnvBindings {

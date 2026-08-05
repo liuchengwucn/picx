@@ -46,6 +46,7 @@ async function handler({ request }: { request: Request }) {
               eq(papers.userId, userId),
               inArray(papers.status, [
                 "pending",
+                "parsing",
                 "processing_text",
                 "processing_image",
               ]),
@@ -118,13 +119,15 @@ async function handler({ request }: { request: Request }) {
               activePapers.some((paper) => paper.id === paperId)
             ) {
               const progress =
-                status === "processing_text"
-                  ? 33
-                  : status === "processing_image"
-                    ? 66
-                    : status === "completed"
-                      ? 100
-                      : 0;
+                status === "parsing"
+                  ? 15
+                  : status === "processing_text"
+                    ? 33
+                    : status === "processing_image"
+                      ? 66
+                      : status === "completed"
+                        ? 100
+                        : 0;
               const msg = `event: paper-update\ndata: ${JSON.stringify({ paperId, status, progress })}\n\n`;
               try {
                 await writer.write(encoder.encode(msg));

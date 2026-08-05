@@ -5,6 +5,10 @@ import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, {
+  defaultSchema,
+  type Options as SanitizeSchema,
+} from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { PluggableList } from "unified";
@@ -29,11 +33,76 @@ function readerUrlTransform(url: string): string {
   return url.startsWith("data:image/") ? url : defaultUrlTransform(url);
 }
 
-// 顺序很重要:先 rehype-raw 解析内嵌 HTML(MinerU 表格是 HTML)→ 把表格里残留的 $...$ 转成
-// 公式 span → katex 渲染公式 → highlight 代码 → 生成标题 id → 拆出仅含图片的段落 → 最后给
-// 公式/代码打 notranslate。
+/**
+ * papers 原文视图用：markdown 里是 `images/{name}` 相对路径，映射到鉴权图片端点；
+ * 其余 URL 走默认安全过滤。返回的函数需由调用方用 useMemo 稳定引用。
+ */
+export function createRelativeImageUrlTransform(
+  imageBase: string,
+): (url: string) => string {
+  return (url: string) =>
+    url.startsWith("images/")
+      ? `${imageBase}${url.slice("images/".length)}`
+      : defaultUrlTransform(url);
+}
+
+/**
+ * 白名单清洗，作用于「文档里原本就有的」HTML —— 也就是 rehype-raw 刚解析出来的那部分。
+ *
+ * 威胁模型：MinerU 把 PDF 里的文本原样抄进 markdown，攻击者在 PDF 里写 `<script>` /
+ * `<iframe>` 就能让渲染端执行；公开论文的原文对任意登录用户可见，于是成为存储型 XSS。
+ * 落盘前的 stripDangerousHtml 是黑名单（第一层），这里是白名单兜底：不在名单上的标签
+ * 一律拆掉（script/style 连内容一起丢），属性、URL 协议同理。
+ *
+ * 基线是 hast-util-sanitize 的 GitHub 风格 defaultSchema（已含 table 全家、img、
+ * colSpan/rowSpan/align、sub/sup/br/hr 等），这里只做三处必要放行：
+ * - 公式类名：remark-math 在 mdast→hast 阶段就把公式变成
+ *   `<code class="language-math math-inline|math-display">`，类名被剥掉 katex 就认不出。
+ *   只放行这几个具体值，不放行任意 className —— 免得 PDF 里的 HTML 借用站点样式做视觉欺骗。
+ * - img 的 src/alt/title/width/height（alt/title/width/height 已在 `*` 里，显式写出便于阅读）。
+ * - src 协议加 data:：/reader 的本地文档把图片内联成 base64；papers 侧是相对路径，不受影响。
+ *   （data:image 不会执行脚本；img 上的 data: 不构成脚本执行面。）
+ */
+const MATH_CLASS_NAMES = ["math", "math-inline", "math-display"] as const;
+
+export const SANITIZE_SCHEMA: SanitizeSchema = {
+  ...defaultSchema,
+  // 不在白名单里的标签默认「拆标签留文字」，对 style 来说会把 CSS 源码当正文显示出来
+  strip: ["script", "style"],
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [["className", /^language-./, ...MATH_CLASS_NAMES]],
+    span: [["className", ...MATH_CLASS_NAMES]],
+    div: [
+      ...(defaultSchema.attributes?.div ?? []),
+      ["className", ...MATH_CLASS_NAMES],
+    ],
+    img: [
+      ...(defaultSchema.attributes?.img ?? []),
+      "src",
+      "alt",
+      "title",
+      "width",
+      "height",
+    ],
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    src: [...(defaultSchema.protocols?.src ?? []), "data"],
+  },
+};
+
+// 顺序很重要:先 rehype-raw 解析内嵌 HTML(MinerU 表格是 HTML)→ 白名单清洗(只洗文档自带的
+// HTML,后面几个插件生成的节点不再过 sanitize,故 schema 无需为 katex/highlight 的输出开
+// 口子)→ 把表格里残留的 $...$ 转成公式 span → katex 渲染公式 → highlight 代码 → 生成
+// 标题 id → 拆出仅含图片的段落 → 最后给公式/代码打 notranslate。
+//
+// 代价:sanitize 之后的产物不再受审查,而 katex 的输入(LaTeX)是攻击者可控的。当前安全靠
+// rehype-katex 的默认值 trust:false + strict:warn 禁掉了 \href/\htmlClass 等 HTML 扩展 ——
+// 若将来为支持论文内超链接而开 trust:true,等于在 sanitize 下游直接开洞,必须保持 false。
 const REHYPE_PLUGINS: PluggableList = [
   rehypeRaw,
+  [rehypeSanitize, SANITIZE_SCHEMA],
   rehypeTableMath,
   rehypeKatex,
   rehypeHighlight,
@@ -46,6 +115,12 @@ interface MarkdownArticleProps {
   markdown: string;
   settings: ReaderSettings;
   articleRef: RefObject<HTMLElement | null>;
+  /**
+   * 自定义 URL 变换；缺省为 reader 的 data:image 放行逻辑。
+   * 注意：此值透传给 RenderedMarkdown 的 memo props——调用方必须传稳定引用
+   * （如模块级函数，或 useMemo 缓存），否则每次渲染都会打破 memo 并重跑 markdown 解析。
+   */
+  urlTransform?: (url: string) => string;
 }
 
 /**
@@ -58,9 +133,11 @@ interface MarkdownArticleProps {
 const RenderedMarkdown = memo(function RenderedMarkdown({
   markdown,
   onZoom,
+  urlTransform,
 }: {
   markdown: string;
   onZoom: (src: string) => void;
+  urlTransform?: (url: string) => string;
 }) {
   const components: Components = {
     a: ({ href, children }) => (
@@ -104,7 +181,7 @@ const RenderedMarkdown = memo(function RenderedMarkdown({
     <Markdown
       remarkPlugins={REMARK_PLUGINS}
       rehypePlugins={REHYPE_PLUGINS}
-      urlTransform={readerUrlTransform}
+      urlTransform={urlTransform ?? readerUrlTransform}
       components={components}
     >
       {markdown}
@@ -116,6 +193,7 @@ export function MarkdownArticle({
   markdown,
   settings,
   articleRef,
+  urlTransform,
 }: MarkdownArticleProps) {
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
   // 稳定引用,避免破坏 RenderedMarkdown 的 memo。
@@ -138,7 +216,11 @@ export function MarkdownArticle({
           } as CSSProperties
         }
       >
-        <RenderedMarkdown markdown={markdown} onZoom={onZoom} />
+        <RenderedMarkdown
+          markdown={markdown}
+          onZoom={onZoom}
+          urlTransform={urlTransform}
+        />
       </article>
 
       <Dialog

@@ -6,6 +6,7 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNull,
   or,
   sql,
@@ -13,6 +14,7 @@ import {
 import { z } from "zod";
 import {
   creditTransactions,
+  paperContents,
   paperResults,
   papers,
   user,
@@ -162,12 +164,13 @@ export const paperRouter = router({
           .number()
           .int()
           .min(0) // Allow 0 for arxiv (will be updated after download)
-          .max(50 * 1024 * 1024), // 50MB
+          .max(100 * 1024 * 1024), // 100MB
         r2Key: z.string().min(1),
         language: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(), // 摘要语言
         whiteboardLanguage: z.enum(["en", "zh-cn", "zh-tw", "ja"]).optional(), // 白板图语言
         apiConfigId: z.string().uuid().optional(), // 用户提供的 API 配置
         promptId: z.string().uuid().optional(), // 用户提供的 Prompt 模板
+        generateWhiteboard: z.boolean().optional().default(false), // 是否生成白板图（收费项）
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -179,6 +182,17 @@ export const paperRouter = router({
       try {
         // Better Auth 已经管理用户，直接使用 session 中的 user ID
         const userId = ctx.session.user.id;
+
+        // 防止登录用户传他人前缀的 r2Key，白嫖解析别人已上传的私有 PDF。
+        if (
+          input.sourceType === "upload" &&
+          !input.r2Key.startsWith(`papers/${userId}/`)
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Invalid r2Key",
+          });
+        }
 
         if (input.apiConfigId) {
           const [apiConfig] = await ctx.db
@@ -220,9 +234,9 @@ export const paperRouter = router({
           }
         }
 
-        // 如果提供了 apiConfigId，使用用户 API，不扣除 credit
-        // 如果没有提供，使用系统 API，扣除 credit
-        if (!input.apiConfigId) {
+        // 解析 + 总结免费；仅生成 whiteboard 且未用 BYOK 时扣 1 credit
+        const charged = input.generateWhiteboard && !input.apiConfigId;
+        if (charged) {
           // 先扣除积分，使用条件更新确保积分足够
           const [updatedUser] = await ctx.db
             .update(user)
@@ -257,13 +271,13 @@ export const paperRouter = router({
           .returning();
 
         // 只有在扣除了 credit 的情况下才记录积分交易
-        if (!input.apiConfigId) {
+        if (charged) {
           await ctx.db.insert(creditTransactions).values({
             userId: userId,
             amount: -1,
             type: "consume",
             relatedPaperId: newPaper.id,
-            description: "Paper processing",
+            description: "Whiteboard generation",
           });
         }
 
@@ -307,6 +321,7 @@ export const paperRouter = router({
           whiteboardLanguage: queueWhiteboardLanguage,
           apiConfigId: input.apiConfigId,
           promptId: input.promptId,
+          generateWhiteboard: input.generateWhiteboard,
         });
       } catch (error) {
         await ctx.db
@@ -316,6 +331,24 @@ export const paperRouter = router({
             errorMessage: "Queue dispatch failed",
           })
           .where(eq(papers.id, paper.id));
+
+        // 入队失败时，若这条消息本应扣费，需退款（不要引用 try 内的局部变量，直接重算条件）
+        if (input.generateWhiteboard && !input.apiConfigId) {
+          await ctx.db
+            .update(user)
+            .set({
+              credits: sql`${user.credits} + 1`,
+            })
+            .where(eq(user.id, ctx.session.user.id));
+
+          await ctx.db.insert(creditTransactions).values({
+            userId: ctx.session.user.id,
+            amount: 1,
+            type: "refund",
+            relatedPaperId: paper.id,
+            description: "Refund for failed queue dispatch",
+          });
+        }
 
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -335,11 +368,15 @@ export const paperRouter = router({
       z.object({
         page: z.number().int().min(1).default(1),
         limit: z.number().int().min(1).max(100).default(20),
+        // "processing" 是列表页「处理中」标签的聚合值，展开成所有在途状态；
+        // 其余是具体状态，逐个精确匹配。
         status: z
           .enum([
             "pending",
+            "parsing",
             "processing_text",
             "processing_image",
+            "processing",
             "completed",
             "failed",
           ])
@@ -355,7 +392,15 @@ export const paperRouter = router({
         isNull(papers.deletedAt),
       ];
 
-      if (input.status) {
+      if (input.status === "processing") {
+        conditions.push(
+          inArray(papers.status, [
+            "parsing",
+            "processing_text",
+            "processing_image",
+          ]),
+        );
+      } else if (input.status) {
         conditions.push(eq(papers.status, input.status));
       }
 
@@ -555,6 +600,56 @@ export const paperRouter = router({
         result: null,
         defaultWhiteboard: null,
         whiteboards: [],
+      };
+    }),
+
+  /**
+   * 原文 markdown（MinerU 解析产物）。仅登录用户；owner 或公开论文可读。
+   * 无 paper_contents 行（pdfjs 回退/存量论文）返回 available: false。
+   */
+  getContent: protectedProcedure
+    .input(z.object({ paperId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [paper] = await ctx.db
+        .select({
+          id: papers.id,
+          userId: papers.userId,
+          isPublic: papers.isPublic,
+        })
+        .from(papers)
+        .where(and(eq(papers.id, input.paperId), isNull(papers.deletedAt)))
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Paper not found" });
+      }
+      const isOwner = paper.userId === ctx.session.user.id;
+      if (!isOwner && !paper.isPublic) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to view this paper",
+        });
+      }
+
+      const [content] = await ctx.db
+        .select()
+        .from(paperContents)
+        .where(eq(paperContents.paperId, paper.id))
+        .limit(1);
+
+      if (!content) {
+        return { available: false as const };
+      }
+
+      const obj = await ctx.env.PAPERS_BUCKET.get(content.markdownR2Key);
+      if (!obj) {
+        return { available: false as const };
+      }
+
+      return {
+        available: true as const,
+        markdown: await obj.text(),
+        imageBase: `/api/paper-content/${paper.id}/images/`,
       };
     }),
 
@@ -1378,67 +1473,113 @@ export const paperRouter = router({
         }
       }
 
-      // Step 5: Deduct credit if not using user API
-      if (!input.apiConfigId) {
-        const [updatedUser] = await ctx.db
-          .update(user)
-          .set({
-            credits: sql`${user.credits} - 1`,
-          })
-          .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
-          .returning();
+      // Step 4.5: 抢锁。条件更新是原子的，同时到达的第二个请求拿不到行，直接被拒 ——
+      // 「先读 flag 再写」会让两个请求都穿过检查、双双扣分。放在所有校验之后、扣分之前：
+      // 校验失败的路径不会留下锁。锁由消费者在成功/失败路径清掉；本函数内的失败路径
+      // （余额不足 / 入队失败）自行清回，见下方 releaseLock。
+      const [locked] = await ctx.db
+        .update(papers)
+        .set({ whiteboardRegenerating: true, updatedAt: new Date() })
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.whiteboardRegenerating, false),
+          ),
+        )
+        .returning({ id: papers.id });
 
-        if (!updatedUser) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Insufficient credits. You need at least 1 credit.",
-          });
-        }
-
-        // Record credit transaction
-        await ctx.db.insert(creditTransactions).values({
-          userId: userId,
-          amount: -1,
-          type: "consume",
-          relatedPaperId: input.paperId,
-          description: "Whiteboard regeneration",
+      if (!locked) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Whiteboard generation already in progress",
         });
       }
 
-      // Step 6: Push to queue for async processing
-      try {
-        await ctx.env.PAPER_QUEUE.send({
-          type: "regenerate_whiteboard",
-          paperId: input.paperId,
-          userId: userId,
-          promptId: finalPromptId,
-          apiConfigId: input.apiConfigId,
-        });
-      } catch (error) {
-        // Refund credit if queue dispatch fails
-        if (!input.apiConfigId) {
+      // 抢到锁之后的任何失败都必须把锁放回去；清锁本身失败不能再抛（会盖掉真正的错因），
+      // 只记日志 —— 消费者那边还有一层防御性清理。
+      const releaseLock = async () => {
+        try {
           await ctx.db
+            .update(papers)
+            .set({ whiteboardRegenerating: false, updatedAt: new Date() })
+            .where(eq(papers.id, input.paperId));
+        } catch (error) {
+          console.warn(
+            `[regenerateWhiteboard:${input.paperId}] Failed to release whiteboard lock`,
+            error,
+          );
+        }
+      };
+
+      // 抢锁之后到入队成功之间的每一条语句都可能抛（扣分、写流水、入队、乃至退款本身），
+      // 逐个 catch 总会漏。整段包一层：任何抛出都先把锁放回去再原样上抛 —— 漏掉一条
+      // 就会把这篇论文永久卡在「生成中」（消息没入队，消费者也就清不了锁）。
+      try {
+        // Step 5: Deduct credit if not using user API
+        if (!input.apiConfigId) {
+          const [updatedUser] = await ctx.db
             .update(user)
             .set({
-              credits: sql`${user.credits} + 1`,
+              credits: sql`${user.credits} - 1`,
             })
-            .where(eq(user.id, userId));
+            .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
+            .returning();
 
+          if (!updatedUser) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Insufficient credits. You need at least 1 credit.",
+            });
+          }
+
+          // Record credit transaction
           await ctx.db.insert(creditTransactions).values({
             userId: userId,
-            amount: 1,
-            type: "refund",
+            amount: -1,
+            type: "consume",
             relatedPaperId: input.paperId,
-            description:
-              "Refund for failed whiteboard regeneration queue dispatch",
+            description: "Whiteboard regeneration",
           });
         }
 
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Queue dispatch failed",
-          cause: error,
-        });
+        // Step 6: Push to queue for async processing
+        try {
+          await ctx.env.PAPER_QUEUE.send({
+            type: "regenerate_whiteboard",
+            paperId: input.paperId,
+            userId: userId,
+            promptId: finalPromptId,
+            apiConfigId: input.apiConfigId,
+          });
+        } catch (error) {
+          // Refund credit if queue dispatch fails
+          if (!input.apiConfigId) {
+            await ctx.db
+              .update(user)
+              .set({
+                credits: sql`${user.credits} + 1`,
+              })
+              .where(eq(user.id, userId));
+
+            await ctx.db.insert(creditTransactions).values({
+              userId: userId,
+              amount: 1,
+              type: "refund",
+              relatedPaperId: input.paperId,
+              description:
+                "Refund for failed whiteboard regeneration queue dispatch",
+            });
+          }
+
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Queue dispatch failed",
+            cause: error,
+          });
+        }
+      } catch (error) {
+        await releaseLock();
+        throw error;
       }
 
       return { success: true };

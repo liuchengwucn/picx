@@ -13,7 +13,7 @@ const PREVIOUS_CONTEXT_CHARS = 1200;
 const CANDIDATE_CONTEXT_CHARS = 1200;
 const NEXT_CONTEXT_CHARS = 2400;
 
-interface ExtractedPDFPage extends PDFPageText {
+export interface ExtractedPDFPage extends PDFPageText {
   startOffset: number;
 }
 
@@ -196,7 +196,7 @@ function buildTailReviewContexts(rawText: string, globalIndex: number) {
   };
 }
 
-async function trimPaperTail(
+export async function trimPaperTail(
   rawText: string,
   pages: ExtractedPDFPage[],
   aiConfig: AIConfig,

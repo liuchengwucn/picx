@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select";
+import { Switch } from "#/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { useTRPC } from "#/integrations/trpc/react";
 import { authClient, startGitHubSignIn } from "#/lib/auth-client";
@@ -36,6 +37,9 @@ import {
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
+// 前端预检，避免大文件传完才被服务端拒绝；与 /api/papers/upload 的 100MB 硬上限对齐。
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
 interface UploadDialogProps {
   credits: number;
   onSuccess?: () => void;
@@ -44,6 +48,7 @@ interface UploadDialogProps {
 interface LanguageSelectorsProps {
   summaryLanguage: "en" | "zh-CN" | "zh-TW" | "ja";
   whiteboardLanguage: "en" | "zh-cn" | "zh-tw" | "ja";
+  showWhiteboardLanguage: boolean;
   onSummaryLanguageChange: (value: "en" | "zh-CN" | "zh-TW" | "ja") => void;
   onWhiteboardLanguageChange: (value: "en" | "zh-cn" | "zh-tw" | "ja") => void;
 }
@@ -51,11 +56,18 @@ interface LanguageSelectorsProps {
 function LanguageSelectors({
   summaryLanguage,
   whiteboardLanguage,
+  showWhiteboardLanguage,
   onSummaryLanguageChange,
   onWhiteboardLanguageChange,
 }: LanguageSelectorsProps) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div
+      className={
+        showWhiteboardLanguage
+          ? "grid grid-cols-2 gap-3"
+          : "grid grid-cols-1 gap-3"
+      }
+    >
       <div className="space-y-2">
         <Label className="text-sm text-[var(--ink-soft)]">
           {m.upload_summary_language()}
@@ -72,25 +84,27 @@ function LanguageSelectors({
           </SelectContent>
         </Select>
       </div>
-      <div className="space-y-2 flex flex-col items-end">
-        <Label className="text-sm text-[var(--ink-soft)]">
-          {m.upload_whiteboard_language()}
-        </Label>
-        <Select
-          value={whiteboardLanguage}
-          onValueChange={onWhiteboardLanguageChange}
-        >
-          <SelectTrigger className="border-[var(--line)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="en">{m.upload_language_en()}</SelectItem>
-            <SelectItem value="zh-cn">{m.upload_language_zh()}</SelectItem>
-            <SelectItem value="zh-tw">{m.upload_language_zh_tw()}</SelectItem>
-            <SelectItem value="ja">{m.upload_language_ja()}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      {showWhiteboardLanguage && (
+        <div className="space-y-2 flex flex-col items-end">
+          <Label className="text-sm text-[var(--ink-soft)]">
+            {m.upload_whiteboard_language()}
+          </Label>
+          <Select
+            value={whiteboardLanguage}
+            onValueChange={onWhiteboardLanguageChange}
+          >
+            <SelectTrigger className="border-[var(--line)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">{m.upload_language_en()}</SelectItem>
+              <SelectItem value="zh-cn">{m.upload_language_zh()}</SelectItem>
+              <SelectItem value="zh-tw">{m.upload_language_zh_tw()}</SelectItem>
+              <SelectItem value="ja">{m.upload_language_ja()}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
     </div>
   );
 }
@@ -216,12 +230,35 @@ function PromptSelector({
   );
 }
 
+interface WhiteboardToggleProps {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}
+
+function WhiteboardToggle({ checked, onCheckedChange }: WhiteboardToggleProps) {
+  const toggleId = useId();
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Label htmlFor={toggleId} className="text-sm cursor-pointer">
+        {m.upload_whiteboard_toggle_label()}
+      </Label>
+      <Switch
+        id={toggleId}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+      />
+    </div>
+  );
+}
+
 export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const fileInputId = useId();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [arxivUrl, setArxivUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [generateWhiteboard, setGenerateWhiteboard] = useState(false);
   const [summaryLanguage, setSummaryLanguage] = useState<
     "en" | "zh-CN" | "zh-TW" | "ja"
   >(getLocale() as "en" | "zh-CN" | "zh-TW" | "ja");
@@ -284,7 +321,6 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     }
   }, [prompts]);
 
-  const uploadFile = useMutation(trpc.upload.uploadFile.mutationOptions());
   const createPaper = useMutation(trpc.paper.create.mutationOptions());
 
   const handleFileUpload = useCallback(async () => {
@@ -295,29 +331,33 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     if (!file) return;
     setUploading(true);
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
+      const resp = await fetch(
+        `/api/papers/upload?filename=${encodeURIComponent(file.name)}`,
+        { method: "POST", body: file },
+      );
+      if (!resp.ok) {
+        const err = (await resp.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(err?.error ?? "Upload failed");
       }
-      const fileData = btoa(binary);
-
-      const { r2Key } = await uploadFile.mutateAsync({
-        filename: file.name,
-        fileData,
-        fileSize: file.size,
-      });
+      const { r2Key, fileSize } = (await resp.json()) as {
+        r2Key: string;
+        fileSize: number;
+      };
 
       await createPaper.mutateAsync({
         sourceType: "upload",
         filename: file.name,
-        fileSize: file.size,
+        fileSize,
         r2Key,
         language: summaryLanguage,
         whiteboardLanguage,
         apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
-        promptId: selectedPromptId ?? undefined,
+        promptId: generateWhiteboard
+          ? (selectedPromptId ?? undefined)
+          : undefined,
+        generateWhiteboard,
       });
       setOpen(false);
       setFile(null);
@@ -333,11 +373,11 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     isReadOnlyGuest,
     onSuccess,
     summaryLanguage,
-    uploadFile,
     whiteboardLanguage,
     apiSource,
     selectedApiConfigId,
     selectedPromptId,
+    generateWhiteboard,
   ]);
 
   const handleArxivSubmit = useCallback(async () => {
@@ -357,7 +397,10 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         language: summaryLanguage,
         whiteboardLanguage,
         apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
-        promptId: selectedPromptId ?? undefined,
+        promptId: generateWhiteboard
+          ? (selectedPromptId ?? undefined)
+          : undefined,
+        generateWhiteboard,
       });
       setOpen(false);
       setArxivUrl("");
@@ -377,21 +420,42 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     apiSource,
     selectedApiConfigId,
     selectedPromptId,
+    generateWhiteboard,
   ]);
 
   const insufficientCredits = credits < 1;
+  const willCharge = generateWhiteboard && apiSource === "system";
+  const blockedByCredits = willCharge && insufficientCredits;
 
   const handleDialogOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile?.type === "application/pdf") {
-      setFile(droppedFile);
+  const handleFileSelect = useCallback((selected: File | null) => {
+    if (!selected) {
+      setFile(null);
+      setFileError(null);
+      return;
     }
+    if (selected.size > MAX_FILE_BYTES) {
+      setFile(null);
+      setFileError(m.upload_file_size_limit());
+      return;
+    }
+    setFile(selected);
+    setFileError(null);
   }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const droppedFile = e.dataTransfer.files[0];
+      if (droppedFile?.type === "application/pdf") {
+        handleFileSelect(droppedFile);
+      }
+    },
+    [handleFileSelect],
+  );
 
   const openFilePicker = useCallback(() => {
     fileInputRef.current?.click();
@@ -443,7 +507,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      setFile(null);
+                      handleFileSelect(null);
                       openFilePicker();
                     }}
                     className="mt-2"
@@ -466,7 +530,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                     type="file"
                     accept=".pdf"
                     className="hidden"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    onChange={(e) =>
+                      handleFileSelect(e.target.files?.[0] || null)
+                    }
                   />
                   <p className="mt-1 text-xs text-[var(--neutral-mid)]">
                     {m.upload_file_size_limit()}
@@ -474,10 +540,22 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 </>
               )}
             </label>
+            {fileError && (
+              <p className="mt-2 text-center text-xs text-[var(--sienna)]">
+                {fileError}
+              </p>
+            )}
+            <div className="mt-4">
+              <WhiteboardToggle
+                checked={generateWhiteboard}
+                onCheckedChange={setGenerateWhiteboard}
+              />
+            </div>
             <div className="mt-4">
               <LanguageSelectors
                 summaryLanguage={summaryLanguage}
                 whiteboardLanguage={whiteboardLanguage}
+                showWhiteboardLanguage={generateWhiteboard}
                 onSummaryLanguageChange={(value) => setSummaryLanguage(value)}
                 onWhiteboardLanguageChange={(value) =>
                   setWhiteboardLanguage(value)
@@ -506,11 +584,13 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                         setSelectedApiConfigId(value)
                       }
                     />
-                    <PromptSelector
-                      selectedPromptId={selectedPromptId}
-                      prompts={prompts}
-                      onPromptChange={(value) => setSelectedPromptId(value)}
-                    />
+                    {generateWhiteboard && (
+                      <PromptSelector
+                        selectedPromptId={selectedPromptId}
+                        prompts={prompts}
+                        onPromptChange={(value) => setSelectedPromptId(value)}
+                      />
+                    )}
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
@@ -519,18 +599,18 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               <span className="text-[var(--ink-soft)]">
                 {m.credits_balance()}: {credits}
               </span>
-              {apiSource === "system" && (
-                <span className="text-[var(--ink-soft)]">
-                  {m.upload_cost()}: 1
-                </span>
-              )}
+              <span className="text-[var(--ink-soft)]">
+                {willCharge
+                  ? m.upload_whiteboard_toggle_cost()
+                  : m.upload_free_hint()}
+              </span>
             </div>
             <Button
               onClick={handleFileUpload}
               disabled={
                 !file ||
                 uploading ||
-                (apiSource === "system" && insufficientCredits) ||
+                blockedByCredits ||
                 (apiSource === "user" && !selectedApiConfigId)
               }
               className="mt-3 w-full bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
@@ -538,7 +618,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {m.upload_start()}
             </Button>
-            {apiSource === "system" && insufficientCredits && (
+            {blockedByCredits && (
               <p className="mt-2 text-center text-xs text-[var(--sienna)]">
                 {m.error_insufficient_credits()}
               </p>
@@ -556,9 +636,16 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               {m.upload_arxiv_hint()}
             </p>
             <div className="mt-4">
+              <WhiteboardToggle
+                checked={generateWhiteboard}
+                onCheckedChange={setGenerateWhiteboard}
+              />
+            </div>
+            <div className="mt-4">
               <LanguageSelectors
                 summaryLanguage={summaryLanguage}
                 whiteboardLanguage={whiteboardLanguage}
+                showWhiteboardLanguage={generateWhiteboard}
                 onSummaryLanguageChange={(value) => setSummaryLanguage(value)}
                 onWhiteboardLanguageChange={(value) =>
                   setWhiteboardLanguage(value)
@@ -587,11 +674,13 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                         setSelectedApiConfigId(value)
                       }
                     />
-                    <PromptSelector
-                      selectedPromptId={selectedPromptId}
-                      prompts={prompts}
-                      onPromptChange={(value) => setSelectedPromptId(value)}
-                    />
+                    {generateWhiteboard && (
+                      <PromptSelector
+                        selectedPromptId={selectedPromptId}
+                        prompts={prompts}
+                        onPromptChange={(value) => setSelectedPromptId(value)}
+                      />
+                    )}
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
@@ -600,18 +689,18 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               <span className="text-[var(--ink-soft)]">
                 {m.credits_balance()}: {credits}
               </span>
-              {apiSource === "system" && (
-                <span className="text-[var(--ink-soft)]">
-                  {m.upload_cost()}: 1
-                </span>
-              )}
+              <span className="text-[var(--ink-soft)]">
+                {willCharge
+                  ? m.upload_whiteboard_toggle_cost()
+                  : m.upload_free_hint()}
+              </span>
             </div>
             <Button
               onClick={handleArxivSubmit}
               disabled={
                 !arxivUrl ||
                 uploading ||
-                (apiSource === "system" && insufficientCredits) ||
+                blockedByCredits ||
                 (apiSource === "user" && !selectedApiConfigId)
               }
               className="mt-3 w-full bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
@@ -619,6 +708,11 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {m.upload_start()}
             </Button>
+            {blockedByCredits && (
+              <p className="mt-2 text-center text-xs text-[var(--sienna)]">
+                {m.error_insufficient_credits()}
+              </p>
+            )}
           </TabsContent>
         </Tabs>
       </DialogContent>

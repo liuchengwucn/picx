@@ -41,6 +41,11 @@ export function usePaperSSE(userId: string | undefined) {
           queryClient.invalidateQueries({
             queryKey: trpc.paper.getById.queryKey(data.paperId),
           });
+          // 详情页读的是 getByShortId，事件里只有 paperId；按 path 前缀整体失效
+          // （tanstack 支持部分 key 匹配）。不失效的话详情页的状态/白板永远是 stale。
+          queryClient.invalidateQueries({
+            queryKey: trpc.paper.getByShortId.queryKey(),
+          });
           if (data.status === "completed" || data.status === "failed") {
             queryClient.invalidateQueries({
               queryKey: trpc.user.getProfile.queryKey(),
@@ -56,6 +61,10 @@ export function usePaperSSE(userId: string | undefined) {
           const data: WhiteboardUpdateEvent = JSON.parse(event.data);
           queryClient.invalidateQueries({
             queryKey: trpc.paper.getById.queryKey(data.paperId),
+          });
+          // 同上：详情页的 whiteboardRegenerating / defaultWhiteboard 都来自 getByShortId
+          queryClient.invalidateQueries({
+            queryKey: trpc.paper.getByShortId.queryKey(),
           });
           queryClient.invalidateQueries({
             queryKey: trpc.paper.listWhiteboards.queryKey(data.paperId),

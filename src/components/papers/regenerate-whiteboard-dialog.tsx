@@ -239,6 +239,11 @@ export function RegenerateWhiteboardDialog({
         queryClient.invalidateQueries({
           queryKey: trpc.paper.getById.queryKey(paperId),
         });
+        // 详情页的「生成中」反馈来自 getByShortId.paper.whiteboardRegenerating，
+        // 不在这里失效就要等到下一次 SSE 才有反馈，按钮期间还能重复点击（重复扣分）。
+        queryClient.invalidateQueries({
+          queryKey: trpc.paper.getByShortId.queryKey(),
+        });
         queryClient.invalidateQueries({
           queryKey: trpc.paper.listWhiteboards.queryKey(paperId),
         });
