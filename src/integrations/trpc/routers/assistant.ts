@@ -42,8 +42,10 @@ async function loadMyConversation(
 }
 
 // review-guest 豁免（同 chatRouter 的理由，见 src/integrations/trpc/routers/chat.ts 顶部注释）：
-// 会话 CRUD 是 agent 聊天的前置，禁写会让演示模式下 assistant 完全不可用；滥用由限流兜底。
-// 唯一例外是 updateProfile：guest 是共享账号，档案会互相污染，保持只读。
+// 会话 CRUD 是 agent 聊天的前置，禁写会让演示模式下 assistant 完全不可用。建会话本身
+// 不受限流（限流只作用于发消息），但一个空会话不产生任何模型开销，没有实际滥用面。
+// 唯一例外是 updateProfile：guest 只读态下（isReviewGuestReadOnlySession）禁写，
+// 否则共享账号的档案会被所有访客互相污染。
 export const assistantRouter = router({
   listConversations: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db

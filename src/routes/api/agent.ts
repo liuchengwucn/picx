@@ -36,7 +36,7 @@ import type { ChatErrorCode } from "#/lib/chat-errors";
 import {
   getReviewGuestServerSession,
   isReviewGuestModeEnabled,
-  isReviewGuestSession,
+  isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
 
 /**
@@ -214,7 +214,8 @@ async function handler({ request }: { request: Request }) {
       bucket: appEnv.PAPERS_BUCKET,
       userId,
       locale,
-      isGuest: isReviewGuestSession(session),
+      // 与 tRPC updateProfile 同一口径：mutations 开关打开时 guest 也可写档案
+      isGuest: isReviewGuestReadOnlySession(session),
     }),
     ...(webSearch
       ? {

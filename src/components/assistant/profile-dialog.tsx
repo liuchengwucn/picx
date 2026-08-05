@@ -14,6 +14,12 @@ import {
   DialogTrigger,
 } from "#/components/ui/dialog";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient } from "#/lib/auth-client";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+  isReviewGuestReadOnlySession,
+} from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -29,6 +35,12 @@ const COUNTER_VISIBLE_FROM = Math.floor(PROFILE_MAX_CHARS * 0.9);
 export function ProfileDialog() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  // 演示 guest 是共享账号，档案禁写（同 tRPC updateProfile 的口径）：读得到、存不了
+  const { data: session } = authClient.useSession();
+  const isReadOnlyGuest = isReviewGuestReadOnlySession(
+    session ??
+      (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null),
+  );
 
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState("");
@@ -140,7 +152,10 @@ export function ProfileDialog() {
             onClick={() => updateMutation.mutate({ content })}
             // 没改过就没什么可存的，别让用户白花一次写库
             disabled={
-              !seeded || updateMutation.isPending || content === baseline
+              !seeded ||
+              updateMutation.isPending ||
+              content === baseline ||
+              isReadOnlyGuest
             }
           >
             {updateMutation.isPending && (
