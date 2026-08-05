@@ -24,6 +24,7 @@ import {
 } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
+import { canonicalArxivUrl } from "#/lib/arxiv";
 import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { submitIndexNow } from "#/lib/indexnow";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
@@ -177,6 +178,17 @@ export const paperRouter = router({
       assertGuestWriteAllowed(ctx.session);
       let paper: typeof papers.$inferSelect;
 
+      /**
+       * arXiv 分支一律按 canonical 形式（https://arxiv.org/abs/{id}）落库。
+       * http/https、abs/pdf、版本号 vN 的差异会把同一篇论文写成两条不同的
+       * source_url（见 lib/arxiv.ts 顶部约定），既让下面的去重失效，也让助手
+       * 卡片的 inLibrary 判定出现假阴性。
+       */
+      const arxivUrl =
+        input.sourceType === "arxiv" && input.arxivUrl
+          ? canonicalArxivUrl(input.arxivUrl)
+          : input.arxivUrl;
+
       // D1 不支持事务，所以直接执行操作
       // 注意：这不是原子的，但 D1 的限制
       try {
@@ -192,6 +204,37 @@ export const paperRouter = router({
             code: "FORBIDDEN",
             message: "Invalid r2Key",
           });
+        }
+
+        // 同一用户重复入库同一篇 arXiv（刷新页面、翻历史消息后又点了一次「加入」）
+        // 直接返回已有那条：不扣积分、不建新行、不投队列。
+        // D1 无事务，「先查后扣」之间仍有并发窗口——客户端已按论文挡住同一处的
+        // 连点，跨端同时点同一篇的概率极小，接受双建。
+        if (input.sourceType === "arxiv" && arxivUrl) {
+          const [existing] = await ctx.db
+            .select({
+              id: papers.id,
+              status: papers.status,
+              shortId: papers.shortId,
+            })
+            .from(papers)
+            .where(
+              and(
+                eq(papers.userId, userId),
+                eq(papers.sourceUrl, arxivUrl),
+                isNull(papers.deletedAt),
+              ),
+            )
+            .limit(1);
+
+          if (existing) {
+            return {
+              paperId: existing.id,
+              status: existing.status,
+              shortId: existing.shortId,
+              alreadyExists: true,
+            };
+          }
         }
 
         if (input.apiConfigId) {
@@ -262,7 +305,7 @@ export const paperRouter = router({
             userId: userId,
             title: input.filename,
             sourceType: input.sourceType,
-            sourceUrl: input.arxivUrl,
+            sourceUrl: arxivUrl,
             pdfR2Key: input.r2Key,
             fileSize: input.fileSize,
             status: "pending",
@@ -315,7 +358,8 @@ export const paperRouter = router({
           paperId: paper.id,
           userId: ctx.session.user.id,
           sourceType: input.sourceType,
-          arxivUrl: input.arxivUrl,
+          // 与落库的 source_url 同一个值；consumer 认 abs 形式（arxiv-cron 一直这么投）
+          arxivUrl,
           r2Key: input.r2Key,
           language: queueLanguage,
           whiteboardLanguage: queueWhiteboardLanguage,
@@ -357,7 +401,12 @@ export const paperRouter = router({
         });
       }
 
-      return { paperId: paper.id, status: paper.status };
+      return {
+        paperId: paper.id,
+        status: paper.status,
+        shortId: paper.shortId,
+        alreadyExists: false,
+      };
     }),
 
   /**
