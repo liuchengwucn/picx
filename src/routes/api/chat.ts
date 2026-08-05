@@ -61,16 +61,30 @@ const bodySchema = z.object({
 });
 
 /**
- * 落库前剥掉工具 part 的 `output`。readPaper 单次输出可达 ~190KB，存进 D1 后
- * 没有任何读者：前端只用 type/state/toolCallId 渲染那行「已读论文」状态，重放给
- * 模型时也只保留 text part。留着它等于每行几十上百 KB 死数据，还会把
- * chat.getMessages 的响应注水到 MB 级。
- * reasoning part 刻意不剥：历史回显要折叠展示思考过程。
+ * 落库前清洗助手消息的 parts：
+ * - 工具 part 剥掉 `output`。readPaper 单次输出可达 ~190KB，存进 D1 后没有任何
+ *   读者：前端只用 type/state/toolCallId 渲染那行「已读论文」状态，重放给模型时
+ *   也只保留 text part。留着它等于每行几十上百 KB 死数据，还会把
+ *   chat.getMessages 的响应注水到 MB 级。
+ * - tool-web_search 连 `input` 一起剥：server tool 的 input 就是完整搜索结果
+ *   （provider 的 inputSchema 是 {results}），同样内容已以 source part 另存。
+ * - reasoning part 保留文本（历史回显要折叠展示思考过程），但把 streaming 态
+ *   归一成 done：流在 reasoning-end 前中断时 state 会停在 streaming，原样落库
+ *   的话历史回显永远显示转圈并强制展开。
  */
-function stripToolOutput(parts: UIMessage["parts"]): unknown[] {
+function sanitizePartsForStorage(parts: UIMessage["parts"]): unknown[] {
   return parts.map((part) => {
+    if (part.type === "reasoning" && part.state === "streaming") {
+      return { ...part, state: "done" };
+    }
     if (!isToolUIPart(part)) return part;
     const { output: _output, ...rest } = part as { output?: unknown };
+    if (part.type === "tool-web_search") {
+      const { input: _input, ...restWithoutInput } = rest as {
+        input?: unknown;
+      };
+      return restWithoutInput;
+    }
     return rest;
   });
 }
@@ -269,7 +283,7 @@ async function handler({ request }: { request: Request }) {
           sessionId,
           userId,
           role: "assistant",
-          parts: stripToolOutput(responseMessage.parts),
+          parts: sanitizePartsForStorage(responseMessage.parts),
         });
         await db
           .update(chatSessions)

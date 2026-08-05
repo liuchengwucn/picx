@@ -74,15 +74,25 @@ const REASONING_EFFORTS: readonly ChatReasoningEffort[] = [
 /** 默认开：搜索是 agentic 的（模型自主决定调不调），常开的成本可控 */
 function loadStoredWebSearch(): boolean {
   if (typeof window === "undefined") return true;
-  return window.localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== "0";
+  try {
+    return window.localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== "0";
+  } catch {
+    // Chrome「阻止所有 cookie」下访问 localStorage 本身就抛 SecurityError
+    return true;
+  }
 }
 
 /** 默认关：多数提问不值得为思考 token 买单 */
 function loadStoredReasoningEffort(): ChatReasoningEffort {
   if (typeof window === "undefined") return "off";
-  const raw = window.localStorage.getItem(REASONING_STORAGE_KEY);
-  const known = REASONING_EFFORTS.find((effort) => effort === raw);
-  return known ?? "off";
+  try {
+    const raw = window.localStorage.getItem(REASONING_STORAGE_KEY);
+    const known = REASONING_EFFORTS.find((effort) => effort === raw);
+    return known ?? "off";
+  } catch {
+    // 同 loadStoredWebSearch：读不了就用默认值
+    return "off";
+  }
 }
 
 function persistSetting(key: string, value: string) {

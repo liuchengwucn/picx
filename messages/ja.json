@@ -401,7 +401,7 @@
   "chat_reasoning_done": "思考プロセス",
   "chat_web_search": "ウェブ検索",
   "chat_web_search_hint": "論文だけで足りないときにウェブを検索させる",
-  "chat_reasoning_label": "思考の強さ",
+  "chat_reasoning_label": "思考の深さ",
   "chat_reasoning_off": "オフ",
   "chat_reasoning_low": "低",
   "chat_reasoning_medium": "中",
