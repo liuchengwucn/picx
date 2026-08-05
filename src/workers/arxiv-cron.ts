@@ -235,6 +235,7 @@ async function createPaperIfNotExists(
     sourceType: "arxiv",
     arxivUrl: arxivUrl,
     extraLanguages: ["zh-cn", "zh-tw", "ja"],
+    generateWhiteboard: true,
   });
 
   console.log(`[ArxivCron] Created paper ${paperId}: ${title}`);

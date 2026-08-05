@@ -162,12 +162,13 @@ export const paperRouter = router({
           .number()
           .int()
           .min(0) // Allow 0 for arxiv (will be updated after download)
-          .max(50 * 1024 * 1024), // 50MB
+          .max(100 * 1024 * 1024), // 100MB
         r2Key: z.string().min(1),
         language: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(), // 摘要语言
         whiteboardLanguage: z.enum(["en", "zh-cn", "zh-tw", "ja"]).optional(), // 白板图语言
         apiConfigId: z.string().uuid().optional(), // 用户提供的 API 配置
         promptId: z.string().uuid().optional(), // 用户提供的 Prompt 模板
+        generateWhiteboard: z.boolean().optional().default(false), // 是否生成白板图（收费项）
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -220,9 +221,9 @@ export const paperRouter = router({
           }
         }
 
-        // 如果提供了 apiConfigId，使用用户 API，不扣除 credit
-        // 如果没有提供，使用系统 API，扣除 credit
-        if (!input.apiConfigId) {
+        // 解析 + 总结免费；仅生成 whiteboard 且未用 BYOK 时扣 1 credit
+        const charged = input.generateWhiteboard && !input.apiConfigId;
+        if (charged) {
           // 先扣除积分，使用条件更新确保积分足够
           const [updatedUser] = await ctx.db
             .update(user)
@@ -257,13 +258,13 @@ export const paperRouter = router({
           .returning();
 
         // 只有在扣除了 credit 的情况下才记录积分交易
-        if (!input.apiConfigId) {
+        if (charged) {
           await ctx.db.insert(creditTransactions).values({
             userId: userId,
             amount: -1,
             type: "consume",
             relatedPaperId: newPaper.id,
-            description: "Paper processing",
+            description: "Whiteboard generation",
           });
         }
 
@@ -307,6 +308,7 @@ export const paperRouter = router({
           whiteboardLanguage: queueWhiteboardLanguage,
           apiConfigId: input.apiConfigId,
           promptId: input.promptId,
+          generateWhiteboard: input.generateWhiteboard,
         });
       } catch (error) {
         await ctx.db
@@ -316,6 +318,24 @@ export const paperRouter = router({
             errorMessage: "Queue dispatch failed",
           })
           .where(eq(papers.id, paper.id));
+
+        // 入队失败时，若这条消息本应扣费，需退款（不要引用 try 内的局部变量，直接重算条件）
+        if (input.generateWhiteboard && !input.apiConfigId) {
+          await ctx.db
+            .update(user)
+            .set({
+              credits: sql`${user.credits} + 1`,
+            })
+            .where(eq(user.id, ctx.session.user.id));
+
+          await ctx.db.insert(creditTransactions).values({
+            userId: ctx.session.user.id,
+            amount: 1,
+            type: "refund",
+            relatedPaperId: paper.id,
+            description: "Refund for failed queue dispatch",
+          });
+        }
 
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",

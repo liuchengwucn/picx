@@ -38,7 +38,7 @@ import {
   paperContentImageKey,
   paperContentMarkdownKey,
 } from "#/lib/paper-content";
-import { paperTextKey } from "#/lib/paper-text";
+import { loadPaperText, paperTextKey } from "#/lib/paper-text";
 import {
   downloadArxivPDF,
   extractPDFText,
@@ -1287,11 +1287,9 @@ async function processWhiteboardRegeneration(
     };
   }
 
-  // Step 1: 获取论文结果（用于获取 insights）
+  // Step 1: 获取论文结果（用于获取 insights；insights 为 NULL 时现场生成并回填）
   let whiteboardInsights: string;
   try {
-    log("load-results", `Loading paper results for paper ${msg.paperId}`);
-
     const [result] = await db
       .select()
       .from(paperResults)
@@ -1301,19 +1299,55 @@ async function processWhiteboardRegeneration(
     if (!result) {
       throw new Error(`Paper results not found for paper ${msg.paperId}`);
     }
-    if (!result.whiteboardInsights) {
-      // whiteboardInsights 可空后：未生成过 whiteboard 的论文没有基底可供 regenerate。
-      throw new Error(
-        `No whiteboard insights to regenerate for paper ${msg.paperId}`,
+
+    if (result.whiteboardInsights) {
+      whiteboardInsights = result.whiteboardInsights;
+      log(
+        "load-results",
+        `Loaded whiteboard insights (${whiteboardInsights.length} chars)`,
+      );
+    } else {
+      // whiteboard 可选化后，首次补生成时 insights 为 NULL：现场生成并回填。
+      log("load-results", "No insights on record, generating from paper text");
+      const paperText = await loadPaperText(env.PAPERS_BUCKET, msg.paperId);
+      if (!paperText) {
+        throw new Error("Paper text not found in R2, cannot generate insights");
+      }
+      whiteboardInsights = await generateWhiteboardInsights(
+        paperText,
+        aiConfig,
+      );
+      await db
+        .update(paperResults)
+        .set({ whiteboardInsights })
+        .where(eq(paperResults.paperId, msg.paperId));
+      log(
+        "load-results",
+        `Generated and saved insights (${whiteboardInsights.length} chars)`,
       );
     }
-
-    whiteboardInsights = result.whiteboardInsights;
-    log(
-      "load-results",
-      `Loaded whiteboard insights (${whiteboardInsights.length} chars)`,
-    );
   } catch (error) {
+    // 失败要退款（系统 API 时）+ 清 regenerating 标志：与 generate-image 失败路径同构
+    if (!usingUserApi) {
+      try {
+        await refundCredit(
+          msg.paperId,
+          msg.userId,
+          "Insights generation failed",
+          env,
+        );
+      } catch (refundError) {
+        logWarn("refund", "Failed to refund credit", refundError);
+      }
+    }
+    try {
+      await db
+        .update(papers)
+        .set({ whiteboardRegenerating: false, updatedAt: new Date() })
+        .where(eq(papers.id, msg.paperId));
+    } catch (statusError) {
+      logWarn("status", "Failed to clear regenerating status", statusError);
+    }
     throw new StepError("load-results", error);
   }
 
