@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import {
   AlertCircle,
+  BookOpen,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -37,6 +38,7 @@ import {
   PaperChat,
 } from "#/components/paper-chat";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
+import { PaperReaderView } from "#/components/papers/paper-reader-view";
 import { PublicBadge } from "#/components/papers/public-badge";
 import { RegenerateWhiteboardDialog } from "#/components/papers/regenerate-whiteboard-dialog";
 import { ShareBanner } from "#/components/papers/share-banner";
@@ -71,6 +73,7 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Skeleton } from "#/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
@@ -156,6 +159,10 @@ function buildScholarlyArticleJsonLd(input: {
 
 export const Route = createFileRoute("/p/$shortId")({
   component: PaperDetailPage,
+  // 只有 ?view=reader 是有效状态；总结视图不带参数，URL 保持干净（分享链接可直达原文视图）
+  validateSearch: (search: Record<string, unknown>): { view?: "reader" } => ({
+    view: search.view === "reader" ? "reader" : undefined,
+  }),
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR) {
       // SSR: fetch public paper detail content directly so crawlers receive
@@ -410,7 +417,8 @@ function normalizeMathMarkdown(markdown: string): string {
 
 const statusProgress: Record<string, number> = {
   pending: 10,
-  processing_text: 40,
+  parsing: 25,
+  processing_text: 45,
   processing_image: 70,
   completed: 100,
   failed: 0,
@@ -418,6 +426,7 @@ const statusProgress: Record<string, number> = {
 
 function PaperDetailPage() {
   const { shortId } = Route.useParams();
+  const { view } = Route.useSearch();
   const loaderData = Route.useLoaderData();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -481,6 +490,26 @@ function PaperDetailPage() {
   const startGitHubSignIn = useCallback(() => {
     void beginGitHubSignIn("/");
   }, []);
+
+  // 原文视图的登录墙：登录后回到这篇论文的原文视图，而不是首页
+  const startReaderSignIn = useCallback(() => {
+    void beginGitHubSignIn(`/p/${shortId}?view=reader`);
+  }, [shortId]);
+
+  const showView = useCallback(
+    (next: "summary" | "reader") => {
+      navigate({
+        to: "/p/$shortId",
+        params: { shortId },
+        search: (prev) => ({
+          ...prev,
+          view: next === "reader" ? ("reader" as const) : undefined,
+        }),
+        replace: true,
+      });
+    },
+    [navigate, shortId],
+  );
 
   const profile = useQuery({
     ...trpc.user.getProfile.queryOptions(),
@@ -588,6 +617,23 @@ function PaperDetailPage() {
     undefined;
 
   const isOwner = paper.userId === profile.data?.id;
+
+  // 原文只对处理完成的论文有意义；?view=reader 落在未完成论文上时静默退回总结视图。
+  const isReaderAvailable = paper.status === "completed";
+  const activeView: "summary" | "reader" =
+    view === "reader" && isReaderAvailable ? "reader" : "summary";
+  // 处理失败的论文既没有总结也不会有原文，不必给出切换控件。
+  const showViewSwitch = paper.status !== "failed";
+
+  // owner 的论文完成了却一张白板都没有（如上传时未勾选生成）——给一个显式入口，
+  // 而不是让白板区块凭空消失。非 owner 看不到任何白板区块。
+  const whiteboardCount =
+    whiteboardsData?.whiteboards.length ?? data.whiteboards.length;
+  const showWhiteboardCta =
+    isOwner &&
+    paper.status === "completed" &&
+    !whiteboardImageUrl &&
+    whiteboardCount === 0;
 
   // 访客语言选择：优先用页面当前语言，否则回退到 result.summaryLanguage
   const effectiveGuestLanguage = (() => {
@@ -807,7 +853,40 @@ function PaperDetailPage() {
               </div>
             </div>
 
-            {whiteboardImageUrl && (
+            {activeView === "summary" && showWhiteboardCta && (
+              <div className="paper-card p-6 text-center">
+                <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
+                  {m.paper_whiteboard()}
+                </h2>
+                <p className="mt-2 text-sm text-[var(--ink-soft)]">
+                  {m.paper_generate_whiteboard_hint()}
+                </p>
+                {paper.whiteboardRegenerating ? (
+                  <div className="mt-4 flex items-center justify-center gap-1.5 text-sm text-[var(--academic-brown)]">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {m.paper_whiteboard_regenerating()}
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4 gap-1.5"
+                    onClick={() => {
+                      if (isReadOnlyGuest) {
+                        startGitHubSignIn();
+                        return;
+                      }
+                      setIsRegenerateOpen(true);
+                    }}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {m.paper_generate_whiteboard()}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {activeView === "summary" && whiteboardImageUrl && (
               <div className="paper-card p-4 sm:p-5">
                 <div className="mb-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -909,7 +988,44 @@ function PaperDetailPage() {
           </aside>
 
           <section className="space-y-4 min-w-0">
-            {result ? (
+            {showViewSwitch && (
+              <Tabs
+                value={activeView}
+                onValueChange={(v) => showView(v as "summary" | "reader")}
+              >
+                <TabsList>
+                  <TabsTrigger value="summary">
+                    {m.paper_view_summary()}
+                  </TabsTrigger>
+                  <TabsTrigger value="reader" disabled={!isReaderAvailable}>
+                    {m.paper_view_reader()}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
+
+            {activeView === "reader" ? (
+              effectiveSession ? (
+                <PaperReaderView paperId={paper.id} />
+              ) : (
+                <div className="paper-card flex flex-col items-center justify-center p-12 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
+                    <BookOpen className="h-6 w-6 text-[var(--academic-brown)]" />
+                  </div>
+                  <p className="mt-4 text-sm text-[var(--ink-soft)]">
+                    {m.paper_reader_login_required()}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4"
+                    onClick={startReaderSignIn}
+                  >
+                    {m.auth_sign_in_github()}
+                  </Button>
+                </div>
+              )
+            ) : result ? (
               <Accordion type="single" collapsible defaultValue="summary">
                 <AccordionItem value="summary" className="paper-card px-6">
                   <div className="flex flex-wrap items-center justify-between gap-3 py-4">
@@ -1207,6 +1323,11 @@ function StatusBadge({ status }: { status: string }) {
       icon: Clock,
       className: "bg-[var(--neutral-light)] text-[var(--ink-soft)]",
     },
+    parsing: {
+      label: () => m.papers_status_parsing(),
+      icon: Loader2,
+      className: "bg-[var(--academic-brown)]/10 text-[var(--academic-brown)]",
+    },
     processing_text: {
       label: () => m.papers_status_processing_text(),
       icon: Loader2,
@@ -1230,7 +1351,7 @@ function StatusBadge({ status }: { status: string }) {
   };
   const c = configs[status] ?? configs.pending;
   const Icon = c.icon;
-  const isSpinning = status.startsWith("processing");
+  const isSpinning = status === "parsing" || status.startsWith("processing");
   return (
     <Badge variant="outline" className={`gap-1 ${c.className}`}>
       <Icon className={`h-3 w-3 ${isSpinning ? "animate-spin" : ""}`} />

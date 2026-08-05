@@ -6,6 +6,7 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNull,
   or,
   sql,
@@ -367,11 +368,15 @@ export const paperRouter = router({
       z.object({
         page: z.number().int().min(1).default(1),
         limit: z.number().int().min(1).max(100).default(20),
+        // "processing" 是列表页「处理中」标签的聚合值，展开成所有在途状态；
+        // 其余是具体状态，逐个精确匹配。
         status: z
           .enum([
             "pending",
+            "parsing",
             "processing_text",
             "processing_image",
+            "processing",
             "completed",
             "failed",
           ])
@@ -387,7 +392,15 @@ export const paperRouter = router({
         isNull(papers.deletedAt),
       ];
 
-      if (input.status) {
+      if (input.status === "processing") {
+        conditions.push(
+          inArray(papers.status, [
+            "parsing",
+            "processing_text",
+            "processing_image",
+          ]),
+        );
+      } else if (input.status) {
         conditions.push(eq(papers.status, input.status));
       }
 
