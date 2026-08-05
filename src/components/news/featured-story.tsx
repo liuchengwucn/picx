@@ -21,6 +21,9 @@ export function FeaturedStory({
     <article className="flex flex-col gap-3 border-b border-[var(--line)] pb-5 pt-2 sm:flex-row sm:gap-5">
       {leadImage ? (
         <img
+          // key 强制换图时重挂载:onError 的 display:none 是命令式内联样式,
+          // React 复用 DOM 节点时不会清除,会把上一张坏图的隐藏带给新图
+          key={leadImage.url}
           src={leadImage.url}
           alt=""
           loading={eager ? "eager" : "lazy"}

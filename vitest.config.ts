@@ -13,5 +13,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // .claude/worktrees 下的残留副本会让同名测试跑两遍（biome 已同样排除）
+    exclude: ["**/node_modules/**", "**/.claude/**"],
   },
 });
