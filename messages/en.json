@@ -169,7 +169,7 @@
   "paper_share_title": "Share Publicly",
   "paper_share_description": "Let other people access this paper, too.",
   "paper_share_button": "Share Publicly",
-  "paper_share_requirement": "Paper must be completed with whiteboard image before public sharing",
+  "paper_share_requirement": "Paper must finish processing before public sharing",
   "paper_shared_notice": "This paper is publicly shared",
   "paper_copy_link": "Copy Link",
   "paper_link_copied": "Link Copied",

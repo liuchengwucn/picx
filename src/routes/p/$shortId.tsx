@@ -693,11 +693,11 @@ function PaperDetailPage() {
               paperId={paper.id}
               shortId={paper.shortId ?? shortId}
               isPublic={paper.isPublic}
+              // 白板是可选产物：没有白板也能公开（上架画廊才要求白板，见
+              // paper.toggleGalleryListing）。生成中时先不放行，避免公开的瞬间
+              // 白板还在替换。
               canShare={
-                paper.status === "completed" &&
-                !paper.whiteboardRegenerating &&
-                (!!defaultWhiteboard?.imageR2Key ||
-                  !!whiteboardsData?.whiteboards?.length)
+                paper.status === "completed" && !paper.whiteboardRegenerating
               }
             />
           </div>

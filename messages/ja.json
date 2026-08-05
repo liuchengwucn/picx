@@ -168,7 +168,7 @@
   "paper_download_pdf": "PDF をダウンロード",
   "paper_share_description": "ほかの人もアクセスできるようにします。",
   "paper_share_button": "公開する",
-  "paper_share_requirement": "公開共有するには処理が完了し、ホワイトボード画像が生成されている必要があります",
+  "paper_share_requirement": "公開共有するには処理が完了している必要があります",
   "paper_shared_notice": "この論文は公開共有されています",
   "paper_copy_link": "リンクをコピー",
   "paper_link_copied": "リンクをコピーしました",

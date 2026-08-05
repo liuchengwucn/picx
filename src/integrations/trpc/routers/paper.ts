@@ -840,7 +840,9 @@ export const paperRouter = router({
 
   /**
    * Toggle paper public status
-   * Only owner can toggle, and paper must be completed with whiteboard
+   * Only owner can toggle, and paper must be completed.
+   * 白板是可选产物，公开分享不再以它为前提（上架画廊仍然要求，见
+   * toggleGalleryListing）。
    */
   togglePublic: protectedProcedure
     .input(z.object({ paperId: z.string().uuid() }))
@@ -873,20 +875,6 @@ export const paperRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Paper must be completed before sharing",
-        });
-      }
-
-      // Check if whiteboard image exists
-      const [whiteboard] = await ctx.db
-        .select()
-        .from(whiteboardImages)
-        .where(eq(whiteboardImages.paperId, input.paperId))
-        .limit(1);
-
-      if (!whiteboard) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Paper must have whiteboard image before sharing",
         });
       }
 

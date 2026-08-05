@@ -168,7 +168,7 @@
   "paper_download_pdf": "下載 PDF",
   "paper_share_description": "讓其他人也可以存取",
   "paper_share_button": "公開論文",
-  "paper_share_requirement": "需要完成處理並生成白板圖後才能公開分享",
+  "paper_share_requirement": "需要完成處理後才能公開分享",
   "paper_shared_notice": "此論文已公開分享",
   "paper_copy_link": "複製連結",
   "paper_link_copied": "連結已複製",
