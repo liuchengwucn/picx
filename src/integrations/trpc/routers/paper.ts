@@ -1548,10 +1548,18 @@ export const paperRouter = router({
       // 入队成功后立刻置标志（消费者稍后也会置，但那要等它被调度）：调用方 onSuccess
       // 失效查询时就能读到「生成中」，按钮/入口当场收起，关掉重复提交的窗口。
       // 放在 catch 之后 —— 入队失败已退款，不能留下永远清不掉的标志。
-      await ctx.db
-        .update(papers)
-        .set({ whiteboardRegenerating: true, updatedAt: new Date() })
-        .where(eq(papers.id, input.paperId));
+      // 纯优化，写失败也不能连累已扣费已入队的这次请求：吞掉异常，退回消费者 Step 0 置位。
+      try {
+        await ctx.db
+          .update(papers)
+          .set({ whiteboardRegenerating: true, updatedAt: new Date() })
+          .where(eq(papers.id, input.paperId));
+      } catch (error) {
+        console.warn(
+          `[regenerateWhiteboard:${input.paperId}] Failed to mark whiteboard as regenerating`,
+          error,
+        );
+      }
 
       return { success: true };
     }),
