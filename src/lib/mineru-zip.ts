@@ -43,6 +43,14 @@ export function basename(path: string): string {
   return slash === -1 ? path : path.slice(slash + 1);
 }
 
+/**
+ * storedName 会同时进入 R2 key 与 markdown 图片引用，空格/括号等字符会破坏
+ * `![](images/x.png)` 的往返解析。MinerU 的图片名通常是 hash，此处只是防御。
+ */
+function sanitizeStoredBasename(base: string): string {
+  return base.replace(/[^\w.-]+/g, "_");
+}
+
 function extractTitle(markdown: string): string | null {
   const match = markdown.match(/^#\s+(.+)$/m);
   if (!match) {
@@ -55,7 +63,10 @@ function extractTitle(markdown: string): string | null {
 export interface MineruZipImage {
   /** zip 内完整条目路径（如 `sub/images/a.jpg`）。 */
   entryName: string;
-  /** 去目录、去冲突后的存储名。basename 唯一时即 basename，否则 `${序号}-${basename}`。 */
+  /**
+   * 去目录、清洗非安全字符、去冲突后的存储名。
+   * 清洗后的 basename 唯一时即该 basename，否则 `${序号}-${basename}`。
+   */
   storedName: string;
   mime: string;
   bytes: Uint8Array;
@@ -91,15 +102,16 @@ export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
     (name) => isImagePath(name) && MIME_BY_EXT[getExtension(name)],
   );
 
-  // basename 冲突计数，决定 storedName。
+  // basename 冲突计数，决定 storedName。先清洗再计数：清洗本身也可能制造冲突
+  // （`a b.png` 与 `a_b.png` 清洗后同名），必须一并计入。
   const basenameCount = new Map<string, number>();
   for (const name of imageNames) {
-    const base = basename(name);
+    const base = sanitizeStoredBasename(basename(name));
     basenameCount.set(base, (basenameCount.get(base) ?? 0) + 1);
   }
 
   const images: MineruZipImage[] = imageNames.map((name, i) => {
-    const base = basename(name);
+    const base = sanitizeStoredBasename(basename(name));
     return {
       entryName: name,
       storedName: (basenameCount.get(base) ?? 0) > 1 ? `${i}-${base}` : base,

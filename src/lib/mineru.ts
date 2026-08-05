@@ -1,7 +1,7 @@
 /**
  * MinerU 标准 API 客户端（PDF → markdown 解析）。
  *
- * 仅依赖 fetch + token，便于单元测试。zip 处理在 reader-render.ts 中完成。
+ * 仅依赖 fetch + token，便于单元测试。zip 处理在 mineru-zip.ts 中完成。
  * 文档：https://mineru.net/api/v4
  */
 

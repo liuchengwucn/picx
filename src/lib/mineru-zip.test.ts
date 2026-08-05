@@ -103,6 +103,35 @@ describe("parseMineruZip", () => {
     expect(new Set(images.map((img) => img.storedName)).size).toBe(2);
   });
 
+  it("sanitizes unsafe characters in storedName while keeping entryName intact", () => {
+    const zip = zipSync({
+      "full.md": strToU8("# T\n"),
+      "images/fig 1 (final).png": MINIMAL_PNG,
+    });
+
+    const { images } = parseMineruZip(zip);
+
+    expect(images).toHaveLength(1);
+    expect(images[0].storedName).toBe("fig_1_final_.png");
+    expect(images[0].entryName).toBe("images/fig 1 (final).png");
+  });
+
+  it("counts conflicts after sanitizing so distinct entries never collide", () => {
+    const zip = zipSync({
+      "full.md": strToU8("# T\n"),
+      "dir1/a b.png": MINIMAL_PNG,
+      "dir2/a_b.png": MINIMAL_PNG,
+    });
+
+    const { images } = parseMineruZip(zip);
+
+    expect(images).toHaveLength(2);
+    for (const img of images) {
+      expect(img.storedName).toMatch(/^\d+-a_b\.png$/);
+    }
+    expect(new Set(images.map((img) => img.storedName)).size).toBe(2);
+  });
+
   it("ignores non-image entries", () => {
     const zip = zipSync({
       "full.md": strToU8("# T\n"),

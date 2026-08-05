@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   creditTransactions,
+  paperContents,
   paperResults,
   papers,
   user,
@@ -22,16 +23,40 @@ import {
   translateTldr,
 } from "#/lib/ai";
 import { decrypt } from "#/lib/crypto";
+import type { MineruResult } from "#/lib/mineru";
+import { createBatch, getBatchResult } from "#/lib/mineru";
+import {
+  buildImageResolver,
+  parseMineruZip,
+  rewriteImageRefs,
+} from "#/lib/mineru-zip";
+import {
+  buildPseudoPages,
+  markdownImagePath,
+  markdownToPlainText,
+  paperContentImageKey,
+  paperContentMarkdownKey,
+} from "#/lib/paper-content";
 import { paperTextKey } from "#/lib/paper-text";
-import { downloadArxivPDF, extractPDFText, PDFPageLimitError } from "#/lib/pdf";
+import {
+  downloadArxivPDF,
+  extractPDFText,
+  PDFPageLimitError,
+  trimPaperTail,
+} from "#/lib/pdf";
 import type { Env } from "#/types/env";
 
 type PaperStatus =
   | "pending"
+  | "parsing"
   | "processing_text"
   | "processing_image"
   | "completed"
   | "failed";
+
+type PaperRow = typeof papers.$inferSelect;
+type LogFn = (step: string, message: string) => void;
+type LogWarnFn = (step: string, message: string, error?: unknown) => void;
 
 // 队列消息契约统一在 #/integrations/trpc/init 的 PaperQueueMessage（生产端与消费端共用）
 
@@ -45,6 +70,12 @@ const TLDR_RETRIES = 5;
 // 分类同样是「非关键步骤」(失败回退 ["other"]),但缺重试时一次瞬时
 // API 抖动/截断就会把论文永久误分类成 other。给它和 tldr 同等的重试兜底。
 const CLASSIFY_RETRIES = 3;
+
+// MinerU 编排参数：短轮询预算内多数论文可完成；未完成转延迟消息；总超时回退 pdfjs。
+const MINERU_SYNC_POLL_INTERVAL_MS = 10_000;
+const MINERU_SYNC_POLL_BUDGET_MS = 90_000;
+const MINERU_POLL_DELAY_SECONDS = 45;
+const MINERU_TOTAL_TIMEOUT_MS = 20 * 60 * 1000;
 
 /**
  * 通用重试: 指数退避 + 抖动。最多重试 `retries` 次(共 retries+1 次尝试)。
@@ -109,18 +140,24 @@ export default {
           continue;
         }
 
-        // 最后一次重试也失败了，或者是不可重试的错误 → 标记 failed 并返还 credit
+        // 最后一次重试也失败了，或者是不可重试的错误 → 标记 failed 并（按需）返还 credit
         if (attempt >= MAX_RETRIES || !isRetryableError(error)) {
           const reason =
             attempt >= MAX_RETRIES
               ? `Exhausted ${MAX_RETRIES} retries. Last error: ${errorDetail}`
               : errorDetail;
-          await markPaperFailedAndRefund(
-            paperId,
-            message.body.userId,
-            reason,
-            env,
-          );
+          if (type === "regenerate_whiteboard") {
+            // regenerate 的扣费与 generateWhiteboard 无关（除 BYOK 外总是扣费），
+            // 沿用原有退款路径，本次改动不触碰。
+            await markPaperFailedAndRefund(
+              paperId,
+              message.body.userId,
+              reason,
+              env,
+            );
+          } else {
+            await markPaperFailedForMessage(paperId, message.body, reason, env);
+          }
           message.ack();
         } else {
           console.log(
@@ -144,18 +181,19 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   // 幂等守卫: Cloudflare Queues 是 at-least-once 投递, 同一条 initial 消息可能被重投。
   // 若该论文(按本条消息的 paperId, 不看 source_url / 是否在 gallery, 避免与私有论文混淆)
   // 已处理完成, 直接跳过, 既不重复写 paper_results / 白板, 也省掉 LLM 与出图开销。
-  const [existingPaper] = await db
-    .select({ status: papers.status })
+  // 取整行：MinerU 编排还需要 mineruBatchId（防重复提交）与 pdfR2Key（回退取 PDF）。
+  const [paperRow] = await db
+    .select()
     .from(papers)
     .where(eq(papers.id, msg.paperId))
     .limit(1);
 
-  if (!existingPaper) {
+  if (!paperRow) {
     log("idempotency", "Paper not found, skipping");
     return;
   }
 
-  if (existingPaper.status === "completed") {
+  if (paperRow.status === "completed") {
     log("idempotency", "Paper already completed, skipping duplicate delivery");
     return;
   }
@@ -223,10 +261,10 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     };
   }
 
-  // Step 0.5: 读取自定义 Prompt 模板（如果提供）
+  // Step 0.5: 读取自定义 Prompt 模板（如果提供；仅出白板时才需要）
   let customPromptTemplate: string | undefined;
 
-  if (msg.promptId) {
+  if (msg.generateWhiteboard === true && msg.promptId) {
     try {
       log("load-prompt", `Loading custom prompt template: ${msg.promptId}`);
 
@@ -259,100 +297,92 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     }
   }
 
-  // Step 1: 获取 PDF
-  let pdfBuffer: ArrayBuffer;
+  // Step 1 + 2: 正文提取。MinerU 为主路径（异步，状态机编排），任何失败/超时回退 pdfjs。
+  let extraction: ExtractionOutcome | null;
   let r2Key = msg.r2Key;
 
-  try {
-    if (!msg.sourceType) {
-      throw new Error("sourceType is required for initial processing");
+  if (msg.type === "mineru_poll") {
+    extraction = await resolveMineruPoll(
+      msg,
+      paperRow,
+      aiConfig,
+      env,
+      log,
+      logWarn,
+    );
+  } else {
+    // Step 1: 获取 PDF
+    let pdfBuffer: ArrayBuffer;
+
+    try {
+      if (!msg.sourceType) {
+        throw new Error("sourceType is required for initial processing");
+      }
+
+      if (msg.sourceType === "arxiv") {
+        if (!msg.arxivUrl) {
+          throw new Error("arxivUrl is required for arxiv source type");
+        }
+        log("fetch-pdf", `Downloading arXiv PDF from ${msg.arxivUrl}`);
+        pdfBuffer = await downloadArxivPDF(msg.arxivUrl);
+        log("fetch-pdf", `Downloaded ${pdfBuffer.byteLength} bytes`);
+
+        // 上传到 R2
+        r2Key = `papers/${msg.userId}/${Date.now()}-arxiv-${msg.paperId}.pdf`;
+        await env.PAPERS_BUCKET.put(r2Key, pdfBuffer);
+
+        // 更新数据库中的 r2Key 和 fileSize
+        await db
+          .update(papers)
+          .set({
+            pdfR2Key: r2Key,
+            fileSize: pdfBuffer.byteLength,
+          })
+          .where(eq(papers.id, msg.paperId));
+      } else {
+        if (!r2Key) {
+          throw new Error("r2Key is required for upload source type");
+        }
+        log("fetch-pdf", `Reading from R2: ${r2Key}`);
+        const object = await env.PAPERS_BUCKET.get(r2Key);
+        if (!object) {
+          throw new Error(`PDF file not found in R2: ${r2Key}`);
+        }
+        pdfBuffer = await object.arrayBuffer();
+        log("fetch-pdf", `Read ${pdfBuffer.byteLength} bytes from R2`);
+      }
+    } catch (error) {
+      throw new StepError("fetch-pdf", error);
     }
 
-    if (msg.sourceType === "arxiv") {
-      if (!msg.arxivUrl) {
-        throw new Error("arxivUrl is required for arxiv source type");
-      }
-      log("fetch-pdf", `Downloading arXiv PDF from ${msg.arxivUrl}`);
-      pdfBuffer = await downloadArxivPDF(msg.arxivUrl);
-      log("fetch-pdf", `Downloaded ${pdfBuffer.byteLength} bytes`);
-
-      // 上传到 R2
-      r2Key = `papers/${msg.userId}/${Date.now()}-arxiv-${msg.paperId}.pdf`;
-      await env.PAPERS_BUCKET.put(r2Key, pdfBuffer);
-
-      // 更新数据库中的 r2Key 和 fileSize
-      await db
-        .update(papers)
-        .set({
-          pdfR2Key: r2Key,
-          fileSize: pdfBuffer.byteLength,
-        })
-        .where(eq(papers.id, msg.paperId));
-    } else {
-      if (!r2Key) {
-        throw new Error("r2Key is required for upload source type");
-      }
-      log("fetch-pdf", `Reading from R2: ${r2Key}`);
-      const object = await env.PAPERS_BUCKET.get(r2Key);
-      if (!object) {
-        throw new Error(`PDF file not found in R2: ${r2Key}`);
-      }
-      pdfBuffer = await object.arrayBuffer();
-      log("fetch-pdf", `Read ${pdfBuffer.byteLength} bytes from R2`);
-    }
-  } catch (error) {
-    throw new StepError("fetch-pdf", error);
+    // Step 2: 提交 MinerU 并短轮询（超预算转延迟消息，失败回退 pdfjs）
+    extraction = await mineruSubmitAndWait(
+      msg,
+      paperRow,
+      pdfBuffer,
+      r2Key,
+      aiConfig,
+      env,
+      log,
+      logWarn,
+    );
   }
 
-  // Step 2: 提取文本
+  // null 表示已投递延迟 poll 消息，本条消息到此正常结束（ack）。
+  if (!extraction) {
+    return;
+  }
+
+  const { pageCount, rawText, text, pdfMetadataTitle } = extraction;
+
   await updatePaperStatus(msg.paperId, "processing_text", null, env);
-  let pageCount: number;
-  let rawText: string;
-  let text: string;
-  let pdfMetadataTitle: string | undefined;
 
+  // 全文落盘 R2，供论文 chatbot 随取随用。失败不阻断主流程。
   try {
-    log(
-      "extract-text",
-      `Extracting text from PDF (${pdfBuffer.byteLength} bytes)`,
-    );
-    const result = await extractPDFText(pdfBuffer, 150, aiConfig); // 限制 150 页
-    pageCount = result.pageCount;
-    rawText = result.rawText;
-    text = result.mainText;
-    pdfMetadataTitle = result.title;
-    log(
-      "extract-text",
-      `Extracted ${rawText.length} chars from ${pageCount} pages, kept ${text.length} chars for downstream processing`,
-    );
-
-    if (result.tailTrim.applied) {
-      log(
-        "trim-paper-tail",
-        `Trimmed paper tail from page ${result.tailTrim.cutFromPage || "unknown"} with confidence ${result.tailTrim.confidence ?? 0}`,
-      );
-    }
-
-    if (!text || text.trim().length === 0) {
-      throw new Error("Extracted text is empty");
-    }
-
-    // 全文落盘 R2，供论文 chatbot 随取随用。失败不阻断主流程。
-    try {
-      await env.PAPERS_BUCKET.put(paperTextKey(msg.paperId), rawText);
-      log("persist-text", `Persisted ${rawText.length} chars to R2`);
-    } catch (persistError) {
-      logWarn("persist-text", "Persist to R2 failed (non-fatal)", persistError);
-    }
-  } catch (error) {
-    // 如果是页数超限错误，返还 credit 并标记失败
-    if (error instanceof PDFPageLimitError) {
-      const errorMsg = `PDF has ${error.pageCount} pages, exceeding the limit of ${error.maxPages} pages`;
-      log("extract-text", `Page limit exceeded: ${errorMsg}`);
-      await markPaperFailedAndRefund(msg.paperId, msg.userId, errorMsg, env);
-      throw new StepError("extract-text", error);
-    }
-    throw new StepError("extract-text", error);
+    await env.PAPERS_BUCKET.put(paperTextKey(msg.paperId), rawText);
+    log("persist-text", `Persisted ${rawText.length} chars to R2`);
+  } catch (persistError) {
+    logWarn("persist-text", "Persist to R2 failed (non-fatal)", persistError);
   }
 
   // Step 3: 提取标题
@@ -409,20 +439,23 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     }
   }
 
-  // 更新标题和页数
+  // 更新标题和页数（MinerU 未返回页数时不覆盖库里已有值）
   await db
     .update(papers)
     .set({
       title: paperTitle,
-      pageCount,
+      ...(pageCount != null ? { pageCount } : {}),
     })
     .where(eq(papers.id, msg.paperId));
 
   // Step 4: 生成总结和白板洞察（并行执行）
   const language: "en" | "zh-cn" | "zh-tw" | "ja" = msg.language || "en";
 
+  // 是否出白板由生产端决定（用户上传默认不出图，cron 传 true）
+  const wantWhiteboard = msg.generateWhiteboard === true;
+
   let summary: string;
-  let whiteboardInsights: string;
+  let whiteboardInsights: string | null = null;
   let classification: { categories: string[]; tags: string[] } = {
     categories: ["other"],
     tags: [],
@@ -430,35 +463,44 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   try {
     log(
       "generate-summary-and-whiteboard",
-      `Generating summary and whiteboard insights in parallel (text: ${text.length} chars, lang: ${language})`,
+      `Generating summary${wantWhiteboard ? " and whiteboard insights" : ""} in parallel (text: ${text.length} chars, lang: ${language})`,
     );
 
-    // 并行执行摘要生成和白板洞察生成
-    [summary, whiteboardInsights, classification] = await Promise.all([
-      generateSummary(text, aiConfig, language),
-      generateWhiteboardInsights(text, aiConfig),
-      // 分类失败不应中断整篇处理:重试兜稳瞬时抖动,重试耗尽才回退 ["other"]。
-      withRetry(() => classifyPaper(text, aiConfig), {
-        retries: CLASSIFY_RETRIES,
-        onRetry: (attempt, error) =>
-          log(
-            "classify",
-            `Classification retry ${attempt}/${CLASSIFY_RETRIES}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          ),
-      }).catch((error) => {
-        console.error(
-          `Classification failed after ${CLASSIFY_RETRIES} retries, defaulting to ["other"]:`,
-          error,
-        );
-        return { categories: ["other"], tags: [] };
-      }),
-    ]);
+    // 分类失败不应中断整篇处理:重试兜稳瞬时抖动,重试耗尽才回退 ["other"]。
+    const classifyTask = withRetry(() => classifyPaper(text, aiConfig), {
+      retries: CLASSIFY_RETRIES,
+      onRetry: (attempt, error) =>
+        log(
+          "classify",
+          `Classification retry ${attempt}/${CLASSIFY_RETRIES}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        ),
+    }).catch((error) => {
+      console.error(
+        `Classification failed after ${CLASSIFY_RETRIES} retries, defaulting to ["other"]:`,
+        error,
+      );
+      return { categories: ["other"], tags: [] };
+    });
+
+    if (wantWhiteboard) {
+      // 并行执行摘要生成和白板洞察生成
+      [summary, whiteboardInsights, classification] = await Promise.all([
+        generateSummary(text, aiConfig, language),
+        generateWhiteboardInsights(text, aiConfig),
+        classifyTask,
+      ]);
+    } else {
+      [summary, classification] = await Promise.all([
+        generateSummary(text, aiConfig, language),
+        classifyTask,
+      ]);
+    }
 
     log(
       "generate-summary-and-whiteboard",
-      `Summary (${summary.length} chars) and whiteboard insights (${whiteboardInsights.length} chars) generated`,
+      `Summary (${summary.length} chars)${whiteboardInsights ? ` and whiteboard insights (${whiteboardInsights.length} chars)` : ""} generated`,
     );
   } catch (error) {
     const stepName =
@@ -568,31 +610,37 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     tldr = undefined;
   }
 
-  // Step 5: 生成白板图片
-  await updatePaperStatus(msg.paperId, "processing_image", null, env);
-  let imageData: ArrayBuffer;
-  try {
-    log(
-      "generate-image",
-      `Generating whiteboard image (model: ${aiConfig.geminiModel || "default"}, baseUrl: ${aiConfig.geminiBaseUrl || "default"})`,
-    );
-    const whiteboardLang = msg.whiteboardLanguage || "en";
-    const result = await generateWhiteboardImage(
-      whiteboardInsights,
-      text,
-      aiConfig,
-      whiteboardLang,
-      summary, // 传递摘要作为降级选项
-      customPromptTemplate, // 传递自定义 prompt 模板
-    );
-    imageData = result.imageData;
-    log("generate-image", `Image generated: ${imageData.byteLength} bytes`);
-  } catch (error) {
-    throw new StepError("generate-image", error);
+  // Step 5: 生成白板图片（仅当本条消息要求出图）
+  let imageData: ArrayBuffer | null = null;
+  let imageR2Key: string | null = null;
+  if (wantWhiteboard && whiteboardInsights) {
+    await updatePaperStatus(msg.paperId, "processing_image", null, env);
+    try {
+      log(
+        "generate-image",
+        `Generating whiteboard image (model: ${aiConfig.geminiModel || "default"}, baseUrl: ${aiConfig.geminiBaseUrl || "default"})`,
+      );
+      const whiteboardLang = msg.whiteboardLanguage || "en";
+      const result = await generateWhiteboardImage(
+        whiteboardInsights,
+        text,
+        aiConfig,
+        whiteboardLang,
+        summary, // 传递摘要作为降级选项
+        customPromptTemplate, // 传递自定义 prompt 模板
+      );
+      imageData = result.imageData;
+      log("generate-image", `Image generated: ${imageData.byteLength} bytes`);
+    } catch (error) {
+      throw new StepError("generate-image", error);
+    }
+    imageR2Key = `whiteboards/${msg.paperId}/${crypto.randomUUID()}.png`;
+  } else if (wantWhiteboard) {
+    // 理论上不可达（insights 生成失败会抛错），留日志避免静默少图。
+    logWarn("generate-image", "Whiteboard insights are empty, skipping image");
   }
 
   // Step 6: 上传图片到 R2 和保存结果到数据库（并行执行）
-  const imageR2Key = `whiteboards/${msg.paperId}/${crypto.randomUUID()}.png`;
   const processingTimeMs = Date.now() - startTime;
 
   // 幂等清理: 顶部守卫已挡掉「已 completed 的重投」; 这里覆盖另一种情况——
@@ -600,15 +648,21 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   // 此时 status 仍是 processing_*, 不会被守卫跳过, 若不先清理就会插出第二行。
   // 初始处理阶段论文刚创建, 不存在用户合法的多份结果, 直接清空既有结果再写。
   await db.delete(paperResults).where(eq(paperResults.paperId, msg.paperId));
-  await db
-    .delete(whiteboardImages)
-    .where(eq(whiteboardImages.paperId, msg.paperId));
+  if (imageR2Key) {
+    await db
+      .delete(whiteboardImages)
+      .where(eq(whiteboardImages.paperId, msg.paperId));
+  }
 
   await Promise.all([
     // 上传图片到 R2
-    env.PAPERS_BUCKET.put(imageR2Key, imageData, {
-      httpMetadata: { contentType: "image/png" },
-    }),
+    ...(imageR2Key && imageData
+      ? [
+          env.PAPERS_BUCKET.put(imageR2Key, imageData, {
+            httpMetadata: { contentType: "image/png" },
+          }),
+        ]
+      : []),
     // 保存结果到数据库
     db
       .insert(paperResults)
@@ -623,19 +677,460 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
         processingTimeMs,
       }),
     // 保存白板图片记录
-    db
-      .insert(whiteboardImages)
-      .values({
-        paperId: msg.paperId,
-        imageR2Key: imageR2Key,
-        promptId: msg.promptId || null,
-        isDefault: true,
-      }),
+    ...(imageR2Key
+      ? [
+          db.insert(whiteboardImages).values({
+            paperId: msg.paperId,
+            imageR2Key: imageR2Key,
+            promptId: msg.promptId || null,
+            isDefault: true,
+          }),
+        ]
+      : []),
   ]);
 
   // Step 7: 标记完成
   await updatePaperStatus(msg.paperId, "completed", null, env);
   log("done", `Completed in ${processingTimeMs}ms`);
+}
+
+/** 正文提取结果，MinerU 与 pdfjs 两条路径归一。 */
+interface ExtractionOutcome {
+  /** MinerU 未给出总页数时为 null —— 此时不覆盖 papers.page_count。 */
+  pageCount: number | null;
+  /** 全文，落 paper-text 供 chatbot 使用。 */
+  rawText: string;
+  /** 裁掉参考文献/附录后的正文，喂 LLM。 */
+  text: string;
+  pdfMetadataTitle?: string;
+  /** MinerU 路径 true（paper_contents 已写）；pdfjs 回退 false。 */
+  contentPersisted: boolean;
+}
+
+/**
+ * initial 消息的提取路径：提交 MinerU（若尚未提交）并在预算内短轮询。
+ * 预算内未完成 → 投递延迟 mineru_poll 消息并返回 null（本条消息就此结束）。
+ * MinerU 不可用 / 提交失败 / 解析失败 → 立即回退 pdfjs，保证论文仍能完成。
+ */
+async function mineruSubmitAndWait(
+  msg: QueueMessage,
+  paperRow: PaperRow,
+  pdfBuffer: ArrayBuffer,
+  r2Key: string | undefined,
+  aiConfig: AIConfig,
+  env: Env,
+  log: LogFn,
+  logWarn: LogWarnFn,
+): Promise<ExtractionOutcome | null> {
+  const token = env.MINERU_TOKEN;
+  if (!token) {
+    logWarn("mineru", "MINERU_TOKEN is not configured, falling back to pdfjs");
+    return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+  }
+
+  const db = drizzle(env.DB);
+  // 已落库的 batchId 是重投的幂等守卫：同一篇绝不重复提交 MinerU。
+  let batchId = paperRow.mineruBatchId ?? undefined;
+  const submittedAt = msg.mineruSubmittedAt ?? Date.now();
+
+  if (batchId) {
+    log("mineru-submit", `Reusing existing MinerU batch ${batchId}`);
+  } else {
+    try {
+      const filename = r2Key?.split("/").pop() || `${msg.paperId}.pdf`;
+      log(
+        "mineru-submit",
+        `Creating MinerU batch for ${filename} (${pdfBuffer.byteLength} bytes)`,
+      );
+      const created = await createBatch(token, {
+        filename,
+        size: pdfBuffer.byteLength,
+      });
+      // 绝不能设置 Content-Type：OSS 预签名里该字段为空，设了即签名不匹配 → 403。
+      const uploadResp = await fetch(created.uploadUrl, {
+        method: "PUT",
+        body: pdfBuffer,
+      });
+      if (!uploadResp.ok) {
+        throw new Error(
+          `Upload PDF to MinerU storage failed with status ${uploadResp.status}`,
+        );
+      }
+      batchId = created.batchId;
+
+      await db
+        .update(papers)
+        .set({
+          mineruBatchId: batchId,
+          status: "parsing",
+          updatedAt: new Date(),
+        })
+        .where(eq(papers.id, msg.paperId));
+      log("mineru-submit", `Submitted to MinerU, batch ${batchId}`);
+    } catch (error) {
+      logWarn(
+        "mineru-submit",
+        "MinerU submission failed, falling back to pdfjs",
+        error,
+      );
+      return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+    }
+  }
+
+  // 短轮询：多数论文能在预算内解析完，省掉一次队列往返。
+  const pollDeadline = Date.now() + MINERU_SYNC_POLL_BUDGET_MS;
+  while (Date.now() < pollDeadline) {
+    try {
+      const result = await getBatchResult(token, batchId);
+      if (result.state === "done") {
+        const outcome = await persistMineruContent(
+          msg.paperId,
+          result,
+          aiConfig,
+          env,
+          log,
+          logWarn,
+        );
+        if (outcome) {
+          return outcome;
+        }
+        return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+      }
+      if (result.state === "failed") {
+        logWarn(
+          "mineru-poll",
+          `MinerU parse failed (${result.errMsg || "unknown"}), falling back to pdfjs`,
+        );
+        return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+      }
+      log("mineru-poll", `MinerU state=${result.state}, waiting`);
+    } catch (error) {
+      logWarn("mineru-poll", "MinerU status query failed, will retry", error);
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, MINERU_SYNC_POLL_INTERVAL_MS),
+    );
+  }
+
+  try {
+    await env.PAPER_QUEUE.send(
+      {
+        ...msg,
+        type: "mineru_poll",
+        mineruBatchId: batchId,
+        mineruSubmittedAt: submittedAt,
+        mineruPollAttempt: 1,
+      } satisfies QueueMessage,
+      { delaySeconds: MINERU_POLL_DELAY_SECONDS },
+    );
+    log(
+      "mineru-poll",
+      `Poll budget exhausted, handed off to delayed poll (batch ${batchId})`,
+    );
+    return null;
+  } catch (error) {
+    // 宁降级不丢单：延迟消息投不出去就地回退 pdfjs。
+    logWarn(
+      "mineru-poll",
+      "Failed to enqueue delayed poll, falling back to pdfjs",
+      error,
+    );
+    return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+  }
+}
+
+/**
+ * mineru_poll 消息的提取路径：查一次状态，完成则入库，未完成则续投延迟消息，
+ * 超过总超时则回退 pdfjs。状态查询本身出错直接抛出，交给 Queues 原生重试。
+ */
+async function resolveMineruPoll(
+  msg: QueueMessage,
+  paperRow: PaperRow,
+  aiConfig: AIConfig,
+  env: Env,
+  log: LogFn,
+  logWarn: LogWarnFn,
+): Promise<ExtractionOutcome | null> {
+  const token = env.MINERU_TOKEN;
+  const batchId = msg.mineruBatchId ?? paperRow.mineruBatchId ?? undefined;
+
+  if (!token || !batchId) {
+    logWarn(
+      "mineru-poll",
+      `Missing ${token ? "MinerU batch id" : "MINERU_TOKEN"}, falling back to pdfjs`,
+    );
+    return await extractViaPdfjs(
+      await loadPdfFromR2(paperRow, env, log),
+      aiConfig,
+      msg,
+      env,
+      log,
+    );
+  }
+
+  const attempt = msg.mineruPollAttempt ?? 1;
+  // 抛错不吞：batchId 已落库，Queues 重投不会造成重复提交。
+  const result = await getBatchResult(token, batchId);
+
+  if (result.state === "done") {
+    const outcome = await persistMineruContent(
+      msg.paperId,
+      result,
+      aiConfig,
+      env,
+      log,
+      logWarn,
+    );
+    if (outcome) {
+      return outcome;
+    }
+    return await extractViaPdfjs(
+      await loadPdfFromR2(paperRow, env, log),
+      aiConfig,
+      msg,
+      env,
+      log,
+    );
+  }
+
+  if (result.state === "failed") {
+    logWarn(
+      "mineru-poll",
+      `MinerU parse failed (${result.errMsg || "unknown"}), falling back to pdfjs`,
+    );
+    return await extractViaPdfjs(
+      await loadPdfFromR2(paperRow, env, log),
+      aiConfig,
+      msg,
+      env,
+      log,
+    );
+  }
+
+  const submittedAt = msg.mineruSubmittedAt ?? 0;
+  if (Date.now() - submittedAt > MINERU_TOTAL_TIMEOUT_MS) {
+    logWarn(
+      "mineru-poll",
+      `MinerU still ${result.state} after total timeout (attempt ${attempt}), falling back to pdfjs`,
+    );
+    return await extractViaPdfjs(
+      await loadPdfFromR2(paperRow, env, log),
+      aiConfig,
+      msg,
+      env,
+      log,
+    );
+  }
+
+  try {
+    await env.PAPER_QUEUE.send(
+      {
+        ...msg,
+        type: "mineru_poll",
+        mineruBatchId: batchId,
+        mineruSubmittedAt: submittedAt,
+        mineruPollAttempt: attempt + 1,
+      } satisfies QueueMessage,
+      { delaySeconds: MINERU_POLL_DELAY_SECONDS },
+    );
+    log(
+      "mineru-poll",
+      `MinerU state=${result.state}, scheduled poll attempt ${attempt + 1}`,
+    );
+    return null;
+  } catch (error) {
+    logWarn(
+      "mineru-poll",
+      "Failed to enqueue next poll, falling back to pdfjs",
+      error,
+    );
+    return await extractViaPdfjs(
+      await loadPdfFromR2(paperRow, env, log),
+      aiConfig,
+      msg,
+      env,
+      log,
+    );
+  }
+}
+
+/** pdfjs 回退时重新取 PDF（arxiv 在提交阶段已把真实 key 回写 papers.pdf_r2_key）。 */
+async function loadPdfFromR2(
+  paperRow: PaperRow,
+  env: Env,
+  log: LogFn,
+): Promise<ArrayBuffer> {
+  try {
+    log("fetch-pdf", `Reading from R2: ${paperRow.pdfR2Key}`);
+    const object = await env.PAPERS_BUCKET.get(paperRow.pdfR2Key);
+    if (!object) {
+      throw new Error(`PDF file not found in R2: ${paperRow.pdfR2Key}`);
+    }
+    const buffer = await object.arrayBuffer();
+    log("fetch-pdf", `Read ${buffer.byteLength} bytes from R2`);
+    return buffer;
+  } catch (error) {
+    throw new StepError("fetch-pdf", error);
+  }
+}
+
+/**
+ * MinerU 解析产物入库：markdown + 图片落 R2 `paper-content/{paperId}/`，
+ * 元信息落 paper_contents（delete + insert 幂等），再转出喂 LLM 的纯文本。
+ * 返回 null 表示产物不可用，调用方应回退 pdfjs。
+ */
+async function persistMineruContent(
+  paperId: string,
+  result: MineruResult,
+  aiConfig: AIConfig,
+  env: Env,
+  log: LogFn,
+  logWarn: LogWarnFn,
+): Promise<ExtractionOutcome | null> {
+  if (!result.fullZipUrl) {
+    logWarn("mineru-persist", "MinerU is done but returned no zip url");
+    return null;
+  }
+
+  const db = drizzle(env.DB);
+
+  let zipBytes: Uint8Array;
+  try {
+    log("mineru-persist", `Downloading result zip`);
+    const resp = await fetch(result.fullZipUrl);
+    if (!resp.ok) {
+      throw new Error(
+        `Downloading MinerU result zip failed with status ${resp.status}`,
+      );
+    }
+    zipBytes = new Uint8Array(await resp.arrayBuffer());
+  } catch (error) {
+    // 网络类失败交给 Queues 重试（batchId 已落库，重跑不会重复提交）。
+    throw new StepError("mineru-persist", error);
+  }
+
+  const { markdown, title, images } = parseMineruZip(zipBytes);
+  if (markdown.trim().length === 0) {
+    logWarn("mineru-persist", "MinerU zip has no usable markdown");
+    return null;
+  }
+
+  const resolver = buildImageResolver(images, (img) =>
+    markdownImagePath(img.storedName),
+  );
+  const rewritten = rewriteImageRefs(markdown, resolver);
+
+  await Promise.all([
+    ...images.map((img) =>
+      env.PAPERS_BUCKET.put(
+        paperContentImageKey(paperId, img.storedName),
+        img.bytes,
+        {
+          httpMetadata: { contentType: img.mime },
+        },
+      ),
+    ),
+    env.PAPERS_BUCKET.put(paperContentMarkdownKey(paperId), rewritten, {
+      httpMetadata: { contentType: "text/markdown; charset=utf-8" },
+    }),
+  ]);
+
+  // paper_id 唯一，重跑先删后插（D1 无事务，delete+insert 之间的空窗可接受：
+  // 只有本条消息在写这一行，读侧拿不到内容时按「未解析」处理）。
+  await db.delete(paperContents).where(eq(paperContents.paperId, paperId));
+  await db.insert(paperContents).values({
+    paperId,
+    markdownR2Key: paperContentMarkdownKey(paperId),
+    imageCount: images.length,
+    charCount: rewritten.length,
+  });
+  log(
+    "mineru-persist",
+    `Persisted markdown (${rewritten.length} chars) and ${images.length} image(s)`,
+  );
+
+  const plainText = markdownToPlainText(rewritten);
+  if (plainText.trim().length === 0) {
+    logWarn("mineru-persist", "MinerU markdown produced empty plain text");
+    return null;
+  }
+
+  let mainText = plainText;
+  try {
+    const pages = buildPseudoPages(plainText);
+    const trimmed = await trimPaperTail(plainText, pages, aiConfig);
+    mainText = trimmed.mainText;
+    if (trimmed.tailTrim.applied) {
+      log(
+        "trim-paper-tail",
+        `Trimmed paper tail from page ${trimmed.tailTrim.cutFromPage || "unknown"} with confidence ${trimmed.tailTrim.confidence ?? 0}`,
+      );
+    }
+  } catch (error) {
+    logWarn("trim-paper-tail", "Tail trim failed, using full text", error);
+  }
+
+  log(
+    "extract-text",
+    `Extracted ${plainText.length} chars via=mineru, kept ${mainText.length} chars for downstream processing`,
+  );
+
+  return {
+    pageCount: result.totalPages ?? null,
+    rawText: plainText,
+    text: mainText,
+    pdfMetadataTitle: title ?? undefined,
+    contentPersisted: true,
+  };
+}
+
+/** pdfjs 回退提取（原 Step 2 主体）。 */
+async function extractViaPdfjs(
+  pdfBuffer: ArrayBuffer,
+  aiConfig: AIConfig,
+  msg: QueueMessage,
+  env: Env,
+  log: LogFn,
+): Promise<ExtractionOutcome> {
+  try {
+    log(
+      "extract-text",
+      `Extracting text from PDF (${pdfBuffer.byteLength} bytes) via=pdfjs-fallback`,
+    );
+    const result = await extractPDFText(pdfBuffer, 150, aiConfig); // 限制 150 页
+    log(
+      "extract-text",
+      `Extracted ${result.rawText.length} chars from ${result.pageCount} pages via=pdfjs-fallback, kept ${result.mainText.length} chars for downstream processing`,
+    );
+
+    if (result.tailTrim.applied) {
+      log(
+        "trim-paper-tail",
+        `Trimmed paper tail from page ${result.tailTrim.cutFromPage || "unknown"} with confidence ${result.tailTrim.confidence ?? 0}`,
+      );
+    }
+
+    if (!result.mainText || result.mainText.trim().length === 0) {
+      throw new Error("Extracted text is empty");
+    }
+
+    return {
+      pageCount: result.pageCount,
+      rawText: result.rawText,
+      text: result.mainText,
+      pdfMetadataTitle: result.title,
+      contentPersisted: false,
+    };
+  } catch (error) {
+    // 如果是页数超限错误，标记失败（扣过费才返还 credit）
+    if (error instanceof PDFPageLimitError) {
+      const errorMsg = `PDF has ${error.pageCount} pages, exceeding the limit of ${error.maxPages} pages`;
+      log("extract-text", `Page limit exceeded: ${errorMsg}`);
+      await markPaperFailedForMessage(msg.paperId, msg, errorMsg, env);
+      throw new StepError("extract-text", error);
+    }
+    throw new StepError("extract-text", error);
+  }
 }
 
 /**
@@ -1064,6 +1559,24 @@ async function markPaperFailedAndRefund(
   });
 
   console.log(`[paper:${paperId}] Credit refunded successfully`);
+}
+
+/**
+ * 标记失败；仅当这条消息实际扣过费（勾选 whiteboard 且未用 BYOK）才退款。
+ * regenerate_whiteboard 的退款仍走原有独立路径，不经此函数。
+ */
+async function markPaperFailedForMessage(
+  paperId: string,
+  msg: QueueMessage,
+  errorMessage: string,
+  env: Env,
+): Promise<void> {
+  const charged = msg.generateWhiteboard === true && !msg.apiConfigId;
+  if (charged) {
+    await markPaperFailedAndRefund(paperId, msg.userId, errorMessage, env);
+  } else {
+    await markPaperFailed(paperId, errorMessage, env);
+  }
 }
 
 /**
