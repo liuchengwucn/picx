@@ -37,12 +37,16 @@ export function markdownToPlainText(markdown: string): string {
   return text.trim();
 }
 
-// `<script>...</script>` 连内容一起删；随后清掉未配对的孤立 script 标签
-// （未闭合的 `<script>` 若留下，渲染时会把其后的正文都吞成脚本内容）。
+// `<script>...</script>` / `<style>...</style>` 连内容一起删（脚本会执行，CSS 留着会被
+// 当正文显示）；随后清掉未配对的孤立标签（未闭合的 `<script>` 若留下，渲染时会把其后的
+// 正文都吞成脚本内容）。
 const SCRIPT_BLOCK_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
-const SCRIPT_TAG_RE = /<\/?script\b[^>]*>/gi;
+const STYLE_BLOCK_RE = /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi;
+const SCRIPT_TAG_RE = /<\/?(?:script|style)\b[^>]*>/gi;
 // 这几个只需删标签本身，标签间的文本仍是论文正文，保留。
-const DANGEROUS_TAG_RE = /<\/?(?:iframe|object|embed|form)\b[^>]*>/gi;
+// meta（http-equiv=refresh 跳转）/ base（改写相对 URL 基址）/ link（外链样式）同样危险。
+const DANGEROUS_TAG_RE =
+  /<\/?(?:iframe|object|embed|form|meta|base|link)\b[^>]*>/gi;
 
 /**
  * 剥离 MinerU markdown 中的危险 HTML（存储型 XSS 的源头处理）。
@@ -52,15 +56,31 @@ const DANGEROUS_TAG_RE = /<\/?(?:iframe|object|embed|form)\b[^>]*>/gi;
  * 渲染裸 HTML（表格/公式需要），这段脚本就会真的执行。而公开论文的原文对任意
  * 登录用户可见，于是变成一次上传、他人渲染的存储型 XSS。
  *
- * 故在落盘前就清掉，R2 里的 full.md 与由它派生的纯文本都保持干净（渲染端的
- * sanitize 仍应保留，这里是纵深防御的第一层，不是唯一一层）。
+ * 故在落盘前就清掉，R2 里的 full.md 与由它派生的纯文本都保持干净。这是纵深防御的
+ * 第一层（黑名单）；渲染端 markdown-article.tsx 还有一层 rehype-sanitize 白名单，
+ * 真正的安全边界在那儿 —— 黑名单只保证落盘内容本身干净。
  * 表格（`<table>/<tr>/<td>`）与 `<img>` 是论文正文的正常组成，不动。
+ *
+ * 单遍替换会被拼接绕过：`<scr<script>ipt>` 删掉中间的 `<script>` 后，两侧残片正好
+ * 拼回一个完整的 `<script>`。故循环替换到不动点（上限 10 轮，防病态输入死循环）。
  */
 export function stripDangerousHtml(markdown: string): string {
-  return markdown
-    .replace(SCRIPT_BLOCK_RE, "")
-    .replace(SCRIPT_TAG_RE, "")
-    .replace(DANGEROUS_TAG_RE, "");
+  let current = markdown;
+
+  for (let pass = 0; pass < 10; pass++) {
+    const next = current
+      .replace(SCRIPT_BLOCK_RE, "")
+      .replace(STYLE_BLOCK_RE, "")
+      .replace(SCRIPT_TAG_RE, "")
+      .replace(DANGEROUS_TAG_RE, "");
+
+    if (next === current) {
+      return current;
+    }
+    current = next;
+  }
+
+  return current;
 }
 
 export interface PseudoPage {

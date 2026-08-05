@@ -74,6 +74,45 @@ describe("stripDangerousHtml", () => {
     expect(out).toBe("x");
   });
 
+  it("removes tags that survive a single pass by re-joining their fragments", () => {
+    // 单遍替换会把 `<scr` + `ipt>` 拼回 `<script>`：必须循环到不动点
+    const out = stripDangerousHtml(
+      "<scr<script>ipt>alert(1)</scr<script>ipt>keep",
+    );
+
+    expect(out).not.toContain("<script");
+    expect(out).not.toContain("alert(1)");
+    expect(out).toContain("keep");
+  });
+
+  it("removes nested split iframe fragments", () => {
+    const out = stripDangerousHtml('<ifr<iframe>ame src="//evil.example">x');
+
+    expect(out).not.toMatch(/<iframe/i);
+    expect(out).toContain("x");
+  });
+
+  it("removes meta/base/link tags", () => {
+    const out = stripDangerousHtml(
+      '<meta http-equiv="refresh" content="0;url=//evil.example">' +
+        '<base href="//evil.example/">' +
+        '<link rel="stylesheet" href="//evil.example/x.css">' +
+        "real content",
+    );
+
+    expect(out).not.toMatch(/<(?:meta|base|link)\b/i);
+    expect(out).toBe("real content");
+  });
+
+  it("removes style blocks together with their CSS", () => {
+    const out = stripDangerousHtml(
+      "before<style>body{display:none}</style>after",
+    );
+
+    expect(out).toBe("beforeafter");
+    expect(out).not.toContain("display:none");
+  });
+
   it("keeps HTML tables and images untouched", () => {
     const table =
       "<table><tr><td>1</td><td>2</td></tr></table>\n\n" +

@@ -642,6 +642,7 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   // Step 5: 生成白板图片（仅当本条消息要求出图）
   let imageData: ArrayBuffer | null = null;
   let imageR2Key: string | null = null;
+  let refundForEmptyInsights = false;
   if (wantWhiteboard && whiteboardInsights) {
     await updatePaperStatus(msg.paperId, "processing_image", null, env);
     try {
@@ -668,18 +669,9 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     // 理论上不可达（insights 生成失败会抛错），留日志避免静默少图。
     logWarn("generate-image", "Whiteboard insights are empty, skipping image");
     // 扣了白板的钱却没出图 → 退款。总结等已生成，论文照常完成，不标 failed。
-    if (msg.generateWhiteboard === true && !msg.apiConfigId) {
-      try {
-        await refundCredit(
-          msg.paperId,
-          msg.userId,
-          "Whiteboard insights empty",
-          env,
-        );
-      } catch (refundError) {
-        logWarn("refund", "Failed to refund credit", refundError);
-      }
-    }
+    // 退款动作推迟到 Step 7（标 completed）之后，见那里的说明。
+    refundForEmptyInsights =
+      msg.generateWhiteboard === true && !msg.apiConfigId;
   }
 
   // Step 6: 上传图片到 R2 和保存结果到数据库（并行执行）
@@ -733,6 +725,24 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
   // Step 7: 标记完成
   await updatePaperStatus(msg.paperId, "completed", null, env);
+
+  // 「扣了钱没出图」的退款放在标 completed 之后，保证至多退一次：
+  // - 走到这里说明论文已 completed，重投会被顶部的 completed 守卫挡掉，不会重复退；
+  // - 若 Step 6/7 失败没走到这里，顶层 markPaperFailedForMessage 会统一退这一次。
+  //   两条路径互斥，不会叠加（此前就地退款则会与顶层退款重复）。
+  if (refundForEmptyInsights) {
+    try {
+      await refundCredit(
+        msg.paperId,
+        msg.userId,
+        "Whiteboard insights empty",
+        env,
+      );
+    } catch (refundError) {
+      logWarn("refund", "Failed to refund credit", refundError);
+    }
+  }
+
   log("done", `Completed in ${processingTimeMs}ms`);
 }
 

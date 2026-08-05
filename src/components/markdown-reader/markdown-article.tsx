@@ -5,6 +5,10 @@ import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, {
+  defaultSchema,
+  type Options as SanitizeSchema,
+} from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { PluggableList } from "unified";
@@ -42,11 +46,59 @@ export function createRelativeImageUrlTransform(
       : defaultUrlTransform(url);
 }
 
-// 顺序很重要:先 rehype-raw 解析内嵌 HTML(MinerU 表格是 HTML)→ 把表格里残留的 $...$ 转成
-// 公式 span → katex 渲染公式 → highlight 代码 → 生成标题 id → 拆出仅含图片的段落 → 最后给
-// 公式/代码打 notranslate。
+/**
+ * 白名单清洗，作用于「文档里原本就有的」HTML —— 也就是 rehype-raw 刚解析出来的那部分。
+ *
+ * 威胁模型：MinerU 把 PDF 里的文本原样抄进 markdown，攻击者在 PDF 里写 `<script>` /
+ * `<iframe>` 就能让渲染端执行；公开论文的原文对任意登录用户可见，于是成为存储型 XSS。
+ * 落盘前的 stripDangerousHtml 是黑名单（第一层），这里是白名单兜底：不在名单上的标签
+ * 一律拆掉（script/style 连内容一起丢），属性、URL 协议同理。
+ *
+ * 基线是 hast-util-sanitize 的 GitHub 风格 defaultSchema（已含 table 全家、img、
+ * colSpan/rowSpan/align、sub/sup/br/hr 等），这里只做三处必要放行：
+ * - 公式类名：remark-math 在 mdast→hast 阶段就把公式变成
+ *   `<code class="language-math math-inline|math-display">`，类名被剥掉 katex 就认不出。
+ *   只放行这几个具体值，不放行任意 className —— 免得 PDF 里的 HTML 借用站点样式做视觉欺骗。
+ * - img 的 src/alt/title/width/height（alt/title/width/height 已在 `*` 里，显式写出便于阅读）。
+ * - src 协议加 data:：/reader 的本地文档把图片内联成 base64；papers 侧是相对路径，不受影响。
+ *   （data:image 不会执行脚本；img 上的 data: 不构成脚本执行面。）
+ */
+const MATH_CLASS_NAMES = ["math", "math-inline", "math-display"] as const;
+
+export const SANITIZE_SCHEMA: SanitizeSchema = {
+  ...defaultSchema,
+  // 不在白名单里的标签默认「拆标签留文字」，对 style 来说会把 CSS 源码当正文显示出来
+  strip: ["script", "style"],
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [["className", /^language-./, ...MATH_CLASS_NAMES]],
+    span: [["className", ...MATH_CLASS_NAMES]],
+    div: [
+      ...(defaultSchema.attributes?.div ?? []),
+      ["className", ...MATH_CLASS_NAMES],
+    ],
+    img: [
+      ...(defaultSchema.attributes?.img ?? []),
+      "src",
+      "alt",
+      "title",
+      "width",
+      "height",
+    ],
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    src: [...(defaultSchema.protocols?.src ?? []), "data"],
+  },
+};
+
+// 顺序很重要:先 rehype-raw 解析内嵌 HTML(MinerU 表格是 HTML)→ 白名单清洗(只洗文档自带的
+// HTML,后面几个插件生成的节点不再过 sanitize,故 schema 无需为 katex/highlight 的输出开
+// 口子)→ 把表格里残留的 $...$ 转成公式 span → katex 渲染公式 → highlight 代码 → 生成
+// 标题 id → 拆出仅含图片的段落 → 最后给公式/代码打 notranslate。
 const REHYPE_PLUGINS: PluggableList = [
   rehypeRaw,
+  [rehypeSanitize, SANITIZE_SCHEMA],
   rehypeTableMath,
   rehypeKatex,
   rehypeHighlight,
