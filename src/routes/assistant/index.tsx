@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import type { inferRouterOutputs } from "@trpc/server";
 import type { UIMessage } from "ai";
 import {
+  Check,
   ChevronDown,
   Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -22,6 +25,7 @@ import {
 } from "#/components/ui/dropdown-menu";
 import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
+import type { TRPCRouter } from "#/integrations/trpc/router";
 import { formatRelative } from "#/lib/relative-time";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
@@ -37,23 +41,24 @@ export const Route = createFileRoute("/assistant/")({
 /** 服务端标题上限 80，输入框跟着卡同一个值，避免提交后被 tRPC 拒掉 */
 const TITLE_MAX_CHARS = 80;
 
-interface ConversationSummary {
-  id: string;
-  title: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
+type ConversationSummary =
+  inferRouterOutputs<TRPCRouter>["assistant"]["listConversations"][number];
 
 interface ConversationRowProps {
   conversation: ConversationSummary;
   isActive: boolean;
   isRenaming: boolean;
+  /** 已点过删除、正在等第二次确认（就地两步确认，不弹系统对话框） */
+  isConfirmingDelete: boolean;
+  isDeleting: boolean;
   now: number;
   onSelect: () => void;
   onStartRename: () => void;
   onSubmitRename: (title: string) => void;
   onCancelRename: () => void;
-  onDelete: () => void;
+  onRequestDelete: () => void;
+  onConfirmDelete: () => void;
+  onCancelDelete: () => void;
 }
 
 /**
@@ -64,14 +69,51 @@ function ConversationRow({
   conversation,
   isActive,
   isRenaming,
+  isConfirmingDelete,
+  isDeleting,
   now,
   onSelect,
   onStartRename,
   onSubmitRename,
   onCancelRename,
-  onDelete,
+  onRequestDelete,
+  onConfirmDelete,
+  onCancelDelete,
 }: ConversationRowProps) {
   const title = conversation.title ?? m.assistant_untitled();
+
+  if (isConfirmingDelete) {
+    return (
+      <li className="flex items-start gap-1 rounded-md bg-[var(--parchment-warm)] px-2 py-1.5">
+        <span className="min-w-0 flex-1 text-xs leading-snug text-[var(--ink-soft)]">
+          {m.assistant_delete_confirm()}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onConfirmDelete}
+          disabled={isDeleting}
+          aria-label={m.assistant_delete()}
+          title={m.assistant_delete()}
+        >
+          {isDeleting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Check className="h-3.5 w-3.5 text-[var(--sienna)]" />
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onCancelDelete}
+          aria-label={m.cancel()}
+          title={m.cancel()}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </li>
+    );
+  }
 
   if (isRenaming) {
     return (
@@ -139,7 +181,11 @@ function ConversationRow({
             <Pencil className="h-3.5 w-3.5" />
             {m.assistant_rename()}
           </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={isDeleting}
+            onSelect={onRequestDelete}
+          >
             <Trash2 className="h-3.5 w-3.5" />
             {m.assistant_delete()}
           </DropdownMenuItem>
@@ -153,8 +199,7 @@ function AssistantPage() {
   const { session, isSessionPending } = useRequireAuth("/assistant");
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  // 两处列表（桌面侧栏 / 窄屏展开区）同时在 DOM 里，各自要有唯一 id
-  const railListId = useId();
+  // 窄屏展开区的列表要被开关的 aria-controls 指向（桌面那份不需要 id）
   const mobileListId = useId();
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -162,6 +207,9 @@ function AssistantPage() {
   const [selectedAt, setSelectedAt] = useState(0);
   const [isListOpen, setIsListOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  /** 按会话存草稿：换会话会卸载整个对话组件，输入框内容得由页面替它保管 */
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   /** 「空列表就自动建一个会话」只做一次，否则删光会话会陷入无限新建 */
   const didAutoCreateRef = useRef(false);
 
@@ -194,6 +242,7 @@ function AssistantPage() {
     setSelectedAt(Date.now());
     setIsListOpen(false);
     setRenamingId(null);
+    setPendingDeleteId(null);
   }, []);
 
   const createMutation = useMutation(
@@ -223,12 +272,15 @@ function AssistantPage() {
           (rows) => rows?.filter((row) => row.id !== variables.conversationId),
         );
         invalidateList();
+        // 这个会话的草稿也跟着走，别在内存里留着一条永远回不去的输入
+        setDrafts(({ [variables.conversationId]: _removed, ...rest }) => rest);
         // 删的是当前会话：直接落到剩下最近更新的一条（没有就回到空态）
         if (variables.conversationId === activeId) {
           selectConversation(remaining?.[0]?.id ?? null);
         }
       },
       onError: (error) => toast.error(resolveChatErrorMessage(error)),
+      onSettled: () => setPendingDeleteId(null),
     }),
   );
 
@@ -256,7 +308,8 @@ function AssistantPage() {
   }, []);
 
   const handleDelete = (conversationId: string) => {
-    if (!window.confirm(m.assistant_delete_confirm())) return;
+    // 一次只删一个：pending 期间再点会重复发同一个请求
+    if (deleteMutation.isPending) return;
     deleteMutation.mutate({ conversationId });
   };
 
@@ -275,10 +328,12 @@ function AssistantPage() {
    * 重取，而 useChat 只读一次 initialMessages——直接用缓存挂载会漏掉上一轮被中断
    * 后由服务端补写的回答。取数失败（isFetching 落回 false 但没拿到新数据）时
    * 放行现有缓存，总比让用户对着转圈强。
+   * 判定只看有没有数据、不看 isSuccess：后台重取一失败 status 就变 error，用它
+   * 当门会把正在对话的聊天区连同草稿一起卸载掉。
    */
   const isHistoryReady =
     !!activeId &&
-    messagesQuery.isSuccess &&
+    !!messagesQuery.data &&
     (messagesQuery.dataUpdatedAt >= selectedAt || !messagesQuery.isFetching);
 
   if (isSessionPending) {
@@ -292,7 +347,7 @@ function AssistantPage() {
   // 未登录会被 useRequireAuth 送去登录页，这里不渲染任何东西
   if (!session) return null;
 
-  const renderConversationList = (id: string) => (
+  const renderConversationList = (id?: string) => (
     <ul id={id} className="space-y-0.5">
       {conversations?.map((conversation) => (
         <ConversationRow
@@ -300,12 +355,19 @@ function AssistantPage() {
           conversation={conversation}
           isActive={conversation.id === activeId}
           isRenaming={renamingId === conversation.id}
+          isConfirmingDelete={pendingDeleteId === conversation.id}
+          isDeleting={
+            deleteMutation.isPending &&
+            deleteMutation.variables?.conversationId === conversation.id
+          }
           now={now}
           onSelect={() => selectConversation(conversation.id)}
           onStartRename={() => setRenamingId(conversation.id)}
           onSubmitRename={(title) => handleRename(conversation.id, title)}
           onCancelRename={() => setRenamingId(null)}
-          onDelete={() => handleDelete(conversation.id)}
+          onRequestDelete={() => setPendingDeleteId(conversation.id)}
+          onConfirmDelete={() => handleDelete(conversation.id)}
+          onCancelDelete={() => setPendingDeleteId(null)}
         />
       ))}
     </ul>
@@ -330,7 +392,12 @@ function AssistantPage() {
 
   // 会话未就绪时的三种落点：拉历史失败、一条会话都没有、正在拉取
   const chatFallback = (() => {
-    if (messagesQuery.isError) {
+    // 只有「一条历史都没拿到」才算失败落地：后台重取失败时 data 还在，聊天区照常
+    // 挂着（见 isHistoryReady），这里不能把它换成错误屏
+    if (
+      messagesQuery.isLoadingError ||
+      (messagesQuery.isError && !messagesQuery.data)
+    ) {
       return (
         <>
           <p className="text-sm text-[var(--ink-soft)]">
@@ -378,7 +445,7 @@ function AssistantPage() {
               <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
             </div>
           ) : (
-            renderConversationList(railListId)
+            renderConversationList()
           )}
         </nav>
       </aside>
@@ -420,6 +487,10 @@ function AssistantPage() {
               key={activeId}
               conversationId={activeId}
               initialMessages={messagesQuery.data as unknown as UIMessage[]}
+              input={drafts[activeId] ?? ""}
+              onInputChange={(value) =>
+                setDrafts((previous) => ({ ...previous, [activeId]: value }))
+              }
               onFirstMessage={invalidateList}
             />
           </div>

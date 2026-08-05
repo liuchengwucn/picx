@@ -157,6 +157,9 @@ export interface AssistantChatProps {
   conversationId: string;
   /** 挂载时一次性注入的历史（useChat 只在建 Chat 时读一次），父层负责 key 换会话 */
   initialMessages: UIMessage[];
+  /** 草稿提在父层：换会话会按 key 卸载整棵子树，state 留这儿会把没发出去的话丢掉 */
+  input: string;
+  onInputChange: (value: string) => void;
   /** 本会话第一条用户消息发出后回调：服务端此时已写好标题，父层可刷新会话列表 */
   onFirstMessage?: () => void;
 }
@@ -168,11 +171,12 @@ export interface AssistantChatProps {
 export function AssistantChat({
   conversationId,
   initialMessages,
+  input,
+  onInputChange,
   onFirstMessage,
 }: AssistantChatProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const [input, setInput] = useState("");
 
   // 聊天设置（lazy init 只在挂载时读一次 localStorage）
   const [webSearchEnabled, setWebSearchEnabled] =
@@ -251,9 +255,11 @@ export function AssistantChat({
     },
     onFinish: () => {
       // 历史真源在 D1：把本会话的缓存标脏，切走再切回来时拿到的才是完整记录。
-      // 会话列表也要刷：updatedAt 变了，排序与标题跟着动。
+      // refetchType none —— 只标脏不立刻重取：此刻正确的历史就在 useChat 手里，
+      // 拉回来也没人消费；而一次失败的后台重取会把活着的聊天区判成错误态。
       void queryClient.invalidateQueries({
         queryKey: trpc.assistant.getMessages.queryKey({ conversationId }),
+        refetchType: "none",
       });
       void queryClient.invalidateQueries({
         queryKey: trpc.assistant.listConversations.queryKey(),
@@ -262,6 +268,18 @@ export function AssistantChat({
   });
 
   const isBusy = status === "submitted" || status === "streaming";
+
+  // 卸载（换会话/离开页面）时主动断流，别让一个没人看的请求继续占着连接。
+  // 回复不会因此丢：服务端 waitUntil(consumeStream) 会把完整回答落进 D1，
+  // 下次进这个会话拉到的历史是全的。
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
+  useEffect(
+    () => () => {
+      void stopRef.current();
+    },
+    [],
+  );
 
   /**
    * 首条消息一开始流式回传，就说明服务端已经把标题（取自首条消息）写进库了，
@@ -296,7 +314,7 @@ export function AssistantChat({
     if (messages.length === 0) pendingFirstMessageRef.current = true;
     // 主动发言就是「我要看新内容」：哪怕刚才上滚在读前文，也弹回底部
     stickToBottomRef.current = true;
-    setInput("");
+    onInputChange("");
     void sendMessage({ text });
   };
 
@@ -356,7 +374,7 @@ export function AssistantChat({
           <div className="flex items-end gap-2 rounded-lg border border-transparent px-2 py-1.5 transition-colors focus-within:border-[var(--academic-brown)]/60 focus-within:bg-[var(--parchment-warm)]/60">
             <textarea
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => onInputChange(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey) return;
                 // 中文/日文输入法选字时的 Enter 属于组合过程，不能当成发送
