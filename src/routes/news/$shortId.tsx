@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   createFileRoute,
   isNotFound,
@@ -47,7 +47,7 @@ export const Route = createFileRoute("/news/$shortId")({
       try {
         const { env } = await import("cloudflare:workers");
         const { drizzle } = await import("drizzle-orm/d1");
-        const { and, eq, sql } = await import("drizzle-orm");
+        const { and, eq, inArray, sql } = await import("drizzle-orm");
         const { newsItems, newsSources, newsStories } = await import(
           "#/db/schema"
         );
@@ -66,6 +66,8 @@ export const Route = createFileRoute("/news/$shortId")({
             firstSeenAt: newsStories.firstSeenAt,
             earliestPublishedAt: newsStories.earliestPublishedAt,
             lastActivityAt: newsStories.lastActivityAt,
+            keyFacts: newsStories.keyFacts,
+            related: newsStories.related,
           })
           .from(newsStories)
           .where(
@@ -89,8 +91,8 @@ export const Route = createFileRoute("/news/$shortId")({
             signals: newsItems.signals,
             media: newsItems.media,
             extra: newsItems.extra,
-            // SSR HTML 面向所有访客（含爬虫），永远不下发内部打分
-            relevanceScore: sql<number | null>`null`,
+            // 分数始终下发，是否显示由前端 debug 开关决定（与 news.byShortId 一致）
+            relevanceScore: newsItems.relevanceScore,
             sourceName: newsSources.name,
             sourceType: newsSources.type,
           })
@@ -98,6 +100,29 @@ export const Route = createFileRoute("/news/$shortId")({
           .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
           .where(eq(newsItems.storyId, story.id))
           .orderBy(newsItems.publishedAt);
+
+        const relatedIds = story.related ?? [];
+        const relatedRows =
+          relatedIds.length > 0
+            ? await db
+                .select({
+                  shortId: newsStories.shortId,
+                  title: newsStories.title,
+                  firstSeenAt: newsStories.firstSeenAt,
+                  earliestPublishedAt: newsStories.earliestPublishedAt,
+                })
+                .from(newsStories)
+                .where(
+                  and(
+                    inArray(newsStories.shortId, relatedIds),
+                    sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
+                  ),
+                )
+            : [];
+        const related = relatedIds.flatMap((sid) => {
+          const row = relatedRows.find((r) => r.shortId === sid);
+          return row ? [row] : [];
+        });
 
         const ssrData = {
           shortId: story.shortId,
@@ -108,6 +133,8 @@ export const Route = createFileRoute("/news/$shortId")({
           firstSeenAt: story.firstSeenAt,
           earliestPublishedAt: story.earliestPublishedAt,
           lastActivityAt: story.lastActivityAt,
+          keyFacts: story.keyFacts ?? null,
+          related,
           items,
         } satisfies ByShortIdOutput as SerializableByShortId;
         return { ssrData };
@@ -118,13 +145,8 @@ export const Route = createFileRoute("/news/$shortId")({
       }
     }
 
-    // debug 显式传 false：tRPC 的 query key 按原始输入（zod 默认值之前）哈希，
-    // 不写全字段会与组件里 { shortId, debug: showScores } 落到不同 cache entry
     const ssrData = (await context.queryClient.ensureQueryData(
-      context.trpc.news.byShortId.queryOptions({
-        shortId: params.shortId,
-        debug: false,
-      }),
+      context.trpc.news.byShortId.queryOptions({ shortId: params.shortId }),
     )) as SerializableByShortId;
     return { ssrData };
   },
@@ -195,15 +217,10 @@ function NewsStoryPage() {
   const trpc = useTRPC();
   const showScores = useDebugScores();
 
-  // SSR 数据是 debug=false 取的（不含分数）；debug 开启时它是另一个 query key，
-  // 不能拿来当 initialData——否则会把"无分数"误标为新鲜数据，badge 迟迟不出现
   const { data, isLoading, error } = useQuery({
-    ...trpc.news.byShortId.queryOptions({ shortId, debug: showScores }),
-    initialData: showScores ? undefined : (loaderData?.ssrData ?? undefined),
-    staleTime: !showScores && loaderData?.ssrData ? 30_000 : undefined,
-    // debug 开启换 key 重取期间沿用 debug=false 的旧数据，避免整页闪回骨架屏；
-    // badge 由 relevanceScore != null 守卫，分数载荷到达前自然不显示
-    placeholderData: keepPreviousData,
+    ...trpc.news.byShortId.queryOptions({ shortId }),
+    initialData: loaderData?.ssrData ?? undefined,
+    staleTime: loaderData?.ssrData ? 30_000 : undefined,
   });
 
   if (isLoading && !data) return <StoryDetailSkeleton />;
@@ -220,10 +237,17 @@ function NewsStoryPage() {
     now,
     locale,
   );
+  const facts = (() => {
+    // keyFacts 按 locale 取；空数组也回退 en（?? 对空数组不回退，须按 length 判断）
+    const localeFacts = data.keyFacts?.[localeKey];
+    return (localeFacts?.length ? localeFacts : data.keyFacts?.en) ?? [];
+  })();
+  const related = data.related ?? [];
+  const hasAside = facts.length > 0 || related.length > 0;
 
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
-      <div className="page-wrap max-w-3xl">
+      <div className="page-wrap max-w-5xl">
         <div className="rise-in">
           <Link
             to="/news"
@@ -269,105 +293,155 @@ function NewsStoryPage() {
               </div>
             </header>
 
-            {summary && (
-              <p className="mt-5 text-base leading-relaxed text-[var(--ink)]">
-                {summary}
-              </p>
-            )}
+            <div className="mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-x-10">
+              {summary && (
+                <p className="text-base leading-relaxed text-[var(--ink)] lg:col-start-1 lg:row-start-1">
+                  {summary}
+                </p>
+              )}
 
-            {/* 报道时间线:按发布时间正序,首条(故事源头)用空心环点强调 */}
-            <section className="mt-10">
-              <h2 className="font-serif text-xl font-semibold text-[var(--ink)]">
-                {m.news_timeline()}
-              </h2>
-              <ol className="mt-5 border-l border-[var(--line)] pl-6">
-                {data.items.map((item, index) => {
-                  const domain = hostnameOf(item.url);
-                  const image = item.media?.find(
-                    (media) => media.type === "image",
-                  );
-                  const itemTimeAgo = formatRelative(
-                    new Date(item.publishedAt).getTime(),
-                    now,
-                    locale,
-                  );
-                  const hnUrl =
-                    typeof item.extra?.hnUrl === "string"
-                      ? item.extra.hnUrl
-                      : null;
-                  const showHnLink = hnUrl !== null && hnUrl !== item.url;
-                  return (
-                    <li key={item.url} className="relative pb-8 last:pb-0">
-                      <span
-                        aria-hidden="true"
-                        className={`absolute top-1.5 -left-[30px] h-2.5 w-2.5 rounded-full ${
-                          index === 0
-                            ? "border-2 border-[var(--academic-brown)] bg-[var(--bg)]"
-                            : "bg-[var(--academic-brown)]"
-                        }`}
-                      />
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--ink-soft)]">
-                        {domain && (
-                          <img
-                            src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
-                            alt=""
-                            loading="lazy"
-                            className="h-4 w-4 rounded-full bg-[var(--bg)]"
-                          />
-                        )}
-                        <span className="font-medium text-[var(--ink)]">
-                          {item.sourceName}
-                        </span>
-                        {item.author && <span>{item.author}</span>}
-                        <time>{itemTimeAgo}</time>
-                        {showScores && item.relevanceScore != null && (
-                          <ScoreBadge min={item.relevanceScore} />
-                        )}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1">
-                        <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="group inline-flex items-start gap-1.5 no-underline"
-                        >
-                          <span className="font-serif text-base font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
-                            {item.title}
+              {hasAside && (
+                <aside className="mt-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0">
+                  <div className="space-y-6 lg:sticky lg:top-8">
+                    {facts.length > 0 && (
+                      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3.5">
+                        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--academic-brown)]">
+                          {m.news_key_facts()}
+                        </h2>
+                        <ul className="mt-2 list-disc space-y-1.5 pl-4 text-[13px] leading-relaxed text-[var(--ink)]">
+                          {facts.map((fact) => (
+                            <li key={fact}>{fact}</li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                    {related.length > 0 && (
+                      <section>
+                        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--academic-brown)]">
+                          {m.news_related()}
+                        </h2>
+                        <ul className="mt-2 space-y-2.5">
+                          {related.map((rel) => (
+                            <li key={rel.shortId}>
+                              <Link
+                                to="/news/$shortId"
+                                params={{ shortId: rel.shortId }}
+                                className="font-serif text-sm font-semibold leading-snug text-[var(--ink)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+                              >
+                                {pickTldr(rel.title, localeKey)}
+                              </Link>
+                              <div className="mt-0.5 text-xs text-[var(--ink-soft)]">
+                                {formatRelative(
+                                  new Date(
+                                    rel.earliestPublishedAt ?? rel.firstSeenAt,
+                                  ).getTime(),
+                                  now,
+                                  locale,
+                                )}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                  </div>
+                </aside>
+              )}
+
+              {/* 报道时间线:按发布时间正序,首条(故事源头)用空心环点强调 */}
+              <section className="mt-10 lg:col-start-1 lg:row-start-2">
+                <h2 className="font-serif text-xl font-semibold text-[var(--ink)]">
+                  {m.news_timeline()}
+                </h2>
+                <ol className="mt-5 border-l border-[var(--line)] pl-6">
+                  {data.items.map((item, index) => {
+                    const domain = hostnameOf(item.url);
+                    const image = item.media?.find(
+                      (media) => media.type === "image",
+                    );
+                    const itemTimeAgo = formatRelative(
+                      new Date(item.publishedAt).getTime(),
+                      now,
+                      locale,
+                    );
+                    const hnUrl =
+                      typeof item.extra?.hnUrl === "string"
+                        ? item.extra.hnUrl
+                        : null;
+                    const showHnLink = hnUrl !== null && hnUrl !== item.url;
+                    return (
+                      <li key={item.url} className="relative pb-8 last:pb-0">
+                        <span
+                          aria-hidden="true"
+                          className={`absolute top-1.5 -left-[30px] h-2.5 w-2.5 rounded-full ${
+                            index === 0
+                              ? "border-2 border-[var(--academic-brown)] bg-[var(--bg)]"
+                              : "bg-[var(--academic-brown)]"
+                          }`}
+                        />
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--ink-soft)]">
+                          {domain && (
+                            <img
+                              src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+                              alt=""
+                              loading="lazy"
+                              className="h-4 w-4 rounded-full bg-[var(--bg)]"
+                            />
+                          )}
+                          <span className="font-medium text-[var(--ink)]">
+                            {item.sourceName}
                           </span>
-                          <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-[var(--ink-soft)] transition-colors group-hover:text-[var(--academic-brown)]" />
-                        </a>
-                        {showHnLink && (
+                          {item.author && <span>{item.author}</span>}
+                          <time>{itemTimeAgo}</time>
+                          {showScores && item.relevanceScore != null && (
+                            <ScoreBadge min={item.relevanceScore} />
+                          )}
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1">
                           <a
-                            href={hnUrl}
+                            href={item.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="group inline-flex items-center gap-1 self-start text-xs text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+                            className="group inline-flex items-start gap-1.5 no-underline"
                           >
-                            <MessageSquare className="h-3.5 w-3.5" />
-                            HN
+                            <span className="font-serif text-base font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
+                              {item.title}
+                            </span>
+                            <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-[var(--ink-soft)] transition-colors group-hover:text-[var(--academic-brown)]" />
                           </a>
+                          {showHnLink && (
+                            <a
+                              href={hnUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group inline-flex items-center gap-1 self-start text-xs text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+                            >
+                              <MessageSquare className="h-3.5 w-3.5" />
+                              HN
+                            </a>
+                          )}
+                        </div>
+                        {item.excerpt && (
+                          <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--ink-soft)]">
+                            {item.excerpt}
+                          </p>
                         )}
-                      </div>
-                      {item.excerpt && (
-                        <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--ink-soft)]">
-                          {item.excerpt}
-                        </p>
-                      )}
-                      {image && (
-                        <img
-                          src={image.url}
-                          alt=""
-                          loading="lazy"
-                          width={image.width}
-                          height={image.height}
-                          className="mt-3 max-h-64 w-auto rounded-xl border border-[var(--line)] object-cover"
-                        />
-                      )}
-                    </li>
-                  );
-                })}
-              </ol>
-            </section>
+                        {image && (
+                          <img
+                            src={image.url}
+                            alt=""
+                            loading="lazy"
+                            width={image.width}
+                            height={image.height}
+                            className="mt-3 max-h-64 w-auto rounded-xl border border-[var(--line)] object-cover"
+                          />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
+            </div>
           </article>
         </div>
       </div>
@@ -402,23 +476,30 @@ function StoryNotFound() {
 function StoryDetailSkeleton() {
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
-      <div className="page-wrap max-w-3xl">
+      <div className="page-wrap max-w-5xl">
         <Skeleton className="h-4 w-28" />
         <Skeleton className="mt-6 h-9 w-4/5" />
         <div className="mt-3 flex gap-2">
           <Skeleton className="h-4 w-16" />
           <Skeleton className="h-4 w-20" />
         </div>
-        <div className="mt-5 space-y-2">
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-11/12" />
-          <Skeleton className="h-4 w-2/3" />
-        </div>
-        <Skeleton className="mt-10 h-6 w-40" />
-        <div className="mt-5 space-y-6 border-l border-[var(--line)] pl-6">
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
+        <div className="mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-x-10">
+          <div className="space-y-2 lg:col-start-1 lg:row-start-1">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+          <div className="mt-8 hidden lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:block">
+            <Skeleton className="h-32 w-full rounded-xl" />
+          </div>
+          <div className="mt-10 lg:col-start-1 lg:row-start-2">
+            <Skeleton className="h-6 w-40" />
+            <div className="mt-5 space-y-6 border-l border-[var(--line)] pl-6">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          </div>
         </div>
       </div>
     </main>
