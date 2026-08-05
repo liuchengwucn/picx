@@ -11,6 +11,7 @@ import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
+import { useDebugScores } from "#/lib/news/use-debug-scores";
 import { formatRelative } from "#/lib/relative-time";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
@@ -87,6 +88,7 @@ export const Route = createFileRoute("/news/$shortId")({
             signals: newsItems.signals,
             media: newsItems.media,
             extra: newsItems.extra,
+            relevanceScore: newsItems.relevanceScore,
             sourceName: newsSources.name,
             sourceType: newsSources.type,
           })
@@ -184,6 +186,7 @@ function NewsStoryPage() {
   const { shortId } = Route.useParams();
   const loaderData = Route.useLoaderData();
   const trpc = useTRPC();
+  const showScores = useDebugScores();
 
   const { data, isLoading, error } = useQuery({
     ...trpc.news.byShortId.queryOptions(shortId),
@@ -305,6 +308,18 @@ function NewsStoryPage() {
                         </span>
                         {item.author && <span>{item.author}</span>}
                         <time>{itemTimeAgo}</time>
+                        {/* 调试徽标：item relevance 分数，低分暴露聚类混入 */}
+                        {showScores && item.relevanceScore != null && (
+                          <span
+                            className={`rounded-full border border-dashed border-[var(--line)] px-2 py-0.5 font-mono text-[11px] ${
+                              item.relevanceScore < 60
+                                ? "text-amber-600 dark:text-amber-500"
+                                : "text-[var(--ink-soft)]"
+                            }`}
+                          >
+                            {item.relevanceScore}
+                          </span>
+                        )}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1">
                         <a

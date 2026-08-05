@@ -5,6 +5,7 @@ import { z } from "zod";
 import { StoryCard, StoryCardSkeleton } from "#/components/news/story-card";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
+import { useDebugScores } from "#/lib/news/use-debug-scores";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -39,6 +40,7 @@ function NewsPage() {
   const trpc = useTRPC();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const showScores = useDebugScores();
 
   const sort = search.sort ?? "latest";
   const page = search.page ?? 1;
@@ -126,6 +128,7 @@ function NewsPage() {
                 key={story.shortId}
                 story={story}
                 delay={`${i * 40}ms`}
+                showScores={showScores}
               />
             ))
           )}

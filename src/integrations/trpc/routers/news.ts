@@ -18,7 +18,11 @@ type StoryCardRow = Pick<
   | "earliestPublishedAt"
   | "lastActivityAt"
   | "status"
->;
+> & {
+  // 调试用的聚合分数范围：story 内 item relevance_score 的 min/max
+  scoreMin: number | null;
+  scoreMax: number | null;
+};
 
 // story 列表卡片所需字段；标题/摘要按请求 locale 服务端取好，减少载荷
 function localizeStory(
@@ -37,6 +41,8 @@ function localizeStory(
     earliestPublishedAt: story.earliestPublishedAt,
     lastActivityAt: story.lastActivityAt,
     status: story.status,
+    scoreMin: story.scoreMin,
+    scoreMax: story.scoreMax,
   };
 }
 
@@ -77,6 +83,14 @@ export const newsRouter = createTRPCRouter({
           earliestPublishedAt: newsStories.earliestPublishedAt,
           lastActivityAt: newsStories.lastActivityAt,
           status: newsStories.status,
+          // 调试用的聚合分数范围：per-story item relevance 相关子查询，命中
+          // news_items_story_idx，page size <= 50 时开销可忽略
+          scoreMin: sql<
+            number | null
+          >`(SELECT min(relevance_score) FROM news_items WHERE story_id = ${newsStories.id})`,
+          scoreMax: sql<
+            number | null
+          >`(SELECT max(relevance_score) FROM news_items WHERE story_id = ${newsStories.id})`,
         })
         .from(newsStories)
         .where(visible)
@@ -132,6 +146,7 @@ export const newsRouter = createTRPCRouter({
           signals: newsItems.signals,
           media: newsItems.media,
           extra: newsItems.extra,
+          relevanceScore: newsItems.relevanceScore,
           sourceName: newsSources.name,
           sourceType: newsSources.type,
         })

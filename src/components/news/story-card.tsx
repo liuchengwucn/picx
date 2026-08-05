@@ -19,18 +19,21 @@ export interface StoryCardStory {
   earliestPublishedAt: Date | string | null;
   lastActivityAt: Date;
   status: string;
+  scoreMin: number | null;
+  scoreMax: number | null;
 }
 
 interface StoryCardProps {
   story: StoryCardStory;
   delay: string;
+  showScores?: boolean;
 }
 
 // 来源 favicon 叠放上限:超过 5 个只显示前 5,数量交给文字计数表达
 const MAX_FAVICONS = 5;
 const MAX_TAGS = 3;
 
-export function StoryCard({ story, delay }: StoryCardProps) {
+export function StoryCard({ story, delay, showScores }: StoryCardProps) {
   const domains = story.signalsSummary?.domains?.slice(0, MAX_FAVICONS) ?? [];
   const hn = story.signalsSummary?.hn;
   const xAccounts = story.signalsSummary?.xAccounts;
@@ -102,6 +105,20 @@ export function StoryCard({ story, delay }: StoryCardProps) {
           </span>
         )}
         {domains.length === 0 && <span>{countsText}</span>}
+        {/* 调试徽标：story 内 item 分数范围，低分暴露聚类混入 */}
+        {showScores && story.scoreMin != null && (
+          <span
+            className={`rounded-full border border-dashed border-[var(--line)] px-2 py-0.5 font-mono text-[11px] ${
+              story.scoreMin < 60
+                ? "text-amber-600 dark:text-amber-500"
+                : "text-[var(--ink-soft)]"
+            }`}
+          >
+            {story.scoreMin === story.scoreMax
+              ? story.scoreMin
+              : `${story.scoreMin}–${story.scoreMax}`}
+          </span>
+        )}
         {hn && (
           <a
             href={hn.url}
