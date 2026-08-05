@@ -1511,26 +1511,28 @@ export const paperRouter = router({
         }
       };
 
-      // Step 5: Deduct credit if not using user API
-      if (!input.apiConfigId) {
-        const [updatedUser] = await ctx.db
-          .update(user)
-          .set({
-            credits: sql`${user.credits} - 1`,
-          })
-          .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
-          .returning();
+      // 抢锁之后到入队成功之间的每一条语句都可能抛（扣分、写流水、入队、乃至退款本身），
+      // 逐个 catch 总会漏。整段包一层：任何抛出都先把锁放回去再原样上抛 —— 漏掉一条
+      // 就会把这篇论文永久卡在「生成中」（消息没入队，消费者也就清不了锁）。
+      try {
+        // Step 5: Deduct credit if not using user API
+        if (!input.apiConfigId) {
+          const [updatedUser] = await ctx.db
+            .update(user)
+            .set({
+              credits: sql`${user.credits} - 1`,
+            })
+            .where(and(eq(user.id, userId), sql`${user.credits} >= 1`))
+            .returning();
 
-        if (!updatedUser) {
-          await releaseLock();
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Insufficient credits. You need at least 1 credit.",
-          });
-        }
+          if (!updatedUser) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Insufficient credits. You need at least 1 credit.",
+            });
+          }
 
-        // Record credit transaction
-        try {
+          // Record credit transaction
           await ctx.db.insert(creditTransactions).values({
             userId: userId,
             amount: -1,
@@ -1538,50 +1540,46 @@ export const paperRouter = router({
             relatedPaperId: input.paperId,
             description: "Whiteboard regeneration",
           });
-        } catch (error) {
-          // 最后一条可能在「已抢锁、未入队」之间抛的语句；不放锁会把这篇论文
-          // 永久卡在生成中（消费者收不到消息，清不了锁）。
-          await releaseLock();
-          throw error;
         }
-      }
 
-      // Step 6: Push to queue for async processing
-      try {
-        await ctx.env.PAPER_QUEUE.send({
-          type: "regenerate_whiteboard",
-          paperId: input.paperId,
-          userId: userId,
-          promptId: finalPromptId,
-          apiConfigId: input.apiConfigId,
-        });
-      } catch (error) {
-        // Refund credit if queue dispatch fails
-        if (!input.apiConfigId) {
-          await ctx.db
-            .update(user)
-            .set({
-              credits: sql`${user.credits} + 1`,
-            })
-            .where(eq(user.id, userId));
-
-          await ctx.db.insert(creditTransactions).values({
+        // Step 6: Push to queue for async processing
+        try {
+          await ctx.env.PAPER_QUEUE.send({
+            type: "regenerate_whiteboard",
+            paperId: input.paperId,
             userId: userId,
-            amount: 1,
-            type: "refund",
-            relatedPaperId: input.paperId,
-            description:
-              "Refund for failed whiteboard regeneration queue dispatch",
+            promptId: finalPromptId,
+            apiConfigId: input.apiConfigId,
+          });
+        } catch (error) {
+          // Refund credit if queue dispatch fails
+          if (!input.apiConfigId) {
+            await ctx.db
+              .update(user)
+              .set({
+                credits: sql`${user.credits} + 1`,
+              })
+              .where(eq(user.id, userId));
+
+            await ctx.db.insert(creditTransactions).values({
+              userId: userId,
+              amount: 1,
+              type: "refund",
+              relatedPaperId: input.paperId,
+              description:
+                "Refund for failed whiteboard regeneration queue dispatch",
+            });
+          }
+
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Queue dispatch failed",
+            cause: error,
           });
         }
-
+      } catch (error) {
         await releaseLock();
-
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Queue dispatch failed",
-          cause: error,
-        });
+        throw error;
       }
 
       return { success: true };
