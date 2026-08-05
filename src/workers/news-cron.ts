@@ -496,7 +496,7 @@ async function summarizeStage(
   // 存量回填：新列上线时已定稿（dirty=0）的 story 缺 key_facts。
   // 独立选路、绝不置 dirty——列表可见性谓词是 dirty = 0，置 dirty 会让整个 feed 消失。
   // 处理路径与 dirty story 完全相同（会重生成四语摘要，一次性成本，spec 已确认）。
-  // key_facts 永不写 NULL（normalizeKeyFacts 保证），故本选路必然收敛，不会重复选中处理过的行
+  // 孤儿行也会写全空 keyFacts 退出选路；90 天窗口兜底毒 story 的重试成本
   const backfillBudget = Math.min(
     MAX_BACKFILL_PER_ROUND,
     MAX_SUMMARIZE_PER_ROUND - dirtyStories.length,
@@ -507,7 +507,13 @@ async function summarizeStage(
           .select({ id: newsStories.id, shortId: newsStories.shortId })
           .from(newsStories)
           .where(
-            sql`${newsStories.keyFacts} IS NULL AND ${newsStories.dirty} = 0 AND ${newsStories.status} != 'hidden'`,
+            and(
+              sql`${newsStories.keyFacts} IS NULL AND ${newsStories.dirty} = 0 AND ${newsStories.status} != 'hidden'`,
+              gt(
+                newsStories.earliestPublishedAt,
+                new Date(Date.now() - RELATED_WINDOW_DAYS * 86_400_000),
+              ),
+            ),
           )
           .orderBy(desc(newsStories.lastActivityAt))
           .limit(backfillBudget)
@@ -568,7 +574,11 @@ async function summarizeStage(
         // 实体本身由 archiveStage 的孤儿清理负责删除。
         await db
           .update(newsStories)
-          .set({ dirty: false })
+          .set({
+            dirty: false,
+            // 全空 keyFacts：让孤儿也退出回填选路（key_facts IS NULL），等 archiveStage 清理
+            keyFacts: { en: [], "zh-cn": [], "zh-tw": [], ja: [] },
+          })
           .where(eq(newsStories.id, id));
         continue;
       }
