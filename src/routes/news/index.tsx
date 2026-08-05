@@ -1,10 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Newspaper } from "lucide-react";
 import { z } from "zod";
 import { StoryCard, StoryCardSkeleton } from "#/components/news/story-card";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
+import { useDebugScores } from "#/lib/news/use-debug-scores";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -39,18 +40,23 @@ function NewsPage() {
   const trpc = useTRPC();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const showScores = useDebugScores();
 
   const sort = search.sort ?? "latest";
   const page = search.page ?? 1;
 
-  const newsQuery = useQuery(
-    trpc.news.list.queryOptions({
+  const newsQuery = useQuery({
+    ...trpc.news.list.queryOptions({
       page,
       limit: PAGE_SIZE,
       sort,
       locale: getLocale(),
+      debug: showScores,
     }),
-  );
+    // debug 切换会换 query key（无缓存）；保留上一屏数据，避免闪回骨架屏。
+    // 注意这也作用于翻页/切排序：加载中不再走骨架屏分支，改由下方 isPlaceholderData 降透明度提示
+    placeholderData: keepPreviousData,
+  });
 
   const totalPages = Math.ceil((newsQuery.data?.total ?? 0) / PAGE_SIZE);
   const stories = newsQuery.data?.stories ?? [];
@@ -104,8 +110,12 @@ function NewsPage() {
           </Button>
         </div>
 
-        {/* Story list */}
-        <div className="stagger-in mt-6 space-y-4">
+        {/* Story list：占位数据（翻页中）降透明度作为加载反馈 */}
+        <div
+          className={`stagger-in mt-6 space-y-4 transition-opacity ${
+            newsQuery.isPlaceholderData ? "opacity-60" : ""
+          }`}
+        >
           {newsQuery.isLoading ? (
             newsSkeletonKeys.map((skeletonKey) => (
               <StoryCardSkeleton key={skeletonKey} />
@@ -126,6 +136,7 @@ function NewsPage() {
                 key={story.shortId}
                 story={story}
                 delay={`${i * 40}ms`}
+                showScores={showScores}
               />
             ))
           )}

@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Clock, MessageSquare } from "lucide-react";
+import { ScoreBadge } from "#/components/news/score-badge";
 import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import type { StorySignalsSummary } from "#/db/schema";
@@ -19,18 +20,21 @@ export interface StoryCardStory {
   earliestPublishedAt: Date | string | null;
   lastActivityAt: Date;
   status: string;
+  scoreMin: number | null;
+  scoreMax: number | null;
 }
 
 interface StoryCardProps {
   story: StoryCardStory;
   delay: string;
+  showScores?: boolean;
 }
 
 // 来源 favicon 叠放上限:超过 5 个只显示前 5,数量交给文字计数表达
 const MAX_FAVICONS = 5;
 const MAX_TAGS = 3;
 
-export function StoryCard({ story, delay }: StoryCardProps) {
+export function StoryCard({ story, delay, showScores }: StoryCardProps) {
   const domains = story.signalsSummary?.domains?.slice(0, MAX_FAVICONS) ?? [];
   const hn = story.signalsSummary?.hn;
   const xAccounts = story.signalsSummary?.xAccounts;
@@ -102,6 +106,9 @@ export function StoryCard({ story, delay }: StoryCardProps) {
           </span>
         )}
         {domains.length === 0 && <span>{countsText}</span>}
+        {showScores && story.scoreMin != null && (
+          <ScoreBadge min={story.scoreMin} max={story.scoreMax} />
+        )}
         {hn && (
           <a
             href={hn.url}

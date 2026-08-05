@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   createFileRoute,
   isNotFound,
@@ -7,10 +7,12 @@ import {
 } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import { ArrowLeft, Clock, ExternalLink, MessageSquare } from "lucide-react";
+import { ScoreBadge } from "#/components/news/score-badge";
 import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
+import { useDebugScores } from "#/lib/news/use-debug-scores";
 import { formatRelative } from "#/lib/relative-time";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
@@ -87,6 +89,8 @@ export const Route = createFileRoute("/news/$shortId")({
             signals: newsItems.signals,
             media: newsItems.media,
             extra: newsItems.extra,
+            // SSR HTML 面向所有访客（含爬虫），永远不下发内部打分
+            relevanceScore: sql<number | null>`null`,
             sourceName: newsSources.name,
             sourceType: newsSources.type,
           })
@@ -114,8 +118,13 @@ export const Route = createFileRoute("/news/$shortId")({
       }
     }
 
+    // debug 显式传 false：tRPC 的 query key 按原始输入（zod 默认值之前）哈希，
+    // 不写全字段会与组件里 { shortId, debug: showScores } 落到不同 cache entry
     const ssrData = (await context.queryClient.ensureQueryData(
-      context.trpc.news.byShortId.queryOptions(params.shortId),
+      context.trpc.news.byShortId.queryOptions({
+        shortId: params.shortId,
+        debug: false,
+      }),
     )) as SerializableByShortId;
     return { ssrData };
   },
@@ -184,11 +193,17 @@ function NewsStoryPage() {
   const { shortId } = Route.useParams();
   const loaderData = Route.useLoaderData();
   const trpc = useTRPC();
+  const showScores = useDebugScores();
 
+  // SSR 数据是 debug=false 取的（不含分数）；debug 开启时它是另一个 query key，
+  // 不能拿来当 initialData——否则会把"无分数"误标为新鲜数据，badge 迟迟不出现
   const { data, isLoading, error } = useQuery({
-    ...trpc.news.byShortId.queryOptions(shortId),
-    initialData: loaderData?.ssrData ?? undefined,
-    staleTime: loaderData?.ssrData ? 30_000 : undefined,
+    ...trpc.news.byShortId.queryOptions({ shortId, debug: showScores }),
+    initialData: showScores ? undefined : (loaderData?.ssrData ?? undefined),
+    staleTime: !showScores && loaderData?.ssrData ? 30_000 : undefined,
+    // debug 开启换 key 重取期间沿用 debug=false 的旧数据，避免整页闪回骨架屏；
+    // badge 由 relevanceScore != null 守卫，分数载荷到达前自然不显示
+    placeholderData: keepPreviousData,
   });
 
   if (isLoading && !data) return <StoryDetailSkeleton />;
@@ -305,6 +320,9 @@ function NewsStoryPage() {
                         </span>
                         {item.author && <span>{item.author}</span>}
                         <time>{itemTimeAgo}</time>
+                        {showScores && item.relevanceScore != null && (
+                          <ScoreBadge min={item.relevanceScore} />
+                        )}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1">
                         <a
