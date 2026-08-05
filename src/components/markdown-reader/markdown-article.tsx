@@ -29,6 +29,19 @@ function readerUrlTransform(url: string): string {
   return url.startsWith("data:image/") ? url : defaultUrlTransform(url);
 }
 
+/**
+ * papers 原文视图用：markdown 里是 `images/{name}` 相对路径，映射到鉴权图片端点；
+ * 其余 URL 走默认安全过滤。返回的函数需由调用方用 useMemo 稳定引用。
+ */
+export function createRelativeImageUrlTransform(
+  imageBase: string,
+): (url: string) => string {
+  return (url: string) =>
+    url.startsWith("images/")
+      ? `${imageBase}${url.slice("images/".length)}`
+      : defaultUrlTransform(url);
+}
+
 // 顺序很重要:先 rehype-raw 解析内嵌 HTML(MinerU 表格是 HTML)→ 把表格里残留的 $...$ 转成
 // 公式 span → katex 渲染公式 → highlight 代码 → 生成标题 id → 拆出仅含图片的段落 → 最后给
 // 公式/代码打 notranslate。
@@ -46,6 +59,12 @@ interface MarkdownArticleProps {
   markdown: string;
   settings: ReaderSettings;
   articleRef: RefObject<HTMLElement | null>;
+  /**
+   * 自定义 URL 变换；缺省为 reader 的 data:image 放行逻辑。
+   * 注意：此值透传给 RenderedMarkdown 的 memo props——调用方必须传稳定引用
+   * （如模块级函数，或 useMemo 缓存），否则每次渲染都会打破 memo 并重跑 markdown 解析。
+   */
+  urlTransform?: (url: string) => string;
 }
 
 /**
@@ -58,9 +77,11 @@ interface MarkdownArticleProps {
 const RenderedMarkdown = memo(function RenderedMarkdown({
   markdown,
   onZoom,
+  urlTransform,
 }: {
   markdown: string;
   onZoom: (src: string) => void;
+  urlTransform?: (url: string) => string;
 }) {
   const components: Components = {
     a: ({ href, children }) => (
@@ -104,7 +125,7 @@ const RenderedMarkdown = memo(function RenderedMarkdown({
     <Markdown
       remarkPlugins={REMARK_PLUGINS}
       rehypePlugins={REHYPE_PLUGINS}
-      urlTransform={readerUrlTransform}
+      urlTransform={urlTransform ?? readerUrlTransform}
       components={components}
     >
       {markdown}
@@ -116,6 +137,7 @@ export function MarkdownArticle({
   markdown,
   settings,
   articleRef,
+  urlTransform,
 }: MarkdownArticleProps) {
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
   // 稳定引用,避免破坏 RenderedMarkdown 的 memo。
@@ -138,7 +160,11 @@ export function MarkdownArticle({
           } as CSSProperties
         }
       >
-        <RenderedMarkdown markdown={markdown} onZoom={onZoom} />
+        <RenderedMarkdown
+          markdown={markdown}
+          onZoom={onZoom}
+          urlTransform={urlTransform}
+        />
       </article>
 
       <Dialog
