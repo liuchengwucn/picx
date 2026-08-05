@@ -3,6 +3,7 @@ import {
   customType,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -643,3 +644,106 @@ export const chatMessages = sqliteTable(
     ),
   }),
 );
+
+// ============================================
+// Assistant Agent Tables
+// conversations 按未来群聊 channel 的形状设计：type/成员表/senderId 均为预留，
+// 本期只用 type='agent'（单人会话 = 恰好一行 owner 成员）。
+// ============================================
+
+export const conversations = sqliteTable(
+  "conversations",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    type: text("type", { enum: ["agent", "channel"] })
+      .notNull()
+      .default("agent"),
+    // 首条用户消息截断而来；新建未发言时为 NULL（同 chat_sessions.title 约定）
+    title: text("title"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    createdByIdx: index("conversations_created_by_idx").on(
+      table.createdBy,
+      table.updatedAt,
+    ),
+  }),
+);
+
+export const conversationMembers = sqliteTable(
+  "conversation_members",
+  {
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "member"] })
+      .notNull()
+      .default("owner"),
+    joinedAt: integer("joined_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.conversationId, table.userId] }),
+    // 「我的会话列表」按成员反查
+    userIdx: index("conversation_members_user_idx").on(table.userId),
+  }),
+);
+
+// parts 存 AI SDK UIMessage parts（同 chat_messages 约定）。
+// sender_id 冗余用于限流直查；assistant 消息 sender_id = NULL。
+export const conversationMessages = sqliteTable(
+  "conversation_messages",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    senderType: text("sender_type", { enum: ["user", "assistant"] }).notNull(),
+    senderId: text("sender_id").references(() => user.id, {
+      onDelete: "cascade",
+    }),
+    parts: text("parts", { mode: "json" }).notNull().$type<unknown[]>(),
+    // 毫秒精度：同 chat_messages，排序与限流窗口都靠它
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    conversationIdx: index("conversation_messages_conversation_idx").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+    senderRateIdx: index("conversation_messages_sender_rate_idx").on(
+      table.senderId,
+      table.senderType,
+      table.createdAt,
+    ),
+  }),
+);
+
+// 个人档案：用户可见可编辑，agent 通过 updateProfile 工具写同一行
+export const userProfiles = sqliteTable("user_profiles", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
