@@ -1410,15 +1410,6 @@ export const paperRouter = router({
         });
       }
 
-      // 防重入：上一轮还在生成时再提交会重复扣分（多标签页同时点的场景）。
-      // 标志由下面入队成功后置起，消费者在成功/失败路径都会清掉。
-      if (paper.whiteboardRegenerating) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Whiteboard generation already in progress",
-        });
-      }
-
       // Step 2: Validate apiConfigId if provided
       if (input.apiConfigId) {
         const [apiConfig] = await ctx.db
@@ -1482,6 +1473,44 @@ export const paperRouter = router({
         }
       }
 
+      // Step 4.5: 抢锁。条件更新是原子的，同时到达的第二个请求拿不到行，直接被拒 ——
+      // 「先读 flag 再写」会让两个请求都穿过检查、双双扣分。放在所有校验之后、扣分之前：
+      // 校验失败的路径不会留下锁。锁由消费者在成功/失败路径清掉；本函数内的失败路径
+      // （余额不足 / 入队失败）自行清回，见下方 releaseLock。
+      const [locked] = await ctx.db
+        .update(papers)
+        .set({ whiteboardRegenerating: true, updatedAt: new Date() })
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.whiteboardRegenerating, false),
+          ),
+        )
+        .returning({ id: papers.id });
+
+      if (!locked) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Whiteboard generation already in progress",
+        });
+      }
+
+      // 抢到锁之后的任何失败都必须把锁放回去；清锁本身失败不能再抛（会盖掉真正的错因），
+      // 只记日志 —— 消费者那边还有一层防御性清理。
+      const releaseLock = async () => {
+        try {
+          await ctx.db
+            .update(papers)
+            .set({ whiteboardRegenerating: false, updatedAt: new Date() })
+            .where(eq(papers.id, input.paperId));
+        } catch (error) {
+          console.warn(
+            `[regenerateWhiteboard:${input.paperId}] Failed to release whiteboard lock`,
+            error,
+          );
+        }
+      };
+
       // Step 5: Deduct credit if not using user API
       if (!input.apiConfigId) {
         const [updatedUser] = await ctx.db
@@ -1493,6 +1522,7 @@ export const paperRouter = router({
           .returning();
 
         if (!updatedUser) {
+          await releaseLock();
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Insufficient credits. You need at least 1 credit.",
@@ -1500,13 +1530,20 @@ export const paperRouter = router({
         }
 
         // Record credit transaction
-        await ctx.db.insert(creditTransactions).values({
-          userId: userId,
-          amount: -1,
-          type: "consume",
-          relatedPaperId: input.paperId,
-          description: "Whiteboard regeneration",
-        });
+        try {
+          await ctx.db.insert(creditTransactions).values({
+            userId: userId,
+            amount: -1,
+            type: "consume",
+            relatedPaperId: input.paperId,
+            description: "Whiteboard regeneration",
+          });
+        } catch (error) {
+          // 最后一条可能在「已抢锁、未入队」之间抛的语句；不放锁会把这篇论文
+          // 永久卡在生成中（消费者收不到消息，清不了锁）。
+          await releaseLock();
+          throw error;
+        }
       }
 
       // Step 6: Push to queue for async processing
@@ -1538,27 +1575,13 @@ export const paperRouter = router({
           });
         }
 
+        await releaseLock();
+
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Queue dispatch failed",
           cause: error,
         });
-      }
-
-      // 入队成功后立刻置标志（消费者稍后也会置，但那要等它被调度）：调用方 onSuccess
-      // 失效查询时就能读到「生成中」，按钮/入口当场收起，关掉重复提交的窗口。
-      // 放在 catch 之后 —— 入队失败已退款，不能留下永远清不掉的标志。
-      // 纯优化，写失败也不能连累已扣费已入队的这次请求：吞掉异常，退回消费者 Step 0 置位。
-      try {
-        await ctx.db
-          .update(papers)
-          .set({ whiteboardRegenerating: true, updatedAt: new Date() })
-          .where(eq(papers.id, input.paperId));
-      } catch (error) {
-        console.warn(
-          `[regenerateWhiteboard:${input.paperId}] Failed to mark whiteboard as regenerating`,
-          error,
-        );
       }
 
       return { success: true };

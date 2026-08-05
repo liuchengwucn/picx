@@ -39,6 +39,7 @@ import {
 } from "#/components/paper-chat";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 import { PaperReaderView } from "#/components/papers/paper-reader-view";
+import { PaperStateCard } from "#/components/papers/paper-state-card";
 import { PublicBadge } from "#/components/papers/public-badge";
 import { RegenerateWhiteboardDialog } from "#/components/papers/regenerate-whiteboard-dialog";
 import { ShareBanner } from "#/components/papers/share-banner";
@@ -496,19 +497,19 @@ function PaperDetailPage() {
     void beginGitHubSignIn(`/p/${shortId}?view=reader`);
   }, [shortId]);
 
+  // 留一条历史记录：切到原文后按返回键应该退回总结，而不是直接离开这篇论文
   const showView = useCallback(
     (next: "summary" | "reader") => {
       navigate({
-        to: "/p/$shortId",
-        params: { shortId },
+        // from 让 search 更新器按本路由的 search 类型推断（不带它会退化成全路由联合）
+        from: Route.fullPath,
         search: (prev) => ({
           ...prev,
           view: next === "reader" ? ("reader" as const) : undefined,
         }),
-        replace: true,
       });
     },
-    [navigate, shortId],
+    [navigate],
   );
 
   const profile = useQuery({
@@ -631,10 +632,7 @@ function PaperDetailPage() {
   const whiteboardCount =
     whiteboardsData?.whiteboards.length ?? data.whiteboards.length;
   const showWhiteboardCta =
-    isOwner &&
-    paper.status === "completed" &&
-    !whiteboardImageUrl &&
-    whiteboardCount === 0;
+    isOwner && paper.status === "completed" && whiteboardCount === 0;
 
   // 访客语言选择：优先用页面当前语言，否则回退到 result.summaryLanguage
   const effectiveGuestLanguage = (() => {
@@ -855,36 +853,16 @@ function PaperDetailPage() {
             </div>
 
             {activeView === "summary" && showWhiteboardCta && (
-              <div className="paper-card p-6 text-center">
-                <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
-                  {m.paper_whiteboard()}
-                </h2>
-                <p className="mt-2 text-sm text-[var(--ink-soft)]">
-                  {m.paper_generate_whiteboard_hint()}
-                </p>
-                {paper.whiteboardRegenerating ? (
-                  <div className="mt-4 flex items-center justify-center gap-1.5 text-sm text-[var(--academic-brown)]">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    {m.paper_whiteboard_regenerating()}
-                  </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-4 gap-1.5"
-                    onClick={() => {
-                      if (isReadOnlyGuest) {
-                        startGitHubSignIn();
-                        return;
-                      }
-                      setIsRegenerateOpen(true);
-                    }}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    {m.paper_generate_whiteboard()}
-                  </Button>
-                )}
-              </div>
+              <WhiteboardCtaCard
+                regenerating={paper.whiteboardRegenerating}
+                onGenerate={() => {
+                  if (isReadOnlyGuest) {
+                    startGitHubSignIn();
+                    return;
+                  }
+                  setIsRegenerateOpen(true);
+                }}
+              />
             )}
 
             {activeView === "summary" && whiteboardImageUrl && (
@@ -1006,31 +984,12 @@ function PaperDetailPage() {
             )}
 
             {activeView === "reader" ? (
-              isSessionPending ? (
-                // SSR / 首帧 session 还没解析出来，先占位，别把已登录用户闪一下登录墙
-                <div className="paper-card flex items-center justify-center p-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-[var(--academic-brown)]" />
-                </div>
-              ) : effectiveSession ? (
-                <PaperReaderView paperId={paper.id} />
-              ) : (
-                <div className="paper-card flex flex-col items-center justify-center p-12 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
-                    <BookOpen className="h-6 w-6 text-[var(--academic-brown)]" />
-                  </div>
-                  <p className="mt-4 text-sm text-[var(--ink-soft)]">
-                    {m.paper_reader_login_required()}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-4"
-                    onClick={startReaderSignIn}
-                  >
-                    {m.auth_sign_in_github()}
-                  </Button>
-                </div>
-              )
+              <ReaderPane
+                paperId={paper.id}
+                isSessionPending={isSessionPending}
+                isSignedIn={!!effectiveSession}
+                onSignIn={startReaderSignIn}
+              />
             ) : result ? (
               <Accordion type="single" collapsible defaultValue="summary">
                 <AccordionItem value="summary" className="paper-card px-6">
@@ -1182,12 +1141,11 @@ function PaperDetailPage() {
                 </AccordionItem>
               </Accordion>
             ) : paper.status !== "failed" ? (
-              <div className="paper-card flex flex-col items-center justify-center p-12 text-center">
-                <Loader2 className="h-8 w-8 animate-spin text-[var(--academic-brown)]" />
-                <p className="mt-4 text-sm text-[var(--ink-soft)]">
-                  {m.paper_processing_hint()}
-                </p>
-              </div>
+              <PaperStateCard
+                icon={Loader2}
+                spinning
+                message={m.paper_processing_hint()}
+              />
             ) : null}
           </section>
 
@@ -1316,6 +1274,78 @@ function PaperDetailPage() {
         />
       </div>
     </main>
+  );
+}
+
+/**
+ * 原文视图的三态分诊：session 未定 → 占位；未登录 → 登录墙；已登录 → 原文。
+ * （原文由服务端强制登录可见，这里的登录墙只是体验层。）
+ */
+function ReaderPane({
+  paperId,
+  isSessionPending,
+  isSignedIn,
+  onSignIn,
+}: {
+  paperId: string;
+  isSessionPending: boolean;
+  isSignedIn: boolean;
+  onSignIn: () => void;
+}) {
+  // SSR / 首帧 session 还没解析出来，先占位，别把已登录用户闪一下登录墙
+  if (isSessionPending) {
+    return <PaperStateCard icon={Loader2} spinning />;
+  }
+
+  if (!isSignedIn) {
+    return (
+      <PaperStateCard
+        icon={BookOpen}
+        message={m.paper_reader_login_required()}
+        action={
+          <Button variant="outline" size="sm" onClick={onSignIn}>
+            {m.auth_sign_in_github()}
+          </Button>
+        }
+      />
+    );
+  }
+
+  return <PaperReaderView paperId={paperId} />;
+}
+
+/** owner 的论文完成了却一张白板都没有时，白板区块的行动召唤。 */
+function WhiteboardCtaCard({
+  regenerating,
+  onGenerate,
+}: {
+  regenerating: boolean;
+  onGenerate: () => void;
+}) {
+  return (
+    <PaperStateCard
+      className="p-6"
+      title={m.paper_whiteboard()}
+      message={m.paper_generate_whiteboard_hint()}
+      action={
+        regenerating ? (
+          <div className="flex items-center justify-center gap-1.5 text-sm text-[var(--academic-brown)]">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {m.paper_whiteboard_regenerating()}
+          </div>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={onGenerate}
+          >
+            <Sparkles className="h-4 w-4" />
+            {m.paper_generate_whiteboard()}
+          </Button>
+        )
+      }
+    />
   );
 }
 

@@ -91,6 +91,7 @@
   "paper_view_reader": "Full text",
   "paper_content_unavailable": "Full text not available for this paper",
   "paper_content_load_failed": "Failed to load full text",
+  "paper_content_loading": "Loading…",
   "paper_reader_login_required": "Sign in to read the full text",
   "paper_generate_whiteboard": "Generate whiteboard",
   "paper_generate_whiteboard_hint": "No whiteboard yet — generate one from this summary.",

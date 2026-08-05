@@ -8,6 +8,7 @@ import {
 import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
 import { TocList, useToc } from "#/components/markdown-reader/reader-toc";
 import { useReaderSettings } from "#/components/markdown-reader/use-reader-settings";
+import { PaperStateCard } from "#/components/papers/paper-state-card";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 
@@ -20,60 +21,53 @@ import { m } from "#/paraglide/messages";
  */
 export function PaperReaderView({ paperId }: { paperId: string }) {
   const trpc = useTRPC();
-  const { data, isPending, isError } = useQuery(
-    trpc.paper.getContent.queryOptions({ paperId }),
-  );
-
-  const articleRef = useRef<HTMLElement>(null);
-  const { settings, update, reset } = useReaderSettings();
-
-  const markdown = data?.available ? data.markdown : "";
-  // 服务端已给出鉴权图片端点前缀；数据未到时用等价的本地拼接，保证引用不抖。
-  const imageBase = data?.available
-    ? data.imageBase
-    : `/api/paper-content/${paperId}/images/`;
-  // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
-  const urlTransform = useMemo(
-    () => createRelativeImageUrlTransform(imageBase),
-    [imageBase],
-  );
-
-  const { items, activeId, jumpTo } = useToc(articleRef, markdown);
+  const { data, isPending, isError } = useQuery({
+    ...trpc.paper.getContent.queryOptions({ paperId }),
+    // 原文内容不可变（解析产物写死在 R2），取过一次就不必再取
+    staleTime: Number.POSITIVE_INFINITY,
+  });
 
   if (isPending) {
     return (
-      <div className="paper-card flex flex-col items-center justify-center p-12 text-center">
-        <Loader2 className="h-8 w-8 animate-spin text-[var(--academic-brown)]" />
-        <p className="mt-4 text-sm text-[var(--ink-soft)]">
-          {m.gallery_loading()}
-        </p>
-      </div>
+      <PaperStateCard
+        icon={Loader2}
+        spinning
+        message={m.paper_content_loading()}
+      />
     );
   }
 
   if (isError) {
     return (
-      <div className="paper-card p-12 text-center">
-        <p className="text-sm text-[var(--sienna)]">
-          {m.paper_content_load_failed()}
-        </p>
-      </div>
+      <PaperStateCard tone="danger" message={m.paper_content_load_failed()} />
     );
   }
 
   // 说明性空态：这篇论文没走 MinerU 解析，不是加载失败。
   if (!data.available) {
     return (
-      <div className="paper-card flex flex-col items-center justify-center p-12 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
-          <FileText className="h-6 w-6 text-[var(--academic-brown)]" />
-        </div>
-        <p className="mt-4 max-w-sm text-sm text-[var(--ink-soft)]">
-          {m.paper_content_unavailable()}
-        </p>
-      </div>
+      <PaperStateCard icon={FileText} message={m.paper_content_unavailable()} />
     );
   }
+
+  return <ReaderArticle markdown={data.markdown} imageBase={data.imageBase} />;
+}
+
+function ReaderArticle({
+  markdown,
+  imageBase,
+}: {
+  markdown: string;
+  imageBase: string;
+}) {
+  const articleRef = useRef<HTMLElement>(null);
+  const { settings, update, reset } = useReaderSettings();
+  // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
+  const urlTransform = useMemo(
+    () => createRelativeImageUrlTransform(imageBase),
+    [imageBase],
+  );
+  const { items, activeId, jumpTo } = useToc(articleRef, markdown);
 
   return (
     <div className="paper-card p-4 sm:p-6">
