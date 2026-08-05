@@ -254,30 +254,56 @@ function ToolTrace({
   );
 }
 
+/** 活动区块的行：key 在 ChatMessage 里按原始 part 下标生成（part 顺序稳定追加） */
+interface ActivityItem {
+  key: string;
+  part: UIMessage["parts"][number];
+}
+
+/** 流式头部的当前活动：看最后一个活动 part 在干嘛 */
+function currentActivityLabel(items: ActivityItem[]): string {
+  const last = items[items.length - 1]?.part;
+  if (last && isToolUIPart(last) && last.type === "tool-readPaper") {
+    return last.state === "output-available" || last.state === "output-error"
+      ? m.chat_read_paper_done()
+      : m.chat_reading_paper();
+  }
+  if (last && isToolUIPart(last) && last.type === "tool-web_search") {
+    return last.state === "input-streaming"
+      ? m.chat_searching_web()
+      : m.chat_searched_web();
+  }
+  return m.chat_thinking();
+}
+
 /**
- * 思考过程折叠块：流式期间强制展开、实时跟着长（transcript 的贴底逻辑会带着滚），
- * done 后自然回落成一行（open 一直是 false，无需 effect），点击可再展开。
- * 历史消息里的 reasoning（state 为 done 或缺省）同样默认折叠。
+ * 助手消息顶部的统一活动区块：整条消息的所有 reasoning part 与工具状态行按
+ * 原始顺序收进同一个折叠区（多轮工具调用不再各自散落一个折叠按钮）。
+ * 展开/收起：流式且正文未开始 → 默认展开实时显示进展；正文一出现 → 自动收起。
+ * userOpen 为 null 表示用户没手动开合过、跟随上述自动逻辑；手动开合过则以手动
+ * 状态为准（自动收起不会跟用户抢）。历史回显（isStreaming=false）默认收起。
  */
-function ReasoningBlock({
-  part,
+function ActivityBlock({
+  items,
+  isStreaming,
+  textStarted,
 }: {
-  part: { text: string; state?: "streaming" | "done" };
+  items: ActivityItem[];
+  isStreaming: boolean;
+  textStarted: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const isStreaming = part.state === "streaming";
-  const expanded = open || isStreaming;
-  // 有的模型开了思考也可能给出空 reasoning part，别渲染一行点不开的空壳
-  if (!isStreaming && !part.text.trim()) return null;
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const live = isStreaming && !textStarted;
+  const expanded = userOpen ?? live;
   return (
-    <div className="py-1">
+    <div className="pb-1">
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setUserOpen(!expanded)}
         aria-expanded={expanded}
         className="flex items-center gap-2 rounded-sm text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase hover:text-[var(--ink)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
       >
-        {isStreaming ? (
+        {live ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
         ) : (
           <ChevronRight
@@ -287,11 +313,46 @@ function ReasoningBlock({
             )}
           />
         )}
-        {isStreaming ? m.chat_thinking() : m.chat_reasoning_done()}
+        {live ? currentActivityLabel(items) : m.chat_activity_label()}
       </button>
       {expanded && (
-        <div className="mt-1.5 border-l border-dashed border-[var(--line)] pl-3 text-xs leading-relaxed whitespace-pre-wrap text-[var(--ink-soft)]">
-          {part.text}
+        <div className="mt-1.5 space-y-1.5 border-l border-dashed border-[var(--line)] pl-3">
+          {items.map(({ key, part }) => {
+            if (part.type === "reasoning") {
+              return (
+                <div
+                  key={key}
+                  className="text-xs leading-relaxed whitespace-pre-wrap text-[var(--ink-soft)]"
+                >
+                  {part.text}
+                </div>
+              );
+            }
+            if (isToolUIPart(part) && part.type === "tool-readPaper") {
+              return (
+                <ToolTrace
+                  key={key}
+                  kind="readPaper"
+                  done={
+                    part.state === "output-available" ||
+                    part.state === "output-error"
+                  }
+                />
+              );
+            }
+            if (isToolUIPart(part) && part.type === "tool-web_search") {
+              // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
+              // 参数一到齐（input-available）就当"已搜索"，结果以 source part 到达
+              return (
+                <ToolTrace
+                  key={key}
+                  kind="webSearch"
+                  done={part.state !== "input-streaming"}
+                />
+              );
+            }
+            return null;
+          })}
         </div>
       )}
     </div>
@@ -343,8 +404,11 @@ const MARKDOWN_COMPONENTS = {
  */
 const ChatMessage = memo(function ChatMessage({
   message,
+  isStreaming,
 }: {
   message: UIMessage;
+  /** 该消息是否正在流式生成（只有最后一条会是 true），驱动活动区块的自动开合 */
+  isStreaming: boolean;
 }) {
   if (message.role === "user") {
     return (
@@ -357,8 +421,33 @@ const ChatMessage = memo(function ChatMessage({
   }
 
   const sources = collectSources(message);
+  // 思考与工具轨迹统一收进消息顶部的活动区块（保持 parts 原始顺序）。
+  // 空 reasoning part（有的模型开思考也可能不给内容）在这里就滤掉，
+  // 免得渲染出一个点开只有空白的区块。
+  const activityItems: ActivityItem[] = message.parts
+    // key 用过滤前的原始下标：part 顺序是稳定追加的，下标不会因后续 part 变动
+    .map((part, index) => ({ part, key: `${message.id}-activity-${index}` }))
+    .filter(
+      ({ part }) =>
+        (part.type === "reasoning" &&
+          (part.state === "streaming" || part.text.trim().length > 0)) ||
+        (isToolUIPart(part) &&
+          (part.type === "tool-readPaper" || part.type === "tool-web_search")),
+    );
+  // 「正文已开始」的判定：存在非空 text part。模型可能在工具轮之间输出中间
+  // 文本，那之后的思考也会被收起——可接受，比精确判定简单得多。
+  const textStarted = message.parts.some(
+    (part) => part.type === "text" && part.text.trim().length > 0,
+  );
   return (
     <div className="border-l-2 border-[var(--academic-brown)]/35 pl-3">
+      {activityItems.length > 0 && (
+        <ActivityBlock
+          items={activityItems}
+          isStreaming={isStreaming}
+          textStarted={textStarted}
+        />
+      )}
       {message.parts.map((part, index) => {
         if (part.type === "text") {
           return (
@@ -376,46 +465,7 @@ const ChatMessage = memo(function ChatMessage({
             </div>
           );
         }
-        if (part.type === "reasoning") {
-          return (
-            <ReasoningBlock
-              key={`${message.id}-reasoning-${index}`}
-              part={part}
-            />
-          );
-        }
-        if (isToolUIPart(part) && part.type === "tool-readPaper") {
-          return (
-            <div
-              key={part.toolCallId}
-              className={index === 0 ? "pb-1" : "py-1"}
-            >
-              <ToolTrace
-                kind="readPaper"
-                done={
-                  part.state === "output-available" ||
-                  part.state === "output-error"
-                }
-              />
-            </div>
-          );
-        }
-        if (isToolUIPart(part) && part.type === "tool-web_search") {
-          // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
-          // 参数一到齐（input-available）就当"已搜索"，结果以 source part 形式到达
-          return (
-            <div
-              key={part.toolCallId}
-              className={index === 0 ? "pb-1" : "py-1"}
-            >
-              <ToolTrace
-                kind="webSearch"
-                done={part.state !== "input-streaming"}
-              />
-            </div>
-          );
-        }
-        // 未知 part（新工具/新 part 类型）不渲染也不崩
+        // reasoning / 工具 part 已并入顶部活动区块；未知 part 不渲染也不崩
         return null;
       })}
       {sources.length > 0 && <SourceFootnotes sources={sources} />}
@@ -841,7 +891,11 @@ function PaperChatConversation({
           </p>
         ) : (
           messages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
+            <ChatMessage
+              key={message.id}
+              message={message}
+              isStreaming={isBusy && message.id === lastMessage?.id}
+            />
           ))
         )}
         {showThinking && (

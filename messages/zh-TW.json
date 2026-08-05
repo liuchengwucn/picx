@@ -398,7 +398,7 @@
   "chat_read_paper_done": "已閱讀論文",
   "chat_searching_web": "正在搜尋網頁",
   "chat_searched_web": "已搜尋網頁",
-  "chat_reasoning_done": "思考過程",
+  "chat_activity_label": "思考過程",
   "chat_web_search": "網頁搜尋",
   "chat_web_search_hint": "論文資訊不足時讓它搜尋網頁",
   "chat_reasoning_label": "思考強度",

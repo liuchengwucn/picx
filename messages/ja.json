@@ -398,7 +398,7 @@
   "chat_read_paper_done": "論文を読みました",
   "chat_searching_web": "ウェブを検索しています",
   "chat_searched_web": "ウェブを検索しました",
-  "chat_reasoning_done": "思考プロセス",
+  "chat_activity_label": "思考プロセス",
   "chat_web_search": "ウェブ検索",
   "chat_web_search_hint": "論文だけで足りないときにウェブを検索させる",
   "chat_reasoning_label": "思考の深さ",

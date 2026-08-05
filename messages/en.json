@@ -398,7 +398,7 @@
   "chat_read_paper_done": "Read the paper",
   "chat_searching_web": "Searching the web",
   "chat_searched_web": "Searched the web",
-  "chat_reasoning_done": "Thought process",
+  "chat_activity_label": "Thought process",
   "chat_web_search": "Web search",
   "chat_web_search_hint": "Let it search the web when the paper isn't enough",
   "chat_reasoning_label": "Thinking effort",

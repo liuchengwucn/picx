@@ -398,7 +398,7 @@
   "chat_read_paper_done": "已阅读论文",
   "chat_searching_web": "正在搜索网页",
   "chat_searched_web": "已搜索网页",
-  "chat_reasoning_done": "思考过程",
+  "chat_activity_label": "思考过程",
   "chat_web_search": "网页搜索",
   "chat_web_search_hint": "论文信息不足时让它搜索网页",
   "chat_reasoning_label": "思考强度",
