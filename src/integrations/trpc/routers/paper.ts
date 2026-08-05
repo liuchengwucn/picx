@@ -8,6 +8,7 @@ import {
   gte,
   inArray,
   isNull,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -224,11 +225,13 @@ export const paperRouter = router({
                 eq(papers.userId, userId),
                 eq(papers.sourceUrl, arxivUrl),
                 isNull(papers.deletedAt),
+                // 有非 failed 副本就命中它；全都 failed 才落到重试路径
+                ne(papers.status, "failed"),
               ),
             )
             .limit(1);
 
-          if (existing && existing.status !== "failed") {
+          if (existing) {
             return {
               paperId: existing.id,
               status: existing.status,
@@ -1036,8 +1039,12 @@ export const paperRouter = router({
         // create 改为按 canonical 形式落 source_url 之后，用户自己导入的论文与
         // arxiv-cron 收录的同一篇会完全同形，上架时才真正撞得到 partial unique
         // index papers_gallery_source_url_unique。裸抛是 500，翻成 CONFLICT。
-        const message = error instanceof Error ? error.message : String(error);
-        if (/unique constraint failed/i.test(message)) {
+        // drizzle 把真实的 SQLite 报错裹进 DrizzleQueryError.cause，沿链取全文
+        const texts: string[] = [];
+        for (let e: unknown = error; e instanceof Error; e = e.cause) {
+          texts.push(e.message);
+        }
+        if (/unique constraint failed/i.test(texts.join(" "))) {
           throw new TRPCError({
             code: "CONFLICT",
             message: "Another paper with this source URL is already in gallery",
