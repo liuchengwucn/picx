@@ -64,6 +64,21 @@ const STICK_TO_BOTTOM_PX = 80;
 /** 聊天设置存 localStorage 跨会话记住（读写都要过 typeof window 守卫，SSR 无 window） */
 const WEB_SEARCH_STORAGE_KEY = "picx.chat.webSearch";
 const REASONING_STORAGE_KEY = "picx.chat.reasoningEffort";
+
+/** 聊天栏宽度（xl 三栏形态的第三列）。页面组件负责持久化与写 CSS 变量 */
+export const CHAT_PANEL_WIDTH_STORAGE_KEY = "picx.chat.panelWidth";
+/**
+ * 可拖范围。上限按 1520px 容器倒推：1520 − 300(左栏) − 48(两道 gap) − 560
+ * 仍给正文留 ~612px，再宽就把正文挤垮了。
+ */
+export const CHAT_PANEL_WIDTH = { min: 320, max: 560, default: 360 } as const;
+
+export function clampChatPanelWidth(width: number): number {
+  return Math.min(
+    CHAT_PANEL_WIDTH.max,
+    Math.max(CHAT_PANEL_WIDTH.min, Math.round(width)),
+  );
+}
 const REASONING_EFFORTS: readonly ChatReasoningEffort[] = [
   "off",
   "low",
@@ -245,9 +260,9 @@ function ToolTrace({
   return (
     <p className="flex items-center gap-2 text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">
       {done ? (
-        <DoneIcon className="h-3.5 w-3.5" />
+        <DoneIcon className="h-3.5 w-3.5 shrink-0" />
       ) : (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
       )}
       {label}
     </p>
@@ -304,11 +319,11 @@ function ActivityBlock({
         className="flex items-center gap-2 rounded-sm text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase hover:text-[var(--ink)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
       >
         {live ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
         ) : (
           <ChevronRight
             className={cn(
-              "h-3.5 w-3.5 transition-transform",
+              "h-3.5 w-3.5 shrink-0 transition-transform",
               expanded && "rotate-90",
             )}
           />
@@ -368,7 +383,10 @@ function SourceFootnotes({ sources }: { sources: SourceLink[] }) {
       <ol className="mt-1.5 space-y-1">
         {sources.map((source, index) => (
           <li key={source.url} className="flex gap-2 text-xs">
-            <span className="tabular-nums text-[var(--ink-soft)]">
+            {/* shrink-0 + nowrap：body 上有 [overflow-wrap:anywhere]（防长 URL
+                溢出），它会把这个 span 的 min-content 压成单字符宽，flex 收缩时
+                序号会被逐字折行成「1 / 0 / .」竖排 */}
+            <span className="shrink-0 whitespace-nowrap tabular-nums text-[var(--ink-soft)]">
               {index + 1}.
             </span>
             <a
@@ -1053,10 +1071,82 @@ function SignInPrompt({
   );
 }
 
+/**
+ * 聊天栏左缘的拖宽把手（仅 xl 常驻形态；本期只做指针拖拽，不做键盘）。
+ * 宽度是受控的：页面持有状态并写成 CSS 变量驱动 grid 列宽，这里只上报新值。
+ * 用 pointer capture：指针拖出把手区域后 move/up 仍会派发到这里。
+ */
+function PanelResizeHandle({
+  width,
+  onWidthChange,
+}: {
+  width: number;
+  onWidthChange: (width: number) => void;
+}) {
+  // 拖拽起点：pointerdown 记一次，move 全程相对它算，不累计增量避免误差漂移
+  const dragRef = useRef<{
+    pointerId: number;
+    x: number;
+    width: number;
+  } | null>(null);
+
+  // 组件若在拖拽中途被卸载（视口切换等），别把「禁止选择文本」留在 body 上
+  useEffect(
+    () => () => {
+      document.body.style.userSelect = "";
+    },
+    [],
+  );
+
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    document.body.style.userSelect = "";
+  };
+
+  return (
+    // 纯装饰性交互（aria-hidden）：本期明确只做鼠标/触控拖拽、不做键盘，挂
+    // separator 角色反而要求可聚焦 + aria-valuenow 一整套却给不了键盘操作
+    <div
+      aria-hidden="true"
+      className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize touch-none select-none bg-transparent transition-colors hover:bg-[var(--academic-brown)]/35 active:bg-[var(--academic-brown)]/50"
+      onPointerDown={(event) => {
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        dragRef.current = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          width,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        // 拖拽中禁选：不然指针扫过正文会拉出一路选区
+        document.body.style.userSelect = "none";
+        event.preventDefault();
+      }}
+      onPointerMove={(event) => {
+        const start = dragRef.current;
+        if (!start || start.pointerId !== event.pointerId) return;
+        // 面板在页面右侧：往左拖是加宽
+        onWidthChange(
+          clampChatPanelWidth(start.width + start.x - event.clientX),
+        );
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    />
+  );
+}
+
 export interface PaperChatProps {
   paperShortId: string;
   isSignedIn: boolean;
   onSignIn: () => void;
+  /** xl 三栏形态的当前栏宽（px）。仅用作拖拽起点，布局由页面的 CSS 变量驱动 */
+  panelWidth?: number;
+  /** 提供了才渲染拖宽把手；新值已 clamp 到 CHAT_PANEL_WIDTH 范围 */
+  onPanelWidthChange?: (width: number) => void;
 }
 
 /**
@@ -1067,6 +1157,8 @@ export function PaperChat({
   paperShortId,
   isSignedIn,
   onSignIn,
+  panelWidth,
+  onPanelWidthChange,
 }: PaperChatProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -1110,10 +1202,16 @@ export function PaperChat({
     return (
       <aside
         className={cn(
-          "paper-card hidden overflow-hidden p-0 xl:sticky xl:top-24 xl:block",
+          "paper-card relative hidden overflow-hidden p-0 xl:sticky xl:top-24 xl:block",
           isSignedIn && "h-[calc(100dvh-8rem)]",
         )}
       >
+        {onPanelWidthChange && (
+          <PanelResizeHandle
+            width={panelWidth ?? CHAT_PANEL_WIDTH.default}
+            onWidthChange={onPanelWidthChange}
+          />
+        )}
         {isSignedIn ? (
           <PaperChatConversation
             paperShortId={paperShortId}

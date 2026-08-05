@@ -17,14 +17,25 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
-import { PaperChat } from "#/components/paper-chat";
+import {
+  CHAT_PANEL_WIDTH,
+  CHAT_PANEL_WIDTH_STORAGE_KEY,
+  clampChatPanelWidth,
+  PaperChat,
+} from "#/components/paper-chat";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 import { PublicBadge } from "#/components/papers/public-badge";
 import { RegenerateWhiteboardDialog } from "#/components/papers/regenerate-whiteboard-dialog";
@@ -420,6 +431,38 @@ function PaperDetailPage() {
   const [guestSelectedLanguage, setGuestSelectedLanguage] = useState<
     string | null
   >(null);
+  // 聊天栏宽度（xl 三栏的第三列，经 CSS 变量驱动布局）。SSR/首帧固定默认值，
+  // 挂载后再从 localStorage 恢复——首次渲染就读会水合不一致，参照 use-reader-settings
+  const [chatPanelWidth, setChatPanelWidth] = useState<number>(
+    CHAT_PANEL_WIDTH.default,
+  );
+  const [chatPanelHydrated, setChatPanelHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const parsed = Number(
+        window.localStorage.getItem(CHAT_PANEL_WIDTH_STORAGE_KEY),
+      );
+      if (Number.isFinite(parsed) && parsed > 0) {
+        setChatPanelWidth(clampChatPanelWidth(parsed));
+      }
+    } catch {
+      // 读不了（隐私模式等）就用默认宽度
+    }
+    setChatPanelHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!chatPanelHydrated) return;
+    try {
+      window.localStorage.setItem(
+        CHAT_PANEL_WIDTH_STORAGE_KEY,
+        String(chatPanelWidth),
+      );
+    } catch {
+      // 忽略写入失败（隐私模式等），宽度退化为仅本次访问生效
+    }
+  }, [chatPanelWidth, chatPanelHydrated]);
 
   // Use optional auth - allow viewing public papers without login
   const { data: session, isPending: isSessionPending } =
@@ -578,14 +621,22 @@ function PaperDetailPage() {
       ? "mx-auto w-[min(1200px,calc(100%_-_2rem))] py-8 xl:w-[min(1520px,calc(100%_-_2rem))]"
       : "page-wrap py-8";
   // 放宽只服务于三栏那一段。面包屑 / 分享条 / 相关论文让开聊天栏的宽度
-  // （360px 栏 + 24px gap = 384px），正好铺满 grid 的第 1-2 列：
-  // 1520 − 384 = 1136 = 300 + 24 + 812。这样面包屑与左栏左对齐、相关论文卡片
-  // 右边界收在聊天面板起点，而不是各自居中后与网格错位。
+  // （--chat-panel-width 栏宽 + 24px gap，默认 360+24=384px），正好铺满 grid 的
+  // 第 1-2 列：默认下 1520 − 384 = 1136 = 300 + 24 + 812。这样面包屑与左栏
+  // 左对齐、相关论文卡片右边界收在聊天面板起点，而不是各自居中后与网格错位。
+  // 聊天栏可拖宽，所以这里必须跟 grid 第三列共用同一个 CSS 变量联动。
   const narrowBlockClassName =
-    paper.status === "completed" ? "xl:mr-[384px]" : "";
+    paper.status === "completed"
+      ? "xl:mr-[calc(var(--chat-panel-width)_+_24px)]"
+      : "";
 
   return (
-    <main className={containerClassName}>
+    <main
+      className={containerClassName}
+      // 聊天栏宽度经 CSS 变量同时驱动 grid 第三列与 narrowBlock 的右让宽。
+      // SSR 输出默认 360px，挂载后由 effect 恢复用户拖过的值
+      style={{ "--chat-panel-width": `${chatPanelWidth}px` } as CSSProperties}
+    >
       <div className="stagger-in">
         {/* Breadcrumb */}
         <nav
@@ -626,7 +677,7 @@ function PaperDetailPage() {
         <div
           className={
             paper.status === "completed"
-              ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_360px]"
+              ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_var(--chat-panel-width)]"
               : "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start"
           }
         >
@@ -1039,6 +1090,8 @@ function PaperDetailPage() {
               // api 都允许 guest 发消息，入口不能反倒把它挡在登录提示后面
               isSignedIn={!!effectiveSession}
               onSignIn={startGitHubSignIn}
+              panelWidth={chatPanelWidth}
+              onPanelWidthChange={setChatPanelWidth}
             />
           )}
         </div>
