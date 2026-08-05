@@ -51,6 +51,7 @@ function NewsPage() {
       limit: PAGE_SIZE,
       sort,
       locale: getLocale(),
+      debug: showScores,
     }),
   );
 

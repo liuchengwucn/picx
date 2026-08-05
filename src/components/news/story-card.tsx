@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Clock, MessageSquare } from "lucide-react";
+import { ScoreBadge } from "#/components/news/score-badge";
 import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import type { StorySignalsSummary } from "#/db/schema";
@@ -105,19 +106,8 @@ export function StoryCard({ story, delay, showScores }: StoryCardProps) {
           </span>
         )}
         {domains.length === 0 && <span>{countsText}</span>}
-        {/* 调试徽标：story 内 item 分数范围，低分暴露聚类混入 */}
         {showScores && story.scoreMin != null && (
-          <span
-            className={`rounded-full border border-dashed border-[var(--line)] px-2 py-0.5 font-mono text-[11px] ${
-              story.scoreMin < 60
-                ? "text-amber-600 dark:text-amber-500"
-                : "text-[var(--ink-soft)]"
-            }`}
-          >
-            {story.scoreMin === story.scoreMax
-              ? story.scoreMin
-              : `${story.scoreMin}–${story.scoreMax}`}
-          </span>
+          <ScoreBadge min={story.scoreMin} max={story.scoreMax} />
         )}
         {hn && (
           <a

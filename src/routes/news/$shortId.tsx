@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import { ArrowLeft, Clock, ExternalLink, MessageSquare } from "lucide-react";
+import { ScoreBadge } from "#/components/news/score-badge";
 import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTRPC } from "#/integrations/trpc/react";
@@ -88,7 +89,8 @@ export const Route = createFileRoute("/news/$shortId")({
             signals: newsItems.signals,
             media: newsItems.media,
             extra: newsItems.extra,
-            relevanceScore: newsItems.relevanceScore,
+            // SSR HTML 面向所有访客（含爬虫），永远不下发内部打分
+            relevanceScore: sql<number | null>`null`,
             sourceName: newsSources.name,
             sourceType: newsSources.type,
           })
@@ -117,7 +119,7 @@ export const Route = createFileRoute("/news/$shortId")({
     }
 
     const ssrData = (await context.queryClient.ensureQueryData(
-      context.trpc.news.byShortId.queryOptions(params.shortId),
+      context.trpc.news.byShortId.queryOptions({ shortId: params.shortId }),
     )) as SerializableByShortId;
     return { ssrData };
   },
@@ -189,7 +191,7 @@ function NewsStoryPage() {
   const showScores = useDebugScores();
 
   const { data, isLoading, error } = useQuery({
-    ...trpc.news.byShortId.queryOptions(shortId),
+    ...trpc.news.byShortId.queryOptions({ shortId, debug: showScores }),
     initialData: loaderData?.ssrData ?? undefined,
     staleTime: loaderData?.ssrData ? 30_000 : undefined,
   });
@@ -308,17 +310,8 @@ function NewsStoryPage() {
                         </span>
                         {item.author && <span>{item.author}</span>}
                         <time>{itemTimeAgo}</time>
-                        {/* 调试徽标：item relevance 分数，低分暴露聚类混入 */}
                         {showScores && item.relevanceScore != null && (
-                          <span
-                            className={`rounded-full border border-dashed border-[var(--line)] px-2 py-0.5 font-mono text-[11px] ${
-                              item.relevanceScore < 60
-                                ? "text-amber-600 dark:text-amber-500"
-                                : "text-[var(--ink-soft)]"
-                            }`}
-                          >
-                            {item.relevanceScore}
-                          </span>
+                          <ScoreBadge min={item.relevanceScore} />
                         )}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1">

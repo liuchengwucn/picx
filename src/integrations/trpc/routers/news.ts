@@ -54,6 +54,8 @@ export const newsRouter = createTRPCRouter({
         limit: z.number().int().min(1).max(50).default(20),
         sort: z.enum(["latest", "active"]).default("latest"),
         locale: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(),
+        // 调试开关：关闭时不跑分数子查询，普通访客零额外 D1 开销
+        debug: z.boolean().default(false),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -84,13 +86,23 @@ export const newsRouter = createTRPCRouter({
           lastActivityAt: newsStories.lastActivityAt,
           status: newsStories.status,
           // 调试用的聚合分数范围：per-story item relevance 相关子查询，命中
-          // news_items_story_idx，page size <= 50 时开销可忽略
-          scoreMin: sql<
-            number | null
-          >`(SELECT min(relevance_score) FROM news_items WHERE story_id = ${newsStories.id})`,
-          scoreMax: sql<
-            number | null
-          >`(SELECT max(relevance_score) FROM news_items WHERE story_id = ${newsStories.id})`,
+          // news_items_story_idx，page size <= 50 时开销可忽略。debug=false 时
+          // 用字面量 null 占位，不下发内部打分也不跑子查询。
+          // 陷阱：单表查询（无 join）时 drizzle 的 sqlite dialect 会把插值进 sql
+          // 模板的 Column 剥去表限定符（isSingleTable 优化），
+          // ${newsStories.id} 会被渲染成裸的 "id" ——在子查询里裸 "id" 解析成
+          // news_items.id，导致 story_id = id 恒真/恒假而不是预期的关联，
+          // min/max 永远是 NULL。因此这里手写别名 + 完整外层表名，绝不插值 Column。
+          scoreMin: input.debug
+            ? sql<
+                number | null
+              >`(SELECT min(ni.relevance_score) FROM news_items ni WHERE ni.story_id = news_stories.id)`
+            : sql<number | null>`null`,
+          scoreMax: input.debug
+            ? sql<
+                number | null
+              >`(SELECT max(ni.relevance_score) FROM news_items ni WHERE ni.story_id = news_stories.id)`
+            : sql<number | null>`null`,
         })
         .from(newsStories)
         .where(visible)
@@ -109,7 +121,13 @@ export const newsRouter = createTRPCRouter({
     }),
 
   byShortId: publicProcedure
-    .input(z.string().min(1).max(10))
+    .input(
+      z.object({
+        shortId: z.string().min(1).max(10),
+        // 调试开关：关闭时不下发内部打分，避免进入公开 payload/SSR HTML
+        debug: z.boolean().default(false),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const [story] = await ctx.db
         .select({
@@ -126,7 +144,7 @@ export const newsRouter = createTRPCRouter({
         .from(newsStories)
         .where(
           and(
-            eq(newsStories.shortId, input),
+            eq(newsStories.shortId, input.shortId),
             // 有意不过滤 dirty：直达链接展示未生成四语摘要的 story 也没问题，
             // 占位内容（英文标题/摘要）是真实内容，只是还没被四语覆盖。
             sql`${newsStories.status} != 'hidden'`,
@@ -146,7 +164,10 @@ export const newsRouter = createTRPCRouter({
           signals: newsItems.signals,
           media: newsItems.media,
           extra: newsItems.extra,
-          relevanceScore: newsItems.relevanceScore,
+          // 调试关闭时不下发内部打分，避免进入公开 payload/SSR HTML
+          relevanceScore: input.debug
+            ? newsItems.relevanceScore
+            : sql<number | null>`null`,
           sourceName: newsSources.name,
           sourceType: newsSources.type,
         })
