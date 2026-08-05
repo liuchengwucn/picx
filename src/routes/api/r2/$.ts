@@ -18,6 +18,12 @@ async function handler({ request }: { request: Request }) {
       return new Response("Missing file key", { status: 400 });
     }
 
+    // paper-content/ 前缀受鉴权端点 /api/paper-content/ 保护（原文「仅登录可见」），
+    // 不可经本路由（无鉴权）匿名读取。用 404 而非 403，避免泄露前缀是否存在。
+    if (r2Key.startsWith("paper-content/")) {
+      return new Response("File not found", { status: 404 });
+    }
+
     // 访问 R2 bucket
     const appEnv = env as typeof env & AppEnvBindings;
     const bucket = appEnv.PAPERS_BUCKET;

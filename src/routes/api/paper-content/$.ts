@@ -73,6 +73,7 @@ async function handler({
         obj.httpMetadata?.contentType ?? "application/octet-stream",
       // 内容不可变（同 key 不会被覆盖为不同图片），浏览器私有缓存即可
       "Cache-Control": "private, max-age=31536000, immutable",
+      ETag: obj.etag,
     },
   });
 }
