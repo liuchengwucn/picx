@@ -21,10 +21,17 @@ import {
   userProfiles,
 } from "#/db/schema";
 import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
-import { CHAT_LIMITS, loadAccessiblePaper, sliceSection } from "#/lib/chat";
+import {
+  CHAT_LIMITS,
+  loadAccessiblePaper,
+  type RateLimitResult,
+  sliceSection,
+} from "#/lib/chat";
+import { escapeLike } from "#/lib/gallery-search";
 import { loadPaperText } from "#/lib/paper-text";
 import { SITE_URL } from "#/lib/site-url";
-import { normalizeLocaleKey } from "#/lib/tldr";
+import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
+import { HF_DAILY_PAPERS_API } from "#/workers/arxiv-cron";
 
 type Db = DrizzleD1Database<typeof schema>;
 
@@ -42,15 +49,11 @@ export const AGENT_LIMITS = {
   abstractChars: 800,
 } as const;
 
-export type AgentRateLimitResult =
-  | { ok: true }
-  | { ok: false; code: "rate_limited_minute" | "rate_limited_day" };
-
-/** 滑动窗口限流：数 conversation_messages 里该用户最近的 user 消息（同 checkChatRateLimit：先查后插非原子、轻微超限可接受） */
+/** 滑动窗口限流：数 conversation_messages 里该用户最近的 user 消息（同 checkChatRateLimit：先查后插非原子、轻微超限可接受）。结构与 chat.ts 的 RateLimitResult 相同，直接复用 */
 export async function checkAgentRateLimit(
   db: Db,
   userId: string,
-): Promise<AgentRateLimitResult> {
+): Promise<RateLimitResult> {
   const now = Date.now();
   const countSince = async (since: number) => {
     const [row] = await db
@@ -72,11 +75,6 @@ export async function checkAgentRateLimit(
     return { ok: false, code: "rate_limited_day" };
   }
   return { ok: true };
-}
-
-/** LIKE 模式转义：% _ 与转义符自身。生成的模式配合 ESCAPE '\' 使用 */
-export function escapeLike(input: string): string {
-  return input.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
 export function buildAgentSystemPrompt(
@@ -219,13 +217,16 @@ export function buildAgentTools(deps: AgentToolsDeps) {
   return {
     searchMyPapers: tool({
       description:
-        "Search the user's own paper library by keyword (matches title, summary and tags). Returns paper metadata; use readPaper with a shortId to read full text.",
+        "Search the user's own paper library by keyword (matches title, summary/TL;DR in your current language, and tags). Returns paper metadata; use readPaper with a shortId to read full text.",
       inputSchema: z.object({
         query: z.string().min(1).max(200),
         limit: z.number().int().min(1).max(20).default(10),
       }),
       execute: async ({ query, limit }) => {
-        const pattern = `%${escapeLike(query)}%`;
+        const q = query.trim();
+        const pattern = `%${escapeLike(q)}%`;
+        // JSON path 常量（非用户输入），同 paper.ts listPublic 的写法
+        const localePath = `$."${langKey}"`;
         const rows = await db
           .select({
             shortId: papers.shortId,
@@ -245,7 +246,10 @@ export function buildAgentTools(deps: AgentToolsDeps) {
               eq(papers.status, "completed"),
               or(
                 sql`${papers.title} like ${pattern} escape '\\'`,
-                sql`${paperResults.tldr} like ${pattern} escape '\\'`,
+                sql`json_extract(${paperResults.tldr}, ${localePath}) like ${pattern} escape '\\'`,
+                sql`json_extract(${paperResults.summaries}, ${localePath}) like ${pattern} escape '\\'`,
+                // tags 是小写连字符 slug 数组的整段 JSON 文本；键名不存在（tags 非 object）所以不会误命中语言 key，
+                // 唯一风险是拼接进 JSON 文本里的引号/逗号等结构字符被当子串命中，可忽略
                 sql`${paperResults.tags} like ${pattern} escape '\\'`,
               ),
             ),
@@ -262,7 +266,7 @@ export function buildAgentTools(deps: AgentToolsDeps) {
           results: rows.map((r) => ({
             shortId: r.shortId,
             title: r.title,
-            tldr: r.tldr?.[langKey] ?? r.tldr?.en ?? null,
+            tldr: pickTldr(r.tldr, langKey),
             tags: r.tags ?? [],
             categories: r.categories ?? [],
             sourceUrl: r.sourceUrl,
@@ -304,7 +308,7 @@ export function buildAgentTools(deps: AgentToolsDeps) {
           results: rows.map((r) => ({
             shortId: r.shortId,
             title: r.title,
-            tldr: r.tldr?.[langKey] ?? r.tldr?.en ?? null,
+            tldr: pickTldr(r.tldr, langKey),
             tags: r.tags ?? [],
             addedAt: r.createdAt.toISOString().slice(0, 10),
           })),
@@ -337,7 +341,7 @@ export function buildAgentTools(deps: AgentToolsDeps) {
 
     searchArxiv: tool({
       description:
-        "Search arXiv for papers by keyword. Optional category filter (e.g. cs.CL) and sort order. Results are shown to the user as cards with an add-to-library button.",
+        "Search arXiv for papers by keyword. Optional category filter (e.g. cs.CL) and sort order. Results are shown to the user as cards with an add-to-library button. The query is matched as a phrase; keep it short (2-5 words) and issue multiple searches for different angles.",
       inputSchema: z.object({
         query: z.string().min(1).max(200),
         category: z.string().max(20).optional(),
@@ -352,10 +356,15 @@ export function buildAgentTools(deps: AgentToolsDeps) {
           .default(8),
       }),
       execute: async ({ query, category, sortBy, maxResults }) => {
-        // JSON.stringify 是给短语加双引号（arXiv API 短语语法），不是序列化
+        // arXiv API 的 all:"..." 是短语语法：手工套双引号即可，" 和 \ 会破坏查询语法所以先清掉
+        const cleaned = query
+          .replace(/["\\]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!cleaned) return { error: "empty query" };
         const q = category
-          ? `all:${JSON.stringify(query)} AND cat:${category}`
-          : `all:${JSON.stringify(query)}`;
+          ? `all:"${cleaned}" AND cat:${category}`
+          : `all:"${cleaned}"`;
         const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(q)}&start=0&max_results=${maxResults}&sortBy=${sortBy}&sortOrder=descending`;
         try {
           const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
@@ -388,8 +397,8 @@ export function buildAgentTools(deps: AgentToolsDeps) {
       }),
       execute: async ({ date }) => {
         const url = date
-          ? `https://huggingface.co/api/daily_papers?date=${date}`
-          : "https://huggingface.co/api/daily_papers";
+          ? `${HF_DAILY_PAPERS_API}?date=${date}`
+          : HF_DAILY_PAPERS_API;
         try {
           const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
           if (!res.ok)
@@ -452,8 +461,11 @@ export function buildAgentTools(deps: AgentToolsDeps) {
         limit: z.number().int().min(1).max(10).default(5),
       }),
       execute: async ({ query, limit }) => {
-        // partial index 只认字面量谓词：必须 sql 字面量，见 schema.ts news_stories 索引注释
-        const conditions = [sql`${newsStories.status} != 'hidden'`];
+        // partial index 只认字面量谓词：必须 sql 字面量，见 schema.ts news_stories 索引注释。
+        // dirty=0：dirty 行还没跑 summarize，四语摘要可能只有占位英文，同 news router/sitemap/llms.txt 的过滤口径
+        const conditions = [
+          sql`${newsStories.status} != 'hidden' and ${newsStories.dirty} = 0`,
+        ];
         if (query?.trim()) {
           const pattern = `%${escapeLike(query.trim())}%`;
           conditions.push(
@@ -475,13 +487,11 @@ export function buildAgentTools(deps: AgentToolsDeps) {
           .limit(limit);
         return {
           results: rows.map((r) => ({
-            title: r.title[langKey] ?? r.title.en ?? Object.values(r.title)[0],
-            summary: (
-              r.summary[langKey] ??
-              r.summary.en ??
-              Object.values(r.summary)[0] ??
-              ""
-            ).slice(0, AGENT_LIMITS.abstractChars),
+            title: pickTldr(r.title, langKey) ?? "",
+            summary: (pickTldr(r.summary, langKey) ?? "").slice(
+              0,
+              AGENT_LIMITS.abstractChars,
+            ),
             tags: r.tags ?? [],
             date: (r.earliestPublishedAt ?? r.firstSeenAt)
               .toISOString()

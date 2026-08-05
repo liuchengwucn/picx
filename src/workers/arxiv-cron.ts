@@ -10,7 +10,10 @@ const GUEST_USER_NAME = "Guest";
 const GUEST_USER_EMAIL = "review-guest@picx.local";
 const GUEST_CREDITS = 99999;
 
-const HF_DAILY_PAPERS_API = "https://huggingface.co/api/daily_papers";
+// 复用方：src/lib/agent.ts 的 listDailyPapers 工具直接 import 这个常量。
+// HFPaper 不导出：该 interface 只覆盖 cron 阈值判断所需字段(id/title/upvotes)，
+// agent 工具还要展示 summary/authors/publishedAt，且对外部 JSON 更防御(字段可选)，形状不同故各自定义。
+export const HF_DAILY_PAPERS_API = "https://huggingface.co/api/daily_papers";
 const MIN_UPVOTES = 30;
 const MIN_PAPERS = 3;
 

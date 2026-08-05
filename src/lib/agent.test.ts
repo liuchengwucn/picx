@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { escapeLike, markInLibrary, parseArxivAtom } from "#/lib/agent";
+import {
+  AGENT_LIMITS,
+  buildAgentSystemPrompt,
+  markInLibrary,
+  parseArxivAtom,
+} from "#/lib/agent";
 
 const SAMPLE_ATOM = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -41,11 +46,51 @@ describe("parseArxivAtom", () => {
   it("returns empty array for garbage input", () => {
     expect(parseArxivAtom("not xml at all")).toEqual([]);
   });
+
+  it("truncates abstract to AGENT_LIMITS.abstractChars", () => {
+    const longSummary = "x".repeat(AGENT_LIMITS.abstractChars + 200);
+    const xml = `<feed><entry><id>http://arxiv.org/abs/2601.00001</id><title>T</title><summary>${longSummary}</summary><published>2026-01-01T00:00:00Z</published></entry></feed>`;
+    const entries = parseArxivAtom(xml);
+    expect(entries[0].abstract).toHaveLength(AGENT_LIMITS.abstractChars);
+    expect(entries[0].abstract).toBe("x".repeat(AGENT_LIMITS.abstractChars));
+  });
 });
 
-describe("escapeLike", () => {
-  it("escapes %, _ and backslash", () => {
-    expect(escapeLike("100%_a\\b")).toBe("100\\%\\_a\\\\b");
+describe("buildAgentSystemPrompt", () => {
+  const WEB_SEARCH_LINE =
+    "- Only call web search when the question needs information beyond the tools above (blogs, conference pages, current events). Judge relevance before citing.";
+
+  it("web search enabled, no profile: includes web search line, no profile block", () => {
+    const prompt = buildAgentSystemPrompt(null, true);
+    expect(prompt).toContain(WEB_SEARCH_LINE);
+    expect(prompt).not.toContain("<user_profile>");
+  });
+
+  it("web search disabled, no profile: omits web search line, no profile block", () => {
+    const prompt = buildAgentSystemPrompt(null, false);
+    expect(prompt).not.toContain(WEB_SEARCH_LINE);
+    expect(prompt).not.toContain("<user_profile>");
+  });
+
+  it("web search enabled, with profile: includes both web search line and profile block", () => {
+    const prompt = buildAgentSystemPrompt(
+      "Interested in diffusion models.",
+      true,
+    );
+    expect(prompt).toContain(WEB_SEARCH_LINE);
+    expect(prompt).toContain("<user_profile>");
+    expect(prompt).toContain("Interested in diffusion models.");
+    expect(prompt).toContain("</user_profile>");
+  });
+
+  it("web search disabled, with profile: omits web search line, includes profile block", () => {
+    const prompt = buildAgentSystemPrompt(
+      "Interested in diffusion models.",
+      false,
+    );
+    expect(prompt).not.toContain(WEB_SEARCH_LINE);
+    expect(prompt).toContain("<user_profile>");
+    expect(prompt).toContain("Interested in diffusion models.");
   });
 });
 
