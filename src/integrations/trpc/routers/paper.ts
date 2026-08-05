@@ -13,6 +13,7 @@ import {
 import { z } from "zod";
 import {
   creditTransactions,
+  paperContents,
   paperResults,
   papers,
   user,
@@ -575,6 +576,56 @@ export const paperRouter = router({
         result: null,
         defaultWhiteboard: null,
         whiteboards: [],
+      };
+    }),
+
+  /**
+   * 原文 markdown（MinerU 解析产物）。仅登录用户；owner 或公开论文可读。
+   * 无 paper_contents 行（pdfjs 回退/存量论文）返回 available: false。
+   */
+  getContent: protectedProcedure
+    .input(z.object({ paperId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [paper] = await ctx.db
+        .select({
+          id: papers.id,
+          userId: papers.userId,
+          isPublic: papers.isPublic,
+        })
+        .from(papers)
+        .where(and(eq(papers.id, input.paperId), isNull(papers.deletedAt)))
+        .limit(1);
+
+      if (!paper) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Paper not found" });
+      }
+      const isOwner = paper.userId === ctx.session.user.id;
+      if (!isOwner && !paper.isPublic) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to view this paper",
+        });
+      }
+
+      const [content] = await ctx.db
+        .select()
+        .from(paperContents)
+        .where(eq(paperContents.paperId, paper.id))
+        .limit(1);
+
+      if (!content) {
+        return { available: false as const };
+      }
+
+      const obj = await ctx.env.PAPERS_BUCKET.get(content.markdownR2Key);
+      if (!obj) {
+        return { available: false as const };
+      }
+
+      return {
+        available: true as const,
+        markdown: await obj.text(),
+        imageBase: `/api/paper-content/${paper.id}/images/`,
       };
     }),
 
