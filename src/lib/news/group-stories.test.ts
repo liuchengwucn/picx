@@ -47,9 +47,30 @@ describe("groupStoriesByDay", () => {
     });
     const groups = groupStoriesByDay([b, a, c], "Asia/Shanghai");
     expect(groups.map((g) => g.dateKey)).toEqual(["2026-08-05", "2026-08-04"]);
+    // a、b 均 ≥80：最高分 b 作大头条，a 降为次头条
     expect(groups[0].featured.shortId).toBe("b");
-    expect(groups[0].rest.map((s) => s.shortId)).toEqual(["a"]);
+    expect(groups[0].subFeatured.map((s) => s.shortId)).toEqual(["a"]);
+    expect(groups[0].rest).toEqual([]);
     expect(groups[1].featured.shortId).toBe("c");
+    expect(groups[1].subFeatured).toEqual([]);
+  });
+
+  it("promotes all >=80 stories: top score featured, rest sub-featured in input order", () => {
+    const mk = (shortId: string, scoreMax: number, hour: number) =>
+      story({
+        shortId,
+        scoreMax,
+        earliestPublishedAt: new Date(`2026-08-04T0${hour}:00:00Z`),
+      });
+    // 输入时间倒序：t85 晚于 t90 发布，但大头条仍取最高分 t90
+    const groups = groupStoriesByDay(
+      [mk("t85", 85, 6), mk("t90", 90, 5), mk("t80", 80, 4), mk("low", 70, 3)],
+      "Asia/Shanghai",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].featured.shortId).toBe("t90");
+    expect(groups[0].subFeatured.map((s) => s.shortId)).toEqual(["t85", "t80"]);
+    expect(groups[0].rest.map((s) => s.shortId)).toEqual(["low"]);
   });
 
   it("breaks ties by sourceCount then hn points; null score loses", () => {
@@ -92,6 +113,8 @@ describe("groupStoriesByDay", () => {
     const groups = groupStoriesByDay([s1, s2, s3], "Asia/Shanghai");
     expect(groups).toHaveLength(1);
     expect(groups[0].featured.shortId).toBe("s1");
+    // 无 ≥80 者：只有兜底大头条，没有次头条
+    expect(groups[0].subFeatured).toEqual([]);
     expect(groups[0].rest.map((s) => s.shortId)).toEqual(["s2", "s3"]);
   });
 
@@ -115,6 +138,7 @@ describe("groupStoriesByDay", () => {
     expect(groups.map((g) => g.dateKey)).toEqual(["2026-08-03", "2026-08-04"]);
     const allShortIds = groups.flatMap((g) => [
       g.featured.shortId,
+      ...g.subFeatured.map((s) => s.shortId),
       ...g.rest.map((s) => s.shortId),
     ]);
     expect(new Set(allShortIds).size).toBe(allShortIds.length);

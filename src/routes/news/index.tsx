@@ -3,7 +3,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Newspaper } from "lucide-react";
 import { useMemo } from "react";
 import { z } from "zod";
-import { FeaturedStory } from "#/components/news/featured-story";
+import {
+  FeaturedStory,
+  SubFeaturedStory,
+} from "#/components/news/featured-story";
 import { StoryRow, StoryRowSkeleton } from "#/components/news/story-row";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
@@ -138,6 +141,13 @@ function NewsPage() {
                   showScores={showScores}
                   eager={groupIndex === 0}
                 />
+                {group.subFeatured.map((story) => (
+                  <SubFeaturedStory
+                    key={story.shortId}
+                    story={story}
+                    showScores={showScores}
+                  />
+                ))}
                 {group.rest.length > 0 && (
                   <div className="grid grid-cols-1 gap-x-10 sm:grid-cols-2">
                     {group.rest.map((story) => (

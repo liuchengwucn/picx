@@ -13,8 +13,13 @@ export interface DayGroup<T extends GroupableStory> {
   dateKey: string; // YYYY-MM-DD（访客时区）
   date: Date;
   featured: T;
+  // ≥80 分但不是当天最高分的 story：介于大头条与普通行之间的「次头条」档
+  subFeatured: T[];
   rest: T[];
 }
+
+// scoreMax 达到该阈值的 story 全部进当天头条区；无达标者退回单条最高分
+export const FEATURED_SCORE_MIN = 80;
 
 // en-CA 的数字短日期恰好是 YYYY-MM-DD；timeZone 仅测试时显式传，生产用浏览器本地时区
 // Intl.DateTimeFormat 构造开销大，按 timeZone 缓存实例（300 条实测 8ms→0.17ms）
@@ -39,7 +44,7 @@ export function storyDate(story: GroupableStory): Date {
   return new Date(story.earliestPublishedAt ?? story.firstSeenAt);
 }
 
-// 头条优先级：scoreMax（null 视为 -1）→ sourceCount → HN points
+// 大头条优先级：scoreMax（null 视为 -1）→ sourceCount → HN points
 function featuredRank(s: GroupableStory): [number, number, number] {
   return [s.scoreMax ?? -1, s.sourceCount, s.signalsSummary?.hn?.points ?? 0];
 }
@@ -70,6 +75,7 @@ export function groupStoriesByDay<T extends GroupableStory>(
         dateKey: key,
         date: storyDate(story),
         featured: story,
+        subFeatured: [],
         rest: [],
       });
     }
@@ -77,12 +83,20 @@ export function groupStoriesByDay<T extends GroupableStory>(
   }
   for (const group of groups) {
     const bucket = byKey.get(group.dateKey) ?? [];
-    let best = bucket[0];
-    for (const story of bucket.slice(1)) {
+    // ≥80 分的全部进头条区；全天无达标者头条区兜底为整个 bucket 里的最高分一条
+    const candidates = bucket.filter(
+      (story) => (story.scoreMax ?? -1) >= FEATURED_SCORE_MIN,
+    );
+    const pool = candidates.length > 0 ? candidates : bucket;
+    let best = pool[0];
+    for (const story of pool.slice(1)) {
       if (compareFeatured(story, best) > 0) best = story;
     }
     group.featured = best;
-    group.rest = bucket.filter((story) => story !== best);
+    // 次头条与 rest 均沿用输入的时间倒序
+    group.subFeatured = candidates.filter((story) => story !== best);
+    const promoted = new Set<GroupableStory>([best, ...group.subFeatured]);
+    group.rest = bucket.filter((story) => !promoted.has(story));
   }
   return groups;
 }
