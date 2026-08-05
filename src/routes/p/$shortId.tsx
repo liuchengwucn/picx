@@ -622,7 +622,8 @@ function PaperDetailPage() {
   const isReaderAvailable = paper.status === "completed";
   const activeView: "summary" | "reader" =
     view === "reader" && isReaderAvailable ? "reader" : "summary";
-  // 处理失败的论文既没有总结也不会有原文，不必给出切换控件。
+  // 处理中的论文保留控件（原文项置灰），让人知道有这么个视图；处理失败的论文
+  // 既没有总结也永远不会有原文，两个视图都是空的，整组控件隐藏而不是只置灰一项。
   const showViewSwitch = paper.status !== "failed";
 
   // owner 的论文完成了却一张白板都没有（如上传时未勾选生成）——给一个显式入口，
