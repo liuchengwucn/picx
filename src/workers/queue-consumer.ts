@@ -141,6 +141,33 @@ export default {
           `[paper:${paperId}] Failed on attempt ${attempt}/${MAX_RETRIES}: ${errorDetail}`,
         );
 
+        // regenerate_whiteboard 的顶层错误语义与 initial/mineru_poll 不同：
+        // 出错的论文本身可能早就 completed，出问题的只是「重新生成一张白板图」
+        // 这个子操作。processWhiteboardRegeneration 内部每一步（load-results/
+        // generate-image/upload-image/update-db）的 catch 已经就地做完了
+        // 「系统 API 时退款 + 清 whiteboardRegenerating」再抛错；如果顶层再走
+        // markPaperFailed(AndRefund)，会把本来 completed 的论文错误地标成
+        // failed，还会造成第二次退款。且若把它判为可重试而 retry，重投后内部
+        // catch 会对同一次失败再退一次款。因此顶层对 regenerate 消息一律：
+        // 只记录 + 防御性清标志（兜住 UserApiConfigError 在 Step 1 aiConfig
+        // 加载阶段抛出、内部还没机会清标志的情况）+ ack，绝不 retry、绝不动
+        // papers.status、顶层绝不退款。
+        if (type === "regenerate_whiteboard") {
+          try {
+            await drizzle(env.DB)
+              .update(papers)
+              .set({ whiteboardRegenerating: false, updatedAt: new Date() })
+              .where(eq(papers.id, paperId));
+          } catch (statusError) {
+            console.warn(
+              `[paper:${paperId}] Failed to clear regenerating status`,
+              statusError,
+            );
+          }
+          message.ack();
+          continue;
+        }
+
         // 用户 API 配置错误：不重试，不退还 credit
         if (error instanceof UserApiConfigError) {
           await markPaperFailed(paperId, errorDetail, env);
@@ -154,18 +181,7 @@ export default {
             attempt >= MAX_RETRIES
               ? `Exhausted ${MAX_RETRIES} retries. Last error: ${errorDetail}`
               : errorDetail;
-          if (type === "regenerate_whiteboard") {
-            // regenerate 的扣费与 generateWhiteboard 无关（除 BYOK 外总是扣费），
-            // 沿用原有退款路径，本次改动不触碰。
-            await markPaperFailedAndRefund(
-              paperId,
-              message.body.userId,
-              reason,
-              env,
-            );
-          } else {
-            await markPaperFailedForMessage(paperId, message.body, reason, env);
-          }
+          await markPaperFailedForMessage(paperId, message.body, reason, env);
           message.ack();
         } else {
           console.log(
