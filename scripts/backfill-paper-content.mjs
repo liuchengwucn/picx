@@ -107,6 +107,7 @@ const IMAGE_PUT_BATCH = Math.max(
   Number(getOpt("--image-batch", REMOTE ? "8" : "1")),
 );
 const R2_PUT_ATTEMPTS = 3;
+const R2_GET_ATTEMPTS = 3;
 
 // ---------- env (.dev.vars) ----------
 function loadDevVars() {
@@ -230,8 +231,30 @@ async function d1(sql, params = []) {
 }
 
 // ---------- R2 ----------
-function r2Get(key, filePath) {
-  wrangler(["r2", "object", "get", `${BUCKET}/${key}`, "--file", filePath, R2_FLAG]);
+// Retried for the same reason as r2Put: the Cloudflare API intermittently drops
+// a request ("Failed to fetch /accounts/..."). Observed twice in 100 papers —
+// without a retry a blip here kills the paper before MinerU has even seen it.
+async function r2Get(key, filePath) {
+  let lastError;
+  for (let attempt = 1; attempt <= R2_GET_ATTEMPTS; attempt++) {
+    try {
+      return wrangler([
+        "r2",
+        "object",
+        "get",
+        `${BUCKET}/${key}`,
+        "--file",
+        filePath,
+        R2_FLAG,
+      ]);
+    } catch (err) {
+      lastError = err;
+      if (attempt < R2_GET_ATTEMPTS) await sleep(2000 * attempt);
+    }
+  }
+  throw new Error(
+    `r2 object get failed for ${key} after ${R2_GET_ATTEMPTS} attempts: ${String(lastError?.stderr || lastError?.message || lastError).slice(0, 300)}`,
+  );
 }
 
 // Retried: R2 puts fail transiently under concurrency (see IMAGE_PUT_BATCH).
@@ -319,7 +342,7 @@ async function runMineru(pdfBuffer, filename, log) {
 // ---------- per-paper ----------
 async function backfillPaper(paper, tmp, log) {
   const pdfPath = join(tmp, "cur.pdf");
-  r2Get(paper.pdf_r2_key, pdfPath);
+  await r2Get(paper.pdf_r2_key, pdfPath);
   const pdfBuffer = readFileSync(pdfPath);
 
   const mineruStart = Date.now();
