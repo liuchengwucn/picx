@@ -338,7 +338,9 @@ export const ChatMessage = memo(function ChatMessage({
       ({ part }) =>
         (part.type === "reasoning" &&
           (part.state === "streaming" || part.text.trim().length > 0)) ||
-        (isToolUIPart(part) && toolNameOf(part.type) in toolDisplays),
+        // hasOwn 而非 in：防工具名撞 Object.prototype 键（如 toString）时误放行
+        (isToolUIPart(part) &&
+          Object.hasOwn(toolDisplays, toolNameOf(part.type))),
     );
   // 「正文已开始」的判定：存在非空 text part。模型可能在工具轮之间输出中间
   // 文本，那之后的思考也会被收起——可接受，比精确判定简单得多。
