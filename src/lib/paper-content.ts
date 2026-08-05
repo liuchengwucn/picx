@@ -37,6 +37,32 @@ export function markdownToPlainText(markdown: string): string {
   return text.trim();
 }
 
+// `<script>...</script>` 连内容一起删；随后清掉未配对的孤立 script 标签
+// （未闭合的 `<script>` 若留下，渲染时会把其后的正文都吞成脚本内容）。
+const SCRIPT_BLOCK_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+const SCRIPT_TAG_RE = /<\/?script\b[^>]*>/gi;
+// 这几个只需删标签本身，标签间的文本仍是论文正文，保留。
+const DANGEROUS_TAG_RE = /<\/?(?:iframe|object|embed|form)\b[^>]*>/gi;
+
+/**
+ * 剥离 MinerU markdown 中的危险 HTML（存储型 XSS 的源头处理）。
+ *
+ * 威胁模型：MinerU 会把 PDF 内的文本原样抄进 markdown —— 攻击者只要在 PDF 里
+ * 写一段 `<script>` 或 `<iframe>`，解析产物就会带上它；原文视图用 rehypeRaw
+ * 渲染裸 HTML（表格/公式需要），这段脚本就会真的执行。而公开论文的原文对任意
+ * 登录用户可见，于是变成一次上传、他人渲染的存储型 XSS。
+ *
+ * 故在落盘前就清掉，R2 里的 full.md 与由它派生的纯文本都保持干净（渲染端的
+ * sanitize 仍应保留，这里是纵深防御的第一层，不是唯一一层）。
+ * 表格（`<table>/<tr>/<td>`）与 `<img>` 是论文正文的正常组成，不动。
+ */
+export function stripDangerousHtml(markdown: string): string {
+  return markdown
+    .replace(SCRIPT_BLOCK_RE, "")
+    .replace(SCRIPT_TAG_RE, "")
+    .replace(DANGEROUS_TAG_RE, "");
+}
+
 export interface PseudoPage {
   pageNumber: number;
   startOffset: number;

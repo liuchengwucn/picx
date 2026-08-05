@@ -5,6 +5,7 @@ import {
   markdownToPlainText,
   paperContentImageKey,
   paperContentMarkdownKey,
+  stripDangerousHtml,
 } from "./paper-content";
 
 describe("paperContentMarkdownKey / paperContentImageKey / markdownImagePath", () => {
@@ -16,6 +17,75 @@ describe("paperContentMarkdownKey / paperContentImageKey / markdownImagePath", (
       "paper-content/abc123/images/0-a.png",
     );
     expect(markdownImagePath("0-a.png")).toBe("images/0-a.png");
+  });
+});
+
+describe("stripDangerousHtml", () => {
+  it("removes script blocks together with their contents", () => {
+    const out = stripDangerousHtml(
+      'before <script>alert("xss")</script> after',
+    );
+
+    expect(out).toBe("before  after");
+    expect(out).not.toContain("alert");
+  });
+
+  it("removes script blocks regardless of case and attributes", () => {
+    const out = stripDangerousHtml(
+      '<SCRIPT type="text/javascript" src="//evil.example/x.js">steal()</Script>keep',
+    );
+
+    expect(out).toBe("keep");
+  });
+
+  it("removes multiline script blocks and multiple occurrences", () => {
+    const out = stripDangerousHtml(
+      "a<script>\nline1\nline2\n</script>b<script>x</script>c",
+    );
+
+    expect(out).toBe("abc");
+  });
+
+  it("removes an unterminated script tag so it cannot swallow the rest", () => {
+    const out = stripDangerousHtml("body <script> trailing text");
+
+    expect(out).not.toContain("<script");
+    expect(out).toContain("trailing text");
+  });
+
+  it("removes iframe/object/embed/form tags but keeps the text between them", () => {
+    const out = stripDangerousHtml(
+      '<iframe src="//evil.example"></iframe>' +
+        '<object data="x"></object>' +
+        "<embed src='y'>" +
+        '<form action="//evil.example"><input></form>' +
+        "real content",
+    );
+
+    expect(out).not.toMatch(/<\/?(?:iframe|object|embed|form)\b/i);
+    expect(out).toContain("real content");
+    // form 内的其他标签不在黑名单里，仅标签本身被移除
+    expect(out).toContain("<input>");
+  });
+
+  it("removes dangerous tags regardless of case and attributes", () => {
+    const out = stripDangerousHtml('<IFRAME SRC="//evil.example" >x</IfRaMe>');
+
+    expect(out).toBe("x");
+  });
+
+  it("keeps HTML tables and images untouched", () => {
+    const table =
+      "<table><tr><td>1</td><td>2</td></tr></table>\n\n" +
+      '<img src="images/a.png" alt="fig 1" />';
+
+    expect(stripDangerousHtml(table)).toBe(table);
+  });
+
+  it("leaves plain markdown untouched", () => {
+    const markdown = "# Title\n\n| a | b |\n| --- | --- |\n\n$E = mc^2$";
+
+    expect(stripDangerousHtml(markdown)).toBe(markdown);
   });
 });
 

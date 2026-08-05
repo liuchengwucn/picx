@@ -93,6 +93,25 @@ describe("paperRouter.create security checks", () => {
     });
   });
 
+  it("rejects an upload r2Key under another user's prefix", async () => {
+    // 否则登录用户可以传他人前缀的 key，白嫖解析别人已上传的私有 PDF。
+    const ctx = createContext();
+
+    const caller = paperRouter.createCaller(ctx as never);
+
+    await expect(
+      caller.create({
+        sourceType: "upload",
+        filename: "paper.pdf",
+        fileSize: 8,
+        r2Key: "papers/other-user/x.pdf",
+      }),
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: "Invalid r2Key",
+    });
+  });
+
   it("rejects a prompt template that does not belong to the caller", async () => {
     const ctx = createContext({
       db: createDbMock([[{ id: "cfg-1" }], []]),

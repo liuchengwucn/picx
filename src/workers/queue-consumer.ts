@@ -37,6 +37,7 @@ import {
   markdownToPlainText,
   paperContentImageKey,
   paperContentMarkdownKey,
+  stripDangerousHtml,
 } from "#/lib/paper-content";
 import { loadPaperText, paperTextKey } from "#/lib/paper-text";
 import {
@@ -666,6 +667,19 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   } else if (wantWhiteboard) {
     // 理论上不可达（insights 生成失败会抛错），留日志避免静默少图。
     logWarn("generate-image", "Whiteboard insights are empty, skipping image");
+    // 扣了白板的钱却没出图 → 退款。总结等已生成，论文照常完成，不标 failed。
+    if (msg.generateWhiteboard === true && !msg.apiConfigId) {
+      try {
+        await refundCredit(
+          msg.paperId,
+          msg.userId,
+          "Whiteboard insights empty",
+          env,
+        );
+      } catch (refundError) {
+        logWarn("refund", "Failed to refund credit", refundError);
+      }
+    }
   }
 
   // Step 6: 上传图片到 R2 和保存结果到数据库（并行执行）
@@ -1096,7 +1110,8 @@ async function persistMineruContent(
   const resolver = buildImageResolver(images, (img) =>
     markdownImagePath(img.storedName),
   );
-  const rewritten = rewriteImageRefs(markdown, resolver);
+  // 先剥危险 HTML 再落盘：R2 的 full.md 与由它派生的 plainText 都保持干净。
+  const rewritten = stripDangerousHtml(rewriteImageRefs(markdown, resolver));
 
   // 先确认产物可用再落盘：否则会留下一行指向「无正文 markdown」的 paper_contents，
   // 而论文实际走的是 pdfjs。

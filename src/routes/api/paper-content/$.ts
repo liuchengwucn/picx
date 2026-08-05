@@ -22,7 +22,9 @@ interface AppEnvBindings {
   PAPERS_BUCKET: R2Bucket;
 }
 
-const SPLAT_RE = /^([0-9a-f-]{36})\/images\/([\w][\w.-]*)$/i;
+// imageName 允许的字符与 mineru-zip 的 sanitizeStoredBasename 一致（无斜杠，
+// 故不可能穿越到别的前缀）。
+const SPLAT_RE = /^([0-9a-f-]{36})\/images\/([\w.-][\w.-]*)$/i;
 
 async function handler({
   params,
@@ -71,6 +73,8 @@ async function handler({
     headers: {
       "Content-Type":
         obj.httpMetadata?.contentType ?? "application/octet-stream",
+      // contentType 源自 zip 内的扩展名，别让浏览器再去嗅探成 HTML/脚本
+      "X-Content-Type-Options": "nosniff",
       // 内容不可变（同 key 不会被覆盖为不同图片），浏览器私有缓存即可
       "Cache-Control": "private, max-age=31536000, immutable",
       ETag: obj.etag,
