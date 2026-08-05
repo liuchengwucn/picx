@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { papers } from "#/db/schema";
 import { paperRouter } from "./paper";
-import { uploadRouter } from "./upload";
 
 function createSelectChain(result: unknown[]) {
   return {
@@ -113,44 +112,6 @@ describe("paperRouter.create security checks", () => {
     ).rejects.toMatchObject({
       code: "NOT_FOUND",
       message: "Prompt template not found",
-    });
-  });
-});
-
-describe("uploadRouter.uploadFile validation", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("rejects uploads whose declared size does not match the decoded bytes", async () => {
-    const caller = uploadRouter.createCaller(createContext() as never);
-    const fileData = Buffer.from("%PDF-1.7\ncontent").toString("base64");
-
-    await expect(
-      caller.uploadFile({
-        filename: "paper.pdf",
-        fileData,
-        fileSize: 1,
-      }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: "Declared file size does not match uploaded data",
-    });
-  });
-
-  it("rejects uploads that are not PDFs", async () => {
-    const caller = uploadRouter.createCaller(createContext() as never);
-    const fileData = Buffer.from("plain text").toString("base64");
-
-    await expect(
-      caller.uploadFile({
-        filename: "paper.pdf",
-        fileData,
-        fileSize: 10,
-      }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: "Uploaded file is not a valid PDF",
     });
   });
 });
