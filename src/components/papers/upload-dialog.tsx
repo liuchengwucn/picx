@@ -37,6 +37,9 @@ import {
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
+// 前端预检，避免大文件传完才被服务端拒绝；与 /api/papers/upload 的 100MB 硬上限对齐。
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
 interface UploadDialogProps {
   credits: number;
   onSuccess?: () => void;
@@ -60,7 +63,9 @@ function LanguageSelectors({
   return (
     <div
       className={
-        showWhiteboardLanguage ? "grid grid-cols-2 gap-3" : "grid grid-cols-1"
+        showWhiteboardLanguage
+          ? "grid grid-cols-2 gap-3"
+          : "grid grid-cols-1 gap-3"
       }
     >
       <div className="space-y-2">
@@ -250,6 +255,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const fileInputId = useId();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [arxivUrl, setArxivUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [generateWhiteboard, setGenerateWhiteboard] = useState(false);
@@ -425,13 +431,31 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     setOpen(nextOpen);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile?.type === "application/pdf") {
-      setFile(droppedFile);
+  const handleFileSelect = useCallback((selected: File | null) => {
+    if (!selected) {
+      setFile(null);
+      setFileError(null);
+      return;
     }
+    if (selected.size > MAX_FILE_BYTES) {
+      setFile(null);
+      setFileError(m.upload_file_size_limit());
+      return;
+    }
+    setFile(selected);
+    setFileError(null);
   }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const droppedFile = e.dataTransfer.files[0];
+      if (droppedFile?.type === "application/pdf") {
+        handleFileSelect(droppedFile);
+      }
+    },
+    [handleFileSelect],
+  );
 
   const openFilePicker = useCallback(() => {
     fileInputRef.current?.click();
@@ -483,7 +507,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      setFile(null);
+                      handleFileSelect(null);
                       openFilePicker();
                     }}
                     className="mt-2"
@@ -506,7 +530,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                     type="file"
                     accept=".pdf"
                     className="hidden"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    onChange={(e) =>
+                      handleFileSelect(e.target.files?.[0] || null)
+                    }
                   />
                   <p className="mt-1 text-xs text-[var(--neutral-mid)]">
                     {m.upload_file_size_limit()}
@@ -514,6 +540,11 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 </>
               )}
             </label>
+            {fileError && (
+              <p className="mt-2 text-center text-xs text-[var(--sienna)]">
+                {fileError}
+              </p>
+            )}
             <div className="mt-4">
               <WhiteboardToggle
                 checked={generateWhiteboard}

@@ -8,6 +8,8 @@ import { isPdfBuffer } from "#/lib/pdf-bytes";
  * 上限对齐 MinerU 的 100MB。R2 key 约定与旧路径一致：papers/{userId}/{ts}-{filename}。
  */
 
+// Worker 内存上限 128MB，缓冲整文件中转；Cloudflare 请求体上限多数套餐为 100MB，
+// 故 100MB 是平台硬约束，而非随意选定的业务上限。
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
 
 interface AppEnvBindings {

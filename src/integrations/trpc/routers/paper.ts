@@ -182,6 +182,17 @@ export const paperRouter = router({
         // Better Auth 已经管理用户，直接使用 session 中的 user ID
         const userId = ctx.session.user.id;
 
+        // 防止登录用户传他人前缀的 r2Key，白嫖解析别人已上传的私有 PDF。
+        if (
+          input.sourceType === "upload" &&
+          !input.r2Key.startsWith(`papers/${userId}/`)
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Invalid r2Key",
+          });
+        }
+
         if (input.apiConfigId) {
           const [apiConfig] = await ctx.db
             .select({ id: userApiConfigs.id })
