@@ -346,13 +346,26 @@ async function backfillPaper(paper, tmp, log) {
     throw new Error("MinerU zip has no usable markdown");
   }
 
-  const resolver = buildImageResolver(images, (img) =>
-    markdownImagePath(img.storedName),
+  // Strip dangerous HTML before rewriting (mirrors persistMineruContent): the
+  // markdown that lands in R2 is the one whose image references are counted, so
+  // an <img> inside a stripped <script> block never marks an image as needed.
+  const resolver = buildImageResolver(images);
+  const { markdown: rewritten, referencedStoredNames } = rewriteImageRefs(
+    stripDangerousHtml(markdown),
+    resolver,
+    (img) => markdownImagePath(img.storedName),
   );
-  const rewritten = stripDangerousHtml(rewriteImageRefs(markdown, resolver));
   if (markdownToPlainText(rewritten).trim().length === 0) {
     throw new Error("MinerU markdown produced empty plain text");
   }
+
+  // Only the images the rewritten markdown actually references get stored:
+  // MinerU also crops table/formula regions into the zip but renders them as
+  // HTML/LaTeX in the markdown, so ~half of the zip's images are never
+  // referenced and would just burn R2 storage.
+  const referencedImages = images.filter((img) =>
+    referencedStoredNames.has(img.storedName),
+  );
 
   // Write images first, markdown last: if the run dies midway the markdown
   // object (and the paper_contents row gating the reader view) is still absent,
@@ -360,8 +373,8 @@ async function backfillPaper(paper, tmp, log) {
   let imageBytes = 0;
   const uploadStart = Date.now();
   const imageDir = join(tmp, "img");
-  for (let i = 0; i < images.length; i += IMAGE_PUT_BATCH) {
-    const batch = images.slice(i, i + IMAGE_PUT_BATCH);
+  for (let i = 0; i < referencedImages.length; i += IMAGE_PUT_BATCH) {
+    const batch = referencedImages.slice(i, i + IMAGE_PUT_BATCH);
     await Promise.all(
       batch.map(async (img, j) => {
         const path = join(imageDir, `${i + j}`);
@@ -396,7 +409,8 @@ async function backfillPaper(paper, tmp, log) {
       crypto.randomUUID(),
       paper.id,
       paperContentMarkdownKey(paper.id),
-      images.length,
+      // image_count means "images actually stored/referenced", not the zip total.
+      referencedImages.length,
       rewritten.length,
       Math.floor(Date.now() / 1000),
     ],
@@ -406,7 +420,8 @@ async function backfillPaper(paper, tmp, log) {
     pages: result.totalPages ?? paper.page_count ?? null,
     mineruMs,
     uploadMs,
-    imageCount: images.length,
+    imageCount: referencedImages.length,
+    zipImageCount: images.length,
     imageBytes,
     markdownBytes,
     charCount: rewritten.length,
@@ -500,7 +515,7 @@ async function main() {
       const elapsed = Date.now() - start;
       stats.push({ id: p.id, elapsed, ...r });
       console.log(
-        `✓ ${label} pages=${r.pages ?? "?"} time=${fmtDuration(elapsed)} (mineru ${fmtDuration(r.mineruMs)} / upload ${fmtDuration(r.uploadMs)}) images=${r.imageCount} md=${fmtBytes(r.markdownBytes)} r2=${fmtBytes(r.markdownBytes + r.imageBytes)}`,
+        `✓ ${label} pages=${r.pages ?? "?"} time=${fmtDuration(elapsed)} (mineru ${fmtDuration(r.mineruMs)} / upload ${fmtDuration(r.uploadMs)}) images=${r.imageCount}/${r.zipImageCount} md=${fmtBytes(r.markdownBytes)} r2=${fmtBytes(r.markdownBytes + r.imageBytes)}`,
       );
     } catch (err) {
       if (err instanceof FatalError) {
@@ -526,7 +541,7 @@ async function main() {
   );
   if (stats.length > 0) {
     console.log(
-      `[backfill-content] pages=${sum((s) => s.pages ?? 0)} images=${sum((s) => s.imageCount)} markdown=${fmtBytes(sum((s) => s.markdownBytes))} images=${fmtBytes(sum((s) => s.imageBytes))} r2Total=${fmtBytes(totalR2)}`,
+      `[backfill-content] pages=${sum((s) => s.pages ?? 0)} images=${sum((s) => s.imageCount)}/${sum((s) => s.zipImageCount)} markdown=${fmtBytes(sum((s) => s.markdownBytes))} images=${fmtBytes(sum((s) => s.imageBytes))} r2Total=${fmtBytes(totalR2)}`,
     );
     console.log(
       `[backfill-content] per paper avg: time=${fmtDuration(sum((s) => s.elapsed) / stats.length)} (mineru ${fmtDuration(sum((s) => s.mineruMs) / stats.length)} / upload ${fmtDuration(sum((s) => s.uploadMs) / stats.length)}) images=${(sum((s) => s.imageCount) / stats.length).toFixed(1)} r2=${fmtBytes(Math.round(totalR2 / stats.length))}`,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   basename,
   buildImageResolver,
+  type MineruZipImage,
   parseMineruZip,
   rewriteImageRefs,
 } from "./mineru-zip";
@@ -151,9 +152,9 @@ describe("buildImageResolver", () => {
       "images/a.png": MINIMAL_PNG,
     });
     const { images } = parseMineruZip(zip);
-    const resolve = buildImageResolver(images, (img) => `URI:${img.entryName}`);
+    const resolve = buildImageResolver(images);
 
-    expect(resolve("images/a.png")).toBe("URI:images/a.png");
+    expect(resolve("images/a.png")?.entryName).toBe("images/a.png");
   });
 
   it("resolves via trailing path segment when zip nests content under a subdirectory", () => {
@@ -162,10 +163,10 @@ describe("buildImageResolver", () => {
       "doc/images/a.jpg": MINIMAL_PNG,
     });
     const { images } = parseMineruZip(zip);
-    const resolve = buildImageResolver(images, (img) => `URI:${img.entryName}`);
+    const resolve = buildImageResolver(images);
 
     // md 内写的相对路径缺少 doc/ 前缀，zip 里实际条目却带前缀。
-    expect(resolve("images/a.jpg")).toBe("URI:doc/images/a.jpg");
+    expect(resolve("images/a.jpg")?.entryName).toBe("doc/images/a.jpg");
   });
 
   it("resolves a bare filename via unique basename fallback", () => {
@@ -174,9 +175,9 @@ describe("buildImageResolver", () => {
       "images/a.png": MINIMAL_PNG,
     });
     const { images } = parseMineruZip(zip);
-    const resolve = buildImageResolver(images, (img) => `URI:${img.entryName}`);
+    const resolve = buildImageResolver(images);
 
-    expect(resolve("a.png")).toBe("URI:images/a.png");
+    expect(resolve("a.png")?.entryName).toBe("images/a.png");
   });
 
   it("returns null on ambiguous basename matches", () => {
@@ -189,7 +190,7 @@ describe("buildImageResolver", () => {
       "dir2/other/a.png": MINIMAL_PNG,
     });
     const { images } = parseMineruZip(zip);
-    const resolve = buildImageResolver(images, (img) => `URI:${img.entryName}`);
+    const resolve = buildImageResolver(images);
 
     expect(resolve("images/a.png")).toBeNull();
   });
@@ -200,7 +201,7 @@ describe("buildImageResolver", () => {
       "images/a.png": MINIMAL_PNG,
     });
     const { images } = parseMineruZip(zip);
-    const resolve = buildImageResolver(images, (img) => `URI:${img.entryName}`);
+    const resolve = buildImageResolver(images);
 
     expect(resolve("images/ghost.png")).toBeNull();
   });
@@ -211,39 +212,105 @@ describe("buildImageResolver", () => {
       "images/a.png": MINIMAL_PNG,
     });
     const { images } = parseMineruZip(zip);
-    const resolve = buildImageResolver(images, (img) => `URI:${img.entryName}`);
+    const resolve = buildImageResolver(images);
 
-    expect(resolve("./images/a.png")).toBe("URI:images/a.png");
-    expect(resolve("images/a.png?x=1#y")).toBe("URI:images/a.png");
+    expect(resolve("./images/a.png")?.entryName).toBe("images/a.png");
+    expect(resolve("images/a.png?x=1#y")?.entryName).toBe("images/a.png");
   });
 });
 
 describe("rewriteImageRefs", () => {
+  const fakeImage = (storedName: string): MineruZipImage => ({
+    entryName: `images/${storedName}`,
+    storedName,
+    mime: "image/png",
+    bytes: MINIMAL_PNG,
+  });
+  const always = (storedName: string) => () => fakeImage(storedName);
+  const toReplaced = () => "REPLACED";
+
   it("rewrites markdown image references", () => {
     const markdown = "![fig](images/a.png)";
-    const out = rewriteImageRefs(markdown, () => "REPLACED");
+    const out = rewriteImageRefs(markdown, always("a.png"), toReplaced);
 
-    expect(out).toBe("![fig](REPLACED)");
+    expect(out.markdown).toBe("![fig](REPLACED)");
+    expect([...out.referencedStoredNames]).toEqual(["a.png"]);
   });
 
   it("rewrites inline <img src> references", () => {
     const markdown = '<img src="images/a.png" alt="x" />';
-    const out = rewriteImageRefs(markdown, () => "REPLACED");
+    const out = rewriteImageRefs(markdown, always("a.png"), toReplaced);
 
-    expect(out).toContain('src="REPLACED"');
+    expect(out.markdown).toContain('src="REPLACED"');
+    expect([...out.referencedStoredNames]).toEqual(["a.png"]);
   });
 
   it("skips data: URIs", () => {
     const markdown = "![fig](data:image/png;base64,AAAA)";
-    const out = rewriteImageRefs(markdown, () => "REPLACED");
+    const out = rewriteImageRefs(markdown, always("a.png"), toReplaced);
 
-    expect(out).toBe(markdown);
+    expect(out.markdown).toBe(markdown);
+    expect(out.referencedStoredNames.size).toBe(0);
   });
 
   it("keeps the original reference unchanged when resolve returns null", () => {
     const markdown = "![fig](images/ghost.png)";
-    const out = rewriteImageRefs(markdown, () => null);
+    const out = rewriteImageRefs(markdown, () => null, toReplaced);
 
-    expect(out).toBe(markdown);
+    expect(out.markdown).toBe(markdown);
+    expect(out.referencedStoredNames.size).toBe(0);
+  });
+
+  it("reports only the stored names the markdown actually references", () => {
+    // MinerU 把表格/公式区域也裁成图片放进 zip，markdown 却渲染成 HTML/LaTeX
+    // 而从不引用它们 —— 这些图片不应被存储。
+    const zip = zipSync({
+      "full.md": strToU8(
+        "# T\n\n![fig1](images/used.png)\n\n<table><tr><td>x</td></tr></table>\n",
+      ),
+      "images/used.png": MINIMAL_PNG,
+      "images/table_crop.png": MINIMAL_PNG,
+      "images/formula_crop.png": MINIMAL_PNG,
+    });
+    const { markdown, images } = parseMineruZip(zip);
+
+    const out = rewriteImageRefs(
+      markdown,
+      buildImageResolver(images),
+      (img) => `images/${img.storedName}`,
+    );
+
+    expect(images).toHaveLength(3);
+    expect([...out.referencedStoredNames]).toEqual(["used.png"]);
+    expect(
+      images.filter((img) => out.referencedStoredNames.has(img.storedName)),
+    ).toHaveLength(1);
+  });
+
+  it("counts images reached through the resolver's path fallbacks as referenced", () => {
+    // zip 把内容嵌在子目录里，md 里写的却是相对名/裸文件名 —— 二三级兜底命中的
+    // 图片同样算被引用（正则二次扫描 markdown 就会漏掉这类）。
+    const zip = zipSync({
+      "doc/full.md": strToU8(
+        "# T\n\n![a](images/nested.png)\n\n![b](bare.png)\n",
+      ),
+      "doc/images/nested.png": MINIMAL_PNG,
+      "doc/deep/sub/bare.png": MINIMAL_PNG,
+      "doc/images/unused.png": MINIMAL_PNG,
+    });
+    const { markdown, images } = parseMineruZip(zip);
+
+    const out = rewriteImageRefs(
+      markdown,
+      buildImageResolver(images),
+      (img) => `images/${img.storedName}`,
+    );
+
+    expect([...out.referencedStoredNames].sort()).toEqual([
+      "bare.png",
+      "nested.png",
+    ]);
+    expect(out.markdown).toContain("![a](images/nested.png)");
+    expect(out.markdown).toContain("![b](images/bare.png)");
   });
 });

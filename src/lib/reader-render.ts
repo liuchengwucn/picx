@@ -34,16 +34,20 @@ export function renderZip(zipBytes: Uint8Array): {
     return { title, markdown };
   }
 
-  const uriByEntry = new Map(
-    images.map((img) => [
-      img.entryName,
-      `data:${img.mime};base64,${bytesToBase64(img.bytes)}`,
-    ]),
-  );
-  const resolve = buildImageResolver(
-    images,
-    (img) => uriByEntry.get(img.entryName) as string,
-  );
+  // 按需编码并缓存：MinerU 的 zip 里约半数图片（表格/公式裁图）从不被 markdown
+  // 引用，全量 base64 是白烧的 CPU。缓存保证同一图片被多次引用时只编码一次。
+  const uriByEntry = new Map<string, string>();
+  const toDataUri = (img: (typeof images)[number]): string => {
+    let uri = uriByEntry.get(img.entryName);
+    if (uri === undefined) {
+      uri = `data:${img.mime};base64,${bytesToBase64(img.bytes)}`;
+      uriByEntry.set(img.entryName, uri);
+    }
+    return uri;
+  };
 
-  return { title, markdown: rewriteImageRefs(markdown, resolve) };
+  const resolve = buildImageResolver(images);
+  const rewritten = rewriteImageRefs(markdown, resolve, toDataUri);
+
+  return { title, markdown: rewritten.markdown };
 }

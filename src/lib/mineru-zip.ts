@@ -126,11 +126,13 @@ export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
 /**
  * 三级兜底解析（沿自 reader 实测经验，MinerU 偶尔把内容放子目录而 md 里只写相对名）：
  * 精确条目路径 → 末尾路径片段 → 唯一 basename。
+ *
+ * 返回命中的图片本身而非 URL：调用方据此既能生成 URL，也能知道哪些图片真被引用到
+ * （见 rewriteImageRefs 的 referencedStoredNames）。
  */
 export function buildImageResolver(
   images: MineruZipImage[],
-  toUrl: (img: MineruZipImage) => string,
-): (rawUrl: string) => string | null {
+): (rawUrl: string) => MineruZipImage | null {
   const byEntry = new Map(images.map((img) => [img.entryName, img]));
   const byBasename = new Map<string, MineruZipImage[]>();
   for (const img of images) {
@@ -140,23 +142,36 @@ export function buildImageResolver(
     byBasename.set(base, list);
   }
 
-  return (rawUrl: string): string | null => {
+  return (rawUrl: string): MineruZipImage | null => {
     const url = rawUrl.split(/[?#]/)[0].replace(/^\.\//, "");
     const exact = byEntry.get(url);
     if (exact) {
-      return toUrl(exact);
+      return exact;
     }
     for (const img of images) {
       if (img.entryName.endsWith(`/${url}`)) {
-        return toUrl(img);
+        return img;
       }
     }
     const matches = byBasename.get(basename(url));
     if (matches && matches.length === 1) {
-      return toUrl(matches[0]);
+      return matches[0];
     }
     return null;
   };
+}
+
+export interface RewrittenMarkdown {
+  markdown: string;
+  /**
+   * 重写过程中真正命中的图片 storedName 集合，即重写后的 markdown 实际引用到的图片。
+   *
+   * MinerU 的 zip 里约半数图片（表格/公式区域的裁图）从不被 markdown 引用 —— 它们在
+   * markdown 里被渲染成 HTML `<table>` / LaTeX。论文管线据此只把被引用的图片写进 R2，
+   * 避免存一堆死图。集合由重写过程本身产出，天然与 resolver 的三级兜底一致，
+   * 不会因为调用方二次正则扫描 markdown 而错判。
+   */
+  referencedStoredNames: Set<string>;
 }
 
 /**
@@ -165,14 +180,22 @@ export function buildImageResolver(
  */
 export function rewriteImageRefs(
   markdown: string,
-  resolve: (url: string) => string | null,
-): string {
+  resolve: (url: string) => MineruZipImage | null,
+  toUrl: (img: MineruZipImage) => string,
+): RewrittenMarkdown {
+  const referencedStoredNames = new Set<string>();
+
   const rewriteUrl = (rawUrl: string): string | null => {
     const url = rawUrl.trim().replace(/^<|>$/g, "");
     if (!url || url.startsWith("data:")) {
       return null;
     }
-    return resolve(url);
+    const img = resolve(url);
+    if (!img) {
+      return null;
+    }
+    referencedStoredNames.add(img.storedName);
+    return toUrl(img);
   };
 
   let out = markdown.replace(
@@ -191,5 +214,5 @@ export function rewriteImageRefs(
     },
   );
 
-  return out;
+  return { markdown: out, referencedStoredNames };
 }

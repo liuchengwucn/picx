@@ -1117,11 +1117,21 @@ async function persistMineruContent(
     return null;
   }
 
-  const resolver = buildImageResolver(images, (img) =>
-    markdownImagePath(img.storedName),
+  // 先剥危险 HTML 再重写图片：R2 的 full.md 与由它派生的 plainText 都保持干净，
+  // 且 referencedStoredNames 统计的是「最终落盘 markdown」里的引用
+  // （被剥掉的 <script> 块里的 <img> 不会被误算成需要存储的图片）。
+  const resolver = buildImageResolver(images);
+  const { markdown: rewritten, referencedStoredNames } = rewriteImageRefs(
+    stripDangerousHtml(markdown),
+    resolver,
+    (img) => markdownImagePath(img.storedName),
   );
-  // 先剥危险 HTML 再落盘：R2 的 full.md 与由它派生的 plainText 都保持干净。
-  const rewritten = stripDangerousHtml(rewriteImageRefs(markdown, resolver));
+
+  // 只存被 markdown 引用的图片：MinerU 会把表格/公式区域也裁成图片塞进 zip，但
+  // markdown 里把它们渲染成 HTML/LaTeX 而从不引用，实测约半数图片属于此类。
+  const referencedImages = images.filter((img) =>
+    referencedStoredNames.has(img.storedName),
+  );
 
   // 先确认产物可用再落盘：否则会留下一行指向「无正文 markdown」的 paper_contents，
   // 而论文实际走的是 pdfjs。
@@ -1132,8 +1142,8 @@ async function persistMineruContent(
   }
 
   // 分批并发写图片：一次性全量并发会撞 Workers 的子请求并发预算。
-  for (let i = 0; i < images.length; i += MINERU_IMAGE_PUT_BATCH) {
-    const batch = images.slice(i, i + MINERU_IMAGE_PUT_BATCH);
+  for (let i = 0; i < referencedImages.length; i += MINERU_IMAGE_PUT_BATCH) {
+    const batch = referencedImages.slice(i, i + MINERU_IMAGE_PUT_BATCH);
     await Promise.all(
       batch.map((img) =>
         env.PAPERS_BUCKET.put(
@@ -1157,12 +1167,13 @@ async function persistMineruContent(
   await db.insert(paperContents).values({
     paperId,
     markdownR2Key: paperContentMarkdownKey(paperId),
-    imageCount: images.length,
+    // 语义是「实际存储/被引用的图片数」，不是 zip 内的图片总数。
+    imageCount: referencedImages.length,
     charCount: rewritten.length,
   });
   log(
     "mineru-persist",
-    `Persisted markdown (${rewritten.length} chars) and ${images.length} image(s)`,
+    `Persisted markdown (${rewritten.length} chars) and ${referencedImages.length} image(s) referenced out of ${images.length} in zip`,
   );
 
   let mainText = plainText;
