@@ -37,8 +37,6 @@ const MAX_FILTER_PER_ROUND = 150;
 const MAX_EMBED_PER_ROUND = 100;
 const MAX_CLUSTER_PER_ROUND = 60;
 const MAX_SUMMARIZE_PER_ROUND = 30;
-// 存量回填（key_facts IS NULL）每轮上限：与 dirty 共享 30 名额且永远给 dirty 让位
-const MAX_BACKFILL_PER_ROUND = 10;
 // related 候选窗口：近 90 天内的可见 story
 const RELATED_WINDOW_DAYS = 90;
 const MAX_HN_REFRESH_PER_ROUND = 50;
@@ -494,32 +492,10 @@ async function summarizeStage(
     .orderBy(desc(newsStories.lastActivityAt))
     .limit(MAX_SUMMARIZE_PER_ROUND);
 
-  // 存量回填：新列上线时已定稿（dirty=0）的 story 缺 key_facts。
-  // 独立选路、绝不置 dirty——列表可见性谓词是 dirty = 0，置 dirty 会让整个 feed 消失。
-  // 处理路径与 dirty story 完全相同（会重生成四语摘要，一次性成本，spec 已确认）。
-  // 孤儿行也会写全空 keyFacts 退出选路；90 天窗口兜底毒 story 的重试成本
-  const backfillBudget = Math.min(
-    MAX_BACKFILL_PER_ROUND,
-    MAX_SUMMARIZE_PER_ROUND - dirtyStories.length,
-  );
-  const backfillStories =
-    backfillBudget > 0
-      ? await db
-          .select({ id: newsStories.id, shortId: newsStories.shortId })
-          .from(newsStories)
-          .where(
-            and(
-              sql`${newsStories.keyFacts} IS NULL AND ${newsStories.dirty} = 0 AND ${newsStories.status} != 'hidden'`,
-              gt(
-                newsStories.earliestPublishedAt,
-                new Date(Date.now() - RELATED_WINDOW_DAYS * 86_400_000),
-              ),
-            ),
-          )
-          .orderBy(desc(newsStories.lastActivityAt))
-          .limit(backfillBudget)
-      : [];
-  const targets = [...dirtyStories, ...backfillStories];
+  // 2026-08 改版时曾有存量回填选路（key_facts IS NULL），排空后已移除：
+  // 稳态下它是每轮空扫。个别 story 需要重新生成要点/相关/封面时，置 dirty = 1
+  // 即可走本轮换全量重算（代价：该 story 在列表消失至多一小时——可见性谓词是 dirty = 0）。
+  const targets = dirtyStories;
 
   // related 候选一次载入。上限 500 行（centroid 每行 4KB，约 2MB 封顶）；90 天窗 + 上限双兜底。
   // ORDER BY 固定：并列相似度时 pickRelated 的稳定排序结果才可复现。
@@ -577,7 +553,7 @@ async function summarizeStage(
           .update(newsStories)
           .set({
             dirty: false,
-            // 全空 keyFacts：让孤儿也退出回填选路（key_facts IS NULL），等 archiveStage 清理
+            // 全空 keyFacts：维持「key_facts 非 NULL = 已处理」的列语义，等 archiveStage 清理
             keyFacts: normalizeKeyFacts(null),
           })
           .where(eq(newsStories.id, id));
@@ -660,15 +636,12 @@ async function summarizeStage(
       }
       done++;
     } catch (error) {
-      // 失败保持 dirty=true（回填 story 失败时 key_facts 仍为 NULL，下轮自然重试）
+      // 失败保持 dirty=true，下轮重试
       console.error(`[NewsCron][summarize] story ${id} failed:`, error);
     }
   }
   if (targets.length > 0)
-    log(
-      "summarize",
-      `processed ${done}/${targets.length} stories (${dirtyStories.length} dirty, ${backfillStories.length} backfill)`,
-    );
+    log("summarize", `processed ${done}/${targets.length} dirty stories`);
 }
 
 // ---- Stage 6: refresh HN signals ----
