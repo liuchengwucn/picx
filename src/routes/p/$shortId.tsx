@@ -1005,7 +1005,12 @@ function PaperDetailPage() {
             )}
 
             {activeView === "reader" ? (
-              effectiveSession ? (
+              isSessionPending ? (
+                // SSR / 首帧 session 还没解析出来，先占位，别把已登录用户闪一下登录墙
+                <div className="paper-card flex items-center justify-center p-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-[var(--academic-brown)]" />
+                </div>
+              ) : effectiveSession ? (
                 <PaperReaderView paperId={paper.id} />
               ) : (
                 <div className="paper-card flex flex-col items-center justify-center p-12 text-center">
