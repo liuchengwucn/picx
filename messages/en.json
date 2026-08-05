@@ -430,7 +430,7 @@
   "news_page_desc": "What the AI community is talking about — aggregated hourly from lab blogs, researcher blogs, X and Hacker News.",
   "news_heading": "AI Frontier News",
   "news_subheading": "What the AI community is talking about right now",
-  "news_sort_latest": "Latest",
+  "news_sort_latest": "Daily highlights",
   "news_sort_active": "Recently updated",
   "news_reports_count": "{count} reports",
   "news_sources_count": "{count} sources",

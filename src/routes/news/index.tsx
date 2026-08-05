@@ -178,7 +178,7 @@ function NewsPage() {
               </section>
             ))
           ) : (
-            <div className="grid grid-cols-1 gap-x-10 sm:grid-cols-2">
+            <div className="[&>article:last-child]:border-b-0">
               {stories.map((story) => (
                 <StoryRow
                   key={story.shortId}
