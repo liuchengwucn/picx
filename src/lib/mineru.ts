@@ -90,6 +90,7 @@ export interface MineruResult {
   fullZipUrl?: string;
   fileName?: string;
   errMsg?: string;
+  totalPages?: number;
 }
 
 interface BatchResultResponse {
@@ -142,5 +143,6 @@ export async function getBatchResult(
     fullZipUrl: first.full_zip_url,
     fileName: first.file_name,
     errMsg: first.err_msg,
+    totalPages: first.extract_progress?.total_pages,
   };
 }
