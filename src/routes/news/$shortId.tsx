@@ -81,30 +81,30 @@ export const Route = createFileRoute("/news/$shortId")({
         // 查不到故事：抛 notFound() 让 SSR 返回真正的 404 状态码（而非 200 骨架屏）
         if (!story) throw notFound();
 
-        const items = await db
-          .select({
-            url: newsItems.url,
-            title: newsItems.title,
-            excerpt: newsItems.excerpt,
-            author: newsItems.author,
-            publishedAt: newsItems.publishedAt,
-            signals: newsItems.signals,
-            media: newsItems.media,
-            extra: newsItems.extra,
-            // 分数始终下发，是否显示由前端 debug 开关决定（与 news.byShortId 一致）
-            relevanceScore: newsItems.relevanceScore,
-            sourceName: newsSources.name,
-            sourceType: newsSources.type,
-          })
-          .from(newsItems)
-          .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
-          .where(eq(newsItems.storyId, story.id))
-          .orderBy(newsItems.publishedAt);
-
+        // items 与相关资讯查询都只依赖 story（不互相依赖），并发发起省一个串行 D1 往返
         const relatedIds = story.related ?? [];
-        const relatedRows =
+        const [items, relatedRows] = await Promise.all([
+          db
+            .select({
+              url: newsItems.url,
+              title: newsItems.title,
+              excerpt: newsItems.excerpt,
+              author: newsItems.author,
+              publishedAt: newsItems.publishedAt,
+              signals: newsItems.signals,
+              media: newsItems.media,
+              extra: newsItems.extra,
+              // 分数始终下发，是否显示由前端 debug 开关决定（与 news.byShortId 一致）
+              relevanceScore: newsItems.relevanceScore,
+              sourceName: newsSources.name,
+              sourceType: newsSources.type,
+            })
+            .from(newsItems)
+            .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
+            .where(eq(newsItems.storyId, story.id))
+            .orderBy(newsItems.publishedAt),
           relatedIds.length > 0
-            ? await db
+            ? db
                 .select({
                   shortId: newsStories.shortId,
                   title: newsStories.title,
@@ -118,7 +118,8 @@ export const Route = createFileRoute("/news/$shortId")({
                     sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
                   ),
                 )
-            : [];
+            : Promise.resolve([]),
+        ]);
         const related = relatedIds.flatMap((sid) => {
           const row = relatedRows.find((r) => r.shortId === sid);
           return row ? [row] : [];
@@ -242,12 +243,16 @@ function NewsStoryPage() {
     const localeFacts = data.keyFacts?.[localeKey];
     return (localeFacts?.length ? localeFacts : data.keyFacts?.en) ?? [];
   })();
-  const related = data.related ?? [];
+  // 相关资讯标题按 locale 取；取不到（四语均缺失）就不渲染该行，避免无名链接
+  const related = (data.related ?? []).flatMap((rel) => {
+    const displayTitle = pickTldr(rel.title, localeKey);
+    return displayTitle ? [{ ...rel, displayTitle }] : [];
+  });
   const hasAside = facts.length > 0 || related.length > 0;
 
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
-      <div className="page-wrap max-w-5xl">
+      <div className={hasAside ? "page-wrap max-w-5xl" : "page-wrap max-w-3xl"}>
         <div className="rise-in">
           <Link
             to="/news"
@@ -293,7 +298,13 @@ function NewsStoryPage() {
               </div>
             </header>
 
-            <div className="mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-x-10">
+            <div
+              className={
+                hasAside
+                  ? "mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-x-10"
+                  : "mt-5"
+              }
+            >
               {summary && (
                 <p className="text-base leading-relaxed text-[var(--ink)] lg:col-start-1 lg:row-start-1">
                   {summary}
@@ -302,7 +313,7 @@ function NewsStoryPage() {
 
               {hasAside && (
                 <aside className="mt-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0">
-                  <div className="space-y-6 lg:sticky lg:top-8">
+                  <div className="space-y-6 lg:sticky lg:top-24">
                     {facts.length > 0 && (
                       <section className="rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3.5">
                         <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--academic-brown)]">
@@ -328,7 +339,7 @@ function NewsStoryPage() {
                                 params={{ shortId: rel.shortId }}
                                 className="font-serif text-sm font-semibold leading-snug text-[var(--ink)] no-underline transition-colors hover:text-[var(--academic-brown)]"
                               >
-                                {pickTldr(rel.title, localeKey)}
+                                {rel.displayTitle}
                               </Link>
                               <div className="mt-0.5 text-xs text-[var(--ink-soft)]">
                                 {formatRelative(
