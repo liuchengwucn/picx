@@ -14,7 +14,8 @@
       "**/vite.config.ts",
       "!**/src/routeTree.gen.ts",
       "!**/src/paraglide",
-      "!**/src/styles.css"
+      "!**/src/styles.css",
+      "!**/.claude/**"
     ]
   },
   "formatter": {
