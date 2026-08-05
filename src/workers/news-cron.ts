@@ -12,6 +12,7 @@ import {
   embedTexts,
   generateStoryContent,
   judgeAssignment,
+  normalizeKeyFacts,
   scoreRelevance,
 } from "#/lib/news/ai";
 import { mergeRelated, pickRelated } from "#/lib/news/related";
@@ -520,9 +521,8 @@ async function summarizeStage(
       : [];
   const targets = [...dirtyStories, ...backfillStories];
 
-  // related 候选一次载入（几十~几百行 × 4KB centroid，与 cluster 阶段同量级）。
+  // related 候选一次载入。上限 500 行（centroid 每行 4KB，约 2MB 封顶）；90 天窗 + 上限双兜底。
   // ORDER BY 固定：并列相似度时 pickRelated 的稳定排序结果才可复现。
-  // 本轮新建的 story 不在候选里 → 收不到反向补写，下轮自愈，可接受
   const relatedCandidates =
     targets.length > 0
       ? await db
@@ -543,6 +543,7 @@ async function summarizeStage(
             ),
           )
           .orderBy(desc(newsStories.earliestPublishedAt))
+          .limit(500)
       : [];
 
   const config = aiConfigFromEnv(env);
@@ -577,7 +578,7 @@ async function summarizeStage(
           .set({
             dirty: false,
             // 全空 keyFacts：让孤儿也退出回填选路（key_facts IS NULL），等 archiveStage 清理
-            keyFacts: { en: [], "zh-cn": [], "zh-tw": [], ja: [] },
+            keyFacts: normalizeKeyFacts(null),
           })
           .where(eq(newsStories.id, id));
         continue;
@@ -608,6 +609,19 @@ async function summarizeStage(
       const related = centroid
         ? pickRelated(id, centroid, relatedCandidates)
         : null;
+      // 反向补写先于主 UPDATE：主 UPDATE 是完成标记（清 dirty / 写 keyFacts），标记必须
+      // 最后写——若这里中途崩溃，story 未被标记完成，下轮整体重放（mergeRelated 幂等，安全）。
+      // 插头部不保证严格相似度降序——展示语义为「相关列表」，接受时序性排头
+      for (const targetShortId of related ?? []) {
+        const cand = relatedCandidates.find((c) => c.shortId === targetShortId);
+        if (!cand) continue;
+        const merged = mergeRelated(cand.related, shortId);
+        cand.related = merged; // 同步内存，后续迭代基于最新值
+        await db
+          .update(newsStories)
+          .set({ related: merged })
+          .where(eq(newsStories.id, cand.id));
+      }
       await db
         .update(newsStories)
         .set({
@@ -626,19 +640,17 @@ async function summarizeStage(
           updatedAt: new Date(),
         })
         .where(eq(newsStories.id, id));
-      // 反向补写：把本 story 插进每个被选中候选的 related 头部（幂等，串行逐行 UPDATE）。
-      // 插头部不保证严格相似度降序——展示语义为「相关列表」，接受时序性排头
-      for (const targetShortId of related ?? []) {
-        const cand = relatedCandidates.find(
-          (c) => c.shortId === targetShortId,
-        );
-        if (!cand) continue;
-        const merged = mergeRelated(cand.related, shortId);
-        cand.related = merged; // 同步内存，后续迭代基于最新值
-        await db
-          .update(newsStories)
-          .set({ related: merged })
-          .where(eq(newsStories.id, cand.id));
+      // 把本 story 的最新 centroid/related 同步回候选集：
+      // 1) 修复后续反向补写基于轮初旧值 merge 而覆盖丢新算 related 的问题；
+      // 2) 让同轮处理的后续 story 能把它选为相关（否则同轮新 story 永不互链）
+      if (centroid) {
+        const selfEntry = relatedCandidates.find((c) => c.id === id);
+        if (selfEntry) {
+          selfEntry.centroid = centroid;
+          selfEntry.related = related ?? selfEntry.related;
+        } else {
+          relatedCandidates.push({ id, shortId, centroid, related });
+        }
       }
       done++;
     } catch (error) {
