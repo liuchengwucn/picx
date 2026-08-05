@@ -481,5 +481,17 @@
   "assistant_tool_search_news": "正在檢索資訊",
   "assistant_tool_search_news_done": "已檢索資訊",
   "assistant_tool_update_profile": "正在更新個人檔案",
-  "assistant_tool_update_profile_done": "已更新個人檔案"
+  "assistant_tool_update_profile_done": "已更新個人檔案",
+  "assistant_card_add": "加入論文庫",
+  "assistant_card_adding": "匯入中…",
+  "assistant_card_added": "已在庫中",
+  "assistant_card_add_failed": "加入失敗，請檢查點數後重試。",
+  "assistant_card_upvotes": "{count} 讚",
+  "assistant_card_view": "查看",
+  "assistant_profile": "個人檔案",
+  "assistant_profile_hint": "助手每次對話都會讀取這份檔案，並可能在你分享興趣時更新它。你可以自由編輯。",
+  "assistant_profile_placeholder": "例：我在做多模態推理方向；關注高效推理與 agent 評測。",
+  "assistant_profile_save": "儲存",
+  "assistant_profile_saved": "已儲存個人檔案",
+  "assistant_profile_updated_at": "更新於 {date}"
 }

@@ -481,5 +481,17 @@
   "assistant_tool_search_news": "ニュースを検索中",
   "assistant_tool_search_news_done": "ニュースを検索しました",
   "assistant_tool_update_profile": "プロフィールを更新中",
-  "assistant_tool_update_profile_done": "プロフィールを更新しました"
+  "assistant_tool_update_profile_done": "プロフィールを更新しました",
+  "assistant_card_add": "ライブラリに追加",
+  "assistant_card_adding": "インポート中…",
+  "assistant_card_added": "ライブラリに追加済み",
+  "assistant_card_add_failed": "追加に失敗しました。クレジットを確認して再試行してください。",
+  "assistant_card_upvotes": "{count} いいね",
+  "assistant_card_view": "見る",
+  "assistant_profile": "プロフィール",
+  "assistant_profile_hint": "アシスタントは毎回の会話でこのプロフィールを参照し、興味を共有すると更新することがあります。自由に編集できます。",
+  "assistant_profile_placeholder": "例：マルチモーダル推論を研究中。効率的な推論とエージェント評価に関心。",
+  "assistant_profile_save": "保存",
+  "assistant_profile_saved": "プロフィールを保存しました",
+  "assistant_profile_updated_at": "{date} 更新"
 }

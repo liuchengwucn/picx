@@ -481,5 +481,17 @@
   "assistant_tool_search_news": "正在检索资讯",
   "assistant_tool_search_news_done": "已检索资讯",
   "assistant_tool_update_profile": "正在更新个人档案",
-  "assistant_tool_update_profile_done": "已更新个人档案"
+  "assistant_tool_update_profile_done": "已更新个人档案",
+  "assistant_card_add": "加入论文库",
+  "assistant_card_adding": "导入中…",
+  "assistant_card_added": "已在库中",
+  "assistant_card_add_failed": "加入失败，请检查积分后重试。",
+  "assistant_card_upvotes": "{count} 赞",
+  "assistant_card_view": "查看",
+  "assistant_profile": "个人档案",
+  "assistant_profile_hint": "助手每次对话都会读取这份档案，并可能在你分享兴趣时更新它。你可以自由编辑。",
+  "assistant_profile_placeholder": "例：我在做多模态推理方向；关注高效推理与 agent 评测。",
+  "assistant_profile_save": "保存",
+  "assistant_profile_saved": "已保存个人档案",
+  "assistant_profile_updated_at": "更新于 {date}"
 }

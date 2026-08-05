@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AssistantChat } from "#/components/assistant/assistant-chat";
+import { ProfileDialog } from "#/components/assistant/profile-dialog";
 import { resolveChatErrorMessage } from "#/components/chat/chat-message";
 import { Button } from "#/components/ui/button";
 import {
@@ -435,7 +436,12 @@ function AssistantPage() {
         <h2 className="text-[11px] tracking-[0.18em] text-[var(--ink-soft)] uppercase">
           {m.assistant_conversations()}
         </h2>
-        <div className="mt-3">{newConversationButton}</div>
+        {/* 新对话是主动作，个人档案挨着它但降一级（ghost）——同一层工具，不同分量 */}
+        {/* 按钮不换行也不收缩：日文标签比侧栏还宽时靠 flex-wrap 落到第二行 */}
+        <div className="mt-3 flex flex-wrap items-center gap-1">
+          {newConversationButton}
+          <ProfileDialog />
+        </div>
         <nav
           aria-label={m.assistant_conversations()}
           className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1"
@@ -470,6 +476,7 @@ function AssistantPage() {
               )}
             />
           </button>
+          <ProfileDialog />
           {newConversationButton}
         </div>
         {isListOpen && (

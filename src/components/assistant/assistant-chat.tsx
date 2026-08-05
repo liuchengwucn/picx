@@ -1,6 +1,6 @@
 import { useChat } from "@ai-sdk/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { DefaultChatTransport, type ToolUIPart, type UIMessage } from "ai";
 import {
   BookOpen,
   Brain,
@@ -13,8 +13,12 @@ import {
   UserPen,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  type DiscoveredPaper,
+  PaperResultCards,
+} from "#/components/assistant/paper-result-cards";
 import {
   ChatMessage,
   resolveChatErrorMessage,
@@ -320,6 +324,26 @@ export function AssistantChat({
 
   const showThinking = status === "submitted";
 
+  /**
+   * 论文发现类工具的输出在正文流里就地渲染成可入库的卡片。服务端落库时保留了
+   * 这两个工具的 output，历史回显也能重建出同样的卡片。
+   * useCallback：ChatMessage 是 memo 的，每渲染换一个函数身份会让整列消息重渲染。
+   */
+  const renderToolOutput = useCallback(
+    (part: ToolUIPart, _messageId: string) => {
+      if (
+        part.type !== "tool-searchArxiv" &&
+        part.type !== "tool-listDailyPapers"
+      )
+        return null;
+      if (part.state !== "output-available") return null;
+      const output = part.output as { results?: DiscoveredPaper[] } | undefined;
+      if (!output?.results?.length) return null;
+      return <PaperResultCards results={output.results} />;
+    },
+    [],
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 对话区。role=log + polite：新回答播报给读屏，但不打断当前朗读 */}
@@ -355,6 +379,7 @@ export function AssistantChat({
                 message={message}
                 isStreaming={isBusy && message.id === lastMessage?.id}
                 toolDisplays={ASSISTANT_TOOLS}
+                renderToolOutput={renderToolOutput}
               />
             ))}
             {showThinking && (
