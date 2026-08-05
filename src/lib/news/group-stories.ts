@@ -17,13 +17,22 @@ export interface DayGroup<T extends GroupableStory> {
 }
 
 // en-CA 的数字短日期恰好是 YYYY-MM-DD；timeZone 仅测试时显式传，生产用浏览器本地时区
+// Intl.DateTimeFormat 构造开销大，按 timeZone 缓存实例（300 条实测 8ms→0.17ms）
+const fmtCache = new Map<string, Intl.DateTimeFormat>();
+
 export function dateKeyOf(date: Date, timeZone?: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+  const key = timeZone ?? "";
+  let fmt = fmtCache.get(key);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    fmtCache.set(key, fmt);
+  }
+  return fmt.format(date);
 }
 
 export function storyDate(story: GroupableStory): Date {

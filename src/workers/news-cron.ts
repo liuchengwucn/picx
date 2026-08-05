@@ -599,11 +599,17 @@ async function summarizeStage(
       const memberEmbeddings = members
         .map((m) => m.embedding)
         .filter((e): e is Float32Array => e !== null);
-      // 头条封面图：成员（已按 publishedAt asc 排序）中第一张图
+      // 头条封面图：成员（已按 publishedAt asc）中第一张可用图。
+      // 过滤实测垃圾：非 https（混合内容加载失败）与站头 logo/头像类 URL（qbitai 等主题图反复出现）
       const leadImage =
         members
           .flatMap((m) => m.media ?? [])
-          .find((media) => media.type === "image") ?? null;
+          .find(
+            (media) =>
+              media.type === "image" &&
+              media.url.startsWith("https://") &&
+              !/logo|head\.(jpg|png)|favicon|avatar/i.test(media.url),
+          ) ?? null;
       const centroid =
         memberEmbeddings.length > 0 ? meanVector(memberEmbeddings) : null;
       const related = centroid

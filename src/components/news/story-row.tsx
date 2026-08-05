@@ -37,11 +37,9 @@ export function StoryMeta({ story, showScores, className }: StoryMetaProps) {
   const domains = story.signalsSummary?.domains?.slice(0, MAX_FAVICONS) ?? [];
   const hn = story.signalsSummary?.hn;
   const xAccounts = story.signalsSummary?.xAccounts;
-  const timeAgo = formatRelative(
-    new Date(story.earliestPublishedAt ?? story.firstSeenAt).getTime(),
-    Date.now(),
-    getLocale(),
-  );
+  const locale = getLocale();
+  const date = new Date(story.earliestPublishedAt ?? story.firstSeenAt);
+  const timeAgo = formatRelative(date.getTime(), Date.now(), locale);
   const countsText = (
     <>
       {m.news_reports_count({ count: story.itemCount.toString() })}
@@ -63,6 +61,7 @@ export function StoryMeta({ story, showScores, className }: StoryMetaProps) {
                 src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
                 alt=""
                 loading="lazy"
+                referrerPolicy="no-referrer"
                 className="h-4 w-4 rounded-full bg-[var(--bg)] ring-2 ring-[var(--bg)]"
               />
             ))}
@@ -93,7 +92,9 @@ export function StoryMeta({ story, showScores, className }: StoryMetaProps) {
       )}
       <span className="ml-auto inline-flex items-center gap-1">
         <Clock className="h-3 w-3" />
-        <time>{timeAgo}</time>
+        <time dateTime={date.toISOString()} title={date.toLocaleString(locale)}>
+          {timeAgo}
+        </time>
       </span>
     </div>
   );
@@ -109,12 +110,12 @@ interface StoryRowProps {
 export function StoryRow({ story, showScores, className }: StoryRowProps) {
   return (
     <article
-      className={`group border-b border-[var(--line)] py-3.5 ${className ?? ""}`}
+      className={`border-b border-[var(--line)] py-3.5 ${className ?? ""}`}
     >
       <Link
         to="/news/$shortId"
         params={{ shortId: story.shortId }}
-        className="block no-underline"
+        className="group block no-underline"
       >
         <h3 className="font-serif text-[14.5px] font-bold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
           {story.title}
