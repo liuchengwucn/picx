@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { extractFirstJsonObject } from "#/lib/json-extract";
-import { embedTexts, NewsAiError } from "./ai";
+import { embedTexts, NewsAiError, normalizeKeyFacts } from "./ai";
 
 describe("extractFirstJsonObject", () => {
   it("parses clean JSON as-is", () => {
@@ -101,5 +101,26 @@ describe("embedTexts", () => {
     await expect(
       embedTexts({ kind: "binding", ai: { run } as unknown as Ai }, ["a", "b"]),
     ).rejects.toThrow(/unexpected bge-m3 response shape/);
+  });
+});
+
+describe("normalizeKeyFacts", () => {
+  it("returns all-empty record for missing/invalid input (never null)", () => {
+    const empty = { en: [], "zh-cn": [], "zh-tw": [], ja: [] };
+    expect(normalizeKeyFacts(undefined)).toEqual(empty);
+    expect(normalizeKeyFacts(null)).toEqual(empty);
+    expect(normalizeKeyFacts("nope")).toEqual(empty);
+    expect(normalizeKeyFacts({ en: [], "zh-cn": [] })).toEqual(empty);
+  });
+
+  it("keeps 4 locale keys, trims, drops non-strings, caps at 5", () => {
+    const out = normalizeKeyFacts({
+      en: [" a ", "b", "c", "d", "e", "f", 42, ""],
+      "zh-cn": ["一"],
+    });
+    expect(out.en).toEqual(["a", "b", "c", "d", "e"]);
+    expect(out["zh-cn"]).toEqual(["一"]);
+    expect(out["zh-tw"]).toEqual([]);
+    expect(out.ja).toEqual([]);
   });
 });
