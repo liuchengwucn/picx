@@ -577,6 +577,15 @@ export const paperRouter = router({
 
       const defaultWhiteboard = whiteboards.find((w) => w.isDefault) || null;
 
+      // 存量论文（pdfjs 回退 / MinerU 重构前入库）没有 paper_contents 行，
+      // 详情页据此把「原文阅读」置灰，而不是让人点进一个空态。
+      const [content] = await ctx.db
+        .select({ id: paperContents.id })
+        .from(paperContents)
+        .where(eq(paperContents.paperId, paper.id))
+        .limit(1);
+      const hasContent = !!content;
+
       if (result) {
         const summaries = result.summaries as Record<string, string>;
         const currentLanguage = result.summaryLanguage;
@@ -592,6 +601,7 @@ export const paperRouter = router({
           },
           defaultWhiteboard,
           whiteboards,
+          hasContent,
         };
       }
 
@@ -600,6 +610,7 @@ export const paperRouter = router({
         result: null,
         defaultWhiteboard: null,
         whiteboards: [],
+        hasContent,
       };
     }),
 

@@ -172,8 +172,13 @@ export const Route = createFileRoute("/p/$shortId")({
         const { env } = await import("cloudflare:workers");
         const { drizzle } = await import("drizzle-orm/d1");
         const { and, desc, eq, isNull } = await import("drizzle-orm");
-        const { paperResults, papers, whiteboardImages, whiteboardPrompts } =
-          await import("#/db/schema");
+        const {
+          paperContents,
+          paperResults,
+          papers,
+          whiteboardImages,
+          whiteboardPrompts,
+        } = await import("#/db/schema");
         const appEnv = env as typeof env & AppEnvBindings;
         const db = drizzle(appEnv.DB);
 
@@ -222,6 +227,16 @@ export const Route = createFileRoute("/p/$shortId")({
           .orderBy(desc(whiteboardImages.createdAt));
 
         const defaultWhiteboard = whiteboards.find((w) => w.isDefault) || null;
+
+        // 与 paper.getByShortId 保持一致：没有 paper_contents 行的论文（存量数据）
+        // 首帧就该把「原文阅读」置灰。
+        const [content] = await db
+          .select({ id: paperContents.id })
+          .from(paperContents)
+          .where(eq(paperContents.paperId, paper.id))
+          .limit(1);
+        const hasContent = !!content;
+
         const summaries = (result?.summaries as Record<string, string>) ?? null;
         const currentLanguage = result?.summaryLanguage ?? "en";
         const summary = summaries
@@ -239,12 +254,14 @@ export const Route = createFileRoute("/p/$shortId")({
                 },
                 defaultWhiteboard,
                 whiteboards,
+                hasContent,
               }
             : {
                 paper,
                 result: null,
                 defaultWhiteboard: null,
                 whiteboards: [],
+                hasContent,
               };
 
         // Related papers (same category first, then recent) so the SSR HTML
@@ -601,7 +618,7 @@ function PaperDetailPage() {
 
   if (!data) return null;
 
-  const { paper, result, defaultWhiteboard } = data;
+  const { paper, result, defaultWhiteboard, hasContent } = data;
   const progress = statusProgress[paper.status] ?? 0;
   const whiteboardImageUrl = defaultWhiteboard?.imageR2Key
     ? `/api/r2/${defaultWhiteboard.imageR2Key}`
@@ -619,8 +636,10 @@ function PaperDetailPage() {
 
   const isOwner = paper.userId === profile.data?.id;
 
-  // 原文只对处理完成的论文有意义；?view=reader 落在未完成论文上时静默退回总结视图。
-  const isReaderAvailable = paper.status === "completed";
+  // 原文只对处理完成、且真有 MinerU 解析产物的论文有意义（存量论文没有
+  // paper_contents 行，点进去只会看到空态）；?view=reader 落在不可用的论文上时
+  // 静默退回总结视图。
+  const isReaderAvailable = paper.status === "completed" && hasContent;
   const activeView: "summary" | "reader" =
     view === "reader" && isReaderAvailable ? "reader" : "summary";
   // 处理中的论文保留控件（原文项置灰），让人知道有这么个视图；处理失败的论文
@@ -968,19 +987,36 @@ function PaperDetailPage() {
 
           <section className="space-y-4 min-w-0">
             {showViewSwitch && (
-              <Tabs
-                value={activeView}
-                onValueChange={(v) => showView(v as "summary" | "reader")}
-              >
-                <TabsList>
-                  <TabsTrigger value="summary">
-                    {m.paper_view_summary()}
-                  </TabsTrigger>
-                  <TabsTrigger value="reader" disabled={!isReaderAvailable}>
-                    {m.paper_view_reader()}
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <Tabs
+                  value={activeView}
+                  onValueChange={(v) => showView(v as "summary" | "reader")}
+                >
+                  <TabsList>
+                    <TabsTrigger value="summary">
+                      {m.paper_view_summary()}
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="reader"
+                      disabled={!isReaderAvailable}
+                      title={
+                        isReaderAvailable
+                          ? undefined
+                          : m.paper_content_unavailable()
+                      }
+                    >
+                      {m.paper_view_reader()}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                {/* 置灰的 tab 自己解释不了原因，而 title 在禁用元素上并非处处可见：
+                    论文已完成却没有解析产物时，旁边补一句可见的说明。 */}
+                {paper.status === "completed" && !hasContent && (
+                  <p className="text-xs text-[var(--ink-soft)]">
+                    {m.paper_content_unavailable()}
+                  </p>
+                )}
+              </div>
             )}
 
             {activeView === "reader" ? (
