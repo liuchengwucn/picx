@@ -96,6 +96,10 @@ export const SANITIZE_SCHEMA: SanitizeSchema = {
 // HTML,后面几个插件生成的节点不再过 sanitize,故 schema 无需为 katex/highlight 的输出开
 // 口子)→ 把表格里残留的 $...$ 转成公式 span → katex 渲染公式 → highlight 代码 → 生成
 // 标题 id → 拆出仅含图片的段落 → 最后给公式/代码打 notranslate。
+//
+// 代价:sanitize 之后的产物不再受审查,而 katex 的输入(LaTeX)是攻击者可控的。当前安全靠
+// rehype-katex 的默认值 trust:false + strict:warn 禁掉了 \href/\htmlClass 等 HTML 扩展 ——
+// 若将来为支持论文内超链接而开 trust:true,等于在 sanitize 下游直接开洞,必须保持 false。
 const REHYPE_PLUGINS: PluggableList = [
   rehypeRaw,
   [rehypeSanitize, SANITIZE_SCHEMA],
