@@ -24,6 +24,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -60,6 +61,18 @@ const MAX_INPUT_CHARS = CHAT_CLIENT_LIMITS.maxInputChars;
 const COUNTER_VISIBLE_FROM = Math.floor(MAX_INPUT_CHARS * 0.9);
 /** 只有贴近底部时才自动跟随流式输出，用户上滚回看时不把他拽回去 */
 const STICK_TO_BOTTOM_PX = 80;
+
+/**
+ * 输入区工具栏微开关的视觉语言（两个开关必须一致）。
+ * 开启态做成「按下的实体按钮」：浅棕底 + 细边框 + 内凹阴影，一眼可辨；
+ * 关闭态无底色、明显灰化，hover 时浮出细边框提示可点。
+ */
+const TOGGLE_BASE_CLASS =
+  "flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] tracking-[0.14em] uppercase transition-colors focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none";
+const TOGGLE_ON_CLASS =
+  "border-[var(--academic-brown)]/40 bg-[var(--academic-brown)]/10 text-[var(--academic-brown)] shadow-[inset_0_1px_3px_rgba(87,61,38,0.22)] hover:bg-[var(--academic-brown)]/15";
+const TOGGLE_OFF_CLASS =
+  "border-transparent text-[var(--ink-soft)]/50 hover:border-[var(--line)] hover:text-[var(--ink-soft)]";
 
 /** 聊天设置存 localStorage 跨会话记住（读写都要过 typeof window 守卫，SSR 无 window） */
 const WEB_SEARCH_STORAGE_KEY = "picx.chat.webSearch";
@@ -975,23 +988,20 @@ function PaperChatConversation({
             </Button>
           )}
         </div>
-        {/* 设置行：与 ToolTrace 同一套 11px 大写微标签语汇，开启态用学术棕做
-            "批注章"式的视觉区分，关闭态压暗。搜索是 agentic 的：开着也只是允许
-            模型在需要时搜，不是每条都搜 */}
-        <div className="mt-1 flex items-center gap-1 px-2 pb-0.5">
+        {/* 设置行：与 ToolTrace 同一套 11px 大写微标签语汇。搜索是 agentic 的：
+            开着也只是允许模型在需要时搜，不是每条都搜 */}
+        <div className="mt-1 flex items-center gap-1.5 px-2 pb-0.5">
           <button
             type="button"
             onClick={toggleWebSearch}
             aria-pressed={webSearchEnabled}
             title={m.chat_web_search_hint()}
             className={cn(
-              "flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-[11px] tracking-[0.14em] uppercase transition-colors focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none",
-              webSearchEnabled
-                ? "text-[var(--academic-brown)]"
-                : "text-[var(--ink-soft)]/60 hover:text-[var(--ink-soft)]",
+              TOGGLE_BASE_CLASS,
+              webSearchEnabled ? TOGGLE_ON_CLASS : TOGGLE_OFF_CLASS,
             )}
           >
-            <Globe className="h-3.5 w-3.5" />
+            <Globe className="h-3.5 w-3.5 shrink-0" />
             {m.chat_web_search()}
           </button>
           <DropdownMenu>
@@ -1001,13 +1011,14 @@ function PaperChatConversation({
                 aria-label={m.chat_reasoning_label()}
                 title={m.chat_reasoning_label()}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-[11px] tracking-[0.14em] uppercase transition-colors focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none",
+                  TOGGLE_BASE_CLASS,
+                  // 非「关」档就是激活态，且按钮上直接写当前档位名
                   reasoningEffort !== "off"
-                    ? "text-[var(--academic-brown)]"
-                    : "text-[var(--ink-soft)]/60 hover:text-[var(--ink-soft)]",
+                    ? TOGGLE_ON_CLASS
+                    : TOGGLE_OFF_CLASS,
                 )}
               >
-                <Brain className="h-3.5 w-3.5" />
+                <Brain className="h-3.5 w-3.5 shrink-0" />
                 {reasoningEffortLabel(reasoningEffort)}
               </button>
             </DropdownMenuTrigger>
@@ -1232,15 +1243,24 @@ export function PaperChat({
   return (
     <div className="contents">
       <Dialog open={isSheetOpen} onOpenChange={handleSheetOpenChange}>
-        <DialogTrigger asChild>
-          <Button
-            size="icon-lg"
-            className="fixed right-5 bottom-5 z-40 rounded-full shadow-[0_10px_30px_rgba(87,61,38,0.28)] xl:hidden"
-            aria-label={m.chat_open()}
-          >
-            <MessageSquareQuote className="h-5 w-5" />
-          </Button>
-        </DialogTrigger>
+        {/* FAB 必须 portal 到 body：论文页的 .stagger-in > * 动画以 fill-mode:both
+            把 transform: translateY(0) 永久留在网格容器上，而 transform 祖先会成
+            为 fixed 元素的包含块——不 portal 的话按钮会「固定」在内容末尾而不是
+            视窗右下角。此分支只在客户端渲染（SSR 走宽屏形态），document 必然存在。
+            z-40 刻意低于 Dialog overlay 的 z-50：抽屉打开时 FAB 被遮罩盖住，
+            不会出现两个入口叠着。bottom 加 safe-area 让 iOS 底部手势条让开。 */}
+        {createPortal(
+          <DialogTrigger asChild>
+            <Button
+              size="icon-lg"
+              className="fixed right-5 bottom-[calc(1.25rem_+_env(safe-area-inset-bottom))] z-40 rounded-full shadow-[0_10px_30px_rgba(87,61,38,0.28)] xl:hidden"
+              aria-label={m.chat_open()}
+            >
+              <MessageSquareQuote className="h-5 w-5" />
+            </Button>
+          </DialogTrigger>,
+          document.body,
+        )}
         <DialogContent
           showCloseButton={false}
           className={cn(
