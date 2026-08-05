@@ -84,6 +84,10 @@ const PDFJS_MAX_PAGES = 150;
 // 下载 MinerU 结果 zip 时值得重试的状态码：必须是 isRetryableError 认得的那几个，
 // 否则重试请求会在顶层被判为不可重试而把论文打成 failed。
 const RETRYABLE_ZIP_STATUSES = new Set([500, 502, 503, 504]);
+// regenerate 的 insights 补生成路径读的是 loadPaperText 落盘的未裁剪全文（含参考文献），
+// 不像主管线那样先经 trimPaperTail 裁尾——这里按字符数粗略截断作为等价物，
+// 避免长论文喂进 LLM 时超上下文（80k 字符 ≈ 20k token，覆盖绝大多数论文正文）。
+const INSIGHTS_BACKFILL_MAX_CHARS = 80_000;
 
 /**
  * 通用重试: 指数退避 + 抖动。最多重试 `retries` 次(共 retries+1 次尝试)。
@@ -1330,7 +1334,7 @@ async function processWhiteboardRegeneration(
         throw new Error("Paper text not found in R2, cannot generate insights");
       }
       whiteboardInsights = await generateWhiteboardInsights(
-        paperText,
+        paperText.slice(0, INSIGHTS_BACKFILL_MAX_CHARS),
         aiConfig,
       );
       await db
