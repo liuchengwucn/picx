@@ -45,12 +45,18 @@ function NewsPage() {
     ),
     // 排序切换换 key 期间沿用旧数据，由下方 isPlaceholderData 降透明度提示
     placeholderData: keepPreviousData,
+    // infinite query 的 refetch 按页串行；不设 staleTime 的话，用户翻了几页后
+    // 离开再回来会串行重取全部已加载页。feed 由每小时 cron 喂，分钟级陈旧无害。
+    staleTime: 300_000,
   });
 
-  const stories = useMemo(
-    () => newsQuery.data?.pages.flatMap((p) => p.stories) ?? [],
-    [newsQuery.data],
-  );
+  const stories = useMemo(() => {
+    const seen = new Set<string>();
+    // 游标翻页间 story 排序键可能漂移（并入更早成员），跨页重复时保留首次出现
+    return (newsQuery.data?.pages.flatMap((p) => p.stories) ?? []).filter(
+      (s) => !seen.has(s.shortId) && seen.add(s.shortId),
+    );
+  }, [newsQuery.data]);
   // 分组/头条在累积后的完整列表上计算：日期头不重复，
   // 仅最底部未加载完的那天的头条会随下一批加载自我修正（视口外，可接受）
   const groups = useMemo(
@@ -59,10 +65,10 @@ function NewsPage() {
   );
   const todayKey = dateKeyOf(new Date());
   const yesterdayKey = dateKeyOf(new Date(Date.now() - 86_400_000));
-  const dateFormat = new Intl.DateTimeFormat(locale, {
-    month: "long",
-    day: "numeric",
-  });
+  const dateFormat = useMemo(
+    () => new Intl.DateTimeFormat(locale, { month: "long", day: "numeric" }),
+    [locale],
+  );
   const dayLabel = (dateKey: string, date: Date) => {
     const formatted = dateFormat.format(date);
     if (dateKey === todayKey) return `${m.news_today()} · ${formatted}`;
@@ -123,8 +129,8 @@ function NewsPage() {
             </div>
           ) : sort === "latest" ? (
             groups.map((group, groupIndex) => (
-              <section key={group.dateKey}>
-                <h2 className="mt-8 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--academic-brown)] first:mt-2 after:h-px after:flex-1 after:bg-[var(--line)] after:content-['']">
+              <section key={group.dateKey} className="mt-8 first:mt-2">
+                <h2 className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--academic-brown)] after:h-px after:flex-1 after:bg-[var(--line)] after:content-['']">
                   {dayLabel(group.dateKey, group.date)}
                 </h2>
                 <FeaturedStory
