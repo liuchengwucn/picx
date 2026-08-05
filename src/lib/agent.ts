@@ -20,7 +20,11 @@ import {
   papers,
   userProfiles,
 } from "#/db/schema";
-import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
+import {
+  canonicalArxivId,
+  canonicalArxivUrl,
+  HF_DAILY_PAPERS_API,
+} from "#/lib/arxiv";
 import {
   CHAT_LIMITS,
   loadAccessiblePaper,
@@ -31,7 +35,6 @@ import { escapeLike } from "#/lib/gallery-search";
 import { loadPaperText } from "#/lib/paper-text";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
-import { HF_DAILY_PAPERS_API } from "#/workers/arxiv-cron";
 
 type Db = DrizzleD1Database<typeof schema>;
 
@@ -224,6 +227,8 @@ export function buildAgentTools(deps: AgentToolsDeps) {
       }),
       execute: async ({ query, limit }) => {
         const q = query.trim();
+        // zod min(1) 挡不住纯空格；空 query 会变成 %% 命中全库，提前拦掉
+        if (!q) return { results: [], note: "empty query" };
         const pattern = `%${escapeLike(q)}%`;
         // JSON path 常量（非用户输入），同 paper.ts listPublic 的写法
         const localePath = `$."${langKey}"`;
@@ -362,8 +367,14 @@ export function buildAgentTools(deps: AgentToolsDeps) {
           .replace(/\s+/g, " ")
           .trim();
         if (!cleaned) return { error: "empty query" };
-        const q = category
-          ? `all:"${cleaned}" AND cat:${category}`
+        // 白名单校验后才拼进 search_query 字符串：category 直接嵌入未加引号，
+        // 放行奇怪字符（如空格/AND/OR）等于让模型注入额外布尔子句，不匹配就当未提供处理
+        const safeCategory =
+          category && /^[a-z-]+(\.[A-Za-z-]+)?$/.test(category)
+            ? category
+            : undefined;
+        const q = safeCategory
+          ? `all:"${cleaned}" AND cat:${safeCategory}`
           : `all:"${cleaned}"`;
         const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(q)}&start=0&max_results=${maxResults}&sortBy=${sortBy}&sortOrder=descending`;
         try {

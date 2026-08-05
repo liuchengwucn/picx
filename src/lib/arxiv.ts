@@ -1,3 +1,7 @@
+// HuggingFace Daily Papers API：arxiv-cron（阈值判断）与 agent.ts 的
+// listDailyPapers 工具共用同一个 endpoint 常量。
+export const HF_DAILY_PAPERS_API = "https://huggingface.co/api/daily_papers";
+
 /**
  * arXiv 论文 URL 规范化。
  *
