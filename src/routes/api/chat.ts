@@ -21,8 +21,10 @@ import {
   buildChatTools,
   CHAT_LIMITS,
   checkChatRateLimit,
+  createChatProvider,
   getChatModel,
   loadAccessiblePaper,
+  mapReasoningEffort,
 } from "#/lib/chat";
 import type { ChatErrorCode } from "#/lib/chat-errors";
 import {
@@ -42,6 +44,9 @@ const bodySchema = z.object({
   sessionId: z.string().min(1),
   paperShortId: z.string().min(1).max(10),
   locale: z.string().max(10).default("en"),
+  // 前端设置（localStorage 记忆）。default 兜底：老客户端 / 手工请求不带也能工作
+  webSearch: z.boolean().default(true),
+  reasoningEffort: z.enum(["off", "low", "medium", "high"]).default("off"),
   message: z.object({
     id: z.string().min(1),
     role: z.literal("user"),
@@ -60,6 +65,7 @@ const bodySchema = z.object({
  * 没有任何读者：前端只用 type/state/toolCallId 渲染那行「已读论文」状态，重放给
  * 模型时也只保留 text part。留着它等于每行几十上百 KB 死数据，还会把
  * chat.getMessages 的响应注水到 MB 级。
+ * reasoning part 刻意不剥：历史回显要折叠展示思考过程。
  */
 function stripToolOutput(parts: UIMessage["parts"]): unknown[] {
   return parts.map((part) => {
@@ -104,7 +110,14 @@ async function handler({ request }: { request: Request }) {
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return jsonError("bad_request", 400);
-  const { sessionId, paperShortId, locale, message } = parsed.data;
+  const {
+    sessionId,
+    paperShortId,
+    locale,
+    message,
+    webSearch,
+    reasoningEffort,
+  } = parsed.data;
 
   if (textLength(message.parts) > CHAT_LIMITS.maxInputChars) {
     return jsonError("message_too_long", 413);
@@ -158,7 +171,12 @@ async function handler({ request }: { request: Request }) {
   // 先把可能抛异常的准备工作做完，再写库：顺序反过来的话，一条畸形历史/新消息
   // 会让用户消息已落库但请求 500，此后该会话每次重放都炸；同时也避免请求还没
   // 真正打到模型就先烧掉一次限流配额。
-  const instructions = await buildChatSystemPrompt(db, paper, locale);
+  const instructions = await buildChatSystemPrompt(
+    db,
+    paper,
+    locale,
+    webSearch,
+  );
   // v7: convertToModelMessages 是 async 的，必须 await
   const modelMessages = await convertToModelMessages(uiMessages);
 
@@ -197,19 +215,31 @@ async function handler({ request }: { request: Request }) {
     .set(sessionPatch)
     .where(eq(chatSessions.id, sessionId));
 
-  const tools = buildChatTools(appEnv.PAPERS_BUCKET, paper.id);
+  const provider = createChatProvider(appEnv);
+  // 网页搜索是 OpenRouter server tool（openrouter:web_search，服务端执行）：
+  // 模型自主决定调不调，而不是旧版 plugins 那种每条消息强制搜索并注入 prompt。
+  // key 必须叫 web_search——流里回来的 toolName 就是它，对不上会被当成未知工具。
+  const tools = {
+    ...buildChatTools(appEnv.PAPERS_BUCKET, paper.id),
+    ...(webSearch
+      ? {
+          web_search: provider.tools.webSearch({
+            maxResults: CHAT_LIMITS.webSearchMaxResults,
+          }),
+        }
+      : {}),
+  };
   const result = streamText({
-    model: getChatModel(appEnv),
+    model: getChatModel(provider, appEnv),
     instructions,
     messages: modelMessages,
     tools,
     stopWhen: isStepCount(8),
     maxOutputTokens: 4096,
-    // OpenRouter 服务端网页搜索（Exa 支撑），与本地 tools 不冲突；
-    // 引用在 providerMetadata.openrouter.annotations
     providerOptions: {
       openrouter: {
-        plugins: [{ id: "web", max_results: 5 }],
+        // thinking 档位由前端选择；off 显式 {enabled:false}，见 mapReasoningEffort
+        reasoning: mapReasoningEffort(reasoningEffort),
       },
     },
   });
@@ -220,6 +250,8 @@ async function handler({ request }: { request: Request }) {
     originalMessages: uiMessages,
     // OpenRouter 的网页搜索引用是 source part，默认不下发就全丢了
     sendSources: true,
+    // 思考过程要流给前端折叠展示（默认虽为 true，显式写出以免升级悄悄改默认值）
+    sendReasoning: true,
     // 必须显式给：没有它时响应消息的 id 会是空串（originalMessages 最后一条是
     // user，SDK 只在续写 assistant 消息时复用其 id），落库会撞主键。
     generateMessageId: () => crypto.randomUUID(),

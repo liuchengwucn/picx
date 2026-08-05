@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildChatTools, CHAT_LIMITS, sliceSection } from "./chat";
+import {
+  buildChatTools,
+  CHAT_LIMITS,
+  mapReasoningEffort,
+  sliceSection,
+} from "./chat";
 
 const SECTION_SIZE = CHAT_LIMITS.sectionChars;
 
@@ -64,6 +69,23 @@ describe("sliceSection", () => {
     expect(result.sectionCount).toBe(1);
     expect(result.section).toBe(1);
     expect(result.text).toBe("");
+  });
+});
+
+describe("mapReasoningEffort", () => {
+  it("maps off to an explicit enabled:false (some models default reasoning on)", () => {
+    expect(mapReasoningEffort("off")).toEqual({ enabled: false });
+  });
+
+  it("maps low/medium/high to an effort object", () => {
+    expect(mapReasoningEffort("low")).toEqual({ effort: "low" });
+    expect(mapReasoningEffort("medium")).toEqual({ effort: "medium" });
+    expect(mapReasoningEffort("high")).toEqual({ effort: "high" });
+  });
+
+  it("never mixes enabled and effort in one object", () => {
+    expect(mapReasoningEffort("high")).not.toHaveProperty("enabled");
+    expect(mapReasoningEffort("off")).not.toHaveProperty("effort");
   });
 });
 

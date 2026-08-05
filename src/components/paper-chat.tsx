@@ -3,8 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
 import {
   BookOpen,
+  Brain,
   Check,
   ChevronDown,
+  ChevronRight,
+  Globe,
   Loader2,
   MessageSquareQuote,
   Plus,
@@ -32,7 +35,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "#/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu";
 import { useTRPC } from "#/integrations/trpc/react";
+// 仅类型导入：chat.ts 是服务端模块（drizzle/R2 一大串），值导入会被打进客户端包
+import type { ChatReasoningEffort } from "#/lib/chat";
 import {
   CHAT_CLIENT_LIMITS,
   CHAT_ERROR_CODES,
@@ -48,6 +60,51 @@ const MAX_INPUT_CHARS = CHAT_CLIENT_LIMITS.maxInputChars;
 const COUNTER_VISIBLE_FROM = Math.floor(MAX_INPUT_CHARS * 0.9);
 /** 只有贴近底部时才自动跟随流式输出，用户上滚回看时不把他拽回去 */
 const STICK_TO_BOTTOM_PX = 80;
+
+/** 聊天设置存 localStorage 跨会话记住（读写都要过 typeof window 守卫，SSR 无 window） */
+const WEB_SEARCH_STORAGE_KEY = "picx.chat.webSearch";
+const REASONING_STORAGE_KEY = "picx.chat.reasoningEffort";
+const REASONING_EFFORTS: readonly ChatReasoningEffort[] = [
+  "off",
+  "low",
+  "medium",
+  "high",
+];
+
+/** 默认开：搜索是 agentic 的（模型自主决定调不调），常开的成本可控 */
+function loadStoredWebSearch(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== "0";
+}
+
+/** 默认关：多数提问不值得为思考 token 买单 */
+function loadStoredReasoningEffort(): ChatReasoningEffort {
+  if (typeof window === "undefined") return "off";
+  const raw = window.localStorage.getItem(REASONING_STORAGE_KEY);
+  const known = REASONING_EFFORTS.find((effort) => effort === raw);
+  return known ?? "off";
+}
+
+function persistSetting(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // 隐私模式等场景写不进就算了，设置退化为仅当前页面生效
+  }
+}
+
+function reasoningEffortLabel(effort: ChatReasoningEffort): string {
+  switch (effort) {
+    case "off":
+      return m.chat_reasoning_off();
+    case "low":
+      return m.chat_reasoning_low();
+    case "medium":
+      return m.chat_reasoning_medium();
+    case "high":
+      return m.chat_reasoning_high();
+  }
+}
 
 /**
  * react-markdown 生成的 DOM 没有 class 可挂，只能靠后代选择器排版。
@@ -159,16 +216,75 @@ function messageText(message: UIMessage): string {
 }
 
 /** 助手回复里的工具调用：只以一行状态出现，不展开原始输入输出 */
-function ToolTrace({ done }: { done: boolean }) {
+function ToolTrace({
+  done,
+  kind,
+}: {
+  done: boolean;
+  kind: "readPaper" | "webSearch";
+}) {
+  const DoneIcon = kind === "readPaper" ? BookOpen : Globe;
+  const label =
+    kind === "readPaper"
+      ? done
+        ? m.chat_read_paper_done()
+        : m.chat_reading_paper()
+      : done
+        ? m.chat_searched_web()
+        : m.chat_searching_web();
   return (
     <p className="flex items-center gap-2 text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">
       {done ? (
-        <BookOpen className="h-3.5 w-3.5" />
+        <DoneIcon className="h-3.5 w-3.5" />
       ) : (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
       )}
-      {done ? m.chat_read_paper_done() : m.chat_reading_paper()}
+      {label}
     </p>
+  );
+}
+
+/**
+ * 思考过程折叠块：流式期间强制展开、实时跟着长（transcript 的贴底逻辑会带着滚），
+ * done 后自然回落成一行（open 一直是 false，无需 effect），点击可再展开。
+ * 历史消息里的 reasoning（state 为 done 或缺省）同样默认折叠。
+ */
+function ReasoningBlock({
+  part,
+}: {
+  part: { text: string; state?: "streaming" | "done" };
+}) {
+  const [open, setOpen] = useState(false);
+  const isStreaming = part.state === "streaming";
+  const expanded = open || isStreaming;
+  // 有的模型开了思考也可能给出空 reasoning part，别渲染一行点不开的空壳
+  if (!isStreaming && !part.text.trim()) return null;
+  return (
+    <div className="py-1">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={expanded}
+        className="flex items-center gap-2 rounded-sm text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase hover:text-[var(--ink)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
+      >
+        {isStreaming ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <ChevronRight
+            className={cn(
+              "h-3.5 w-3.5 transition-transform",
+              expanded && "rotate-90",
+            )}
+          />
+        )}
+        {isStreaming ? m.chat_thinking() : m.chat_reasoning_done()}
+      </button>
+      {expanded && (
+        <div className="mt-1.5 border-l border-dashed border-[var(--line)] pl-3 text-xs leading-relaxed whitespace-pre-wrap text-[var(--ink-soft)]">
+          {part.text}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -250,6 +366,14 @@ const ChatMessage = memo(function ChatMessage({
             </div>
           );
         }
+        if (part.type === "reasoning") {
+          return (
+            <ReasoningBlock
+              key={`${message.id}-reasoning-${index}`}
+              part={part}
+            />
+          );
+        }
         if (isToolUIPart(part) && part.type === "tool-readPaper") {
           return (
             <div
@@ -257,6 +381,7 @@ const ChatMessage = memo(function ChatMessage({
               className={index === 0 ? "pb-1" : "py-1"}
             >
               <ToolTrace
+                kind="readPaper"
                 done={
                   part.state === "output-available" ||
                   part.state === "output-error"
@@ -265,6 +390,22 @@ const ChatMessage = memo(function ChatMessage({
             </div>
           );
         }
+        if (isToolUIPart(part) && part.type === "tool-web_search") {
+          // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
+          // 参数一到齐（input-available）就当"已搜索"，结果以 source part 形式到达
+          return (
+            <div
+              key={part.toolCallId}
+              className={index === 0 ? "pb-1" : "py-1"}
+            >
+              <ToolTrace
+                kind="webSearch"
+                done={part.state !== "input-streaming"}
+              />
+            </div>
+          );
+        }
+        // 未知 part（新工具/新 part 类型）不渲染也不崩
         return null;
       })}
       {sources.length > 0 && <SourceFootnotes sources={sources} />}
@@ -299,6 +440,32 @@ function PaperChatConversation({
   const [chatEpoch, setChatEpoch] = useState(0);
   const [isSessionListOpen, setIsSessionListOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  // 聊天设置（lazy init 只在挂载时读一次 localStorage）
+  const [webSearchEnabled, setWebSearchEnabled] =
+    useState<boolean>(loadStoredWebSearch);
+  const [reasoningEffort, setReasoningEffort] = useState<ChatReasoningEffort>(
+    loadStoredReasoningEffort,
+  );
+  // transport 是 useMemo 一次性建好的（useChat 也不会因 props 变化换 transport），
+  // prepareSendMessagesRequest 里必须经 ref 拿最新设置；每次渲染同步一份是幂等写
+  const chatSettingsRef = useRef({
+    webSearch: webSearchEnabled,
+    reasoningEffort,
+  });
+  chatSettingsRef.current = { webSearch: webSearchEnabled, reasoningEffort };
+
+  const toggleWebSearch = () => {
+    const next = !webSearchEnabled;
+    setWebSearchEnabled(next);
+    persistSetting(WEB_SEARCH_STORAGE_KEY, next ? "1" : "0");
+  };
+
+  const changeReasoningEffort = (value: string) => {
+    const next = REASONING_EFFORTS.find((effort) => effort === value) ?? "off";
+    setReasoningEffort(next);
+    persistSetting(REASONING_STORAGE_KEY, next);
+  };
 
   const hydratedSessionRef = useRef<string | null>(null);
   const didAutoSelectRef = useRef(false);
@@ -346,6 +513,8 @@ function PaperChatConversation({
               ...body,
               paperShortId,
               locale: getLocale(),
+              webSearch: chatSettingsRef.current.webSearch,
+              reasoningEffort: chatSettingsRef.current.reasoningEffort,
               message: {
                 id: last?.id,
                 role: "user",
@@ -724,11 +893,61 @@ function PaperChatConversation({
             </Button>
           )}
         </div>
-        {input.length >= COUNTER_VISIBLE_FROM && (
-          <p className="mt-1 pr-2 text-right text-[11px] tabular-nums text-[var(--ink-soft)]">
-            {input.length} / {MAX_INPUT_CHARS}
-          </p>
-        )}
+        {/* 设置行：与 ToolTrace 同一套 11px 大写微标签语汇，开启态用学术棕做
+            "批注章"式的视觉区分，关闭态压暗。搜索是 agentic 的：开着也只是允许
+            模型在需要时搜，不是每条都搜 */}
+        <div className="mt-1 flex items-center gap-1 px-2 pb-0.5">
+          <button
+            type="button"
+            onClick={toggleWebSearch}
+            aria-pressed={webSearchEnabled}
+            title={m.chat_web_search_hint()}
+            className={cn(
+              "flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-[11px] tracking-[0.14em] uppercase transition-colors focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none",
+              webSearchEnabled
+                ? "text-[var(--academic-brown)]"
+                : "text-[var(--ink-soft)]/60 hover:text-[var(--ink-soft)]",
+            )}
+          >
+            <Globe className="h-3.5 w-3.5" />
+            {m.chat_web_search()}
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={m.chat_reasoning_label()}
+                title={m.chat_reasoning_label()}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-[11px] tracking-[0.14em] uppercase transition-colors focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none",
+                  reasoningEffort !== "off"
+                    ? "text-[var(--academic-brown)]"
+                    : "text-[var(--ink-soft)]/60 hover:text-[var(--ink-soft)]",
+                )}
+              >
+                <Brain className="h-3.5 w-3.5" />
+                {reasoningEffortLabel(reasoningEffort)}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top">
+              <DropdownMenuRadioGroup
+                value={reasoningEffort}
+                onValueChange={changeReasoningEffort}
+              >
+                {REASONING_EFFORTS.map((effort) => (
+                  <DropdownMenuRadioItem key={effort} value={effort}>
+                    {reasoningEffortLabel(effort)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {input.length >= COUNTER_VISIBLE_FROM && (
+            <p className="ml-auto text-[11px] tabular-nums text-[var(--ink-soft)]">
+              {input.length} / {MAX_INPUT_CHARS}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
