@@ -441,5 +441,11 @@
   "news_empty_desc": "聚合管道每小時執行一次，稍後再來看看。",
   "news_timeline": "報導時間線",
   "news_back": "返回資訊",
-  "news_not_found": "該資訊不存在或已被移除。"
+  "news_not_found": "該資訊不存在或已被移除。",
+  "news_today": "今天",
+  "news_yesterday": "昨天",
+  "news_load_more": "載入更多",
+  "news_no_more": "都看完了",
+  "news_key_facts": "事實要點",
+  "news_related": "相關資訊"
 }

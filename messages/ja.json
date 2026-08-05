@@ -441,5 +441,11 @@
   "news_empty_desc": "集約パイプラインは1時間ごとに実行されます。しばらくしてからご確認ください。",
   "news_timeline": "報道タイムライン",
   "news_back": "ニュース一覧へ",
-  "news_not_found": "このストーリーは存在しないか、削除されました。"
+  "news_not_found": "このストーリーは存在しないか、削除されました。",
+  "news_today": "今日",
+  "news_yesterday": "昨日",
+  "news_load_more": "もっと見る",
+  "news_no_more": "以上です",
+  "news_key_facts": "要点",
+  "news_related": "関連ニュース"
 }

@@ -441,5 +441,11 @@
   "news_empty_desc": "The aggregation pipeline runs hourly. Check back soon.",
   "news_timeline": "Coverage timeline",
   "news_back": "Back to News",
-  "news_not_found": "This story does not exist or has been removed."
+  "news_not_found": "This story does not exist or has been removed.",
+  "news_today": "Today",
+  "news_yesterday": "Yesterday",
+  "news_load_more": "Load more",
+  "news_no_more": "You're all caught up",
+  "news_key_facts": "Key facts",
+  "news_related": "Related stories"
 }
