@@ -25,6 +25,7 @@ import {
 import { decrypt } from "#/lib/crypto";
 import type { MineruResult } from "#/lib/mineru";
 import { createBatch, getBatchResult } from "#/lib/mineru";
+import type { MineruZipImage } from "#/lib/mineru-zip";
 import {
   buildImageResolver,
   parseMineruZip,
@@ -76,6 +77,10 @@ const MINERU_SYNC_POLL_INTERVAL_MS = 10_000;
 const MINERU_SYNC_POLL_BUDGET_MS = 90_000;
 const MINERU_POLL_DELAY_SECONDS = 45;
 const MINERU_TOTAL_TIMEOUT_MS = 20 * 60 * 1000;
+// 图片逐批写 R2：图多的论文一次性并发会撞 Workers 的子请求并发预算。
+const MINERU_IMAGE_PUT_BATCH = 20;
+// pdfjs 回退的页数上限（超限视为不可处理，标记失败）。
+const PDFJS_MAX_PAGES = 150;
 
 /**
  * 通用重试: 指数退避 + 抖动。最多重试 `retries` 次(共 retries+1 次尝试)。
@@ -720,10 +725,13 @@ async function mineruSubmitAndWait(
   log: LogFn,
   logWarn: LogWarnFn,
 ): Promise<ExtractionOutcome | null> {
+  const fallbackToPdfjs = async (): Promise<ExtractionOutcome> =>
+    await extractViaPdfjs(pdfBuffer, aiConfig, log);
+
   const token = env.MINERU_TOKEN;
   if (!token) {
     logWarn("mineru", "MINERU_TOKEN is not configured, falling back to pdfjs");
-    return await extractViaPdfjs(pdfBuffer, aiConfig, log);
+    return await fallbackToPdfjs();
   }
 
   const db = drizzle(env.DB);
@@ -771,13 +779,13 @@ async function mineruSubmitAndWait(
         "MinerU submission failed, falling back to pdfjs",
         error,
       );
-      return await extractViaPdfjs(pdfBuffer, aiConfig, log);
+      return await fallbackToPdfjs();
     }
   }
 
   // 短轮询：多数论文能在预算内解析完，省掉一次队列往返。
   const pollDeadline = Date.now() + MINERU_SYNC_POLL_BUDGET_MS;
-  while (Date.now() < pollDeadline) {
+  while (true) {
     try {
       const result = await getBatchResult(token, batchId);
       if (result.state === "done") {
@@ -792,24 +800,59 @@ async function mineruSubmitAndWait(
         if (outcome) {
           return outcome;
         }
-        return await extractViaPdfjs(pdfBuffer, aiConfig, log);
+        return await fallbackToPdfjs();
       }
       if (result.state === "failed") {
         logWarn(
           "mineru-poll",
           `MinerU parse failed (${result.errMsg || "unknown"}), falling back to pdfjs`,
         );
-        return await extractViaPdfjs(pdfBuffer, aiConfig, log);
+        return await fallbackToPdfjs();
       }
       log("mineru-poll", `MinerU state=${result.state}, waiting`);
     } catch (error) {
       logWarn("mineru-poll", "MinerU status query failed, will retry", error);
+    }
+    // 睡前先看预算：睡完必然超预算就别睡了，直接转延迟消息。
+    if (Date.now() + MINERU_SYNC_POLL_INTERVAL_MS >= pollDeadline) {
+      break;
     }
     await new Promise((resolve) =>
       setTimeout(resolve, MINERU_SYNC_POLL_INTERVAL_MS),
     );
   }
 
+  const handedOff = await enqueueMineruPoll(
+    msg,
+    batchId,
+    submittedAt,
+    1,
+    env,
+    logWarn,
+  );
+  if (!handedOff) {
+    // 宁降级不丢单：延迟消息投不出去就地回退 pdfjs。
+    return await fallbackToPdfjs();
+  }
+  log(
+    "mineru-poll",
+    `Poll budget exhausted, handed off to delayed poll (batch ${batchId})`,
+  );
+  return null;
+}
+
+/**
+ * 投递下一条延迟 mineru_poll 消息。返回 false 表示投递失败，
+ * 调用方应就地回退 pdfjs（宁降级不丢单）。
+ */
+async function enqueueMineruPoll(
+  msg: QueueMessage,
+  batchId: string,
+  submittedAt: number,
+  attempt: number,
+  env: Env,
+  logWarn: LogWarnFn,
+): Promise<boolean> {
   try {
     await env.PAPER_QUEUE.send(
       {
@@ -817,23 +860,18 @@ async function mineruSubmitAndWait(
         type: "mineru_poll",
         mineruBatchId: batchId,
         mineruSubmittedAt: submittedAt,
-        mineruPollAttempt: 1,
+        mineruPollAttempt: attempt,
       } satisfies QueueMessage,
       { delaySeconds: MINERU_POLL_DELAY_SECONDS },
     );
-    log(
-      "mineru-poll",
-      `Poll budget exhausted, handed off to delayed poll (batch ${batchId})`,
-    );
-    return null;
+    return true;
   } catch (error) {
-    // 宁降级不丢单：延迟消息投不出去就地回退 pdfjs。
     logWarn(
       "mineru-poll",
-      "Failed to enqueue delayed poll, falling back to pdfjs",
+      `Failed to enqueue delayed poll attempt ${attempt}, falling back to pdfjs`,
       error,
     );
-    return await extractViaPdfjs(pdfBuffer, aiConfig, log);
+    return false;
   }
 }
 
@@ -916,30 +954,22 @@ async function resolveMineruPoll(
     return await fallbackToPdfjs();
   }
 
-  try {
-    await env.PAPER_QUEUE.send(
-      {
-        ...msg,
-        type: "mineru_poll",
-        mineruBatchId: batchId,
-        mineruSubmittedAt: submittedAt,
-        mineruPollAttempt: attempt + 1,
-      } satisfies QueueMessage,
-      { delaySeconds: MINERU_POLL_DELAY_SECONDS },
-    );
-    log(
-      "mineru-poll",
-      `MinerU state=${state}, scheduled poll attempt ${attempt + 1}`,
-    );
-    return null;
-  } catch (error) {
-    logWarn(
-      "mineru-poll",
-      "Failed to enqueue next poll, falling back to pdfjs",
-      error,
-    );
+  const handedOff = await enqueueMineruPoll(
+    msg,
+    batchId,
+    submittedAt,
+    attempt + 1,
+    env,
+    logWarn,
+  );
+  if (!handedOff) {
     return await fallbackToPdfjs();
   }
+  log(
+    "mineru-poll",
+    `MinerU state=${state}, scheduled poll attempt ${attempt + 1}`,
+  );
+  return null;
 }
 
 /** pdfjs 回退时重新取 PDF（arxiv 在提交阶段已把真实 key 回写 papers.pdf_r2_key）。 */
@@ -995,17 +1025,45 @@ async function persistMineruContent(
         );
         return null;
       }
-      throw new Error(
-        `Downloading MinerU result zip failed with status ${resp.status}`,
+      // 5xx 是临时故障，消息里带状态码，isRetryableError 能命中 → 交给 Queues 重试。
+      throw new StepError(
+        "mineru-persist",
+        new Error(
+          `Downloading MinerU result zip failed with status ${resp.status}`,
+        ),
       );
     }
     zipBytes = new Uint8Array(await resp.arrayBuffer());
   } catch (error) {
-    // 5xx 与网络类失败交给 Queues 重试（batchId 已落库，重跑不会重复提交）。
-    throw new StepError("mineru-persist", error);
+    if (error instanceof StepError) {
+      // 5xx：交给 Queues 重试（batchId 已落库，重跑不会重复提交）。
+      throw error;
+    }
+    // 网络类失败（"Network connection lost" 等）不匹配 isRetryableError 的关键字，
+    // 硬抛会被顶层判为不可重试而把论文打成 failed。宁降级不丢单 → 回退 pdfjs。
+    logWarn(
+      "mineru-persist",
+      "Downloading MinerU result zip failed, falling back to pdfjs",
+      error,
+    );
+    return null;
   }
 
-  const { markdown, title, images } = parseMineruZip(zipBytes);
+  let markdown: string;
+  let title: string | null;
+  let images: MineruZipImage[];
+  try {
+    // zip 损坏/截断时 unzipSync 会抛错，同样降级而不是打成 failed。
+    ({ markdown, title, images } = parseMineruZip(zipBytes));
+  } catch (error) {
+    logWarn(
+      "mineru-persist",
+      "Parsing MinerU result zip failed, falling back to pdfjs",
+      error,
+    );
+    return null;
+  }
+
   if (markdown.trim().length === 0) {
     logWarn("mineru-persist", "MinerU zip has no usable markdown");
     return null;
@@ -1024,20 +1082,25 @@ async function persistMineruContent(
     return null;
   }
 
-  await Promise.all([
-    ...images.map((img) =>
-      env.PAPERS_BUCKET.put(
-        paperContentImageKey(paperId, img.storedName),
-        img.bytes,
-        {
-          httpMetadata: { contentType: img.mime },
-        },
+  // 分批并发写图片：一次性全量并发会撞 Workers 的子请求并发预算。
+  for (let i = 0; i < images.length; i += MINERU_IMAGE_PUT_BATCH) {
+    const batch = images.slice(i, i + MINERU_IMAGE_PUT_BATCH);
+    await Promise.all(
+      batch.map((img) =>
+        env.PAPERS_BUCKET.put(
+          paperContentImageKey(paperId, img.storedName),
+          img.bytes,
+          {
+            httpMetadata: { contentType: img.mime },
+          },
+        ),
       ),
-    ),
-    env.PAPERS_BUCKET.put(paperContentMarkdownKey(paperId), rewritten, {
-      httpMetadata: { contentType: "text/markdown; charset=utf-8" },
-    }),
-  ]);
+    );
+  }
+
+  await env.PAPERS_BUCKET.put(paperContentMarkdownKey(paperId), rewritten, {
+    httpMetadata: { contentType: "text/markdown; charset=utf-8" },
+  });
 
   // paper_id 唯一，重跑先删后插（D1 无事务，delete+insert 之间的空窗可接受：
   // 只有本条消息在写这一行，读侧拿不到内容时按「未解析」处理）。
@@ -1092,7 +1155,7 @@ async function extractViaPdfjs(
       "extract-text",
       `Extracting text from PDF (${pdfBuffer.byteLength} bytes) via=pdfjs-fallback`,
     );
-    const result = await extractPDFText(pdfBuffer, 150, aiConfig); // 限制 150 页
+    const result = await extractPDFText(pdfBuffer, PDFJS_MAX_PAGES, aiConfig);
     log(
       "extract-text",
       `Extracted ${result.rawText.length} chars from ${result.pageCount} pages via=pdfjs-fallback, kept ${result.mainText.length} chars for downstream processing`,
