@@ -841,7 +841,8 @@ async function mineruSubmitAndWait(
 
 /**
  * mineru_poll 消息的提取路径：查一次状态，完成则入库，未完成则续投延迟消息，
- * 超过总超时则回退 pdfjs。状态查询本身出错直接抛出，交给 Queues 原生重试。
+ * 超过总超时则回退 pdfjs。状态查询本身失败视同「进行中」（同样续投/超时兜底），
+ * 不把论文打成 failed。
  */
 async function resolveMineruPoll(
   msg: QueueMessage,
@@ -851,6 +852,15 @@ async function resolveMineruPoll(
   log: LogFn,
   logWarn: LogWarnFn,
 ): Promise<ExtractionOutcome | null> {
+  const fallbackToPdfjs = async (): Promise<ExtractionOutcome> =>
+    await extractViaPdfjs(
+      await loadPdfFromR2(paperRow, env, log),
+      aiConfig,
+      msg,
+      env,
+      log,
+    );
+
   const token = env.MINERU_TOKEN;
   const batchId = msg.mineruBatchId ?? paperRow.mineruBatchId ?? undefined;
 
@@ -859,20 +869,25 @@ async function resolveMineruPoll(
       "mineru-poll",
       `Missing ${token ? "MinerU batch id" : "MINERU_TOKEN"}, falling back to pdfjs`,
     );
-    return await extractViaPdfjs(
-      await loadPdfFromR2(paperRow, env, log),
-      aiConfig,
-      msg,
-      env,
-      log,
-    );
+    return await fallbackToPdfjs();
   }
 
   const attempt = msg.mineruPollAttempt ?? 1;
-  // 抛错不吞：batchId 已落库，Queues 重投不会造成重复提交。
-  const result = await getBatchResult(token, batchId);
 
-  if (result.state === "done") {
+  // 查询失败不把论文打成 failed：视同「进行中」，瞬时抖动由下一轮轮询自愈，
+  // 持续性错误（token 失效等）最终由下面的 20 分钟总超时兜底回退 pdfjs。
+  let result: MineruResult | null = null;
+  try {
+    result = await getBatchResult(token, batchId);
+  } catch (error) {
+    logWarn(
+      "mineru-poll",
+      `MinerU status query failed (attempt ${attempt}), treating as in progress`,
+      error,
+    );
+  }
+
+  if (result?.state === "done") {
     const outcome = await persistMineruContent(
       msg.paperId,
       result,
@@ -884,42 +899,25 @@ async function resolveMineruPoll(
     if (outcome) {
       return outcome;
     }
-    return await extractViaPdfjs(
-      await loadPdfFromR2(paperRow, env, log),
-      aiConfig,
-      msg,
-      env,
-      log,
-    );
+    return await fallbackToPdfjs();
   }
 
-  if (result.state === "failed") {
+  if (result?.state === "failed") {
     logWarn(
       "mineru-poll",
       `MinerU parse failed (${result.errMsg || "unknown"}), falling back to pdfjs`,
     );
-    return await extractViaPdfjs(
-      await loadPdfFromR2(paperRow, env, log),
-      aiConfig,
-      msg,
-      env,
-      log,
-    );
+    return await fallbackToPdfjs();
   }
 
+  const state = result?.state ?? "unknown";
   const submittedAt = msg.mineruSubmittedAt ?? 0;
   if (Date.now() - submittedAt > MINERU_TOTAL_TIMEOUT_MS) {
     logWarn(
       "mineru-poll",
-      `MinerU still ${result.state} after total timeout (attempt ${attempt}), falling back to pdfjs`,
+      `MinerU still ${state} after total timeout (attempt ${attempt}), falling back to pdfjs`,
     );
-    return await extractViaPdfjs(
-      await loadPdfFromR2(paperRow, env, log),
-      aiConfig,
-      msg,
-      env,
-      log,
-    );
+    return await fallbackToPdfjs();
   }
 
   try {
@@ -935,7 +933,7 @@ async function resolveMineruPoll(
     );
     log(
       "mineru-poll",
-      `MinerU state=${result.state}, scheduled poll attempt ${attempt + 1}`,
+      `MinerU state=${state}, scheduled poll attempt ${attempt + 1}`,
     );
     return null;
   } catch (error) {
@@ -944,13 +942,7 @@ async function resolveMineruPoll(
       "Failed to enqueue next poll, falling back to pdfjs",
       error,
     );
-    return await extractViaPdfjs(
-      await loadPdfFromR2(paperRow, env, log),
-      aiConfig,
-      msg,
-      env,
-      log,
-    );
+    return await fallbackToPdfjs();
   }
 }
 
@@ -999,13 +991,21 @@ async function persistMineruContent(
     log("mineru-persist", `Downloading result zip`);
     const resp = await fetch(result.fullZipUrl);
     if (!resp.ok) {
+      // 4xx（典型是签名链接过期 403）重试无益，宁降级不丢单 → 回退 pdfjs。
+      if (resp.status < 500) {
+        logWarn(
+          "mineru-persist",
+          `Downloading MinerU result zip failed with status ${resp.status} (permanent), falling back to pdfjs`,
+        );
+        return null;
+      }
       throw new Error(
         `Downloading MinerU result zip failed with status ${resp.status}`,
       );
     }
     zipBytes = new Uint8Array(await resp.arrayBuffer());
   } catch (error) {
-    // 网络类失败交给 Queues 重试（batchId 已落库，重跑不会重复提交）。
+    // 5xx 与网络类失败交给 Queues 重试（batchId 已落库，重跑不会重复提交）。
     throw new StepError("mineru-persist", error);
   }
 
