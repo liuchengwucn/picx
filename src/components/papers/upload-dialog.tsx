@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   Accordion,
   AccordionContent,
@@ -388,7 +389,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     if (!arxivUrl) return;
     setUploading(true);
     try {
-      await createPaper.mutateAsync({
+      const result = await createPaper.mutateAsync({
         sourceType: "arxiv",
         arxivUrl,
         filename: arxivUrl.split("/").pop() || "arxiv-paper",
@@ -402,6 +403,11 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
           : undefined,
         generateWhiteboard,
       });
+      // 服务端按 canonical source_url 去重了：这一篇早就在库里，什么也没发生。
+      // 不说一句的话，对话框一关用户会以为在重新处理。
+      if (result.alreadyExists) {
+        toast.info(m.assistant_card_added());
+      }
       setOpen(false);
       setArxivUrl("");
       onSuccess?.();

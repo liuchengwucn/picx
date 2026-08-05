@@ -161,7 +161,13 @@ function ConversationRow({
           {title}
         </span>
         <span className="block text-[11px] text-[var(--ink-soft)]">
-          {formatRelative(conversation.updatedAt.getTime(), now, getLocale())}
+          {/* now 每分钟才走一针：刚更新的会话会比它「新」，不夹住就显示成
+              「30 秒钟后」。夹到 now 上即「刚刚」。 */}
+          {formatRelative(
+            Math.min(conversation.updatedAt.getTime(), now),
+            now,
+            getLocale(),
+          )}
         </span>
       </button>
       <DropdownMenu>
