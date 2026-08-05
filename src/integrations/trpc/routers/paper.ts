@@ -1410,6 +1410,15 @@ export const paperRouter = router({
         });
       }
 
+      // 防重入：上一轮还在生成时再提交会重复扣分（多标签页同时点的场景）。
+      // 标志由下面入队成功后置起，消费者在成功/失败路径都会清掉。
+      if (paper.whiteboardRegenerating) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Whiteboard generation already in progress",
+        });
+      }
+
       // Step 2: Validate apiConfigId if provided
       if (input.apiConfigId) {
         const [apiConfig] = await ctx.db
@@ -1535,6 +1544,14 @@ export const paperRouter = router({
           cause: error,
         });
       }
+
+      // 入队成功后立刻置标志（消费者稍后也会置，但那要等它被调度）：调用方 onSuccess
+      // 失效查询时就能读到「生成中」，按钮/入口当场收起，关掉重复提交的窗口。
+      // 放在 catch 之后 —— 入队失败已退款，不能留下永远清不掉的标志。
+      await ctx.db
+        .update(papers)
+        .set({ whiteboardRegenerating: true, updatedAt: new Date() })
+        .where(eq(papers.id, input.paperId));
 
       return { success: true };
     }),
