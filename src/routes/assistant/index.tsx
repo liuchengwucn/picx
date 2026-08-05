@@ -79,7 +79,9 @@ function ConversationRow({
         <input
           // biome-ignore lint/a11y/noAutofocus: 重命名是用户点菜单显式发起的，光标必须落进来
           autoFocus
-          defaultValue={title}
+          // 空标题会话不能拿 i18n 兜底串当初值：直接失焦就会把「新会话」写死进库
+          defaultValue={conversation.title ?? ""}
+          placeholder={m.assistant_untitled()}
           maxLength={TITLE_MAX_CHARS}
           aria-label={m.assistant_rename()}
           onKeyDown={(event) => {
@@ -91,7 +93,7 @@ function ConversationRow({
             if (event.key === "Escape") onCancelRename();
           }}
           onBlur={(event) => onSubmitRename(event.currentTarget.value)}
-          className="w-full rounded-sm border-b border-[var(--academic-brown)]/50 bg-transparent text-sm text-[var(--ink)] outline-none"
+          className="w-full rounded-sm border-b border-[var(--academic-brown)]/50 bg-transparent text-sm text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]"
         />
       </li>
     );
@@ -151,7 +153,9 @@ function AssistantPage() {
   const { session, isSessionPending } = useRequireAuth("/assistant");
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const listId = useId();
+  // 两处列表（桌面侧栏 / 窄屏展开区）同时在 DOM 里，各自要有唯一 id
+  const railListId = useId();
+  const mobileListId = useId();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   /** 选中当前会话的时刻，用来判断历史缓存是否已在这次选中之后刷新过 */
@@ -212,9 +216,17 @@ function AssistantPage() {
   const deleteMutation = useMutation(
     trpc.assistant.deleteConversation.mutationOptions({
       onSuccess: (_result, variables) => {
+        // 必须先就地把这行从列表缓存里剔掉再决定选谁：invalidate 触发的 refetch 是
+        // 异步的，同一帧读到的列表还带着刚删的那条，会把 activeId 换成幽灵 id。
+        const remaining = queryClient.setQueryData(
+          trpc.assistant.listConversations.queryKey(),
+          (rows) => rows?.filter((row) => row.id !== variables.conversationId),
+        );
         invalidateList();
-        // 删掉的正是当前会话：先置空，下面的自动选中 effect 会落到新的第一条
-        if (variables.conversationId === activeId) selectConversation(null);
+        // 删的是当前会话：直接落到剩下最近更新的一条（没有就回到空态）
+        if (variables.conversationId === activeId) {
+          selectConversation(remaining?.[0]?.id ?? null);
+        }
       },
       onError: (error) => toast.error(resolveChatErrorMessage(error)),
     }),
@@ -252,6 +264,7 @@ function AssistantPage() {
     setRenamingId(null);
     const title = rawTitle.trim().slice(0, TITLE_MAX_CHARS);
     const current = conversations?.find((row) => row.id === conversationId);
+    // 空标题（服务端也不收）或原样提交一律当取消：直接失焦不该写任何东西
     if (!title || title === current?.title) return;
     renameMutation.mutate({ conversationId, title });
   };
@@ -279,8 +292,8 @@ function AssistantPage() {
   // 未登录会被 useRequireAuth 送去登录页，这里不渲染任何东西
   if (!session) return null;
 
-  const conversationList = (
-    <ul id={listId} className="space-y-0.5">
+  const renderConversationList = (id: string) => (
+    <ul id={id} className="space-y-0.5">
       {conversations?.map((conversation) => (
         <ConversationRow
           key={conversation.id}
@@ -361,11 +374,11 @@ function AssistantPage() {
           className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1"
         >
           {conversationsQuery.isPending ? (
-            <p className="px-2 text-xs text-[var(--ink-soft)]">
-              {m.chat_thinking()}
-            </p>
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
+            </div>
           ) : (
-            conversationList
+            renderConversationList(railListId)
           )}
         </nav>
       </aside>
@@ -377,7 +390,7 @@ function AssistantPage() {
             type="button"
             onClick={() => setIsListOpen((open) => !open)}
             aria-expanded={isListOpen}
-            aria-controls={listId}
+            aria-controls={mobileListId}
             className="flex min-w-0 flex-1 items-center gap-1 rounded-sm text-left text-sm text-[var(--ink)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
           >
             <span className="truncate">
@@ -394,7 +407,7 @@ function AssistantPage() {
         </div>
         {isListOpen && (
           <div className="max-h-64 overflow-y-auto border-b border-[var(--line)] py-2 md:hidden">
-            {conversationList}
+            {renderConversationList(mobileListId)}
           </div>
         )}
 
