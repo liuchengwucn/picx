@@ -85,7 +85,6 @@ import {
 } from "#/lib/review-guest";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
-import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -620,31 +619,19 @@ function PaperDetailPage() {
     paper.status === "completed"
       ? "mx-auto w-[min(1200px,calc(100%_-_2rem))] py-8 xl:w-[min(1520px,calc(100%_-_2rem))]"
       : "page-wrap py-8";
-  // 放宽只服务于三栏那一段。面包屑 / 分享条 / 相关论文让开聊天栏的宽度
-  // （--chat-panel-width 栏宽 + 24px gap，默认 360+24=384px），正好铺满 grid 的
-  // 第 1-2 列：默认下 1520 − 384 = 1136 = 300 + 24 + 812。这样面包屑与左栏
-  // 左对齐、相关论文卡片右边界收在聊天面板起点，而不是各自居中后与网格错位。
-  // 聊天栏可拖宽，所以这里必须跟 grid 第三列共用同一个 CSS 变量联动。
-  const narrowBlockClassName =
-    paper.status === "completed"
-      ? "xl:mr-[calc(var(--chat-panel-width)_+_24px)]"
-      : "";
+  // 面包屑 / 分享条 / 相关论文始终占满容器全宽（1520px），不随聊天栏宽度让位：
+  // 聊天 aside 是 sticky 且只存在于中间那段 grid 里，上下这些块横穿无碍。
 
   return (
     <main
       className={containerClassName}
-      // 聊天栏宽度经 CSS 变量同时驱动 grid 第三列与 narrowBlock 的右让宽。
+      // 聊天栏宽度经 CSS 变量驱动 grid 第三列。
       // SSR 输出默认 360px，挂载后由 effect 恢复用户拖过的值
       style={{ "--chat-panel-width": `${chatPanelWidth}px` } as CSSProperties}
     >
       <div className="stagger-in">
         {/* Breadcrumb */}
-        <nav
-          className={cn(
-            "flex items-start gap-1 text-sm text-[var(--ink-soft)]",
-            narrowBlockClassName,
-          )}
-        >
+        <nav className="flex items-start gap-1 text-sm text-[var(--ink-soft)]">
           <Link to="/papers" className="hover:text-[var(--ink)] shrink-0">
             {m.papers_title()}
           </Link>
@@ -656,7 +643,7 @@ function PaperDetailPage() {
 
         {/* Share Banner - only show to owner */}
         {isOwner && (
-          <div className={cn(narrowBlockClassName)}>
+          <div>
             <ShareBanner
               paperId={paper.id}
               shortId={paper.shortId ?? shortId}
@@ -1098,10 +1085,7 @@ function PaperDetailPage() {
 
         {/* Related papers — real, crawlable internal links (SSR-rendered). */}
         {relatedPapers.length > 0 && (
-          <section
-            className={cn("mt-10", narrowBlockClassName)}
-            aria-labelledby={relatedHeadingId}
-          >
+          <section className="mt-10" aria-labelledby={relatedHeadingId}>
             <h2
               id={relatedHeadingId}
               className="font-serif text-lg font-semibold text-[var(--ink)]"
