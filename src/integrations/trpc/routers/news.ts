@@ -86,8 +86,9 @@ export const newsRouter = createTRPCRouter({
           lastActivityAt: newsStories.lastActivityAt,
           status: newsStories.status,
           // 调试用的聚合分数范围：per-story item relevance 相关子查询，命中
-          // news_items_story_idx，page size <= 50 时开销可忽略。debug=false 时
-          // 用字面量 null 占位，不下发内部打分也不跑子查询。
+          // news_items_story_idx，page size <= 50 时开销可忽略。debug 字段默认
+          // 不计算/不下发（省 D1 读，用字面量 null 占位）——这是默认载荷/成本控制，
+          // 不是访问控制：debug 是公开 procedure 的普通入参，任何调用方都能传 true。
           // 陷阱：单表查询（无 join）时 drizzle 的 sqlite dialect 会把插值进 sql
           // 模板的 Column 剥去表限定符（isSingleTable 优化），
           // ${newsStories.id} 会被渲染成裸的 "id" ——在子查询里裸 "id" 解析成
@@ -164,7 +165,8 @@ export const newsRouter = createTRPCRouter({
           signals: newsItems.signals,
           media: newsItems.media,
           extra: newsItems.extra,
-          // 调试关闭时不下发内部打分，避免进入公开 payload/SSR HTML
+          // debug 默认不下发内部打分（默认载荷控制，不进 SSR HTML）；
+          // debug 是公开 procedure 的普通入参，并非权限控制
           relevanceScore: input.debug
             ? newsItems.relevanceScore
             : sql<number | null>`null`,

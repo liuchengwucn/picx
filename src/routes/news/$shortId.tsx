@@ -118,8 +118,13 @@ export const Route = createFileRoute("/news/$shortId")({
       }
     }
 
+    // debug 显式传 false：tRPC 的 query key 按原始输入（zod 默认值之前）哈希，
+    // 不写全字段会与组件里 { shortId, debug: showScores } 落到不同 cache entry
     const ssrData = (await context.queryClient.ensureQueryData(
-      context.trpc.news.byShortId.queryOptions({ shortId: params.shortId }),
+      context.trpc.news.byShortId.queryOptions({
+        shortId: params.shortId,
+        debug: false,
+      }),
     )) as SerializableByShortId;
     return { ssrData };
   },
@@ -190,10 +195,12 @@ function NewsStoryPage() {
   const trpc = useTRPC();
   const showScores = useDebugScores();
 
+  // SSR 数据是 debug=false 取的（不含分数）；debug 开启时它是另一个 query key，
+  // 不能拿来当 initialData——否则会把"无分数"误标为新鲜数据，badge 迟迟不出现
   const { data, isLoading, error } = useQuery({
     ...trpc.news.byShortId.queryOptions({ shortId, debug: showScores }),
-    initialData: loaderData?.ssrData ?? undefined,
-    staleTime: loaderData?.ssrData ? 30_000 : undefined,
+    initialData: showScores ? undefined : (loaderData?.ssrData ?? undefined),
+    staleTime: !showScores && loaderData?.ssrData ? 30_000 : undefined,
   });
 
   if (isLoading && !data) return <StoryDetailSkeleton />;

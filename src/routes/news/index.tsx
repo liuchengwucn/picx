@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Newspaper } from "lucide-react";
 import { z } from "zod";
@@ -45,15 +45,17 @@ function NewsPage() {
   const sort = search.sort ?? "latest";
   const page = search.page ?? 1;
 
-  const newsQuery = useQuery(
-    trpc.news.list.queryOptions({
+  const newsQuery = useQuery({
+    ...trpc.news.list.queryOptions({
       page,
       limit: PAGE_SIZE,
       sort,
       locale: getLocale(),
       debug: showScores,
     }),
-  );
+    // debug 切换会换 query key（无缓存）；保留上一屏数据，避免闪回骨架屏
+    placeholderData: keepPreviousData,
+  });
 
   const totalPages = Math.ceil((newsQuery.data?.total ?? 0) / PAGE_SIZE);
   const stories = newsQuery.data?.stories ?? [];
