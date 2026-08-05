@@ -703,8 +703,6 @@ interface ExtractionOutcome {
   /** 裁掉参考文献/附录后的正文，喂 LLM。 */
   text: string;
   pdfMetadataTitle?: string;
-  /** MinerU 路径 true（paper_contents 已写）；pdfjs 回退 false。 */
-  contentPersisted: boolean;
 }
 
 /**
@@ -725,7 +723,7 @@ async function mineruSubmitAndWait(
   const token = env.MINERU_TOKEN;
   if (!token) {
     logWarn("mineru", "MINERU_TOKEN is not configured, falling back to pdfjs");
-    return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+    return await extractViaPdfjs(pdfBuffer, aiConfig, log);
   }
 
   const db = drizzle(env.DB);
@@ -773,7 +771,7 @@ async function mineruSubmitAndWait(
         "MinerU submission failed, falling back to pdfjs",
         error,
       );
-      return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+      return await extractViaPdfjs(pdfBuffer, aiConfig, log);
     }
   }
 
@@ -794,14 +792,14 @@ async function mineruSubmitAndWait(
         if (outcome) {
           return outcome;
         }
-        return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+        return await extractViaPdfjs(pdfBuffer, aiConfig, log);
       }
       if (result.state === "failed") {
         logWarn(
           "mineru-poll",
           `MinerU parse failed (${result.errMsg || "unknown"}), falling back to pdfjs`,
         );
-        return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+        return await extractViaPdfjs(pdfBuffer, aiConfig, log);
       }
       log("mineru-poll", `MinerU state=${result.state}, waiting`);
     } catch (error) {
@@ -835,7 +833,7 @@ async function mineruSubmitAndWait(
       "Failed to enqueue delayed poll, falling back to pdfjs",
       error,
     );
-    return await extractViaPdfjs(pdfBuffer, aiConfig, msg, env, log);
+    return await extractViaPdfjs(pdfBuffer, aiConfig, log);
   }
 }
 
@@ -856,8 +854,6 @@ async function resolveMineruPoll(
     await extractViaPdfjs(
       await loadPdfFromR2(paperRow, env, log),
       aiConfig,
-      msg,
-      env,
       log,
     );
 
@@ -1020,6 +1016,14 @@ async function persistMineruContent(
   );
   const rewritten = rewriteImageRefs(markdown, resolver);
 
+  // 先确认产物可用再落盘：否则会留下一行指向「无正文 markdown」的 paper_contents，
+  // 而论文实际走的是 pdfjs。
+  const plainText = markdownToPlainText(rewritten);
+  if (plainText.trim().length === 0) {
+    logWarn("mineru-persist", "MinerU markdown produced empty plain text");
+    return null;
+  }
+
   await Promise.all([
     ...images.map((img) =>
       env.PAPERS_BUCKET.put(
@@ -1049,12 +1053,6 @@ async function persistMineruContent(
     `Persisted markdown (${rewritten.length} chars) and ${images.length} image(s)`,
   );
 
-  const plainText = markdownToPlainText(rewritten);
-  if (plainText.trim().length === 0) {
-    logWarn("mineru-persist", "MinerU markdown produced empty plain text");
-    return null;
-  }
-
   let mainText = plainText;
   try {
     const pages = buildPseudoPages(plainText);
@@ -1080,7 +1078,6 @@ async function persistMineruContent(
     rawText: plainText,
     text: mainText,
     pdfMetadataTitle: title ?? undefined,
-    contentPersisted: true,
   };
 }
 
@@ -1088,8 +1085,6 @@ async function persistMineruContent(
 async function extractViaPdfjs(
   pdfBuffer: ArrayBuffer,
   aiConfig: AIConfig,
-  msg: QueueMessage,
-  env: Env,
   log: LogFn,
 ): Promise<ExtractionOutcome> {
   try {
@@ -1119,15 +1114,12 @@ async function extractViaPdfjs(
       rawText: result.rawText,
       text: result.mainText,
       pdfMetadataTitle: result.title,
-      contentPersisted: false,
     };
   } catch (error) {
-    // 如果是页数超限错误，标记失败（扣过费才返还 credit）
+    // 页数超限：不在此处标记失败/退款——PDFPageLimitError 经 isRetryableError
+    // 判定为不可重试，顶层 catch 会统一标 failed + 条件退款（只退一次）。
     if (error instanceof PDFPageLimitError) {
-      const errorMsg = `PDF has ${error.pageCount} pages, exceeding the limit of ${error.maxPages} pages`;
-      log("extract-text", `Page limit exceeded: ${errorMsg}`);
-      await markPaperFailedForMessage(msg.paperId, msg, errorMsg, env);
-      throw new StepError("extract-text", error);
+      log("extract-text", `Page limit exceeded: ${error.message}`);
     }
     throw new StepError("extract-text", error);
   }
