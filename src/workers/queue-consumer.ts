@@ -1672,7 +1672,9 @@ async function markPaperFailedAndRefund(
 
 /**
  * 标记失败；仅当这条消息实际扣过费（勾选 whiteboard 且未用 BYOK）才退款。
- * regenerate_whiteboard 的退款仍走原有独立路径，不经此函数。
+ * 仅用于 initial/mineru_poll 消息——regenerate_whiteboard 从不经此函数：
+ * 它的退款完全在 processWhiteboardRegeneration 内部各步骤的 catch 里就地完成，
+ * 顶层 batch handler 对 regenerate 的失败只 log + 清标志 + ack，不再调用它。
  */
 async function markPaperFailedForMessage(
   paperId: string,
