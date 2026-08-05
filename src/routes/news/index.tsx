@@ -1,7 +1,7 @@
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Newspaper } from "lucide-react";
-import { useMemo } from "react";
+import { Loader2, Newspaper } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
 import { z } from "zod";
 import {
   FeaturedStory,
@@ -60,12 +60,15 @@ function NewsPage() {
       (s) => !seen.has(s.shortId) && seen.add(s.shortId),
     );
   }, [newsQuery.data]);
-  // 分组/头条在累积后的完整列表上计算：日期头不重复，
-  // 仅最底部未加载完的那天的头条会随下一批加载自我修正（视口外，可接受）
+  // 分组/头条在累积后的完整列表上计算：日期头不重复
   const groups = useMemo(
     () => (sort === "latest" ? groupStoriesByDay(stories) : []),
     [sort, stories],
   );
+  // 还有下一页时最后一天可能未加载完，其头条/次头条会随下一批数据修正。
+  // 无限滚动的触发点就在视口附近，重排会造成可见跳动，因此扣留该天
+  // 不渲染，补完（出现新的天边界或加载到底）后再一次性放出。
+  const visibleGroups = newsQuery.hasNextPage ? groups.slice(0, -1) : groups;
   const todayKey = dateKeyOf(new Date());
   const yesterdayKey = dateKeyOf(new Date(Date.now() - 86_400_000));
   const dateFormat = useMemo(
@@ -82,6 +85,26 @@ function NewsPage() {
   const setSort = (next: "latest" | "active") => {
     navigate({ search: { sort: next === "latest" ? undefined : next } });
   };
+
+  // 无限滚动：哨兵进入视口（提前 800px 预取）时自动加载下一页。
+  // isFetchingNextPage 翻转会重建 observer，observe() 立即回调一次当前相交
+  // 状态——某天跨多页被扣留时，哨兵滞留视口内即可连续补拉直到天边界出现。
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = newsQuery;
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || !hasNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "800px 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
@@ -131,7 +154,7 @@ function NewsPage() {
               </p>
             </div>
           ) : sort === "latest" ? (
-            groups.map((group, groupIndex) => (
+            visibleGroups.map((group, groupIndex) => (
               // 日期标题线是天与天之间唯一的分界：每天最后一排 story 去掉自身底线，
               // 避免与下一天标题线双线冗余（无 rest 时最后一个 article 即头条/次头条）
               <section
@@ -190,16 +213,23 @@ function NewsPage() {
           )}
         </div>
 
-        <div className="mt-8 flex justify-center">
-          {newsQuery.hasNextPage ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={newsQuery.isFetchingNextPage}
-              onClick={() => newsQuery.fetchNextPage()}
-            >
-              {m.news_load_more()}
-            </Button>
+        {/* 哨兵：滚动接近时自动加载；按钮作为无障碍 / 兜底入口 */}
+        <div ref={loadMoreRef} className="mt-8 flex justify-center">
+          {hasNextPage ? (
+            isFetchingNextPage ? (
+              <div className="flex items-center gap-2 text-sm text-[var(--ink-soft)]">
+                <Loader2 className="size-4 animate-spin" />
+                {m.news_loading()}
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fetchNextPage()}
+              >
+                {m.news_load_more()}
+              </Button>
+            )
           ) : stories.length > 0 ? (
             <span className="text-xs text-[var(--ink-soft)]">
               {m.news_no_more()}
