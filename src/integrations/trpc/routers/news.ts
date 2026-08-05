@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { newsItems, newsSources, newsStories } from "#/db/schema";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
@@ -18,8 +18,9 @@ type StoryCardRow = Pick<
   | "earliestPublishedAt"
   | "lastActivityAt"
   | "status"
+  | "leadImage"
 > & {
-  // 调试用的聚合分数范围：story 内 item relevance_score 的 min/max
+  // 聚合分数范围：story 内 item relevance_score 的 min/max，始终下发
   scoreMin: number | null;
   scoreMax: number | null;
 };
@@ -41,6 +42,7 @@ function localizeStory(
     earliestPublishedAt: story.earliestPublishedAt,
     lastActivityAt: story.lastActivityAt,
     status: story.status,
+    leadImage: story.leadImage,
     scoreMin: story.scoreMin,
     scoreMax: story.scoreMax,
   };
@@ -50,26 +52,40 @@ export const newsRouter = createTRPCRouter({
   list: publicProcedure
     .input(
       z.object({
-        page: z.number().int().min(1).default(1),
+        // 复合游标：同秒条目在批次边界不丢行（0025 迁移已消灭排序键 NULL）
+        cursor: z
+          .object({ ts: z.number().int(), shortId: z.string() })
+          .nullish(),
         limit: z.number().int().min(1).max(50).default(20),
         sort: z.enum(["latest", "active"]).default("latest"),
         locale: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(),
-        // 调试开关：关闭时不跑分数子查询，普通访客零额外 D1 开销
-        debug: z.boolean().default(false),
       }),
     )
     .query(async ({ ctx, input }) => {
       const localeKey = normalizeLocaleKey(input.locale ?? "en");
-      const offset = (input.page - 1) * input.limit;
       // 字面量谓词：feed 的 partial index（WHERE status != 'hidden'）只匹配字面量，ne()/eq() 会失去索引
       // dirty=0：占位 story（未生成四语摘要）不进公开列表与 SEO，避免英文占位与半成品外泄
       const visible = sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`;
       // earliestPublishedAt 展示时回退到 firstSeenAt；排序上 NULL 会排在 DESC 末尾（可接受），
       // 命中 feedPublishedIdx
-      const orderBy =
+      const sortCol =
         input.sort === "latest"
-          ? desc(newsStories.earliestPublishedAt)
-          : desc(newsStories.lastActivityAt);
+          ? newsStories.earliestPublishedAt
+          : newsStories.lastActivityAt;
+      const cursorDate = input.cursor ? new Date(input.cursor.ts) : null;
+      const where =
+        cursorDate && input.cursor
+          ? and(
+              visible,
+              or(
+                lt(sortCol, cursorDate),
+                and(
+                  eq(sortCol, cursorDate),
+                  lt(newsStories.shortId, input.cursor.shortId),
+                ),
+              ),
+            )
+          : visible;
 
       // 显式投影：不要 select() 全列，避免把 4KB centroid blob 一并带出
       const stories = await ctx.db
@@ -85,39 +101,42 @@ export const newsRouter = createTRPCRouter({
           earliestPublishedAt: newsStories.earliestPublishedAt,
           lastActivityAt: newsStories.lastActivityAt,
           status: newsStories.status,
-          // 调试用的聚合分数范围：per-story item relevance 相关子查询，命中
-          // news_items_story_idx，page size <= 50 时开销可忽略。debug 字段默认
-          // 不计算/不下发（省 D1 读，用字面量 null 占位）——这是默认载荷/成本控制，
-          // 不是访问控制：debug 是公开 procedure 的普通入参，任何调用方都能传 true。
+          leadImage: newsStories.leadImage,
+          // 聚合分数范围：per-story item relevance 相关子查询，命中
+          // news_items_story_idx，limit<=50 时开销可忽略。分数始终下发——
+          // 用户确认非隐私；是否展示由前端 debug 开关决定。
           // 陷阱：单表查询（无 join）时 drizzle 的 sqlite dialect 会把插值进 sql
           // 模板的 Column 剥去表限定符（isSingleTable 优化），
           // ${newsStories.id} 会被渲染成裸的 "id" ——在子查询里裸 "id" 解析成
           // news_items.id，导致 story_id = id 恒真/恒假而不是预期的关联，
           // min/max 永远是 NULL。因此这里手写别名 + 完整外层表名，绝不插值 Column。
-          scoreMin: input.debug
-            ? sql<
-                number | null
-              >`(SELECT min(ni.relevance_score) FROM news_items ni WHERE ni.story_id = news_stories.id)`
-            : sql<number | null>`null`,
-          scoreMax: input.debug
-            ? sql<
-                number | null
-              >`(SELECT max(ni.relevance_score) FROM news_items ni WHERE ni.story_id = news_stories.id)`
-            : sql<number | null>`null`,
+          scoreMin: sql<
+            number | null
+          >`(SELECT min(ni.relevance_score) FROM news_items ni WHERE ni.story_id = news_stories.id)`,
+          scoreMax: sql<
+            number | null
+          >`(SELECT max(ni.relevance_score) FROM news_items ni WHERE ni.story_id = news_stories.id)`,
         })
         .from(newsStories)
-        .where(visible)
-        .orderBy(orderBy)
-        .limit(input.limit)
-        .offset(offset);
-      const [total] = await ctx.db
-        .select({ count: count() })
-        .from(newsStories)
-        .where(visible);
+        .where(where)
+        .orderBy(desc(sortCol), desc(newsStories.shortId))
+        .limit(input.limit);
+
+      const last = stories.at(-1);
+      const nextCursor =
+        stories.length === input.limit && last
+          ? {
+              ts: (input.sort === "latest"
+                ? (last.earliestPublishedAt ?? last.firstSeenAt)
+                : last.lastActivityAt
+              ).getTime(),
+              shortId: last.shortId,
+            }
+          : null;
 
       return {
         stories: stories.map((s) => localizeStory(s, localeKey)),
-        total: total.count,
+        nextCursor,
       };
     }),
 
@@ -125,8 +144,6 @@ export const newsRouter = createTRPCRouter({
     .input(
       z.object({
         shortId: z.string().min(1).max(10),
-        // 调试开关：关闭时不下发内部打分，避免进入公开 payload/SSR HTML
-        debug: z.boolean().default(false),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -141,6 +158,8 @@ export const newsRouter = createTRPCRouter({
           firstSeenAt: newsStories.firstSeenAt,
           earliestPublishedAt: newsStories.earliestPublishedAt,
           lastActivityAt: newsStories.lastActivityAt,
+          keyFacts: newsStories.keyFacts,
+          related: newsStories.related,
         })
         .from(newsStories)
         .where(
@@ -165,11 +184,8 @@ export const newsRouter = createTRPCRouter({
           signals: newsItems.signals,
           media: newsItems.media,
           extra: newsItems.extra,
-          // debug 默认不下发内部打分（默认载荷控制，不进 SSR HTML）；
-          // debug 是公开 procedure 的普通入参，并非权限控制
-          relevanceScore: input.debug
-            ? newsItems.relevanceScore
-            : sql<number | null>`null`,
+          // 分数始终下发，是否显示由前端 debug 开关决定
+          relevanceScore: newsItems.relevanceScore,
           sourceName: newsSources.name,
           sourceType: newsSources.type,
         })
@@ -177,6 +193,31 @@ export const newsRouter = createTRPCRouter({
         .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
         .where(eq(newsItems.storyId, story.id))
         .orderBy(newsItems.publishedAt);
+
+      // 相关资讯：预计算 shortId 数组 → 小 IN 查询取标题；读取侧过滤 hidden/占位，
+      // 并按预计算的相似度顺序重排（IN 查询不保序）
+      const relatedIds = story.related ?? [];
+      const relatedRows =
+        relatedIds.length > 0
+          ? await ctx.db
+              .select({
+                shortId: newsStories.shortId,
+                title: newsStories.title,
+                firstSeenAt: newsStories.firstSeenAt,
+                earliestPublishedAt: newsStories.earliestPublishedAt,
+              })
+              .from(newsStories)
+              .where(
+                and(
+                  inArray(newsStories.shortId, relatedIds),
+                  sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
+                ),
+              )
+          : [];
+      const related = relatedIds.flatMap((sid) => {
+        const row = relatedRows.find((r) => r.shortId === sid);
+        return row ? [row] : [];
+      });
 
       // 详情页返回完整四语 JSON（head/组件各自按 locale 取），items 按时间正序做时间线
       return {
@@ -188,6 +229,8 @@ export const newsRouter = createTRPCRouter({
         firstSeenAt: story.firstSeenAt,
         earliestPublishedAt: story.earliestPublishedAt,
         lastActivityAt: story.lastActivityAt,
+        keyFacts: story.keyFacts ?? null,
+        related,
         items,
       };
     }),
