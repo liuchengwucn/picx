@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import { newsItems, newsSources, newsStories } from "#/db/schema";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
@@ -66,29 +66,32 @@ export const newsRouter = createTRPCRouter({
       // 字面量谓词：feed 的 partial index（WHERE status != 'hidden'）只匹配字面量，ne()/eq() 会失去索引
       // dirty=0：占位 story（未生成四语摘要）不进公开列表与 SEO，避免英文占位与半成品外泄
       const visible = sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`;
-      // earliestPublishedAt 展示时回退到 firstSeenAt；排序上 NULL 会排在 DESC 末尾（可接受），
-      // 命中 feedPublishedIdx
+      // keyset 谓词下 NULL 排序键不可达（lt/eq 对 NULL 恒假）；0025 已回填存量 NULL、
+      // 写入路径始终赋值，若出现 NULL 行该页游标直接终止。
+      // latest 命中 feedPublishedIdx / active 命中 feedActiveIdx
       const sortCol =
         input.sort === "latest"
           ? newsStories.earliestPublishedAt
           : newsStories.lastActivityAt;
-      const cursorDate = input.cursor ? new Date(input.cursor.ts) : null;
-      const where =
-        cursorDate && input.cursor
-          ? and(
-              visible,
-              or(
-                lt(sortCol, cursorDate),
-                and(
-                  eq(sortCol, cursorDate),
-                  lt(newsStories.shortId, input.cursor.shortId),
-                ),
-              ),
-            )
-          : visible;
+      let where: SQL | undefined = visible;
+      if (input.cursor) {
+        const cursorDate = new Date(input.cursor.ts);
+        where = and(
+          visible,
+          or(
+            lt(sortCol, cursorDate),
+            and(
+              eq(sortCol, cursorDate),
+              lt(newsStories.shortId, input.cursor.shortId),
+            ),
+          ),
+        );
+      }
 
       // 显式投影：不要 select() 全列，避免把 4KB centroid blob 一并带出
-      const stories = await ctx.db
+      // limit+1 探测：多取一行判断是否还有下一页，避免恰好整除时产生幽灵
+      // "加载更多" + 空页请求
+      const rows = await ctx.db
         .select({
           shortId: newsStories.shortId,
           title: newsStories.title,
@@ -120,18 +123,19 @@ export const newsRouter = createTRPCRouter({
         .from(newsStories)
         .where(where)
         .orderBy(desc(sortCol), desc(newsStories.shortId))
-        .limit(input.limit);
+        .limit(input.limit + 1);
+
+      const hasMore = rows.length > input.limit;
+      const stories = hasMore ? rows.slice(0, input.limit) : rows;
 
       const last = stories.at(-1);
+      const lastTs =
+        input.sort === "latest"
+          ? last?.earliestPublishedAt
+          : last?.lastActivityAt;
       const nextCursor =
-        stories.length === input.limit && last
-          ? {
-              ts: (input.sort === "latest"
-                ? (last.earliestPublishedAt ?? last.firstSeenAt)
-                : last.lastActivityAt
-              ).getTime(),
-              shortId: last.shortId,
-            }
+        hasMore && last && lastTs
+          ? { ts: lastTs.getTime(), shortId: last.shortId }
           : null;
 
       return {
@@ -174,32 +178,32 @@ export const newsRouter = createTRPCRouter({
       if (!story)
         throw new TRPCError({ code: "NOT_FOUND", message: "Story not found" });
 
-      const items = await ctx.db
-        .select({
-          url: newsItems.url,
-          title: newsItems.title,
-          excerpt: newsItems.excerpt,
-          author: newsItems.author,
-          publishedAt: newsItems.publishedAt,
-          signals: newsItems.signals,
-          media: newsItems.media,
-          extra: newsItems.extra,
-          // 分数始终下发，是否显示由前端 debug 开关决定
-          relevanceScore: newsItems.relevanceScore,
-          sourceName: newsSources.name,
-          sourceType: newsSources.type,
-        })
-        .from(newsItems)
-        .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
-        .where(eq(newsItems.storyId, story.id))
-        .orderBy(newsItems.publishedAt);
-
-      // 相关资讯：预计算 shortId 数组 → 小 IN 查询取标题；读取侧过滤 hidden/占位，
-      // 并按预计算的相似度顺序重排（IN 查询不保序）
+      // items 与相关资讯查询都只依赖 story（不互相依赖），并发发起省一个串行 D1 往返
       const relatedIds = story.related ?? [];
-      const relatedRows =
+      const [items, relatedRows] = await Promise.all([
+        ctx.db
+          .select({
+            url: newsItems.url,
+            title: newsItems.title,
+            excerpt: newsItems.excerpt,
+            author: newsItems.author,
+            publishedAt: newsItems.publishedAt,
+            signals: newsItems.signals,
+            media: newsItems.media,
+            extra: newsItems.extra,
+            // 分数始终下发，是否显示由前端 debug 开关决定
+            relevanceScore: newsItems.relevanceScore,
+            sourceName: newsSources.name,
+            sourceType: newsSources.type,
+          })
+          .from(newsItems)
+          .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
+          .where(eq(newsItems.storyId, story.id))
+          .orderBy(newsItems.publishedAt),
+        // 相关资讯：预计算 shortId 数组 → 小 IN 查询取标题；读取侧过滤 hidden/占位，
+        // 并按预计算的相似度顺序重排（IN 查询不保序）
         relatedIds.length > 0
-          ? await ctx.db
+          ? ctx.db
               .select({
                 shortId: newsStories.shortId,
                 title: newsStories.title,
@@ -213,7 +217,8 @@ export const newsRouter = createTRPCRouter({
                   sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
                 ),
               )
-          : [];
+          : Promise.resolve([]),
+      ]);
       const related = relatedIds.flatMap((sid) => {
         const row = relatedRows.find((r) => r.shortId === sid);
         return row ? [row] : [];
@@ -229,7 +234,7 @@ export const newsRouter = createTRPCRouter({
         firstSeenAt: story.firstSeenAt,
         earliestPublishedAt: story.earliestPublishedAt,
         lastActivityAt: story.lastActivityAt,
-        keyFacts: story.keyFacts ?? null,
+        keyFacts: story.keyFacts,
         related,
         items,
       };
