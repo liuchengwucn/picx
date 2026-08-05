@@ -10,6 +10,8 @@ import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 const config = defineConfig({
+  // OrbStack VM 内的工具（curl/playwright）经 host.internal 访问 mac 侧 dev server
+  server: { allowedHosts: ["host.internal"] },
   build: {
     rollupOptions: {
       external: ["cloudflare:workers"],
@@ -36,7 +38,13 @@ const config = defineConfig({
         }
       },
     },
-    devtools(),
+    // devtools 事件总线固定监听 42069，多个 worktree 同时 dev 会端口冲突，
+    // 副实例用 DEVTOOLS_BUS_PORT 错开
+    devtools({
+      eventBusConfig: process.env.DEVTOOLS_BUS_PORT
+        ? { port: Number(process.env.DEVTOOLS_BUS_PORT) }
+        : undefined,
+    }),
     paraglideVitePlugin({
       project: "./project.inlang",
       outdir: "./src/paraglide",
