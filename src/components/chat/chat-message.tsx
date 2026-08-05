@@ -67,6 +67,44 @@ function isToolDone(state: string, display: ToolDisplay): boolean {
 }
 
 /**
+ * 工具「跑完了但没成事」的判定。本站的工具不抛异常，失败走的是正常返回值里的
+ * `{ error }`（如 readPaper 拿不到全文、guest 被拒写档案），只看 state 会把它们
+ * 显示成「已完成」。
+ */
+function hasErrorOutput(output: unknown): boolean {
+  return (
+    typeof output === "object" &&
+    output !== null &&
+    // hasOwn 而非 in：防工具输出的原型链上恰好有 error
+    Object.hasOwn(output, "error") &&
+    (output as { error?: unknown }).error != null
+  );
+}
+
+type ToolOutcome = "running" | "done" | "failed";
+
+/**
+ * 只取判定要用的两个字段：isToolUIPart 收窄出来的联合里还带着 dynamic-tool 分支，
+ * 结构化描述比跟着 ai 的类型联合跑省事得多。
+ */
+interface ToolPartLike {
+  state: string;
+  output?: unknown;
+}
+
+function toolOutcome(part: ToolPartLike, display: ToolDisplay): ToolOutcome {
+  if (part.state === "output-error") return "failed";
+  if (part.state === "output-available" && hasErrorOutput(part.output))
+    return "failed";
+  return isToolDone(part.state, display) ? "done" : "running";
+}
+
+function toolOutcomeLabel(outcome: ToolOutcome, display: ToolDisplay): string {
+  if (outcome === "failed") return m.chat_tool_failed();
+  return outcome === "done" ? display.done() : display.running();
+}
+
+/**
  * /api/chat 的错误以稳定 code 下发：HTTP 非 2xx 时 body 是 `{"error": code}`，
  * transport 把整个 body 文本塞进 Error.message；流内错误则是裸 code
  * （`stream_failed`）。两条路径都在这里归一成用户文案。
@@ -142,17 +180,31 @@ export function messageText(message: UIMessage): string {
 }
 
 /** 助手回复里的工具调用：只以一行状态出现，不展开原始输入输出 */
-function ToolTrace({ done, display }: { done: boolean; display: ToolDisplay }) {
+function ToolTrace({
+  part,
+  display,
+}: {
+  part: ToolPartLike;
+  display: ToolDisplay;
+}) {
+  const outcome = toolOutcome(part, display);
   const DoneIcon = display.icon;
-  const label = done ? display.done() : display.running();
   return (
-    <p className="flex items-center gap-2 text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">
-      {done ? (
-        <DoneIcon className="h-3.5 w-3.5 shrink-0" />
-      ) : (
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+    <p
+      className={cn(
+        "flex items-center gap-2 text-[11px] tracking-[0.14em] uppercase",
+        // 失败只是「这一步没成」，比成功更轻而不是更响：压低对比度，不用警示色
+        outcome === "failed"
+          ? "text-[var(--ink-soft)]/70"
+          : "text-[var(--ink-soft)]",
       )}
-      {label}
+    >
+      {outcome === "running" ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+      ) : (
+        <DoneIcon className="h-3.5 w-3.5 shrink-0" />
+      )}
+      {toolOutcomeLabel(outcome, display)}
     </p>
   );
 }
@@ -172,9 +224,7 @@ function currentActivityLabel(
   if (last && isToolUIPart(last)) {
     const display = toolDisplays[toolNameOf(last.type)];
     if (display) {
-      return isToolDone(last.state, display)
-        ? display.done()
-        : display.running();
+      return toolOutcomeLabel(toolOutcome(last, display), display);
     }
   }
   return m.chat_thinking();
@@ -241,13 +291,7 @@ function ActivityBlock({
               // 服务端工具（如 OpenRouter 的 web_search）流里只有工具调用没有
               // output part，完成判定由各自的 display.isDone 决定
               if (display) {
-                return (
-                  <ToolTrace
-                    key={key}
-                    display={display}
-                    done={isToolDone(part.state, display)}
-                  />
-                );
+                return <ToolTrace key={key} part={part} display={display} />;
               }
             }
             return null;

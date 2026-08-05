@@ -410,6 +410,7 @@
   "chat_searching_web": "Searching the web",
   "chat_searched_web": "Searched the web",
   "chat_activity_label": "Thought process",
+  "chat_tool_failed": "Didn't complete",
   "chat_web_search": "Web search",
   "chat_web_search_hint": "Let it search the web when the paper isn't enough",
   "chat_reasoning_label": "Thinking effort",

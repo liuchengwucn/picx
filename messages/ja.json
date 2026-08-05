@@ -410,6 +410,7 @@
   "chat_searching_web": "ウェブを検索しています",
   "chat_searched_web": "ウェブを検索しました",
   "chat_activity_label": "思考プロセス",
+  "chat_tool_failed": "完了できませんでした",
   "chat_web_search": "ウェブ検索",
   "chat_web_search_hint": "論文だけで足りないときにウェブを検索させる",
   "chat_reasoning_label": "思考の深さ",
