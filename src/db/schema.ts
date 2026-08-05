@@ -452,7 +452,7 @@ export const newsStories = sqliteTable(
     keyFacts: text("key_facts", { mode: "json" }).$type<
       Record<string, string[]>
     >(),
-    // 相关资讯：相似度降序的 shortId 数组（最多 4 个）；读取侧还要过滤 hidden
+    // 相关资讯 shortId 数组（最多 4 个）：自身重算时按相似度降序，反向补写插头部（非严格降序）；读取侧还要过滤 hidden
     related: text("related", { mode: "json" }).$type<string[]>(),
     // 头条封面图：summarize 阶段从成员 media 预计算，列表查询免 N+1
     leadImage: text("lead_image", { mode: "json" }).$type<NewsMedia | null>(),

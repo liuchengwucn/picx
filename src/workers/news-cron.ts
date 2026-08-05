@@ -14,6 +14,7 @@ import {
   judgeAssignment,
   scoreRelevance,
 } from "#/lib/news/ai";
+import { mergeRelated, pickRelated } from "#/lib/news/related";
 import { buildSignalsSummary } from "#/lib/news/signals";
 import { cleanScrapedResearchTitle } from "#/lib/news/title-clean";
 import type { NormalizedItem } from "#/lib/news/types";
@@ -35,6 +36,10 @@ const MAX_FILTER_PER_ROUND = 150;
 const MAX_EMBED_PER_ROUND = 100;
 const MAX_CLUSTER_PER_ROUND = 60;
 const MAX_SUMMARIZE_PER_ROUND = 30;
+// 存量回填（key_facts IS NULL）每轮上限：与 dirty 共享 30 名额且永远给 dirty 让位
+const MAX_BACKFILL_PER_ROUND = 10;
+// related 候选窗口：近 90 天内的可见 story
+const RELATED_WINDOW_DAYS = 90;
 const MAX_HN_REFRESH_PER_ROUND = 50;
 const MAX_SOURCE_FAILURES = 10;
 // Cron 触发的硬上限是 15 分钟；留 4 分钟余量，让平台 kill 永远不会落在写入中途。
@@ -478,7 +483,7 @@ async function summarizeStage(
   deadline: number,
 ): Promise<void> {
   const dirtyStories = await db
-    .select({ id: newsStories.id })
+    .select({ id: newsStories.id, shortId: newsStories.shortId })
     .from(newsStories)
     // dirty 的 partial index 只认字面量谓词，不能用 eq()（绑定参数会退化为全表扫描）
     .where(and(sql`${newsStories.dirty} = 1`, eq(newsStories.status, "active")))
@@ -487,10 +492,57 @@ async function summarizeStage(
     // archived —— status 不再是 active，自然退出本查询的轮换。
     .orderBy(desc(newsStories.lastActivityAt))
     .limit(MAX_SUMMARIZE_PER_ROUND);
+
+  // 存量回填：新列上线时已定稿（dirty=0）的 story 缺 key_facts。
+  // 独立选路、绝不置 dirty——列表可见性谓词是 dirty = 0，置 dirty 会让整个 feed 消失。
+  // 处理路径与 dirty story 完全相同（会重生成四语摘要，一次性成本，spec 已确认）。
+  // key_facts 永不写 NULL（normalizeKeyFacts 保证），故本选路必然收敛，不会重复选中处理过的行
+  const backfillBudget = Math.min(
+    MAX_BACKFILL_PER_ROUND,
+    MAX_SUMMARIZE_PER_ROUND - dirtyStories.length,
+  );
+  const backfillStories =
+    backfillBudget > 0
+      ? await db
+          .select({ id: newsStories.id, shortId: newsStories.shortId })
+          .from(newsStories)
+          .where(
+            sql`${newsStories.keyFacts} IS NULL AND ${newsStories.dirty} = 0 AND ${newsStories.status} != 'hidden'`,
+          )
+          .orderBy(desc(newsStories.lastActivityAt))
+          .limit(backfillBudget)
+      : [];
+  const targets = [...dirtyStories, ...backfillStories];
+
+  // related 候选一次载入（几十~几百行 × 4KB centroid，与 cluster 阶段同量级）。
+  // ORDER BY 固定：并列相似度时 pickRelated 的稳定排序结果才可复现。
+  // 本轮新建的 story 不在候选里 → 收不到反向补写，下轮自愈，可接受
+  const relatedCandidates =
+    targets.length > 0
+      ? await db
+          .select({
+            id: newsStories.id,
+            shortId: newsStories.shortId,
+            centroid: newsStories.centroid,
+            related: newsStories.related,
+          })
+          .from(newsStories)
+          .where(
+            and(
+              sql`${newsStories.status} != 'hidden'`,
+              gt(
+                newsStories.earliestPublishedAt,
+                new Date(Date.now() - RELATED_WINDOW_DAYS * 86_400_000),
+              ),
+            ),
+          )
+          .orderBy(desc(newsStories.earliestPublishedAt))
+      : [];
+
   const config = aiConfigFromEnv(env);
   let done = 0;
 
-  for (const { id } of dirtyStories) {
+  for (const { id, shortId } of targets) {
     if (pastDeadline(deadline, "summarize")) break;
     try {
       const members = await db
@@ -505,6 +557,7 @@ async function summarizeStage(
           sourceId: newsItems.sourceId,
           sourceName: newsSources.name,
           publishedAt: newsItems.publishedAt,
+          media: newsItems.media,
         })
         .from(newsItems)
         .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
@@ -535,6 +588,16 @@ async function summarizeStage(
       const memberEmbeddings = members
         .map((m) => m.embedding)
         .filter((e): e is Float32Array => e !== null);
+      // 头条封面图：成员（已按 publishedAt asc 排序）中第一张图
+      const leadImage =
+        members
+          .flatMap((m) => m.media ?? [])
+          .find((media) => media.type === "image") ?? null;
+      const centroid =
+        memberEmbeddings.length > 0 ? meanVector(memberEmbeddings) : null;
+      const related = centroid
+        ? pickRelated(id, centroid, relatedCandidates)
+        : null;
       await db
         .update(newsStories)
         .set({
@@ -544,22 +607,40 @@ async function summarizeStage(
           itemCount: members.length,
           sourceCount: new Set(members.map((m) => m.sourceId)).size,
           earliestPublishedAt: members[0].publishedAt,
-          ...(memberEmbeddings.length > 0
-            ? { centroid: meanVector(memberEmbeddings) }
-            : {}),
+          ...(centroid ? { centroid } : {}),
+          keyFacts: content.keyFacts,
+          leadImage,
+          ...(related ? { related } : {}),
           signalsSummary: buildSignalsSummary(members),
           dirty: false,
           updatedAt: new Date(),
         })
         .where(eq(newsStories.id, id));
+      // 反向补写：把本 story 插进每个被选中候选的 related 头部（幂等，串行逐行 UPDATE）。
+      // 插头部不保证严格相似度降序——展示语义为「相关列表」，接受时序性排头
+      for (const targetShortId of related ?? []) {
+        const cand = relatedCandidates.find(
+          (c) => c.shortId === targetShortId,
+        );
+        if (!cand) continue;
+        const merged = mergeRelated(cand.related, shortId);
+        cand.related = merged; // 同步内存，后续迭代基于最新值
+        await db
+          .update(newsStories)
+          .set({ related: merged })
+          .where(eq(newsStories.id, cand.id));
+      }
       done++;
     } catch (error) {
-      // 失败保持 dirty=true，下轮重试
+      // 失败保持 dirty=true（回填 story 失败时 key_facts 仍为 NULL，下轮自然重试）
       console.error(`[NewsCron][summarize] story ${id} failed:`, error);
     }
   }
-  if (dirtyStories.length > 0)
-    log("summarize", `processed ${done}/${dirtyStories.length} dirty stories`);
+  if (targets.length > 0)
+    log(
+      "summarize",
+      `processed ${done}/${targets.length} stories (${dirtyStories.length} dirty, ${backfillStories.length} backfill)`,
+    );
 }
 
 // ---- Stage 6: refresh HN signals ----
