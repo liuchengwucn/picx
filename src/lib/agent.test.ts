@@ -32,6 +32,9 @@ describe("parseArxivAtom", () => {
     expect(entries[0].authors).toEqual(["Alice A", "Bob B"]);
     expect(entries[0].categories).toEqual(["cs.CL"]);
     expect(entries[0].published).toBe("2026-01-20");
+    expect(entries[0].abstract).toBe(
+      "An abstract with &amp; escaped &lt;chars&gt;.",
+    );
     expect(entries[1].arxivId).toBe("hep-th/9901001");
   });
 

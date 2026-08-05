@@ -344,7 +344,12 @@ export function buildAgentTools(deps: AgentToolsDeps) {
         sortBy: z
           .enum(["relevance", "submittedDate", "lastUpdatedDate"])
           .default("relevance"),
-        maxResults: z.number().int().min(1).max(15).default(8),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(AGENT_LIMITS.externalMaxResults)
+          .default(8),
       }),
       execute: async ({ query, category, sortBy, maxResults }) => {
         // JSON.stringify 是给短语加双引号（arXiv API 短语语法），不是序列化
