@@ -447,6 +447,15 @@ export const newsStories = sqliteTable(
       mode: "json",
     }).$type<StorySignalsSummary>(),
     tags: text("tags", { mode: "json" }).$type<string[]>(),
+    // 四语事实要点 Record<localeKey, string[]>（key 同 title/summary：en/zh-cn/zh-tw/ja）；
+    // null = 尚未生成——summarize 的回填选路按 key_facts IS NULL 挑存量行
+    keyFacts: text("key_facts", { mode: "json" }).$type<
+      Record<string, string[]>
+    >(),
+    // 相关资讯：相似度降序的 shortId 数组（最多 4 个）；读取侧还要过滤 hidden
+    related: text("related", { mode: "json" }).$type<string[]>(),
+    // 头条封面图：summarize 阶段从成员 media 预计算，列表查询免 N+1
+    leadImage: text("lead_image", { mode: "json" }).$type<NewsMedia | null>(),
     // 有新成员并入置真，summarize 阶段处理完置假——崩溃可恢复的幂等标记（D1 无事务）
     dirty: integer("dirty", { mode: "boolean" }).notNull().default(true),
     // story 首次聚合时间；展示与「最新」排序改用 earliestPublishedAt 后作为回退值（与 created_at 同刻，语义独立保留）
