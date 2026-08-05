@@ -93,12 +93,15 @@ export const papers = sqliteTable(
     pdfR2Key: text("pdf_r2_key").notNull(),
     fileSize: integer("file_size").notNull(),
     pageCount: integer("page_count"),
+    // MinerU 解析批次 id。提交后立即落库，作为队列消息重投时防重复提交的幂等守卫。
+    mineruBatchId: text("mineru_batch_id"),
     // HuggingFace Daily Papers 的 upvotes，由 arxiv-cron 落库，供 X bot 阈值筛选。
     // 用户上传 / 历史论文为 NULL（不会被 bot 选中，符合防洪）。
     upvotes: integer("upvotes"),
     status: text("status", {
       enum: [
         "pending",
+        "parsing",
         "processing_text",
         "processing_image",
         "completed",
@@ -175,7 +178,8 @@ export const paperResults = sqliteTable(
     // LLM 自由细粒度 tag(小写连字符),如 ["image-restoration","diffusion"]。
     tags: text("tags", { mode: "json" }).$type<string[]>(),
     summaryLanguage: text("summary_language").notNull().default("en"),
-    whiteboardInsights: text("whiteboard_insights").notNull(),
+    // 可空: whiteboard 变为可选后，未生成白板的论文为 NULL；事后补生成时回填。
+    whiteboardInsights: text("whiteboard_insights"),
     processingTimeMs: integer("processing_time_ms"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
@@ -318,6 +322,27 @@ export const whiteboardImages = sqliteTable(
     ),
   }),
 );
+
+// 论文原文内容（MinerU 解析产物）。与 papers 1:1；只有 MinerU 成功才有行，
+// pdfjs 回退的论文没有行 —— 前端据此判断「原文阅读」是否可用。
+export const paperContents = sqliteTable("paper_contents", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  paperId: text("paper_id")
+    .notNull()
+    .unique()
+    .references(() => papers.id, { onDelete: "cascade" }),
+  markdownR2Key: text("markdown_r2_key").notNull(),
+  source: text("source", { enum: ["mineru"] })
+    .notNull()
+    .default("mineru"),
+  imageCount: integer("image_count").notNull().default(0),
+  charCount: integer("char_count").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
 
 // X bot 投递记录：每天选出的论文推送到 Telegram 供人工发推。
 // 一篇论文最多一行（paper_id 唯一）用于去重，避免重复推送给运营者。

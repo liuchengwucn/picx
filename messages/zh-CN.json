@@ -43,6 +43,7 @@
   "papers_filter_completed": "已完成",
   "papers_filter_failed": "失败",
   "papers_status_pending": "等待处理",
+  "papers_status_parsing": "解析中",
   "papers_status_processing_text": "提取文本中",
   "papers_status_processing_image": "生成图片中",
   "papers_status_completed": "已完成",

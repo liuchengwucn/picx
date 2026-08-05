@@ -14,6 +14,7 @@ import { PublicBadge } from "./public-badge";
 
 type PaperStatus =
   | "pending"
+  | "parsing"
   | "processing_text"
   | "processing_image"
   | "completed"
@@ -46,6 +47,13 @@ const statusConfig: Record<
     className:
       "bg-[var(--neutral-light)] text-[var(--ink-soft)] border-[var(--neutral-mid)]",
     borderColor: "var(--neutral-mid)",
+  },
+  parsing: {
+    label: () => m.papers_status_parsing(),
+    icon: Loader2,
+    className:
+      "bg-[var(--academic-brown)]/10 text-[var(--academic-brown)] border-[var(--academic-brown)]/30",
+    borderColor: "var(--academic-brown)",
   },
   processing_text: {
     label: () => m.papers_status_processing_text(),
@@ -81,7 +89,9 @@ export function PaperCard({ paper }: { paper: Paper }) {
   const config = statusConfig[paper.status];
   const StatusIcon = config.icon;
   const isProcessing =
-    paper.status === "processing_text" || paper.status === "processing_image";
+    paper.status === "parsing" ||
+    paper.status === "processing_text" ||
+    paper.status === "processing_image";
 
   return (
     <Link

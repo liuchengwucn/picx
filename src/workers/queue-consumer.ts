@@ -747,6 +747,12 @@ async function processWhiteboardRegeneration(
     if (!result) {
       throw new Error(`Paper results not found for paper ${msg.paperId}`);
     }
+    if (!result.whiteboardInsights) {
+      // whiteboardInsights 可空后：未生成过 whiteboard 的论文没有基底可供 regenerate。
+      throw new Error(
+        `No whiteboard insights to regenerate for paper ${msg.paperId}`,
+      );
+    }
 
     whiteboardInsights = result.whiteboardInsights;
     log(
