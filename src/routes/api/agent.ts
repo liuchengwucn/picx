@@ -188,6 +188,8 @@ async function handler({ request }: { request: Request }) {
     .onConflictDoUpdate({
       target: conversationMessages.id,
       set: { parts: message.parts },
+      // 只在冲突行确实属于本会话+本用户时才改写（SQLite DO UPDATE ... WHERE 里
+      // 未加 excluded. 前缀的列指库里的原行），原理详见 /api/chat 同位置注释
       setWhere: and(
         eq(conversationMessages.conversationId, conversationId),
         eq(conversationMessages.senderId, userId),
