@@ -20,6 +20,7 @@
     "db:backfill-categories": "node scripts/backfill-categories.mjs",
     "db:backfill-upvotes": "node scripts/backfill-upvotes.mjs",
     "db:backfill-paper-text": "node scripts/backfill-paper-text.mjs",
+    "db:backfill-paper-content": "tsx scripts/backfill-paper-content.mjs",
     "format": "biome format",
     "lint": "biome lint",
     "typecheck": "tsc --noEmit",
