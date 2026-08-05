@@ -6,7 +6,7 @@
  */
 
 const MINERU_BASE = "https://mineru.net/api/v4";
-const MINERU_MODEL_VERSION = "pipeline"; // 备选 "vlm"
+const MINERU_MODEL_VERSION = "vlm"; // 备选 "pipeline"
 
 export type MineruState =
   | "uploading"
