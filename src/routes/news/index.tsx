@@ -53,7 +53,8 @@ function NewsPage() {
       locale: getLocale(),
       debug: showScores,
     }),
-    // debug 切换会换 query key（无缓存）；保留上一屏数据，避免闪回骨架屏
+    // debug 切换会换 query key（无缓存）；保留上一屏数据，避免闪回骨架屏。
+    // 注意这也作用于翻页/切排序：加载中不再走骨架屏分支，改由下方 isPlaceholderData 降透明度提示
     placeholderData: keepPreviousData,
   });
 
@@ -109,8 +110,12 @@ function NewsPage() {
           </Button>
         </div>
 
-        {/* Story list */}
-        <div className="stagger-in mt-6 space-y-4">
+        {/* Story list：占位数据（翻页中）降透明度作为加载反馈 */}
+        <div
+          className={`stagger-in mt-6 space-y-4 transition-opacity ${
+            newsQuery.isPlaceholderData ? "opacity-60" : ""
+          }`}
+        >
           {newsQuery.isLoading ? (
             newsSkeletonKeys.map((skeletonKey) => (
               <StoryCardSkeleton key={skeletonKey} />

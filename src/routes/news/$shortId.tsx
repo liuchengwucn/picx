@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   createFileRoute,
   isNotFound,
@@ -201,6 +201,9 @@ function NewsStoryPage() {
     ...trpc.news.byShortId.queryOptions({ shortId, debug: showScores }),
     initialData: showScores ? undefined : (loaderData?.ssrData ?? undefined),
     staleTime: !showScores && loaderData?.ssrData ? 30_000 : undefined,
+    // debug 开启换 key 重取期间沿用 debug=false 的旧数据，避免整页闪回骨架屏；
+    // badge 由 relevanceScore != null 守卫，分数载荷到达前自然不显示
+    placeholderData: keepPreviousData,
   });
 
   if (isLoading && !data) return <StoryDetailSkeleton />;
