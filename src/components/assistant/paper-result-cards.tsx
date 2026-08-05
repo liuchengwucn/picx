@@ -45,37 +45,47 @@ interface PaperResultCardProps {
   paper: DiscoveredPaper;
   isAdded: boolean;
   isPending: boolean;
-  /** 已有别的卡在导入：一次只放行一张，其余按钮暂时不可点 */
-  isBlocked: boolean;
+  /** 已入库时可用的站内 shortId（工具快照里的，或本次刚导入拿回来的） */
+  shortId?: string;
   dateFormatter: Intl.DateTimeFormat;
+  locale: string;
   onAdd: () => void;
 }
 
 /**
  * 一篇论文一张卡。眉标用 arXiv 编号而不是装饰性序号——它就是研究者互相
  * 引用这篇论文时说出口的那个号码，是这张卡上最有信息量的标识。
+ *
+ * 字段一律按「可能缺」来读：历史消息里回放的是当初落库的工具 output，
+ * 早期格式缺字段时只该少显示一行，不能把整个聊天区渲染崩掉。
  */
 function PaperResultCard({
   paper,
   isAdded,
   isPending,
-  isBlocked,
+  shortId,
   dateFormatter,
+  locale,
   onAdd,
 }: PaperResultCardProps) {
-  const authors = formatAuthors(paper.authors);
+  const authors = formatAuthors(paper.authors ?? []);
   const category = paper.categories?.[0];
+  const published =
+    typeof paper.published === "string"
+      ? formatPublished(paper.published, dateFormatter)
+      : "";
+  const upvotes = typeof paper.upvotes === "number" ? paper.upvotes : 0;
   return (
     <article className="rounded-lg border border-[var(--line)] bg-[var(--parchment-warm)]/50 px-3 py-2.5 transition-colors hover:border-[var(--academic-brown)]/35">
-      <p className="flex items-center gap-2 text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">
-        <span className="tabular-nums">{paper.arxivId}</span>
-        {category && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="truncate">{category}</span>
-          </>
-        )}
-      </p>
+      {(paper.arxivId || category) && (
+        <p className="flex items-center gap-2 text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">
+          {paper.arxivId && (
+            <span className="tabular-nums">{paper.arxivId}</span>
+          )}
+          {paper.arxivId && category && <span aria-hidden="true">·</span>}
+          {category && <span className="truncate">{category}</span>}
+        </p>
+      )}
       <h4 className="mt-1">
         <a
           href={paper.url}
@@ -83,7 +93,7 @@ function PaperResultCard({
           rel="noopener noreferrer"
           className="font-serif text-[15px] leading-snug font-semibold text-[var(--ink)] hover:text-[var(--academic-brown)]"
         >
-          {paper.title}
+          {paper.title || paper.url}
         </a>
       </h4>
       {authors && (
@@ -97,19 +107,23 @@ function PaperResultCard({
         </p>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <p className="text-[11px] tabular-nums text-[var(--ink-soft)]">
-          {formatPublished(paper.published, dateFormatter)}
-        </p>
-        {typeof paper.upvotes === "number" && paper.upvotes > 0 && (
+        {published && (
+          <p className="text-[11px] tabular-nums text-[var(--ink-soft)]">
+            {published}
+          </p>
+        )}
+        {upvotes > 0 && (
           <p className="text-[11px] tabular-nums text-[var(--academic-brown)]">
-            {m.assistant_card_upvotes({ count: paper.upvotes })}
+            {m.assistant_card_upvotes({
+              count: upvotes.toLocaleString(locale),
+            })}
           </p>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {isAdded && paper.libraryShortId && (
+          {isAdded && shortId && (
             <Link
               to="/p/$shortId"
-              params={{ shortId: paper.libraryShortId }}
+              params={{ shortId }}
               className="text-xs text-[var(--academic-brown)] hover:underline"
             >
               {m.assistant_card_view()}
@@ -125,7 +139,8 @@ function PaperResultCard({
               variant="outline"
               size="xs"
               onClick={onAdd}
-              disabled={isBlocked}
+              disabled={isPending}
+              aria-busy={isPending || undefined}
             >
               {isPending ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -150,10 +165,13 @@ export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
   const queryClient = useQueryClient();
   /** 正在导入的那张卡（按 url 区分）；同时也是「一次只导一篇」的闸门 */
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
-  /** 本轮会话里刚加进去的。工具输出是落库时的快照，不会自己更新 inLibrary */
-  const [addedUrls, setAddedUrls] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  /**
+   * 本轮会话里刚加进去的：url → 站内 shortId（拿不到就 null）。工具输出是落库
+   * 那一刻的快照，不会自己更新 inLibrary / libraryShortId。
+   */
+  const [addedPapers, setAddedPapers] = useState<
+    ReadonlyMap<string, string | null>
+  >(() => new Map());
 
   const locale = getLocale();
   const dateFormatter = useMemo(
@@ -167,48 +185,67 @@ export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
     [locale],
   );
 
-  const createPaper = useMutation(trpc.paper.create.mutationOptions());
+  const createPaper = useMutation(
+    // 这两个回调挂在 mutation 上而不是 mutate() 的第二参：换会话会按 key 卸载
+    // 整棵聊天子树，per-call 回调在组件卸载后一律不执行（连失败 toast 都不弹）
+    trpc.paper.create.mutationOptions({
+      onSuccess: () => {
+        // 论文列表页此刻多了一篇（还在处理中），让它下次进入时能看到
+        void queryClient.invalidateQueries({
+          queryKey: trpc.paper.list.queryKey(),
+        });
+      },
+      onError: (error) => {
+        console.error("Add to library failed:", error);
+        toast.error(m.assistant_card_add_failed());
+      },
+    }),
+  );
 
   const handleAdd = (paper: DiscoveredPaper) => {
+    // 一次只导一篇：pending 期间别的卡按钮仍可点，但这里直接挡掉
     if (pendingUrl) return;
     setPendingUrl(paper.url);
     createPaper.mutate(
       {
         sourceType: "arxiv",
         arxivUrl: paper.url,
-        filename: paper.arxivId,
+        filename: paper.arxivId || paper.url,
         // arXiv 走服务端下载，这里的大小只是占位，落库后会被真实值覆盖
         fileSize: 1,
         r2Key: `arxiv/${Date.now()}`,
         language: currentSummaryLanguage(),
       },
+      // per-call 回调只放纯 UI state：组件已卸载时不执行也无所谓
       {
-        onSuccess: () => {
-          setAddedUrls((previous) => new Set(previous).add(paper.url));
-          // 论文列表页此刻多了一篇（还在处理中），让它下次进入时能看到
-          void queryClient.invalidateQueries({
-            queryKey: trpc.paper.list.queryKey(),
-          });
-        },
-        onError: (error) => {
-          console.error("Add to library failed:", error);
-          toast.error(m.assistant_card_add_failed());
+        onSuccess: (result) => {
+          setAddedPapers((previous) =>
+            new Map(previous).set(paper.url, result.shortId ?? null),
+          );
         },
         onSettled: () => setPendingUrl(null),
       },
     );
   };
 
+  // url 缺失的条目没法链接也没法入库，直接丢掉（旧格式历史消息的兜底）
+  const cards = results.filter(
+    (paper) => typeof paper?.url === "string" && paper.url.length > 0,
+  );
+
   return (
     <div className="my-2 grid gap-2">
-      {results.map((paper) => (
+      {cards.map((paper) => (
         <PaperResultCard
           key={paper.url}
           paper={paper}
-          isAdded={paper.inLibrary || addedUrls.has(paper.url)}
+          isAdded={paper.inLibrary === true || addedPapers.has(paper.url)}
           isPending={pendingUrl === paper.url}
-          isBlocked={pendingUrl !== null}
+          shortId={
+            paper.libraryShortId ?? addedPapers.get(paper.url) ?? undefined
+          }
           dateFormatter={dateFormatter}
+          locale={locale}
           onAdd={() => handleAdd(paper)}
         />
       ))}

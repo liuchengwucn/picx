@@ -268,6 +268,11 @@ export function AssistantChat({
       void queryClient.invalidateQueries({
         queryKey: trpc.assistant.listConversations.queryKey(),
       });
+      // 这一轮可能调了 updateProfile 工具：标脏档案，下次打开编辑器拿到的是新的
+      // （对话框关着时 query enabled:false，这里不会真发请求）
+      void queryClient.invalidateQueries({
+        queryKey: trpc.assistant.getProfile.queryKey(),
+      });
     },
   });
 
@@ -337,9 +342,12 @@ export function AssistantChat({
       )
         return null;
       if (part.state !== "output-available") return null;
-      const output = part.output as { results?: DiscoveredPaper[] } | undefined;
-      if (!output?.results?.length) return null;
-      return <PaperResultCards results={output.results} />;
+      // output 来自 D1 里存着的历史 JSON：早期格式或 {error} 分支都可能到这儿，
+      // 形状不对就当没有卡片，别让一条旧消息把整个聊天区渲染崩掉
+      const output = part.output as { results?: unknown } | undefined;
+      if (!Array.isArray(output?.results) || output.results.length === 0)
+        return null;
+      return <PaperResultCards results={output.results as DiscoveredPaper[]} />;
     },
     [],
   );

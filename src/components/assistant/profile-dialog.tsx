@@ -32,6 +32,8 @@ export function ProfileDialog() {
 
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState("");
+  /** 灌进输入框的那一版原文，用来判断「有没有改过」 */
+  const [baseline, setBaseline] = useState("");
   /** 输入框已被最新档案灌过一次；false 时显示加载态而不是空白稿 */
   const [seeded, setSeeded] = useState(false);
 
@@ -50,7 +52,9 @@ export function ProfileDialog() {
       return;
     }
     if (seeded || !isSettled) return;
-    setContent(profileQuery.data?.content ?? "");
+    const loaded = profileQuery.data?.content ?? "";
+    setContent(loaded);
+    setBaseline(loaded);
     setSeeded(true);
   }, [open, seeded, isSettled, profileQuery.data]);
 
@@ -134,7 +138,10 @@ export function ProfileDialog() {
           </p>
           <Button
             onClick={() => updateMutation.mutate({ content })}
-            disabled={!seeded || updateMutation.isPending}
+            // 没改过就没什么可存的，别让用户白花一次写库
+            disabled={
+              !seeded || updateMutation.isPending || content === baseline
+            }
           >
             {updateMutation.isPending && (
               <Loader2 className="h-4 w-4 animate-spin" />
