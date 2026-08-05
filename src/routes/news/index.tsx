@@ -132,7 +132,16 @@ function NewsPage() {
             </div>
           ) : sort === "latest" ? (
             groups.map((group, groupIndex) => (
-              <section key={group.dateKey} className="mt-8 first:mt-2">
+              // 日期标题线是天与天之间唯一的分界：每天最后一排 story 去掉自身底线，
+              // 避免与下一天标题线双线冗余（无 rest 时最后一个 article 即头条/次头条）
+              <section
+                key={group.dateKey}
+                className={`mt-8 first:mt-2 ${
+                  group.rest.length === 0
+                    ? "[&>article:last-of-type]:border-b-0"
+                    : ""
+                }`}
+              >
                 <h2 className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--academic-brown)] after:h-px after:flex-1 after:bg-[var(--line)] after:content-['']">
                   {dayLabel(group.dateKey, group.date)}
                 </h2>
@@ -149,7 +158,14 @@ function NewsPage() {
                   />
                 ))}
                 {group.rest.length > 0 && (
-                  <div className="grid grid-cols-1 gap-x-10 sm:grid-cols-2">
+                  // 双栏时末排可能是 1 或 2 个：偶数条时倒数第二个仅在 sm 起同排，才一并去线
+                  <div
+                    className={`grid grid-cols-1 gap-x-10 sm:grid-cols-2 [&>article:last-child]:border-b-0 ${
+                      group.rest.length % 2 === 0
+                        ? "sm:[&>article:nth-last-child(2)]:border-b-0"
+                        : ""
+                    }`}
+                  >
                     {group.rest.map((story) => (
                       <StoryRow
                         key={story.shortId}
