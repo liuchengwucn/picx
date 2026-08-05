@@ -81,6 +81,9 @@ const MINERU_TOTAL_TIMEOUT_MS = 20 * 60 * 1000;
 const MINERU_IMAGE_PUT_BATCH = 20;
 // pdfjs 回退的页数上限（超限视为不可处理，标记失败）。
 const PDFJS_MAX_PAGES = 150;
+// 下载 MinerU 结果 zip 时值得重试的状态码：必须是 isRetryableError 认得的那几个，
+// 否则重试请求会在顶层被判为不可重试而把论文打成 failed。
+const RETRYABLE_ZIP_STATUSES = new Set([500, 502, 503, 504]);
 
 /**
  * 通用重试: 指数退避 + 抖动。最多重试 `retries` 次(共 retries+1 次尝试)。
@@ -1017,15 +1020,16 @@ async function persistMineruContent(
     log("mineru-persist", `Downloading result zip`);
     const resp = await fetch(result.fullZipUrl);
     if (!resp.ok) {
-      // 4xx（典型是签名链接过期 403）重试无益，宁降级不丢单 → 回退 pdfjs。
-      if (resp.status < 500) {
+      // 只有 isRetryableError 白名单里的状态码才值得交给 Queues 重试；
+      // 其余（4xx 如签名链接过期 403，以及 501/507/520-527 这类不在白名单的 5xx）
+      // 硬抛会被顶层判为不可重试而把论文打成 failed —— 宁降级不丢单 → 回退 pdfjs。
+      if (!RETRYABLE_ZIP_STATUSES.has(resp.status)) {
         logWarn(
           "mineru-persist",
-          `Downloading MinerU result zip failed with status ${resp.status} (permanent), falling back to pdfjs`,
+          `Downloading MinerU result zip failed with status ${resp.status}, falling back to pdfjs`,
         );
         return null;
       }
-      // 5xx 是临时故障，消息里带状态码，isRetryableError 能命中 → 交给 Queues 重试。
       throw new StepError(
         "mineru-persist",
         new Error(
@@ -1036,7 +1040,7 @@ async function persistMineruContent(
     zipBytes = new Uint8Array(await resp.arrayBuffer());
   } catch (error) {
     if (error instanceof StepError) {
-      // 5xx：交给 Queues 重试（batchId 已落库，重跑不会重复提交）。
+      // 可重试状态码：交给 Queues 重试（batchId 已落库，重跑不会重复提交）。
       throw error;
     }
     // 网络类失败（"Network connection lost" 等）不匹配 isRetryableError 的关键字，
