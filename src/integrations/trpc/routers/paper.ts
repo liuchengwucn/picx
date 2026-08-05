@@ -208,6 +208,7 @@ export const paperRouter = router({
 
         // 同一用户重复入库同一篇 arXiv（刷新页面、翻历史消息后又点了一次「加入」）
         // 直接返回已有那条：不扣积分、不建新行、不投队列。
+        // failed 不拦：重新提交同一 URL 是失败论文唯一的重试通路。
         // D1 无事务，「先查后扣」之间仍有并发窗口——客户端已按论文挡住同一处的
         // 连点，跨端同时点同一篇的概率极小，接受双建。
         if (input.sourceType === "arxiv" && arxivUrl) {
@@ -227,7 +228,7 @@ export const paperRouter = router({
             )
             .limit(1);
 
-          if (existing) {
+          if (existing && existing.status !== "failed") {
             return {
               paperId: existing.id,
               status: existing.status,
@@ -1020,14 +1021,30 @@ export const paperRouter = router({
       }
 
       const newIsListedInGallery = !paper.isListedInGallery;
-      const [updatedPaper] = await ctx.db
-        .update(papers)
-        .set({
-          isListedInGallery: newIsListedInGallery,
-          publishedAt: newIsListedInGallery ? new Date() : null,
-        })
-        .where(eq(papers.id, input.paperId))
-        .returning();
+      let updatedPaper: typeof papers.$inferSelect;
+      try {
+        const [row] = await ctx.db
+          .update(papers)
+          .set({
+            isListedInGallery: newIsListedInGallery,
+            publishedAt: newIsListedInGallery ? new Date() : null,
+          })
+          .where(eq(papers.id, input.paperId))
+          .returning();
+        updatedPaper = row;
+      } catch (error) {
+        // create 改为按 canonical 形式落 source_url 之后，用户自己导入的论文与
+        // arxiv-cron 收录的同一篇会完全同形，上架时才真正撞得到 partial unique
+        // index papers_gallery_source_url_unique。裸抛是 500，翻成 CONFLICT。
+        const message = error instanceof Error ? error.message : String(error);
+        if (/unique constraint failed/i.test(message)) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Another paper with this source URL is already in gallery",
+          });
+        }
+        throw error;
+      }
 
       // 上架画廊即首次对外可见, 通知 IndexNow 抓取。
       if (updatedPaper.isPublic && updatedPaper.isListedInGallery) {

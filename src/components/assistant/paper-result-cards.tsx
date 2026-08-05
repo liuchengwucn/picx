@@ -45,6 +45,8 @@ interface PaperResultCardProps {
   paper: DiscoveredPaper;
   isAdded: boolean;
   isPending: boolean;
+  /** 这一组里有卡正在导入（可能是别人）：点了不会生效，靠 title 说明原因 */
+  isGroupBusy: boolean;
   /** 已入库时可用的站内 shortId（工具快照里的，或本次刚导入拿回来的） */
   shortId?: string;
   dateFormatter: Intl.DateTimeFormat;
@@ -63,6 +65,7 @@ function PaperResultCard({
   paper,
   isAdded,
   isPending,
+  isGroupBusy,
   shortId,
   dateFormatter,
   locale,
@@ -141,6 +144,8 @@ function PaperResultCard({
               onClick={onAdd}
               disabled={isPending}
               aria-busy={isPending || undefined}
+              // 一次只导一篇：别的卡在导入时这里点了不会有反应，说明一句
+              title={isGroupBusy ? m.assistant_card_adding() : undefined}
             >
               {isPending ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -241,6 +246,7 @@ export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
           paper={paper}
           isAdded={paper.inLibrary === true || addedPapers.has(paper.url)}
           isPending={pendingUrl === paper.url}
+          isGroupBusy={pendingUrl !== null}
           shortId={
             paper.libraryShortId ?? addedPapers.get(paper.url) ?? undefined
           }
