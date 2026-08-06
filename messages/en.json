@@ -486,7 +486,7 @@
   "assistant_card_add": "Add to library",
   "assistant_card_adding": "Importing…",
   "assistant_card_added": "In library",
-  "assistant_card_add_failed": "Failed to add. Check your credits and try again.",
+  "assistant_card_add_failed": "Failed to add. Please try again.",
   "assistant_card_upvotes": "{count} upvotes",
   "assistant_card_view": "View",
   "assistant_profile": "Profile",

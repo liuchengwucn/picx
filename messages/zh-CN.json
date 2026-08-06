@@ -486,7 +486,7 @@
   "assistant_card_add": "加入论文库",
   "assistant_card_adding": "导入中…",
   "assistant_card_added": "已在库中",
-  "assistant_card_add_failed": "加入失败，请检查积分后重试。",
+  "assistant_card_add_failed": "加入失败，请重试。",
   "assistant_card_upvotes": "{count} 赞",
   "assistant_card_view": "查看",
   "assistant_profile": "个人档案",

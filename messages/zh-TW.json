@@ -486,7 +486,7 @@
   "assistant_card_add": "加入論文庫",
   "assistant_card_adding": "匯入中…",
   "assistant_card_added": "已在庫中",
-  "assistant_card_add_failed": "加入失敗，請檢查點數後重試。",
+  "assistant_card_add_failed": "加入失敗，請重試。",
   "assistant_card_upvotes": "{count} 讚",
   "assistant_card_view": "查看",
   "assistant_profile": "個人檔案",

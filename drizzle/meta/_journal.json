@@ -190,6 +190,13 @@
       "when": 1785920011523,
       "tag": "0026_wet_dark_phoenix",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1785979332151,
+      "tag": "0027_slimy_sheva_callister",
+      "breakpoints": true
     }
   ]
 }

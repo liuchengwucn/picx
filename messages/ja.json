@@ -486,7 +486,7 @@
   "assistant_card_add": "ライブラリに追加",
   "assistant_card_adding": "インポート中…",
   "assistant_card_added": "ライブラリに追加済み",
-  "assistant_card_add_failed": "追加に失敗しました。クレジットを確認して再試行してください。",
+  "assistant_card_add_failed": "追加に失敗しました。再試行してください。",
   "assistant_card_upvotes": "{count} いいね",
   "assistant_card_view": "見る",
   "assistant_profile": "プロフィール",
