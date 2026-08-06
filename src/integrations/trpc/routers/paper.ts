@@ -8,6 +8,7 @@ import {
   gte,
   inArray,
   isNull,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -24,6 +25,7 @@ import {
 } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { translateSummary } from "#/lib/ai";
+import { canonicalArxivUrl } from "#/lib/arxiv";
 import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { submitIndexNow } from "#/lib/indexnow";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
@@ -177,6 +179,17 @@ export const paperRouter = router({
       assertGuestWriteAllowed(ctx.session);
       let paper: typeof papers.$inferSelect;
 
+      /**
+       * arXiv 分支一律按 canonical 形式（https://arxiv.org/abs/{id}）落库。
+       * http/https、abs/pdf、版本号 vN 的差异会把同一篇论文写成两条不同的
+       * source_url（见 lib/arxiv.ts 顶部约定），既让下面的去重失效，也让助手
+       * 卡片的 inLibrary 判定出现假阴性。
+       */
+      const arxivUrl =
+        input.sourceType === "arxiv" && input.arxivUrl
+          ? canonicalArxivUrl(input.arxivUrl)
+          : input.arxivUrl;
+
       // D1 不支持事务，所以直接执行操作
       // 注意：这不是原子的，但 D1 的限制
       try {
@@ -192,6 +205,40 @@ export const paperRouter = router({
             code: "FORBIDDEN",
             message: "Invalid r2Key",
           });
+        }
+
+        // 同一用户重复入库同一篇 arXiv（刷新页面、翻历史消息后又点了一次「加入」）
+        // 直接返回已有那条：不扣积分、不建新行、不投队列。
+        // failed 不拦：重新提交同一 URL 是失败论文唯一的重试通路。
+        // D1 无事务，「先查后扣」之间仍有并发窗口——客户端已按论文挡住同一处的
+        // 连点，跨端同时点同一篇的概率极小，接受双建。
+        if (input.sourceType === "arxiv" && arxivUrl) {
+          const [existing] = await ctx.db
+            .select({
+              id: papers.id,
+              status: papers.status,
+              shortId: papers.shortId,
+            })
+            .from(papers)
+            .where(
+              and(
+                eq(papers.userId, userId),
+                eq(papers.sourceUrl, arxivUrl),
+                isNull(papers.deletedAt),
+                // 有非 failed 副本就命中它；全都 failed 才落到重试路径
+                ne(papers.status, "failed"),
+              ),
+            )
+            .limit(1);
+
+          if (existing) {
+            return {
+              paperId: existing.id,
+              status: existing.status,
+              shortId: existing.shortId,
+              alreadyExists: true,
+            };
+          }
         }
 
         if (input.apiConfigId) {
@@ -262,7 +309,7 @@ export const paperRouter = router({
             userId: userId,
             title: input.filename,
             sourceType: input.sourceType,
-            sourceUrl: input.arxivUrl,
+            sourceUrl: arxivUrl,
             pdfR2Key: input.r2Key,
             fileSize: input.fileSize,
             status: "pending",
@@ -315,7 +362,8 @@ export const paperRouter = router({
           paperId: paper.id,
           userId: ctx.session.user.id,
           sourceType: input.sourceType,
-          arxivUrl: input.arxivUrl,
+          // 与落库的 source_url 同一个值；consumer 认 abs 形式（arxiv-cron 一直这么投）
+          arxivUrl,
           r2Key: input.r2Key,
           language: queueLanguage,
           whiteboardLanguage: queueWhiteboardLanguage,
@@ -357,7 +405,12 @@ export const paperRouter = router({
         });
       }
 
-      return { paperId: paper.id, status: paper.status };
+      return {
+        paperId: paper.id,
+        status: paper.status,
+        shortId: paper.shortId,
+        alreadyExists: false,
+      };
     }),
 
   /**
@@ -971,14 +1024,34 @@ export const paperRouter = router({
       }
 
       const newIsListedInGallery = !paper.isListedInGallery;
-      const [updatedPaper] = await ctx.db
-        .update(papers)
-        .set({
-          isListedInGallery: newIsListedInGallery,
-          publishedAt: newIsListedInGallery ? new Date() : null,
-        })
-        .where(eq(papers.id, input.paperId))
-        .returning();
+      let updatedPaper: typeof papers.$inferSelect;
+      try {
+        const [row] = await ctx.db
+          .update(papers)
+          .set({
+            isListedInGallery: newIsListedInGallery,
+            publishedAt: newIsListedInGallery ? new Date() : null,
+          })
+          .where(eq(papers.id, input.paperId))
+          .returning();
+        updatedPaper = row;
+      } catch (error) {
+        // create 改为按 canonical 形式落 source_url 之后，用户自己导入的论文与
+        // arxiv-cron 收录的同一篇会完全同形，上架时才真正撞得到 partial unique
+        // index papers_gallery_source_url_unique。裸抛是 500，翻成 CONFLICT。
+        // drizzle 把真实的 SQLite 报错裹进 DrizzleQueryError.cause，沿链取全文
+        const texts: string[] = [];
+        for (let e: unknown = error; e instanceof Error; e = e.cause) {
+          texts.push(e.message);
+        }
+        if (/unique constraint failed/i.test(texts.join(" "))) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Another paper with this source URL is already in gallery",
+          });
+        }
+        throw error;
+      }
 
       // 上架画廊即首次对外可见, 通知 IndexNow 抓取。
       if (updatedPaper.isPublic && updatedPaper.isListedInGallery) {

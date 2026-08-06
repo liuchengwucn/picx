@@ -1,5 +1,6 @@
 import { createTRPCRouter } from "./init";
 import { apiConfigRouter } from "./routers/api-config";
+import { assistantRouter } from "./routers/assistant";
 import { chatRouter } from "./routers/chat";
 import { newsRouter } from "./routers/news";
 import { paperRouter } from "./routers/paper";
@@ -15,5 +16,6 @@ export const trpcRouter = createTRPCRouter({
   reader: readerRouter,
   chat: chatRouter,
   news: newsRouter,
+  assistant: assistantRouter,
 });
 export type TRPCRouter = typeof trpcRouter;
