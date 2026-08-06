@@ -1,16 +1,14 @@
 import { useChat } from "@ai-sdk/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import type { UIMessage } from "ai";
 import {
   BookOpen,
-  Brain,
   Check,
   ChevronDown,
   Globe,
   Loader2,
   MessageSquareQuote,
   Plus,
-  SendHorizontal,
   Trash2,
   X,
 } from "lucide-react";
@@ -24,11 +22,16 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
+import { ChatInputArea } from "#/components/chat/chat-input";
 import {
   ChatMessage,
+  ChatThinking,
   resolveChatErrorMessage,
   type ToolDisplayMap,
 } from "#/components/chat/chat-message";
+import { createTextOnlyChatTransport } from "#/components/chat/chat-transport";
+import { useChatSettings } from "#/components/chat/use-chat-settings";
+import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -37,43 +40,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "#/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu";
 import { useTRPC } from "#/integrations/trpc/react";
-// 仅类型导入：chat.ts 是服务端模块（drizzle/R2 一大串），值导入会被打进客户端包
-import type { ChatReasoningEffort } from "#/lib/chat";
-import { CHAT_CLIENT_LIMITS } from "#/lib/chat-errors";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
-import { getLocale } from "#/paraglide/runtime";
-
-/** 与服务端 CHAT_LIMITS.maxInputChars 同源（/api/chat 超出直接 413） */
-const MAX_INPUT_CHARS = CHAT_CLIENT_LIMITS.maxInputChars;
-/** 只在接近上限时才露出计数器，平时不干扰书写 */
-const COUNTER_VISIBLE_FROM = Math.floor(MAX_INPUT_CHARS * 0.9);
-/** 只有贴近底部时才自动跟随流式输出，用户上滚回看时不把他拽回去 */
-const STICK_TO_BOTTOM_PX = 80;
-
-/**
- * 输入区工具栏微开关的视觉语言（两个开关必须一致）。
- * 开启态做成「按下的实体按钮」：浅棕底 + 细边框 + 内凹阴影，一眼可辨；
- * 关闭态无底色、明显灰化，hover 时浮出细边框提示可点。
- */
-const TOGGLE_BASE_CLASS =
-  "flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] tracking-[0.14em] uppercase transition-colors focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none";
-const TOGGLE_ON_CLASS =
-  "border-[var(--academic-brown)]/40 bg-[var(--academic-brown)]/10 text-[var(--academic-brown)] shadow-[inset_0_1px_3px_rgba(87,61,38,0.22)] hover:bg-[var(--academic-brown)]/15";
-const TOGGLE_OFF_CLASS =
-  "border-transparent text-[var(--ink-soft)]/50 hover:border-[var(--line)] hover:text-[var(--ink-soft)]";
-
-/** 聊天设置存 localStorage 跨会话记住（读写都要过 typeof window 守卫，SSR 无 window） */
-const WEB_SEARCH_STORAGE_KEY = "picx.chat.webSearch";
-const REASONING_STORAGE_KEY = "picx.chat.reasoningEffort";
 
 /** 聊天栏宽度（xl 三栏形态的第三列）。页面组件负责持久化与写 CSS 变量 */
 export const CHAT_PANEL_WIDTH_STORAGE_KEY = "picx.chat.panelWidth";
@@ -88,57 +57,6 @@ export function clampChatPanelWidth(width: number): number {
     CHAT_PANEL_WIDTH.max,
     Math.max(CHAT_PANEL_WIDTH.min, Math.round(width)),
   );
-}
-const REASONING_EFFORTS: readonly ChatReasoningEffort[] = [
-  "off",
-  "low",
-  "medium",
-  "high",
-];
-
-/** 默认开：搜索是 agentic 的（模型自主决定调不调），常开的成本可控 */
-function loadStoredWebSearch(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    return window.localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== "0";
-  } catch {
-    // Chrome「阻止所有 cookie」下访问 localStorage 本身就抛 SecurityError
-    return true;
-  }
-}
-
-/** 默认关：多数提问不值得为思考 token 买单 */
-function loadStoredReasoningEffort(): ChatReasoningEffort {
-  if (typeof window === "undefined") return "off";
-  try {
-    const raw = window.localStorage.getItem(REASONING_STORAGE_KEY);
-    const known = REASONING_EFFORTS.find((effort) => effort === raw);
-    return known ?? "off";
-  } catch {
-    // 同 loadStoredWebSearch：读不了就用默认值
-    return "off";
-  }
-}
-
-function persistSetting(key: string, value: string) {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // 隐私模式等场景写不进就算了，设置退化为仅当前页面生效
-  }
-}
-
-function reasoningEffortLabel(effort: ChatReasoningEffort): string {
-  switch (effort) {
-    case "off":
-      return m.chat_reasoning_off();
-    case "low":
-      return m.chat_reasoning_low();
-    case "medium":
-      return m.chat_reasoning_medium();
-    case "high":
-      return m.chat_reasoning_high();
-  }
 }
 
 /** paper 聊天的工具展示（行为与原硬编码一致） */
@@ -186,45 +104,19 @@ function PaperChatConversation({
   const [isSessionListOpen, setIsSessionListOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
-  // 聊天设置（lazy init 只在挂载时读一次 localStorage）
-  const [webSearchEnabled, setWebSearchEnabled] =
-    useState<boolean>(loadStoredWebSearch);
-  const [reasoningEffort, setReasoningEffort] = useState<ChatReasoningEffort>(
-    loadStoredReasoningEffort,
-  );
-  // transport 是 useMemo 一次性建好的（useChat 也不会因 props 变化换 transport），
-  // prepareSendMessagesRequest 里必须经 ref 拿最新设置；每次渲染同步一份是幂等写
-  const chatSettingsRef = useRef({
-    webSearch: webSearchEnabled,
+  const {
+    webSearchEnabled,
     reasoningEffort,
-  });
-  chatSettingsRef.current = { webSearch: webSearchEnabled, reasoningEffort };
-
-  const toggleWebSearch = () => {
-    const next = !webSearchEnabled;
-    setWebSearchEnabled(next);
-    persistSetting(WEB_SEARCH_STORAGE_KEY, next ? "1" : "0");
-  };
-
-  const changeReasoningEffort = (value: string) => {
-    const next = REASONING_EFFORTS.find((effort) => effort === value) ?? "off";
-    setReasoningEffort(next);
-    persistSetting(REASONING_STORAGE_KEY, next);
-  };
+    settingsRef: chatSettingsRef,
+    toggleWebSearch,
+    changeReasoningEffort,
+  } = useChatSettings("chat");
 
   const hydratedSessionRef = useRef<string | null>(null);
   const didAutoSelectRef = useRef(false);
   // 流开始那一刻的 sessionId。onFinish 只认它，不认「当前选中」——流式期间用户
   // 可能已经切走，用当前值会去失效一个毫不相干的会话缓存。
   const streamingSessionIdRef = useRef<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  /**
-   * 是否跟随最新内容。只由 scroll 事件写入——scroll 事件只在滚动位置真的变化时
-   * 触发，所以它读到的是「用户主动滚到哪」；而在 effect 里现算距底距离是分不清
-   * 「用户上滚了」和「内容刚变高」的：注水整段历史后 scrollTop 还是 0、距底巨大，
-   * 会被误判成用户上滚，结果会话一打开就停在最旧的一条。
-   */
-  const stickToBottomRef = useRef(true);
 
   const sessionsQuery = useQuery(
     trpc.chat.listSessions.queryOptions({ paperShortId }),
@@ -248,30 +140,12 @@ function PaperChatConversation({
 
   const transport = useMemo(
     () =>
-      new DefaultChatTransport<UIMessage>({
+      createTextOnlyChatTransport({
         api: "/api/chat",
-        // 服务端只收最后一条消息（历史真源在 D1），且 parts 仅放行 text
-        prepareSendMessagesRequest: ({ messages, body }) => {
-          const last = messages[messages.length - 1];
-          return {
-            body: {
-              ...body,
-              paperShortId,
-              locale: getLocale(),
-              webSearch: chatSettingsRef.current.webSearch,
-              reasoningEffort: chatSettingsRef.current.reasoningEffort,
-              message: {
-                id: last?.id,
-                role: "user",
-                parts: (last?.parts ?? [])
-                  .filter((part) => part.type === "text")
-                  .map((part) => ({ type: "text" as const, text: part.text })),
-              },
-            },
-          };
-        },
+        settingsRef: chatSettingsRef,
+        extraBody: () => ({ paperShortId }),
       }),
-    [paperShortId],
+    [paperShortId, chatSettingsRef],
   );
 
   const invalidateSessions = useCallback(() => {
@@ -336,19 +210,7 @@ function PaperChatConversation({
   // 流式每来一个 chunk，最后一条消息都是新对象 → 依赖它即可持续贴底。
   // 但只在用户本来就贴着底时跟随：他上滚回看前文时把视口拽回去是最烦人的交互。
   const lastMessage = messages[messages.length - 1];
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (!node || !lastMessage) return;
-    if (!stickToBottomRef.current) return;
-    node.scrollTop = node.scrollHeight;
-  }, [lastMessage]);
-
-  const handleTranscriptScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    const node = event.currentTarget;
-    stickToBottomRef.current =
-      node.scrollHeight - node.scrollTop - node.clientHeight <=
-      STICK_TO_BOTTOM_PX;
-  };
+  const { scrollRef, handleScroll, resetStick } = useStickToBottom(lastMessage);
 
   const openSession = (sessionId: string | null) => {
     // 先把「被打断的那个会话」抠出来再 stop()：abort 不会触发 onFinish，但服务端
@@ -360,7 +222,7 @@ function PaperChatConversation({
     hydratedSessionRef.current = null;
     didAutoSelectRef.current = true;
     // 换了会话就该看最新的一条，别继承上一个会话「用户上滚过」的状态
-    stickToBottomRef.current = true;
+    resetStick();
     setSelectedSessionId(sessionId);
     setChatEpoch((epoch) => epoch + 1);
     setIsSessionListOpen(false);
@@ -424,7 +286,7 @@ function PaperChatConversation({
     streamingSessionIdRef.current = sessionId;
     // 主动发言就是「我要看新内容」：哪怕刚才上滚在读前文，也弹回底部跟自己的
     // 消息和随后的回答
-    stickToBottomRef.current = true;
+    resetStick();
     onInputChange("");
     void sendMessage({ text }, { body: { sessionId } });
   };
@@ -560,7 +422,7 @@ function PaperChatConversation({
       {/* 对话区。role=log + polite：新回答播报给读屏，但不打断当前朗读 */}
       <div
         ref={scrollRef}
-        onScroll={handleTranscriptScroll}
+        onScroll={handleScroll}
         role="log"
         aria-live="polite"
         aria-label={m.chat_title()}
@@ -584,12 +446,7 @@ function PaperChatConversation({
             />
           ))
         )}
-        {showThinking && (
-          <p className="flex items-center gap-2 border-l-2 border-[var(--academic-brown)]/35 pl-3 text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {m.chat_thinking()}
-          </p>
-        )}
+        {showThinking && <ChatThinking />}
       </div>
 
       {/* 输入区。textarea 自身无边框（静息态就该像纸面而不是控件），焦点指示放在
@@ -598,104 +455,20 @@ function PaperChatConversation({
           裁得只剩上边一条。这里用「描边显形 + 底色微亮」而不是 ring，既不会被裁，
           也保住了静息态的无边框观感。 */}
       <div className="border-t border-[var(--line)] p-2">
-        <div className="flex items-end gap-2 rounded-lg border border-transparent px-2 py-1.5 transition-colors focus-within:border-[var(--academic-brown)]/60 focus-within:bg-[var(--parchment-warm)]/60">
-          <textarea
-            value={input}
-            onChange={(event) => onInputChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.shiftKey) return;
-              // 中文/日文输入法选字时的 Enter 属于组合过程，不能当成发送
-              if (event.nativeEvent.isComposing) return;
-              event.preventDefault();
-              void handleSend();
-            }}
-            maxLength={MAX_INPUT_CHARS}
-            rows={2}
-            placeholder={m.chat_placeholder()}
-            aria-label={m.chat_placeholder()}
-            className="max-h-40 min-h-10 flex-1 resize-none bg-transparent text-sm leading-relaxed text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]"
-          />
-          {isBusy ? (
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => void stop()}
-              aria-label={m.chat_stop()}
-              title={m.chat_stop()}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button
-              size="icon-sm"
-              onClick={() => void handleSend()}
-              disabled={
-                !input.trim() || isHydrating || createSessionMutation.isPending
-              }
-              aria-label={m.chat_send()}
-              title={m.chat_send()}
-            >
-              {createSessionMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <SendHorizontal className="h-4 w-4" />
-              )}
-            </Button>
-          )}
-        </div>
-        {/* 设置行：与 ToolTrace 同一套 11px 大写微标签语汇。搜索是 agentic 的：
-            开着也只是允许模型在需要时搜，不是每条都搜 */}
-        <div className="mt-1 flex items-center gap-1.5 px-2 pb-0.5">
-          <button
-            type="button"
-            onClick={toggleWebSearch}
-            aria-pressed={webSearchEnabled}
-            title={m.chat_web_search_hint()}
-            className={cn(
-              TOGGLE_BASE_CLASS,
-              webSearchEnabled ? TOGGLE_ON_CLASS : TOGGLE_OFF_CLASS,
-            )}
-          >
-            <Globe className="h-3.5 w-3.5 shrink-0" />
-            {m.chat_web_search()}
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={m.chat_reasoning_label()}
-                title={m.chat_reasoning_label()}
-                className={cn(
-                  TOGGLE_BASE_CLASS,
-                  // 非「关」档就是激活态，且按钮上直接写当前档位名
-                  reasoningEffort !== "off"
-                    ? TOGGLE_ON_CLASS
-                    : TOGGLE_OFF_CLASS,
-                )}
-              >
-                <Brain className="h-3.5 w-3.5 shrink-0" />
-                {reasoningEffortLabel(reasoningEffort)}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top">
-              <DropdownMenuRadioGroup
-                value={reasoningEffort}
-                onValueChange={changeReasoningEffort}
-              >
-                {REASONING_EFFORTS.map((effort) => (
-                  <DropdownMenuRadioItem key={effort} value={effort}>
-                    {reasoningEffortLabel(effort)}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {input.length >= COUNTER_VISIBLE_FROM && (
-            <p className="ml-auto text-[11px] tabular-nums text-[var(--ink-soft)]">
-              {input.length} / {MAX_INPUT_CHARS}
-            </p>
-          )}
-        </div>
+        <ChatInputArea
+          input={input}
+          onInputChange={onInputChange}
+          onSend={() => void handleSend()}
+          onStop={() => void stop()}
+          isBusy={isBusy}
+          sendDisabled={isHydrating || createSessionMutation.isPending}
+          sendPending={createSessionMutation.isPending}
+          placeholder={m.chat_placeholder()}
+          webSearchEnabled={webSearchEnabled}
+          onToggleWebSearch={toggleWebSearch}
+          reasoningEffort={reasoningEffort}
+          onReasoningEffortChange={changeReasoningEffort}
+        />
       </div>
     </div>
   );
