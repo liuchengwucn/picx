@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { FileText, Loader2 } from "lucide-react";
+import { FileText, List, Loader2 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   createRelativeImageUrlTransform,
@@ -7,9 +7,12 @@ import {
 } from "#/components/markdown-reader/markdown-article";
 import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
 import { useToc } from "#/components/markdown-reader/reader-toc";
+import { ReaderTocDrawer } from "#/components/markdown-reader/reader-toc-drawer";
 import { useReaderSettings } from "#/components/markdown-reader/use-reader-settings";
 import { PaperStateCard } from "#/components/papers/paper-state-card";
+import { TOOL_BTN } from "#/components/reader/reader-ui";
 import { useTRPC } from "#/integrations/trpc/react";
+import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
 /**
@@ -97,6 +100,7 @@ export function PaperReaderView({ reader }: { reader: PaperReaderState }) {
       markdown={data.markdown}
       imageBase={data.imageBase}
       setArticleRef={reader.setArticleRef}
+      toc={reader.toc}
     />
   );
 }
@@ -105,10 +109,12 @@ function ReaderArticle({
   markdown,
   imageBase,
   setArticleRef,
+  toc,
 }: {
   markdown: string;
   imageBase: string;
   setArticleRef: (node: HTMLElement | null) => void;
+  toc: PaperReaderState["toc"];
 }) {
   const { settings, update, reset } = useReaderSettings();
   // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
@@ -116,6 +122,10 @@ function ReaderArticle({
     () => createRelativeImageUrlTransform(imageBase),
     [imageBase],
   );
+  // 窄屏（<lg）目录卡在左栏隐藏（见 ReaderAsidePanel），改用这个抽屉；状态放在这里
+  // 而不是页面层：tab 切走时这整棵组件树连同这个 state 一起卸载，不会留下悬挂的
+  // 「抽屉曾经开着」状态。
+  const [tocDrawerOpen, setTocDrawerOpen] = useState(false);
 
   return (
     <div className="paper-card p-4 sm:p-6">
@@ -123,14 +133,27 @@ function ReaderArticle({
         <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
           {m.paper_view_reader()}
         </h2>
-        <ReaderSettingsMenu
-          settings={settings}
-          onChange={update}
-          onReset={reset}
-        />
+        <div className="flex items-center gap-2">
+          {toc.items.length > 0 && (
+            <button
+              type="button"
+              className={cn(TOOL_BTN, "lg:hidden")}
+              onClick={() => setTocDrawerOpen(true)}
+              aria-label={m.reader_toc()}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          )}
+          <ReaderSettingsMenu
+            settings={settings}
+            onChange={update}
+            onReset={reset}
+          />
+        </div>
       </div>
 
-      {/* TOC 已提到页面级左栏（见 usePaperReader），正文独占卡片全宽。 */}
+      {/* TOC 已提到页面级左栏（见 ReaderAsidePanel），正文独占卡片全宽；
+          <lg 时左栏目录卡隐藏，改走上面的按钮打开抽屉（见下方 ReaderTocDrawer）。 */}
       <div className="mt-4 min-w-0">
         <MarkdownArticle
           markdown={markdown}
@@ -139,6 +162,14 @@ function ReaderArticle({
           urlTransform={urlTransform}
         />
       </div>
+
+      <ReaderTocDrawer
+        open={tocDrawerOpen}
+        onOpenChange={setTocDrawerOpen}
+        items={toc.items}
+        activeId={toc.activeId}
+        onJump={toc.jumpTo}
+      />
     </div>
   );
 }

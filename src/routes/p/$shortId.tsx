@@ -1424,8 +1424,12 @@ function ReaderAsidePanel({
         </div>
       </div>
 
+      {/* <lg 时正文单栏堆叠，这张常驻目录卡会把正文推得很远——隐藏，改走
+          ReaderArticle 头部的目录按钮开抽屉（见 reader-toc-drawer.tsx）。
+          paper-card-static 去掉悬浮位移：这是常驻导航卡，不是可点击跳转的入口卡片，
+          hover 上浮是噪音（见 styles.css）。 */}
       {tocItems.length > 0 && (
-        <div className="paper-card flex min-h-0 flex-col p-4">
+        <div className="paper-card paper-card-static hidden min-h-0 flex-col p-4 lg:flex">
           <span className="shrink-0 text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[var(--ink-soft)]">
             {m.reader_toc()}
           </span>

@@ -202,6 +202,15 @@ a:hover { color: var(--academic-brown-deep); }
   transform: translateY(-4px);
   box-shadow: 0 8px 32px rgba(45,42,36,0.12);
 }
+/* 常驻导航卡（如论文阅读左栏目录卡）不是可点击跳转的入口，hover 上浮是噪音。
+   .paper-card 是无 layer 裸类，Tailwind 工具类都在 @layer utilities 里——按 CSS
+   Cascade Layers 规则，无 layer 的声明无条件盖过任意 layer 内的声明，所以只能在这里
+   用同样无 layer 的普通 CSS 覆盖（多一个类名提高特异度即可），hover:transform-none
+   之类的 utility 类压不住 .paper-card:hover。 */
+.paper-card.paper-card-static:hover {
+  transform: none;
+  box-shadow: 0 2px 16px rgba(45,42,36,0.08);
+}
 
 /* 导航链接 */
 .nav-link { position: relative; text-decoration: none; color: var(--ink-soft); }
