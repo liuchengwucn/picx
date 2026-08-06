@@ -436,3 +436,13 @@ export const ChatMessage = memo(function ChatMessage({
     </div>
   );
 });
+
+/** 「已提交、流还没回来」的等待指示条，两个聊天面板共用 */
+export function ChatThinking() {
+  return (
+    <p className="flex items-center gap-2 border-l-2 border-[var(--academic-brown)]/35 pl-3 text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      {m.chat_thinking()}
+    </p>
+  );
+}
