@@ -19,7 +19,7 @@ export interface ReaderSettings {
 export const READER_DEFAULTS: ReaderSettings = {
   font: "serif",
   fontSize: 19,
-  measure: 80,
+  measure: 92,
   lineHeight: 1.8,
   textAlign: "justify",
 };

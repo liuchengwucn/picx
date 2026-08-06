@@ -1,31 +1,62 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileText, Loader2 } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   createRelativeImageUrlTransform,
   MarkdownArticle,
 } from "#/components/markdown-reader/markdown-article";
 import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
-import { TocList, useToc } from "#/components/markdown-reader/reader-toc";
+import { useToc } from "#/components/markdown-reader/reader-toc";
 import { useReaderSettings } from "#/components/markdown-reader/use-reader-settings";
 import { PaperStateCard } from "#/components/papers/paper-state-card";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 
 /**
- * 论文详情页的「原文阅读」视图：渲染 MinerU 解析出的全文 Markdown。
+ * 页面级 hook：把「原文阅读」的 getContent 查询与 TOC 提升到详情页，好让目录能渲染在
+ * 页面左栏而不是挤在中栏卡片内部。
  *
- * 与 /reader 共用组件与 localStorage 偏好，但不带 /reader 的整页壳（顶栏 / 新文档 /
- * 阅读进度条）——它嵌在详情页的内容列里。调用方负责确认已登录（getContent 是
- * protectedProcedure，未登录会直接 401）。
+ * `enabled` 由调用方传入，必须与 ReaderPane 决定渲染 <PaperReaderView> 的条件完全一致
+ * （原文视图激活 + isReaderAvailable + 已登录）——否则未登录/pending 时会打一个注定
+ * 401 的请求。tanstack-query 按 queryKey 去重，多处引用同一 paperId 不会重复发请求。
  */
-export function PaperReaderView({ paperId }: { paperId: string }) {
+export function usePaperReader(paperId: string, enabled: boolean) {
   const trpc = useTRPC();
-  const { data, isPending, isError } = useQuery({
+  const query = useQuery({
     ...trpc.paper.getContent.queryOptions({ paperId }),
     // 原文内容不可变（解析产物写死在 R2），取过一次就不必再取
     staleTime: Number.POSITIVE_INFINITY,
+    enabled,
   });
+
+  // articleRef 建在页面层，但持有它的 <article> 会随 tab 切换整体卸载/重挂。用挂载
+  // 计数拼进 useToc 的 contentKey：markdown 没变时 effect 本不会重跑，但节点已经换了，
+  // 必须逼它在每次重新挂载后都重新扫描 DOM，否则 TOC 会拿着失效节点、scrollspy 失灵。
+  const articleRef = useRef<HTMLElement | null>(null);
+  const [mountTick, setMountTick] = useState(0);
+  const setArticleRef = useCallback((node: HTMLElement | null) => {
+    articleRef.current = node;
+    if (node) {
+      setMountTick((tick) => tick + 1);
+    }
+  }, []);
+
+  const markdown = query.data?.available ? query.data.markdown : "";
+  const toc = useToc(articleRef, `${markdown}::${mountTick}`);
+
+  return { query, setArticleRef, toc };
+}
+
+export type PaperReaderState = ReturnType<typeof usePaperReader>;
+
+/**
+ * 论文详情页的「原文阅读」视图：渲染 MinerU 解析出的全文 Markdown。
+ *
+ * 受控组件：查询状态与 articleRef 由 usePaperReader（页面层）提供，这里只负责三态
+ * UI（加载 / 出错 / 内容不可用）与正文渲染。登录墙仍在调用方（ReaderPane）处理。
+ */
+export function PaperReaderView({ reader }: { reader: PaperReaderState }) {
+  const { data, isPending, isError } = reader.query;
 
   if (isPending) {
     return (
@@ -50,24 +81,30 @@ export function PaperReaderView({ paperId }: { paperId: string }) {
     );
   }
 
-  return <ReaderArticle markdown={data.markdown} imageBase={data.imageBase} />;
+  return (
+    <ReaderArticle
+      markdown={data.markdown}
+      imageBase={data.imageBase}
+      setArticleRef={reader.setArticleRef}
+    />
+  );
 }
 
 function ReaderArticle({
   markdown,
   imageBase,
+  setArticleRef,
 }: {
   markdown: string;
   imageBase: string;
+  setArticleRef: (node: HTMLElement | null) => void;
 }) {
-  const articleRef = useRef<HTMLElement>(null);
   const { settings, update, reset } = useReaderSettings();
   // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
   const urlTransform = useMemo(
     () => createRelativeImageUrlTransform(imageBase),
     [imageBase],
   );
-  const { items, activeId, jumpTo } = useToc(articleRef, markdown);
 
   return (
     <div className="paper-card p-4 sm:p-6">
@@ -82,34 +119,14 @@ function ReaderArticle({
         />
       </div>
 
-      {/* 目录只在超宽视口出栏：详情页本身已占掉左侧信息栏（300–360px）和 xl 的聊天栏，
-          再切一列目录会把正文压到不可读的宽度。窄屏走单栏，偏好仍照常生效。 */}
-      <div
-        className={
-          items.length > 0
-            ? "mt-4 min-[1440px]:grid min-[1440px]:grid-cols-[14rem_minmax(0,1fr)] min-[1440px]:items-start min-[1440px]:gap-8"
-            : "mt-4"
-        }
-      >
-        {items.length > 0 ? (
-          <aside className="hidden min-[1440px]:sticky min-[1440px]:top-24 min-[1440px]:block">
-            <span className="text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[var(--ink-soft)]">
-              {m.reader_toc()}
-            </span>
-            <div className="mt-3 max-h-[calc(100vh-12rem)] overflow-y-auto pr-2">
-              <TocList items={items} activeId={activeId} onJump={jumpTo} />
-            </div>
-          </aside>
-        ) : null}
-
-        <div className="min-w-0">
-          <MarkdownArticle
-            markdown={markdown}
-            settings={settings}
-            articleRef={articleRef}
-            urlTransform={urlTransform}
-          />
-        </div>
+      {/* TOC 已提到页面级左栏（见 usePaperReader），正文独占卡片全宽。 */}
+      <div className="mt-4 min-w-0">
+        <MarkdownArticle
+          markdown={markdown}
+          settings={settings}
+          articleRef={setArticleRef}
+          urlTransform={urlTransform}
+        />
       </div>
     </div>
   );
