@@ -258,8 +258,7 @@ export function AssistantChat({
         )}
       </div>
 
-      {/* 输入区。textarea 静息态无边框（像纸面而不是控件），焦点指示做在包裹层的
-          描边与底色上（理由同 paper-chat.tsx 的输入区注释） */}
+      {/* 输入区。焦点指示的设计理由见 ChatInputArea（chat-input.tsx）的组件注释 */}
       <div className="border-t border-[var(--line)] px-4 pt-2 pb-3 sm:px-6">
         <div className="mx-auto w-full max-w-3xl">
           <ChatInputArea

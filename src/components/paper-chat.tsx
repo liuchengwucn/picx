@@ -107,7 +107,7 @@ function PaperChatConversation({
   const {
     webSearchEnabled,
     reasoningEffort,
-    settingsRef: chatSettingsRef,
+    settingsRef,
     toggleWebSearch,
     changeReasoningEffort,
   } = useChatSettings("chat");
@@ -142,10 +142,10 @@ function PaperChatConversation({
     () =>
       createTextOnlyChatTransport({
         api: "/api/chat",
-        settingsRef: chatSettingsRef,
+        settingsRef,
         extraBody: () => ({ paperShortId }),
       }),
-    [paperShortId, chatSettingsRef],
+    [paperShortId, settingsRef],
   );
 
   const invalidateSessions = useCallback(() => {
@@ -449,11 +449,7 @@ function PaperChatConversation({
         {showThinking && <ChatThinking />}
       </div>
 
-      {/* 输入区。textarea 自身无边框（静息态就该像纸面而不是控件），焦点指示放在
-          内层这个有圆角、且被 p-2 从容器边缘让开的 wrapper 上：外层贴边，而
-          paper-card / DialogContent 都是 overflow-hidden，挂在那儿的 ring 会被
-          裁得只剩上边一条。这里用「描边显形 + 底色微亮」而不是 ring，既不会被裁，
-          也保住了静息态的无边框观感。 */}
+      {/* 输入区。焦点指示的设计理由见 ChatInputArea（chat-input.tsx）的组件注释 */}
       <div className="border-t border-[var(--line)] p-2">
         <ChatInputArea
           input={input}
