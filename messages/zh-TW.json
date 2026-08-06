@@ -384,6 +384,7 @@
   "reader_toc": "目錄",
   "reader_toc_hide": "收起目錄",
   "reader_toc_show": "目錄",
+  "reader_toc_close": "關閉目錄",
   "reader_analyzing_title": "正在掃描 PDF…",
   "reader_analyzing_hint": "正在尋找參考文獻/附錄，以便上傳前裁剪。",
   "reader_trim_title": "上傳前裁掉附錄",

@@ -157,7 +157,7 @@ export function ReaderView({
         <div className="fixed inset-0 z-[60] lg:hidden">
           <button
             type="button"
-            aria-label="Close contents"
+            aria-label={m.reader_toc_close()}
             className="absolute inset-0 bg-[rgba(20,18,15,0.42)] backdrop-blur-[2px] animate-in fade-in duration-200"
             onClick={() => setTocOpen(false)}
           />
@@ -170,7 +170,7 @@ export function ReaderView({
                 type="button"
                 className={TOOL_BTN}
                 onClick={() => setTocOpen(false)}
-                aria-label="Close"
+                aria-label={m.reader_toc_close()}
               >
                 <X className="h-4 w-4" />
               </button>

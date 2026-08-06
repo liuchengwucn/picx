@@ -1,5 +1,5 @@
 import "katex/dist/katex.min.css";
-import type { CSSProperties, RefObject } from "react";
+import type { CSSProperties, Ref } from "react";
 import { memo, useCallback, useState } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -114,7 +114,12 @@ const REHYPE_PLUGINS: PluggableList = [
 interface MarkdownArticleProps {
   markdown: string;
   settings: ReaderSettings;
-  articleRef: RefObject<HTMLElement | null>;
+  /**
+   * 可以是普通 RefObject，也可以是回调 ref（如 papers 详情页用回调探测 <article>
+   * 重新挂载，好在 tab 切走再切回时逼 TOC 重新扫描 DOM）。两者都能直接喂给 JSX 的
+   * ref 属性。
+   */
+  articleRef: Ref<HTMLElement | null>;
   /**
    * 自定义 URL 变换；缺省为 reader 的 data:image 放行逻辑。
    * 注意：此值透传给 RenderedMarkdown 的 memo props——调用方必须传稳定引用
