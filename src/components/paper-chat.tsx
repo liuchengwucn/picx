@@ -9,6 +9,7 @@ import {
   Globe,
   Loader2,
   MessageSquareQuote,
+  PanelRightClose,
   Plus,
   SendHorizontal,
   Trash2,
@@ -77,6 +78,8 @@ const REASONING_STORAGE_KEY = "picx.chat.reasoningEffort";
 
 /** 聊天栏宽度（xl 三栏形态的第三列）。页面组件负责持久化与写 CSS 变量 */
 export const CHAT_PANEL_WIDTH_STORAGE_KEY = "picx.chat.panelWidth";
+/** 宽屏侧栏是否收起成右下角 FAB。页面组件负责持久化，读写模式照抄上面这个 key */
+export const CHAT_COLLAPSED_STORAGE_KEY = "picx.chat.collapsed";
 /**
  * 可拖范围。上限按 1520px 容器倒推：1520 − 300(左栏) − 48(两道 gap) − 560
  * 仍给正文留 ~612px，再宽就把正文挤垮了。
@@ -162,6 +165,8 @@ interface ConversationProps {
   paperShortId: string;
   /** 浮层形态下由面板自己渲染关闭按钮，避免和头部控件叠在一起 */
   onClose?: () => void;
+  /** 宽屏常驻侧栏形态下渲染收起按钮；与 onClose 互斥（分别对应两种折叠形态） */
+  onCollapse?: () => void;
   /** 草稿提在 PaperChat 层：抽屉关闭会卸载整棵子树，state 留这儿会丢 */
   input: string;
   onInputChange: (value: string) => void;
@@ -170,6 +175,7 @@ interface ConversationProps {
 function PaperChatConversation({
   paperShortId,
   onClose,
+  onCollapse,
   input,
   onInputChange,
 }: ConversationProps) {
@@ -453,6 +459,17 @@ function PaperChatConversation({
             >
               <Plus className="h-4 w-4" />
             </Button>
+            {onCollapse && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onCollapse}
+                aria-label={m.chat_close()}
+                title={m.chat_close()}
+              >
+                <PanelRightClose className="h-4 w-4" />
+              </Button>
+            )}
             {onClose && (
               <Button
                 variant="ghost"
@@ -704,12 +721,26 @@ function PaperChatConversation({
 function SignInPrompt({
   onSignIn,
   onClose,
+  onCollapse,
 }: {
   onSignIn: () => void;
   onClose?: () => void;
+  /** 宽屏常驻侧栏形态下渲染收起按钮；与 onClose 互斥（分别对应两种折叠形态） */
+  onCollapse?: () => void;
 }) {
   return (
     <div className="relative flex h-full flex-col justify-center gap-3 px-5 py-8">
+      {onCollapse && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onCollapse}
+          aria-label={m.chat_close()}
+          className="absolute top-3 right-3"
+        >
+          <PanelRightClose className="h-4 w-4" />
+        </Button>
+      )}
       {onClose && (
         <Button
           variant="ghost"
@@ -813,11 +844,14 @@ export interface PaperChatProps {
   panelWidth?: number;
   /** 提供了才渲染拖宽把手；新值已 clamp 到 CHAT_PANEL_WIDTH 范围 */
   onPanelWidthChange?: (width: number) => void;
+  /** 宽屏侧栏是否收起成右下角 FAB；不影响 <xl 的抽屉形态 */
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
 }
 
 /**
- * 论文页的提问面板。xl+ 作为第三栏常驻（sticky），以下折叠成右下角悬浮按钮 +
- * 底部浮层，两种形态共用同一份对话组件。
+ * 论文页的提问面板。xl+ 作为第三栏常驻（sticky，可收起成 FAB），以下折叠成
+ * 右下角悬浮按钮 + 底部浮层，三种形态共用同一份对话组件。
  */
 export function PaperChat({
   paperShortId,
@@ -825,6 +859,8 @@ export function PaperChat({
   onSignIn,
   panelWidth,
   onPanelWidthChange,
+  collapsed,
+  onCollapsedChange,
 }: PaperChatProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -832,7 +868,8 @@ export function PaperChat({
   // 两种形态共用一份对话组件，但绝不能同时挂载：那会跑出两个 useChat 实例，
   // 各自持有半截历史。SSR/首帧按宽屏渲染（aside 自带 hidden xl:block 兜底）。
   const [isWideViewport, setIsWideViewport] = useState(true);
-  // 草稿留在这一层：抽屉关闭会卸载整个对话子树，state 放里面等于清空输入框
+  // 草稿留在这一层：抽屉关闭 / 侧栏收起都会卸载整个对话子树，state 放里面等于
+  // 清空输入框
   const [input, setInput] = useState("");
   const sheetDescriptionId = useId();
 
@@ -851,11 +888,13 @@ export function PaperChat({
     return () => mediaQuery.removeEventListener("change", onChange);
   }, []);
 
-  const handleSheetOpenChange = (open: boolean) => {
-    setIsSheetOpen(open);
-    // 抽屉关着的这段时间里，被中断的流仍可能由服务端的 waitUntil 落库；
-    // 重新打开时先把 chat 相关缓存标脏，别拿旧快照当历史。
-    if (!open) return;
+  // 打开 / 展开都要把 chat 相关缓存标脏：关着的这段时间里，被中断的流仍可能由
+  // 服务端的 waitUntil 落库，重新可见时不能拿旧快照当历史。抽屉（<xl）和侧栏
+  // 收起（xl+）都会卸载对话子树，重新挂载后 sessions/messages 走这份新鲜数据
+  // 重新水合——这就是两种折叠形态下「收起中若正在流式回复」的处理方式：客户端
+  // 状态（选中会话、useChat 内部消息列表）会丢，但服务端已落库的内容会在重新
+  // 打开时立刻拿回来，不算真正丢失。
+  const invalidateChatQueries = () => {
     void queryClient.invalidateQueries({
       queryKey: trpc.chat.getMessages.pathKey(),
     });
@@ -864,7 +903,36 @@ export function PaperChat({
     });
   };
 
+  const handleSheetOpenChange = (open: boolean) => {
+    setIsSheetOpen(open);
+    if (open) invalidateChatQueries();
+  };
+
+  const expandPanel = () => {
+    onCollapsedChange(false);
+    invalidateChatQueries();
+  };
+
   if (isWideViewport) {
+    if (collapsed) {
+      // 收起后侧栏完全不渲染（grid 第三列本身也已被页面切掉），只留这颗 FAB。
+      // 必须 portal 到 body：理由与下面窄屏 FAB 那处坑完全相同（.stagger-in
+      // transform 包含块）。hidden + xl:inline-flex 兜底：万一 isWideViewport
+      // 状态还没追上真实视口（如浏览器窗口拖窄的过渡帧），也不会在窄屏冒出来。
+      return createPortal(
+        <Button
+          size="icon-lg"
+          onClick={expandPanel}
+          className="fixed right-5 bottom-[calc(1.25rem_+_env(safe-area-inset-bottom))] z-40 hidden rounded-full shadow-[0_10px_30px_rgba(87,61,38,0.28)] xl:inline-flex"
+          aria-label={m.chat_open()}
+          title={m.chat_open()}
+        >
+          <MessageSquareQuote className="h-5 w-5" />
+        </Button>,
+        document.body,
+      );
+    }
+
     return (
       <aside
         className={cn(
@@ -883,9 +951,13 @@ export function PaperChat({
             paperShortId={paperShortId}
             input={input}
             onInputChange={setInput}
+            onCollapse={() => onCollapsedChange(true)}
           />
         ) : (
-          <SignInPrompt onSignIn={onSignIn} />
+          <SignInPrompt
+            onSignIn={onSignIn}
+            onCollapse={() => onCollapsedChange(true)}
+          />
         )}
       </aside>
     );

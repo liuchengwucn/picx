@@ -33,6 +33,7 @@ import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { type TocItem, TocList } from "#/components/markdown-reader/reader-toc";
 import {
+  CHAT_COLLAPSED_STORAGE_KEY,
   CHAT_PANEL_WIDTH,
   CHAT_PANEL_WIDTH_STORAGE_KEY,
   clampChatPanelWidth,
@@ -495,6 +496,34 @@ function PaperDetailPage() {
     }
   }, [chatPanelWidth, chatPanelHydrated]);
 
+  // 聊天侧栏是否收起成右下角 FAB（仅影响 xl+ 常驻形态）。读写模式照抄上面
+  // chatPanelWidth：SSR/首帧固定为展开，挂载后才从 localStorage 恢复，避免水合不一致。
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [chatCollapsedHydrated, setChatCollapsedHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(CHAT_COLLAPSED_STORAGE_KEY) === "1") {
+        setChatCollapsed(true);
+      }
+    } catch {
+      // 读不了（隐私模式等）就用默认展开
+    }
+    setChatCollapsedHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!chatCollapsedHydrated) return;
+    try {
+      window.localStorage.setItem(
+        CHAT_COLLAPSED_STORAGE_KEY,
+        chatCollapsed ? "1" : "0",
+      );
+    } catch {
+      // 忽略写入失败（隐私模式等），折叠状态退化为仅本次访问生效
+    }
+  }, [chatCollapsed, chatCollapsedHydrated]);
+
   // Use optional auth - allow viewing public papers without login
   const { data: session, isPending: isSessionPending } =
     authClient.useSession();
@@ -738,13 +767,16 @@ function PaperDetailPage() {
         )}
 
         {/* 论文 completed 时才有提问面板：xl+ 让出第三栏（配合上面放宽的容器，
-            正文仍有 ~810px），xl 以下折叠成右下角悬浮按钮，不占版面。未完成的
-            论文必须退回两栏，否则右侧空出 360px 死区把正文挤偏。 */}
+            正文仍有 ~810px），可收起腾出这一列给正文；xl 以下折叠成右下角悬浮
+            按钮，不占版面。未完成的论文必须退回两栏，否则右侧空出 360px 死区
+            把正文挤偏。三条都是完整字符串字面量（Tailwind 静态扫描要求）。 */}
         <div
           className={
-            paper.status === "completed"
-              ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_var(--chat-panel-width)]"
-              : "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start"
+            paper.status !== "completed"
+              ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start"
+              : chatCollapsed
+                ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)]"
+                : "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_var(--chat-panel-width)]"
           }
         >
           <aside
@@ -1229,6 +1261,8 @@ function PaperDetailPage() {
               onSignIn={startGitHubSignIn}
               panelWidth={chatPanelWidth}
               onPanelWidthChange={setChatPanelWidth}
+              collapsed={chatCollapsed}
+              onCollapsedChange={setChatCollapsed}
             />
           )}
         </div>
