@@ -231,28 +231,26 @@ function currentActivityLabel(
 }
 
 /**
- * 助手消息顶部的统一活动区块：整条消息的所有 reasoning part 与工具状态行按
- * 原始顺序收进同一个折叠区（多轮工具调用不再各自散落一个折叠按钮）。
- * 展开/收起：流式且正文未开始 → 默认展开实时显示进展；正文一出现 → 自动收起。
- * userOpen 为 null 表示用户没手动开合过、跟随上述自动逻辑；手动开合过则以手动
- * 状态为准（自动收起不会跟用户抢）。历史回显（isStreaming=false）默认收起。
+ * 一段连续的活动（reasoning + 工具状态行）折叠区块。多步回复里正文/卡片会把
+ * 活动切成多段，每段各自折叠，按时间顺序与正文交错出现。
+ * 展开/收起：live（流式且该段是消息的最后一块）→ 默认展开实时显示进展；
+ * 后续正文/卡片一出现该段不再是最后一块 → 自动收起。userOpen 为 null 表示
+ * 用户没手动开合过、跟随上述自动逻辑；手动开合过则以手动状态为准（自动收起
+ * 不会跟用户抢）。历史回显（live 恒为 false）默认收起。
  */
 function ActivityBlock({
   items,
-  isStreaming,
-  textStarted,
+  live,
   toolDisplays,
 }: {
   items: ActivityItem[];
-  isStreaming: boolean;
-  textStarted: boolean;
+  live: boolean;
   toolDisplays: ToolDisplayMap;
 }) {
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const live = isStreaming && !textStarted;
   const expanded = userOpen ?? live;
   return (
-    <div className="pb-1">
+    <div>
       <button
         type="button"
         onClick={() => setUserOpen(!expanded)}
@@ -332,6 +330,72 @@ function SourceFootnotes({ sources }: { sources: SourceLink[] }) {
   );
 }
 
+/**
+ * 按 parts 原始顺序切出的渲染块。连续的 reasoning/工具 part 归入同一个
+ * activity 段；text 与工具卡片作为独立块打断活动段，多步回复因此呈现
+ * 思考 → 正文 → 卡片 → 思考 的时间线，而不是所有思考挤在消息顶部。
+ */
+type MessageBlock =
+  | { kind: "activity"; key: string; items: ActivityItem[] }
+  | { kind: "text"; key: string; text: string }
+  | { kind: "card"; key: string; node: React.ReactNode };
+
+function buildBlocks(
+  message: UIMessage,
+  toolDisplays: ToolDisplayMap,
+  renderToolOutput?: (part: ToolUIPart, messageId: string) => React.ReactNode,
+): MessageBlock[] {
+  const blocks: MessageBlock[] = [];
+  const pushActivity = (item: ActivityItem) => {
+    const last = blocks[blocks.length - 1];
+    if (last?.kind === "activity") last.items.push(item);
+    // 段的 key 用首个 item 的 key：part 顺序稳定追加，段一旦出现首项就不再变
+    else blocks.push({ kind: "activity", key: item.key, items: [item] });
+  };
+  message.parts.forEach((part, index) => {
+    if (part.type === "reasoning") {
+      // 空 reasoning part（有的模型开思考也可能不给内容）直接滤掉，
+      // 且不打断活动段，免得渲染出一个点开只有空白的区块
+      if (part.state === "streaming" || part.text.trim().length > 0) {
+        pushActivity({ key: `${message.id}-activity-${index}`, part });
+      }
+      return;
+    }
+    if (part.type === "text") {
+      // 空 text part（流刚起步的空 delta）不成块也不打断活动段，
+      // 与旧版「正文已开始」按非空文本判定的行为一致
+      if (part.text.trim().length > 0) {
+        blocks.push({
+          kind: "text",
+          key: `${message.id}-text-${index}`,
+          text: part.text,
+        });
+      }
+      return;
+    }
+    if (isToolUIPart(part)) {
+      // hasOwn 而非 in：防工具名撞 Object.prototype 键（如 toString）时误放行
+      if (Object.hasOwn(toolDisplays, toolNameOf(part.type))) {
+        pushActivity({ key: `${message.id}-activity-${index}`, part });
+      }
+      // 调用方可以为某个工具 part 在正文流里渲染自定义块（如论文卡片）；
+      // 卡片出现前（output 未就绪返回 null）不打断活动段
+      if (renderToolOutput && part.type !== "dynamic-tool") {
+        const node = renderToolOutput(part, message.id);
+        if (node !== null && node !== undefined) {
+          blocks.push({
+            kind: "card",
+            key: `${message.id}-tool-${index}`,
+            node,
+          });
+        }
+      }
+    }
+    // source-url 已另行收集为脚注；step-start 等未知 part 不渲染也不打断活动段
+  });
+  return blocks;
+}
+
 /** 模型生成的链接一律新开标签页，且不给外链传递权重 */
 const MARKDOWN_COMPONENTS = {
   a: ({
@@ -372,66 +436,38 @@ export const ChatMessage = memo(function ChatMessage({
   }
 
   const sources = collectSources(message);
-  // 思考与工具轨迹统一收进消息顶部的活动区块（保持 parts 原始顺序）。
-  // 空 reasoning part（有的模型开思考也可能不给内容）在这里就滤掉，
-  // 免得渲染出一个点开只有空白的区块。
-  const activityItems: ActivityItem[] = message.parts
-    // key 用过滤前的原始下标：part 顺序是稳定追加的，下标不会因后续 part 变动
-    .map((part, index) => ({ part, key: `${message.id}-activity-${index}` }))
-    .filter(
-      ({ part }) =>
-        (part.type === "reasoning" &&
-          (part.state === "streaming" || part.text.trim().length > 0)) ||
-        // hasOwn 而非 in：防工具名撞 Object.prototype 键（如 toString）时误放行
-        (isToolUIPart(part) &&
-          Object.hasOwn(toolDisplays, toolNameOf(part.type))),
-    );
-  // 「正文已开始」的判定：存在非空 text part。模型可能在工具轮之间输出中间
-  // 文本，那之后的思考也会被收起——可接受，比精确判定简单得多。
-  const textStarted = message.parts.some(
-    (part) => part.type === "text" && part.text.trim().length > 0,
-  );
+  const blocks = buildBlocks(message, toolDisplays, renderToolOutput);
   return (
     <div className="border-l-2 border-[var(--academic-brown)]/35 pl-3">
-      {activityItems.length > 0 && (
-        <ActivityBlock
-          items={activityItems}
-          isStreaming={isStreaming}
-          textStarted={textStarted}
-          toolDisplays={toolDisplays}
-        />
-      )}
-      {message.parts.map((part, index) => {
-        if (part.type === "text") {
-          return (
-            <div
-              // part 本身没有 id，但同一条消息内的 part 顺序是稳定追加的
-              key={`${message.id}-text-${index}`}
-              className={MARKDOWN_CLASS}
-            >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={MARKDOWN_COMPONENTS}
-              >
-                {part.text}
-              </ReactMarkdown>
-            </div>
-          );
-        }
-        // 调用方可以在正文流里为某个工具 part 渲染自定义块（如论文卡片）
-        if (
-          renderToolOutput &&
-          isToolUIPart(part) &&
-          part.type !== "dynamic-tool"
-        ) {
-          const node = renderToolOutput(part, message.id);
-          if (node !== null && node !== undefined) {
-            return <div key={`${message.id}-tool-${index}`}>{node}</div>;
+      <div className="space-y-2">
+        {blocks.map((block, blockIndex) => {
+          if (block.kind === "activity") {
+            return (
+              <ActivityBlock
+                key={block.key}
+                items={block.items}
+                // 只有消息末尾正在进行的那段活动是 live：正文/卡片一追加，
+                // 该段不再是最后一块，自动收起
+                live={isStreaming && blockIndex === blocks.length - 1}
+                toolDisplays={toolDisplays}
+              />
+            );
           }
-        }
-        // reasoning / 工具 part 已并入顶部活动区块；未知 part 不渲染也不崩
-        return null;
-      })}
+          if (block.kind === "text") {
+            return (
+              <div key={block.key} className={MARKDOWN_CLASS}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={MARKDOWN_COMPONENTS}
+                >
+                  {block.text}
+                </ReactMarkdown>
+              </div>
+            );
+          }
+          return <div key={block.key}>{block.node}</div>;
+        })}
+      </div>
       {sources.length > 0 && <SourceFootnotes sources={sources} />}
     </div>
   );
