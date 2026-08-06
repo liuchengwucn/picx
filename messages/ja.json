@@ -384,6 +384,7 @@
   "reader_toc": "目次",
   "reader_toc_hide": "目次を隠す",
   "reader_toc_show": "目次",
+  "reader_toc_close": "目次を閉じる",
   "reader_analyzing_title": "PDF をスキャン中…",
   "reader_analyzing_hint": "アップロード前に除外する参考文献・付録を探しています。",
   "reader_trim_title": "アップロード前に付録を除外",

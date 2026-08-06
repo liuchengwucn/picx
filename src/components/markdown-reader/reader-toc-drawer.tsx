@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { TOOL_BTN } from "#/components/reader/reader-ui";
 import { cn } from "#/lib/utils";
@@ -32,7 +32,8 @@ export function ReaderTocDrawer({
   activeId,
   onJump,
 }: ReaderTocDrawerProps) {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: onOpenChange 来自调用方的 useState setter，稳定引用，不必加进依赖数组反复重挂监听
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     if (!open) {
       return;
@@ -44,6 +45,16 @@ export function ReaderTocDrawer({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onOpenChange]);
+
+  // 面板 portal 到 body 后不在文档原本的 Tab 顺序附近：把焦点送到这个可见的关闭
+  // 按钮上，键盘用户打开抽屉后不必先摸黑 Tab 一遍才找到出口。用 ref + 手动 focus()
+  // 而非 JSX 的 autoFocus 属性，避开 biome 的 noAutofocus 规则（对这个场景是误报，
+  // 但规则本身不区分「模态浮层理应移交焦点」和「普通表单元素别抢焦点」两种情况）。
+  useEffect(() => {
+    if (open) {
+      closeButtonRef.current?.focus();
+    }
   }, [open]);
 
   if (!open) {
@@ -59,7 +70,7 @@ export function ReaderTocDrawer({
     <div className="fixed inset-0 z-[60] lg:hidden">
       <button
         type="button"
-        aria-label="Close contents"
+        aria-label={m.reader_toc_close()}
         className="absolute inset-0 bg-[rgba(20,18,15,0.42)] backdrop-blur-[2px] animate-in fade-in duration-200"
         onClick={() => onOpenChange(false)}
       />
@@ -69,10 +80,11 @@ export function ReaderTocDrawer({
             {m.reader_toc()}
           </span>
           <button
+            ref={closeButtonRef}
             type="button"
             className={cn(TOOL_BTN, "px-[0.45rem] py-[0.45rem]")}
             onClick={() => onOpenChange(false)}
-            aria-label="Close"
+            aria-label={m.reader_toc_close()}
           >
             <X className="h-4 w-4" />
           </button>

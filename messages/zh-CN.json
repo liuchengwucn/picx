@@ -384,6 +384,7 @@
   "reader_toc": "目录",
   "reader_toc_hide": "收起目录",
   "reader_toc_show": "目录",
+  "reader_toc_close": "关闭目录",
   "reader_analyzing_title": "正在扫描 PDF…",
   "reader_analyzing_hint": "正在查找参考文献/附录，以便上传前裁剪。",
   "reader_trim_title": "上传前裁掉附录",
