@@ -30,6 +30,7 @@ import {
   loadAccessiblePaper,
   type RateLimitResult,
   sliceSection,
+  slidingWindowRateLimit,
 } from "#/lib/chat";
 import { escapeLike } from "#/lib/gallery-search";
 import { loadPaperText } from "#/lib/paper-text";
@@ -52,13 +53,12 @@ export const AGENT_LIMITS = {
   abstractChars: 800,
 } as const;
 
-/** 滑动窗口限流：数 conversation_messages 里该用户最近的 user 消息（同 checkChatRateLimit：先查后插非原子、轻微超限可接受）。结构与 chat.ts 的 RateLimitResult 相同，直接复用 */
+/** 滑动窗口限流：数 conversation_messages 里该用户最近的 user 消息（独立配额，与论文页聊天互不占用） */
 export async function checkAgentRateLimit(
   db: Db,
   userId: string,
 ): Promise<RateLimitResult> {
-  const now = Date.now();
-  const countSince = async (since: number) => {
+  return slidingWindowRateLimit(AGENT_LIMITS, async (since) => {
     const [row] = await db
       .select({ n: count() })
       .from(conversationMessages)
@@ -66,18 +66,11 @@ export async function checkAgentRateLimit(
         and(
           eq(conversationMessages.senderId, userId),
           eq(conversationMessages.senderType, "user"),
-          gt(conversationMessages.createdAt, new Date(since)),
+          gt(conversationMessages.createdAt, since),
         ),
       );
     return row?.n ?? 0;
-  };
-  if ((await countSince(now - 60_000)) >= AGENT_LIMITS.perMinute) {
-    return { ok: false, code: "rate_limited_minute" };
-  }
-  if ((await countSince(now - 86_400_000)) >= AGENT_LIMITS.perDay) {
-    return { ok: false, code: "rate_limited_day" };
-  }
-  return { ok: true };
+  });
 }
 
 export function buildAgentSystemPrompt(

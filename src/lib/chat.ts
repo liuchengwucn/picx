@@ -206,15 +206,30 @@ export type RateLimitResult =
   | { ok: false; code: "rate_limited_minute" | "rate_limited_day" };
 
 /**
- * 滑动窗口限流：数 chat_messages 里该用户最近的 user 消息（命中 user_rate_idx）。
- * D1 不支持事务，这里是先查后插的非原子操作，并发请求下可能轻微超限 1-2 条，可接受。
+ * 滑动窗口限流的公共骨架：分钟窗 + 天窗两道闸。
+ * D1 不支持事务，调用方的 countSince 是先查后插的非原子操作，并发请求下可能
+ * 轻微超限 1-2 条，可接受。
  */
+export async function slidingWindowRateLimit(
+  limits: { perMinute: number; perDay: number },
+  countSince: (since: Date) => Promise<number>,
+): Promise<RateLimitResult> {
+  const now = Date.now();
+  if ((await countSince(new Date(now - 60_000))) >= limits.perMinute) {
+    return { ok: false, code: "rate_limited_minute" };
+  }
+  if ((await countSince(new Date(now - 86_400_000))) >= limits.perDay) {
+    return { ok: false, code: "rate_limited_day" };
+  }
+  return { ok: true };
+}
+
+/** 滑动窗口限流：数 chat_messages 里该用户最近的 user 消息（命中 user_rate_idx） */
 export async function checkChatRateLimit(
   db: Db,
   userId: string,
 ): Promise<RateLimitResult> {
-  const now = Date.now();
-  const countSince = async (since: number) => {
+  return slidingWindowRateLimit(CHAT_LIMITS, async (since) => {
     const [row] = await db
       .select({ n: count() })
       .from(chatMessages)
@@ -222,16 +237,9 @@ export async function checkChatRateLimit(
         and(
           eq(chatMessages.userId, userId),
           eq(chatMessages.role, "user"),
-          gt(chatMessages.createdAt, new Date(since)),
+          gt(chatMessages.createdAt, since),
         ),
       );
     return row?.n ?? 0;
-  };
-  if ((await countSince(now - 60_000)) >= CHAT_LIMITS.perMinute) {
-    return { ok: false, code: "rate_limited_minute" };
-  }
-  if ((await countSince(now - 86_400_000)) >= CHAT_LIMITS.perDay) {
-    return { ok: false, code: "rate_limited_day" };
-  }
-  return { ok: true };
+  });
 }
