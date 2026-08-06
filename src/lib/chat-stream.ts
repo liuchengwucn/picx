@@ -6,6 +6,7 @@ import {
   isStepCount,
   isToolUIPart,
   streamText,
+  type TextStreamPart,
   type ToolSet,
   toUIMessageStream,
   type UIMessage,
@@ -148,6 +149,144 @@ export interface ChatStreamSpec<TBody extends ChatStreamBody, TCtx> {
 }
 
 /**
+ * 恢复思考/正文的交错时间线。
+ *
+ * OpenRouter 做服务端多轮网页搜索时（DeepSeek V4 Flash 0731 的 agentic search，
+ * 全程不产生 tool part），原始 SSE 实测（2026-08-06）是 思考→正文→来源→思考→…
+ * 按轮交替到达，但 provider 整个回合的 reasoning 增量共用一个 id、text 增量共用
+ * 另一个 id；AI SDK 按 id 归并 part，交错顺序在拼装环节丢失——所有思考挤成
+ * 消息顶部一个 part、正文挤成另一个，落库与实时视图皆然。
+ *
+ * 这里在喂给 toUIMessageStream 之前拆段：
+ * - 某一类（思考/正文）已经流出过内容、被另一类打断后又回来时，先结束旧段、
+ *   再以新 id 开新段，拼出来的 parts 便按真实时间线交错；
+ * - source（搜索来源批次）到达时截断当前正在流出的段：来源实测夹在同一个
+ *   text part 的增量中间到达，不截断的话 part 粒度上它们仍会排在整段正文
+ *   之后、且多批毗邻合并——前端的来源组就又挤回消息底部了。
+ * 对本就用不同 id 正常分段的流是恒等变换；工具等其他 chunk 原样透传
+ * （本地工具调用天然结束当前 step，provider 会自己发 end，无需截断）。
+ */
+export function splitInterleavedSegments<TOOLS extends ToolSet>(
+  stream: ReadableStream<TextStreamPart<TOOLS>>,
+): ReadableStream<TextStreamPart<TOOLS>> {
+  type Kind = "reasoning" | "text";
+  interface SegState {
+    /** 当前段对外使用的 id（拆过段后与原始 id 不同） */
+    cur: string;
+    open: boolean;
+    /** 当前段是否已流出过内容——只有"回流"才拆段，新开的段首个增量不拆 */
+    flowed: boolean;
+  }
+  const states: Record<Kind, Map<string, SegState>> = {
+    reasoning: new Map(),
+    text: new Map(),
+  };
+  // 每类最近一次流出增量的原始 id（source 截断时要找到"正在流出的那个段"）
+  const activeId: Record<Kind, string | null> = {
+    reasoning: null,
+    text: null,
+  };
+  let lastFlow: Kind | null = null;
+  let seq = 0;
+
+  const handle = (
+    kind: Kind,
+    phase: "start" | "delta" | "end",
+    // 六种段事件都带 id；spread 覆写 id 的结果仍是同型 chunk，但 TS 无法在
+    // 未解析的 TOOLS 泛型联合上证明这点，enqueue 处统一断言
+    chunk: TextStreamPart<TOOLS> & { id: string },
+    controller: TransformStreamDefaultController<TextStreamPart<TOOLS>>,
+  ) => {
+    const map = states[kind];
+    let st = map.get(chunk.id);
+    if (phase === "start") {
+      // 同一原始 id 二次 start（end 之后再开）也给新 id，避免归并回旧 part
+      const cur = st ? `${chunk.id}#${++seq}` : chunk.id;
+      map.set(chunk.id, { cur, open: true, flowed: false });
+      controller.enqueue({ ...chunk, id: cur } as TextStreamPart<TOOLS>);
+      return;
+    }
+    if (!st) {
+      // 没见过 start 的 delta/end：上游异常，登记后原样放行不干预
+      st = { cur: chunk.id, open: true, flowed: false };
+      map.set(chunk.id, st);
+    }
+    if (phase === "delta") {
+      // 被另一类内容打断后回来 → 结束旧段拆新段；段已被 source 截断（open=false）
+      // 时也要开新段，但截断时已发过 end，不再重复
+      const interrupted = lastFlow !== kind && st.flowed;
+      if (interrupted || !st.open) {
+        if (interrupted && st.open) {
+          controller.enqueue({
+            type: kind === "reasoning" ? "reasoning-end" : "text-end",
+            id: st.cur,
+          } as TextStreamPart<TOOLS>);
+        }
+        st.cur = `${chunk.id}#${++seq}`;
+        st.open = true;
+        controller.enqueue({
+          type: kind === "reasoning" ? "reasoning-start" : "text-start",
+          id: st.cur,
+        } as TextStreamPart<TOOLS>);
+      }
+      st.flowed = true;
+      lastFlow = kind;
+      activeId[kind] = chunk.id;
+      controller.enqueue({ ...chunk, id: st.cur } as TextStreamPart<TOOLS>);
+      return;
+    }
+    // end：段已被截断（source 处已发过 end）就吞掉，避免同一 id 重复 end
+    if (!st.open) return;
+    st.open = false;
+    controller.enqueue({ ...chunk, id: st.cur } as TextStreamPart<TOOLS>);
+  };
+
+  /** source 到达：截断两类里正在流出的段，让来源组按真实到达位置落在段之间 */
+  const cutOpenSegments = (
+    controller: TransformStreamDefaultController<TextStreamPart<TOOLS>>,
+  ) => {
+    for (const kind of ["reasoning", "text"] as const) {
+      const id = activeId[kind];
+      const st = id === null ? undefined : states[kind].get(id);
+      if (st?.open && st.flowed) {
+        controller.enqueue({
+          type: kind === "reasoning" ? "reasoning-end" : "text-end",
+          id: st.cur,
+        } as TextStreamPart<TOOLS>);
+        st.open = false;
+      }
+    }
+  };
+
+  return stream.pipeThrough(
+    new TransformStream<TextStreamPart<TOOLS>, TextStreamPart<TOOLS>>({
+      transform(chunk, controller) {
+        switch (chunk.type) {
+          case "reasoning-start":
+            return handle("reasoning", "start", chunk, controller);
+          case "reasoning-delta":
+            return handle("reasoning", "delta", chunk, controller);
+          case "reasoning-end":
+            return handle("reasoning", "end", chunk, controller);
+          case "text-start":
+            return handle("text", "start", chunk, controller);
+          case "text-delta":
+            return handle("text", "delta", chunk, controller);
+          case "text-end":
+            return handle("text", "end", chunk, controller);
+          case "source":
+            cutOpenSegments(controller);
+            controller.enqueue(chunk);
+            return;
+          default:
+            controller.enqueue(chunk);
+        }
+      },
+    }),
+  );
+}
+
+/**
  * 落库前清洗助手消息的 parts：
  * - 工具 part 剥掉 `output`。readPaper 单次输出可达 ~190KB，存进 D1 后没有任何
  *   读者：前端只用 type/state/toolCallId 渲染状态行，重放给模型时也只保留 text
@@ -287,7 +426,8 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
     });
 
     const uiStream = toUIMessageStream({
-      stream: result.stream,
+      // 拆段变换：恢复 OpenRouter 服务端搜索场景下思考/正文的交错时间线
+      stream: splitInterleavedSegments(result.stream),
       tools,
       originalMessages: uiMessages,
       // OpenRouter 的网页搜索引用是 source part，默认不下发就全丢了

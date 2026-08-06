@@ -418,7 +418,7 @@
   "chat_reasoning_off": "オフ",
   "chat_reasoning_low": "ライト",
   "chat_reasoning_high": "深い思考",
-  "chat_sources": "出典",
+  "chat_sources_group": "ウェブ検索済み · 出典 {count} 件",
   "chat_new_session": "新しい会話",
   "chat_sessions_label": "会話一覧",
   "chat_sessions_empty": "会話はまだありません",

@@ -160,18 +160,6 @@ function hostnameOf(url: string): string {
   }
 }
 
-function collectSources(message: UIMessage): SourceLink[] {
-  const seen = new Set<string>();
-  const sources: SourceLink[] = [];
-  for (const part of message.parts) {
-    if (part.type !== "source-url") continue;
-    if (seen.has(part.url)) continue;
-    seen.add(part.url);
-    sources.push({ url: part.url, title: part.title });
-  }
-  return sources;
-}
-
 export function messageText(message: UIMessage): string {
   return message.parts
     .filter((part) => part.type === "text")
@@ -300,45 +288,67 @@ function ActivityBlock({
   );
 }
 
-function SourceFootnotes({ sources }: { sources: SourceLink[] }) {
+/**
+ * 正文流里的一组网页搜索来源（一批连续到达的 source-url part）。默认折叠成
+ * 一行「已搜索网页 · N 条来源」——一轮搜索动辄 5-15 条，展开很打断阅读；
+ * 同时这行也充当搜索发生位置的标记（OpenRouter 服务端搜索不产生 tool part，
+ * 没有「已搜索网页」状态行可用）。样式与 ActivityBlock 的折叠头保持一致。
+ */
+function SourcesBlock({ sources }: { sources: SourceLink[] }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="mt-3 border-t border-dashed border-[var(--line)] pt-2">
-      <p className="text-[10px] tracking-[0.18em] text-[var(--ink-soft)] uppercase">
-        {m.chat_sources()}
-      </p>
-      <ol className="mt-1.5 space-y-1">
-        {sources.map((source, index) => (
-          <li key={source.url} className="flex gap-2 text-xs">
-            {/* shrink-0 + nowrap：body 上有 [overflow-wrap:anywhere]（防长 URL
-                溢出），它会把这个 span 的 min-content 压成单字符宽，flex 收缩时
-                序号会被逐字折行成「1 / 0 / .」竖排 */}
-            <span className="shrink-0 whitespace-nowrap tabular-nums text-[var(--ink-soft)]">
-              {index + 1}.
-            </span>
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="min-w-0 truncate text-[var(--academic-brown)] hover:underline"
-            >
-              {source.title || hostnameOf(source.url)}
-            </a>
-          </li>
-        ))}
-      </ol>
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
+        className="flex items-center gap-2 rounded-sm text-[11px] tracking-[0.14em] text-[var(--ink-soft)] uppercase hover:text-[var(--ink)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
+      >
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 transition-transform",
+            expanded && "rotate-90",
+          )}
+        />
+        {m.chat_sources_group({ count: sources.length })}
+      </button>
+      {expanded && (
+        <ol className="mt-1.5 space-y-1 border-l border-dashed border-[var(--line)] pl-3">
+          {sources.map((source, index) => (
+            <li key={source.url} className="flex gap-2 text-xs">
+              {/* shrink-0 + nowrap：body 上有 [overflow-wrap:anywhere]（防长 URL
+                  溢出），它会把这个 span 的 min-content 压成单字符宽，flex 收缩时
+                  序号会被逐字折行成「1 / 0 / .」竖排 */}
+              <span className="shrink-0 whitespace-nowrap tabular-nums text-[var(--ink-soft)]">
+                {index + 1}.
+              </span>
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-w-0 truncate text-[var(--academic-brown)] hover:underline"
+              >
+                {source.title || hostnameOf(source.url)}
+              </a>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
 
 /**
  * 按 parts 原始顺序切出的渲染块。连续的 reasoning/工具 part 归入同一个
- * activity 段；text 与工具卡片作为独立块打断活动段，多步回复因此呈现
- * 思考 → 正文 → 卡片 → 思考 的时间线，而不是所有思考挤在消息顶部。
+ * activity 段；text、工具卡片与来源组作为独立块打断活动段，多步回复因此
+ * 呈现 思考 → 正文 → 来源 → 思考 的时间线，而不是所有思考挤在消息顶部、
+ * 所有来源挤在消息底部。
  */
 type MessageBlock =
   | { kind: "activity"; key: string; items: ActivityItem[] }
   | { kind: "text"; key: string; text: string }
-  | { kind: "card"; key: string; node: React.ReactNode };
+  | { kind: "card"; key: string; node: React.ReactNode }
+  | { kind: "sources"; key: string; sources: SourceLink[] };
 
 function buildBlocks(
   message: UIMessage,
@@ -346,6 +356,7 @@ function buildBlocks(
   renderToolOutput?: (part: ToolUIPart, messageId: string) => React.ReactNode,
 ): MessageBlock[] {
   const blocks: MessageBlock[] = [];
+  const seenSourceUrls = new Set<string>();
   const pushActivity = (item: ActivityItem) => {
     const last = blocks[blocks.length - 1];
     if (last?.kind === "activity") last.items.push(item);
@@ -353,6 +364,22 @@ function buildBlocks(
     else blocks.push({ kind: "activity", key: item.key, items: [item] });
   };
   message.parts.forEach((part, index) => {
+    if (part.type === "source-url") {
+      // 跨组去重：同一 URL 被多轮搜索引用只在首次出现处展示；
+      // 去重后为空的批次不成块也不打断活动段
+      if (seenSourceUrls.has(part.url)) return;
+      seenSourceUrls.add(part.url);
+      const source = { url: part.url, title: part.title };
+      const last = blocks[blocks.length - 1];
+      if (last?.kind === "sources") last.sources.push(source);
+      else
+        blocks.push({
+          kind: "sources",
+          key: `${message.id}-sources-${index}`,
+          sources: [source],
+        });
+      return;
+    }
     if (part.type === "reasoning") {
       // 空 reasoning part（有的模型开思考也可能不给内容）直接滤掉，
       // 且不打断活动段，免得渲染出一个点开只有空白的区块
@@ -391,7 +418,7 @@ function buildBlocks(
         }
       }
     }
-    // source-url 已另行收集为脚注；step-start 等未知 part 不渲染也不打断活动段
+    // step-start 等未知 part 不渲染也不打断活动段
   });
   return blocks;
 }
@@ -435,7 +462,6 @@ export const ChatMessage = memo(function ChatMessage({
     );
   }
 
-  const sources = collectSources(message);
   const blocks = buildBlocks(message, toolDisplays, renderToolOutput);
   return (
     <div className="border-l-2 border-[var(--academic-brown)]/35 pl-3">
@@ -465,10 +491,12 @@ export const ChatMessage = memo(function ChatMessage({
               </div>
             );
           }
+          if (block.kind === "sources") {
+            return <SourcesBlock key={block.key} sources={block.sources} />;
+          }
           return <div key={block.key}>{block.node}</div>;
         })}
       </div>
-      {sources.length > 0 && <SourceFootnotes sources={sources} />}
     </div>
   );
 });

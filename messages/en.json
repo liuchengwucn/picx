@@ -418,7 +418,7 @@
   "chat_reasoning_off": "Off",
   "chat_reasoning_low": "Light",
   "chat_reasoning_high": "Deep thinking",
-  "chat_sources": "Sources",
+  "chat_sources_group": "Searched the web · {count} sources",
   "chat_new_session": "New conversation",
   "chat_sessions_label": "Conversations",
   "chat_sessions_empty": "No conversations yet",

@@ -418,7 +418,7 @@
   "chat_reasoning_off": "关",
   "chat_reasoning_low": "轻量",
   "chat_reasoning_high": "深度思考",
-  "chat_sources": "来源",
+  "chat_sources_group": "已搜索网页 · {count} 条来源",
   "chat_new_session": "新对话",
   "chat_sessions_label": "对话列表",
   "chat_sessions_empty": "还没有对话",
