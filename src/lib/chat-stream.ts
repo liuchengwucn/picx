@@ -69,7 +69,11 @@ export const chatStreamBody = z.object({
   locale: z.string().max(10).default("en"),
   // 前端设置（localStorage 记忆）。default 兜底：老客户端 / 手工请求不带也能工作
   webSearch: z.boolean().default(true),
-  reasoningEffort: z.enum(["off", "low", "medium", "high"]).default("off"),
+  // 现行档位 off/low/high；medium/xhigh 仅为兼容旧缓存 bundle 的请求，照收不报错。
+  // 默认 low（默认轻量思考）：不带该字段的老客户端/手工请求也带上思考
+  reasoningEffort: z
+    .enum(["off", "low", "medium", "high", "xhigh"])
+    .default("low"),
   message: z.object({
     id: z.string().min(1),
     role: z.literal("user"),

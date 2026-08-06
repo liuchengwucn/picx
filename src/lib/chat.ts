@@ -60,16 +60,25 @@ export function getChatModel(
   return provider.chat(env.OPENAI_MODEL ?? "openrouter/auto");
 }
 
-/** 前后端共用的 thinking 档位。默认关：多数提问不值得为思考 token 买单 */
-export type ChatReasoningEffort = "off" | "low" | "medium" | "high";
+/**
+ * 前后端共用的 thinking 档位：关 / 轻量(low) / 思考(high)，默认「轻量」。
+ * 档位贴合当前模型（DeepSeek V4 Flash 0731 经 OpenRouter）的实测行为
+ * （2026-08-06，钉定 Together/Fireworks 各测）：low 真实生效、思考量约为 high
+ * 的一半；xhigh 不高于 high（官方映射表 Flash 列 xhigh→high），max 在 OpenRouter
+ * 的 effort 枚举里无法表达——所以不设「深度思考」假档位。
+ */
+export type ChatReasoningEffort = "off" | "low" | "high";
+
+/** 线上旧缓存 bundle 仍可能发来的历史取值（四档时代的 medium 等），服务端照原样透传不报错 */
+export type ChatReasoningEffortWire = ChatReasoningEffort | "medium" | "xhigh";
 
 /**
  * 档位 → OpenRouter reasoning 参数（经 providerOptions.openrouter.reasoning 透传）。
  * off 必须显式 {enabled: false}：不传时部分模型（如 deepseek 系）默认开思考。
  */
 export function mapReasoningEffort(
-  effort: ChatReasoningEffort,
-): { enabled: false } | { effort: "low" | "medium" | "high" } {
+  effort: ChatReasoningEffortWire,
+): { enabled: false } | { effort: "low" | "medium" | "high" | "xhigh" } {
   return effort === "off" ? { enabled: false } : { effort };
 }
 

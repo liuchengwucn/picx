@@ -77,10 +77,14 @@ describe("mapReasoningEffort", () => {
     expect(mapReasoningEffort("off")).toEqual({ enabled: false });
   });
 
-  it("maps low/medium/high to an effort object", () => {
+  it("maps low/high to an effort object", () => {
     expect(mapReasoningEffort("low")).toEqual({ effort: "low" });
-    expect(mapReasoningEffort("medium")).toEqual({ effort: "medium" });
     expect(mapReasoningEffort("high")).toEqual({ effort: "high" });
+  });
+
+  it("passes through legacy values from stale client bundles", () => {
+    expect(mapReasoningEffort("medium")).toEqual({ effort: "medium" });
+    expect(mapReasoningEffort("xhigh")).toEqual({ effort: "xhigh" });
   });
 
   it("never mixes enabled and effort in one object", () => {

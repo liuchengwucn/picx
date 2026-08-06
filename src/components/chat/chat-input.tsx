@@ -37,8 +37,6 @@ function reasoningEffortLabel(effort: ChatReasoningEffort): string {
       return m.chat_reasoning_off();
     case "low":
       return m.chat_reasoning_low();
-    case "medium":
-      return m.chat_reasoning_medium();
     case "high":
       return m.chat_reasoning_high();
   }

@@ -5,7 +5,6 @@ import type { ChatReasoningEffort } from "#/lib/chat";
 export const REASONING_EFFORTS: readonly ChatReasoningEffort[] = [
   "off",
   "low",
-  "medium",
   "high",
 ];
 
@@ -25,16 +24,20 @@ function loadStoredWebSearch(key: string): boolean {
   }
 }
 
-/** 默认关：多数提问不值得为思考 token 买单 */
+/**
+ * 默认「轻量」(low)：保持默认带思考（当前模型本就默认思考），但日常提问用
+ * 低预算档就够；重问题用户自己升到「思考」。
+ * 旧四档时代存下的 "medium" 不在白名单里，自动回落到默认档。
+ */
 function loadStoredReasoningEffort(key: string): ChatReasoningEffort {
-  if (typeof window === "undefined") return "off";
+  if (typeof window === "undefined") return "low";
   try {
     const raw = window.localStorage.getItem(key);
     const known = REASONING_EFFORTS.find((effort) => effort === raw);
-    return known ?? "off";
+    return known ?? "low";
   } catch {
     // 同 loadStoredWebSearch：读不了就用默认值
-    return "off";
+    return "low";
   }
 }
 
