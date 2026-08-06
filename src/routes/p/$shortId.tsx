@@ -750,7 +750,7 @@ function PaperDetailPage() {
           <aside
             className={
               isReaderViewReady
-                ? "flex flex-col gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)]"
+                ? "flex flex-col gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-8rem)]"
                 : "space-y-4 lg:sticky lg:top-24"
             }
           >
@@ -1425,7 +1425,7 @@ function ReaderAsidePanel({
       </div>
 
       {tocItems.length > 0 && (
-        <div className="paper-card flex min-h-0 flex-1 flex-col p-4">
+        <div className="paper-card flex min-h-0 flex-col p-4">
           <span className="shrink-0 text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[var(--ink-soft)]">
             {m.reader_toc()}
           </span>

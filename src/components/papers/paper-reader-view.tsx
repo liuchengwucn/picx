@@ -32,17 +32,28 @@ export function usePaperReader(paperId: string, enabled: boolean) {
   // articleRef 建在页面层，但持有它的 <article> 会随 tab 切换整体卸载/重挂。用挂载
   // 计数拼进 useToc 的 contentKey：markdown 没变时 effect 本不会重跑，但节点已经换了，
   // 必须逼它在每次重新挂载后都重新扫描 DOM，否则 TOC 会拿着失效节点、scrollspy 失灵。
+  // 卸载（node === null）也要 bump：否则切到总结视图时 contentKey 不变，useToc 那次
+  // effect 的 cleanup（IntersectionObserver.disconnect）永远不会跑，观察者继续挂在
+  // 已 detach 的标题节点上，把整棵 article DOM（含 katex 渲染产物）泄漏到切回原文为止。
   const articleRef = useRef<HTMLElement | null>(null);
   const [mountTick, setMountTick] = useState(0);
+  // 引用必须稳定：这个函数经 MarkdownArticle 透传给 <article ref={...}>，若每次渲染
+  // 都换新函数，React 会在每次渲染都先以 null 调用旧 ref 再以新节点调用新 ref——那样
+  // 每次渲染都会 bump mountTick、触发重渲染、再换新 ref，死循环。
   const setArticleRef = useCallback((node: HTMLElement | null) => {
     articleRef.current = node;
-    if (node) {
-      setMountTick((tick) => tick + 1);
-    }
+    setMountTick((tick) => tick + 1);
   }, []);
 
   const markdown = query.data?.available ? query.data.markdown : "";
-  const toc = useToc(articleRef, `${markdown}::${mountTick}`);
+  // 用 useMemo 稳定这个字符串：page 级别的任何其他 state 变化（如聊天面板拖宽把手每次
+  // pointermove 都 setState）都会重渲染这里，若不 memo，每次都要重新拼一遍整篇 markdown
+  // 长度的字符串——拖拽时每秒上百次，白白浪费。
+  const contentKey = useMemo(
+    () => `${markdown}::${mountTick}`,
+    [markdown, mountTick],
+  );
+  const toc = useToc(articleRef, contentKey);
 
   return { query, setArticleRef, toc };
 }
