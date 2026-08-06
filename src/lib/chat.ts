@@ -137,7 +137,7 @@ export async function buildChatSystemPrompt(
     "",
     "Rules:",
     "- Answer in the same language the user writes in.",
-    "- The summary below may not contain enough detail. For questions about specific methods, equations, experiments, or references, call the readPaper tool to read the paper's full text before answering.",
+    "- For any question related to this paper, you MUST call the readPaper tool to read the relevant part of the paper's full text before answering. The summary in <paper_context> is not a sufficient basis for an answer on its own.",
     // web_search 是 agentic server tool：模型自己决定调不调，这里给决策边界
     ...(webSearchEnabled
       ? [
