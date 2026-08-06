@@ -21,6 +21,7 @@
     "db:backfill-upvotes": "node scripts/backfill-upvotes.mjs",
     "db:backfill-paper-text": "node scripts/backfill-paper-text.mjs",
     "db:backfill-paper-content": "tsx scripts/backfill-paper-content.mjs",
+    "db:backfill-paper-text-from-content": "tsx scripts/backfill-paper-text-from-content.mjs",
     "format": "biome format",
     "lint": "biome lint",
     "typecheck": "tsc --noEmit",
