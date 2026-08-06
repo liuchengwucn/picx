@@ -28,7 +28,7 @@ import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
 
-/** agent 的 8 个工具在活动区块里的展示（键名与 buildAgentTools 一一对应） */
+/** agent 的 9 个工具在活动区块里的展示（键名与 buildAgentTools 一一对应） */
 const ASSISTANT_TOOLS: ToolDisplayMap = {
   searchMyPapers: {
     icon: Library,
@@ -54,6 +54,11 @@ const ASSISTANT_TOOLS: ToolDisplayMap = {
     icon: Sparkles,
     running: m.assistant_tool_daily_papers,
     done: m.assistant_tool_daily_papers_done,
+  },
+  recommendPapers: {
+    icon: Sparkles,
+    running: m.assistant_tool_recommend_papers,
+    done: m.assistant_tool_recommend_papers_done,
   },
   searchNews: {
     icon: Newspaper,
@@ -193,17 +198,14 @@ export function AssistantChat({
   const showThinking = status === "submitted";
 
   /**
-   * 论文发现类工具的输出在正文流里就地渲染成可入库的卡片。服务端落库时保留了
-   * 这两个工具的 output，历史回显也能重建出同样的卡片。
+   * recommendPapers（模型精选推荐）的输出在正文流里就地渲染成可入库的卡片；
+   * 搜索工具的结果只有模型自己可见，不再渲染。服务端落库时保留了该工具的
+   * output，历史回显也能重建出同样的卡片。
    * useCallback：ChatMessage 是 memo 的，每渲染换一个函数身份会让整列消息重渲染。
    */
   const renderToolOutput = useCallback(
     (part: ToolUIPart, _messageId: string) => {
-      if (
-        part.type !== "tool-searchArxiv" &&
-        part.type !== "tool-listDailyPapers"
-      )
-        return null;
+      if (part.type !== "tool-recommendPapers") return null;
       if (part.state !== "output-available") return null;
       // output 来自 D1 里存着的历史 JSON：早期格式或 {error} 分支都可能到这儿，
       // 形状不对就当没有卡片，别让一条旧消息把整个聊天区渲染崩掉

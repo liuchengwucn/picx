@@ -479,6 +479,8 @@
   "assistant_tool_search_arxiv_done": "Searched arXiv",
   "assistant_tool_daily_papers": "Fetching trending papers",
   "assistant_tool_daily_papers_done": "Fetched trending papers",
+  "assistant_tool_recommend_papers": "Picking papers",
+  "assistant_tool_recommend_papers_done": "Recommended papers",
   "assistant_tool_search_news": "Searching news",
   "assistant_tool_search_news_done": "Searched news",
   "assistant_tool_update_profile": "Updating your profile",

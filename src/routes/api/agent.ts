@@ -36,8 +36,8 @@ interface AgentCtx {
   conversation: typeof conversations.$inferSelect;
 }
 
-/** 保留卡片工具的 output（历史回显要重建卡片），其余落库时照常剥掉 */
-const CARD_TOOL_TYPES = new Set(["tool-searchArxiv", "tool-listDailyPapers"]);
+/** 保留卡片工具（recommendPapers）的 output——历史回显要重建卡片；搜索工具的 output 落库时照常剥掉 */
+const CARD_TOOL_TYPES = new Set(["tool-recommendPapers"]);
 
 const handler = createChatStreamHandler<Body, AgentCtx>({
   logTag: "agent",

@@ -83,8 +83,8 @@ export function buildAgentSystemPrompt(
     "Rules:",
     "- Answer in the same language the user writes in.",
     "- Use searchMyPapers / listMyPapers to look into the user's own library; use readPaper to read the full text of a specific paper before answering detailed questions about it.",
-    "- Use searchArxiv / listDailyPapers to discover new papers, and searchNews for the site's aggregated AI news.",
-    "- You cannot add papers to the user's library yourself. Search results are shown to the user as cards with an add button; when the user wants to save a paper, tell them to click the add button on the card.",
+    "- Use searchArxiv / listDailyPapers to discover new papers, and searchNews for the site's aggregated AI news. The user cannot see search results directly.",
+    "- Search results are visible only to you. To show papers to the user, call recommendPapers with their arXiv IDs — it renders cards with an add-to-library button at that point in the conversation. Weave these calls naturally into the flow of your reply, right where you discuss the papers (multiple calls per reply are fine); do not dump one big batch at the end, and do not recommend every search hit — curate. You cannot add papers to the library yourself; when the user wants to save one, tell them to click the add button on its card.",
     "- When the user shares durable facts about their research interests (topics, directions, preferences), call updateProfile to keep their profile up to date. The profile is plain text the user can also edit; rewrite the full content, do not append blindly.",
     ...(webSearchEnabled
       ? [
@@ -167,6 +167,16 @@ export function markInLibrary(
       ? { ...e, inLibrary: true, libraryShortId: shortId }
       : { ...e, inLibrary: false };
   });
+}
+
+/** recommendPapers 输入清洗：canonical 化（去版本号等）、滤掉无效 id、去重（纯函数，可测） */
+export function normalizeArxivIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  for (const raw of ids) {
+    const id = canonicalArxivId(raw);
+    if (id) seen.add(id);
+  }
+  return [...seen];
 }
 
 /** 查用户库，构造 canonical sourceUrl → shortId 映射（urls ≤20，远低于 D1 参数上限） */
@@ -339,7 +349,7 @@ export function buildAgentTools(deps: AgentToolsDeps) {
 
     searchArxiv: tool({
       description:
-        "Search arXiv for papers by keyword. Optional category filter (e.g. cs.CL) and sort order. Results are shown to the user as cards with an add-to-library button. The query is matched as a phrase; keep it short (2-5 words) and issue multiple searches for different angles.",
+        "Search arXiv for papers by keyword. Optional category filter (e.g. cs.CL) and sort order. Results are visible only to you; use recommendPapers to show selected papers to the user. The query is matched as a phrase; keep it short (2-5 words) and issue multiple searches for different angles.",
       inputSchema: z.object({
         query: z.string().min(1).max(200),
         category: z.string().max(20).optional(),
@@ -392,7 +402,7 @@ export function buildAgentTools(deps: AgentToolsDeps) {
 
     listDailyPapers: tool({
       description:
-        "List trending papers from HuggingFace Daily Papers. Optional date (YYYY-MM-DD), defaults to the latest. Results are shown to the user as cards with an add-to-library button.",
+        "List trending papers from HuggingFace Daily Papers. Optional date (YYYY-MM-DD), defaults to the latest. Results are visible only to you; use recommendPapers to show selected papers to the user.",
       inputSchema: z.object({
         date: z
           .string()
@@ -453,6 +463,40 @@ export function buildAgentTools(deps: AgentToolsDeps) {
             error:
               "HuggingFace Daily Papers request failed; try searchArxiv instead",
           };
+        }
+      },
+    }),
+
+    recommendPapers: tool({
+      description:
+        "Show selected papers to the user as cards with an add-to-library button, placed at this point in the conversation. This is the ONLY way the user can see paper cards — search results are never shown to them directly. Call it right where you discuss or recommend the papers, and only for papers worth the user's attention.",
+      inputSchema: z.object({
+        arxivIds: z.array(z.string().min(1).max(40)).min(1).max(8),
+      }),
+      execute: async ({ arxivIds }) => {
+        const ids = normalizeArxivIds(arxivIds);
+        if (ids.length === 0) return { error: "no valid arXiv ids" };
+        const url = `https://export.arxiv.org/api/query?id_list=${ids.join(",")}&max_results=${ids.length}`;
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+          if (!res.ok) return { error: `arXiv API returned ${res.status}` };
+          const entries = parseArxivAtom(await res.text());
+          // id 格式合法但 arXiv 查无此文时返回空 feed（无错误条目）：必须显式提示，
+          // 否则模型会以为卡片已经展示给用户了
+          if (entries.length === 0)
+            return {
+              results: [],
+              note: "no papers found for these ids; cards were NOT shown",
+            };
+          const owned = await loadOwnedUrlMap(
+            db,
+            userId,
+            entries.map((e) => e.url),
+          );
+          return { results: markInLibrary(entries, owned) };
+        } catch (error) {
+          console.error("[agent] recommendPapers failed:", error);
+          return { error: "arXiv lookup failed; retry recommendPapers" };
         }
       },
     }),

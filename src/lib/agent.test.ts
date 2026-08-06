@@ -3,6 +3,7 @@ import {
   AGENT_LIMITS,
   buildAgentSystemPrompt,
   markInLibrary,
+  normalizeArxivIds,
   parseArxivAtom,
 } from "#/lib/agent";
 
@@ -91,6 +92,23 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).not.toContain(WEB_SEARCH_LINE);
     expect(prompt).toContain("<user_profile>");
     expect(prompt).toContain("Interested in diffusion models.");
+  });
+});
+
+describe("normalizeArxivIds", () => {
+  it("canonicalizes, drops invalid ids, and dedupes", () => {
+    expect(
+      normalizeArxivIds([
+        "2601.13209v2",
+        "https://arxiv.org/abs/2601.13209",
+        "hep-th/9901001v1",
+        "not an id",
+      ]),
+    ).toEqual(["2601.13209", "hep-th/9901001"]);
+  });
+
+  it("returns empty array when nothing is valid", () => {
+    expect(normalizeArxivIds(["nope", ""])).toEqual([]);
   });
 });
 

@@ -479,6 +479,8 @@
   "assistant_tool_search_arxiv_done": "arXiv を検索しました",
   "assistant_tool_daily_papers": "注目論文を取得中",
   "assistant_tool_daily_papers_done": "注目論文を取得しました",
+  "assistant_tool_recommend_papers": "論文を選定中",
+  "assistant_tool_recommend_papers_done": "論文をおすすめしました",
   "assistant_tool_search_news": "ニュースを検索中",
   "assistant_tool_search_news_done": "ニュースを検索しました",
   "assistant_tool_update_profile": "プロフィールを更新中",

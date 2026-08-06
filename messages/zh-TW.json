@@ -479,6 +479,8 @@
   "assistant_tool_search_arxiv_done": "已檢索 arXiv",
   "assistant_tool_daily_papers": "正在取得熱門論文",
   "assistant_tool_daily_papers_done": "已取得熱門論文",
+  "assistant_tool_recommend_papers": "正在挑選論文",
+  "assistant_tool_recommend_papers_done": "已推薦論文",
   "assistant_tool_search_news": "正在檢索資訊",
   "assistant_tool_search_news_done": "已檢索資訊",
   "assistant_tool_update_profile": "正在更新個人檔案",
