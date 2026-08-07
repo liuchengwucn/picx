@@ -1,7 +1,14 @@
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2, Newspaper, Search, X } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  Loader2,
+  Newspaper,
+  Search,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { enUS, ja, zhCN, zhTW } from "react-day-picker/locale";
 import { z } from "zod";
 import {
   FeaturedStory,
@@ -9,8 +16,15 @@ import {
 } from "#/components/news/featured-story";
 import { StoryRow, StoryRowSkeleton } from "#/components/news/story-row";
 import { Button } from "#/components/ui/button";
+import { Calendar } from "#/components/ui/calendar";
 import { Input } from "#/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "#/components/ui/popover";
 import { useTRPC } from "#/integrations/trpc/react";
+import { beforeTsOf, dateFromKey } from "#/lib/news/date-jump";
 import { dateKeyOf, groupStoriesByDay } from "#/lib/news/group-stories";
 import { useDebugScores } from "#/lib/news/use-debug-scores";
 import { SITE_URL } from "#/lib/site-url";
@@ -57,6 +71,19 @@ function NewsPage() {
   const sort = search.sort ?? "latest";
   const q = search.q?.trim() || undefined;
   const [inputValue, setInputValue] = useState(search.q ?? "");
+  // date 只在 latest 下有意义（active 按活跃时间排序，日期起点语义不成立）
+  const dateParam = sort === "latest" ? search.date : undefined;
+  const selectedDate = dateParam ? dateFromKey(dateParam) : null;
+  const beforeTs = dateParam ? (beforeTsOf(dateParam) ?? undefined) : undefined;
+  const [calOpen, setCalOpen] = useState(false);
+  const dayPickerLocale =
+    locale === "zh-CN"
+      ? zhCN
+      : locale === "zh-TW"
+        ? zhTW
+        : locale === "ja"
+          ? ja
+          : enUS;
 
   // 浏览器前进后退时同步回输入框
   useEffect(() => {
@@ -82,7 +109,7 @@ function NewsPage() {
 
   const newsQuery = useInfiniteQuery({
     ...trpc.news.list.infiniteQueryOptions(
-      { limit: PAGE_SIZE, sort, locale, q },
+      { limit: PAGE_SIZE, sort, locale, q, beforeTs },
       { getNextPageParam: (last) => last.nextCursor },
     ),
     // 搜索词 / 排序切换换 key 期间沿用旧数据，由下方 isPlaceholderData 降透明度提示
@@ -128,6 +155,7 @@ function NewsPage() {
       search: (prev) => ({
         ...prev,
         sort: next === "latest" ? undefined : next,
+        date: next === "active" ? undefined : prev.date,
       }),
     });
   };
@@ -187,6 +215,38 @@ function NewsPage() {
               </button>
             )}
           </div>
+          <Popover open={calOpen} onOpenChange={setCalOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant={dateParam ? "default" : "outline"}
+                size="sm"
+                aria-label={m.news_jump_to_date()}
+              >
+                <CalendarIcon className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-auto p-0">
+              <Calendar
+                mode="single"
+                selected={selectedDate ?? undefined}
+                onSelect={(d) => {
+                  setCalOpen(false);
+                  if (!d) return;
+                  const key = dateKeyOf(d);
+                  navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      sort: undefined, // 选日期强制回 latest
+                      date: key === todayKey ? undefined : key, // 选今天=回默认视图
+                    }),
+                  });
+                  window.scrollTo({ top: 0 });
+                }}
+                disabled={{ after: new Date() }}
+                locale={dayPickerLocale}
+              />
+            </PopoverContent>
+          </Popover>
           <div className="flex items-center gap-2">
             <Button
               variant={sort === "latest" ? "default" : "outline"}
@@ -205,6 +265,24 @@ function NewsPage() {
           </div>
         </div>
 
+        {dateParam && selectedDate && (
+          <div className="rise-in mt-3 flex items-center gap-2 text-sm text-[var(--ink-soft)]">
+            <span>
+              {m.news_from_date({ date: dateFormat.format(selectedDate) })}
+            </span>
+            <button
+              type="button"
+              aria-label={m.news_clear_date()}
+              onClick={() =>
+                navigate({ search: (prev) => ({ ...prev, date: undefined }) })
+              }
+              className="rounded-full border border-[var(--line)] p-1 transition-colors hover:bg-[var(--line)]"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        )}
+
         <div
           className={`rise-in mt-4 transition-opacity ${
             newsQuery.isPlaceholderData ? "opacity-60" : ""
@@ -217,10 +295,14 @@ function NewsPage() {
               <Newspaper className="mx-auto h-8 w-8 text-[var(--ink-soft)] opacity-60" />
               <h2 className="mt-4 font-serif text-lg font-semibold text-[var(--ink)]">
                 {/* 用 URL 上的 q 而非 inputValue：debounce 期间查询还没跑，文案不该提前翻转 */}
-                {q ? m.news_no_results_title() : m.news_empty_title()}
+                {q || dateParam
+                  ? m.news_no_results_title()
+                  : m.news_empty_title()}
               </h2>
               <p className="mt-1 text-sm text-[var(--ink-soft)]">
-                {q ? m.news_no_results_desc() : m.news_empty_desc()}
+                {q || dateParam
+                  ? m.news_no_results_desc()
+                  : m.news_empty_desc()}
               </p>
             </div>
           ) : !flatList ? (
