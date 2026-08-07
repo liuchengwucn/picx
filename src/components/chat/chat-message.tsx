@@ -1,8 +1,11 @@
+import "katex/dist/katex.min.css";
 import { isToolUIPart, type ToolUIPart, type UIMessage } from "ai";
 import { ChevronRight, Loader2, type LucideIcon } from "lucide-react";
 import { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { CHAT_ERROR_CODES, type ChatErrorCode } from "#/lib/chat-errors";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
@@ -34,7 +37,27 @@ export const MARKDOWN_CLASS = [
   "[&_table]:my-2 [&_table]:w-full [&_table]:text-xs",
   "[&_th]:border-b [&_th]:border-[var(--line)] [&_th]:py-1 [&_th]:text-left",
   "[&_td]:border-b [&_td]:border-[var(--line)] [&_td]:py-1",
+  // 360px 侧栏里长公式放不下：块级公式横向滚动，别把整个消息列表撑破
+  "[&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1",
 ].join(" ");
+
+/**
+ * 把模型输出里的 `\(...\)` / `\[...\]` 归一成 remark-math 认的 `$` / `$$` 定界符。
+ * 系统提示没约定公式格式，DeepSeek 等模型习惯用反斜杠定界符；历史消息也已经
+ * 这么存下来了，所以在渲染端归一而不是改提示词。代码围栏与行内代码原样跳过，
+ * 免得把代码里的 `\(` 当成公式改坏。
+ */
+export function normalizeMathDelimiters(text: string): string {
+  return text
+    .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment;
+      return segment
+        .replace(/\\\[([\s\S]+?)\\\]/g, (_, inner: string) => `$$${inner}$$`)
+        .replace(/\\\(([\s\S]+?)\\\)/g, (_, inner: string) => `$${inner}$`);
+    })
+    .join("");
+}
 
 interface SourceLink {
   url: string;
@@ -423,6 +446,12 @@ function buildBlocks(
   return blocks;
 }
 
+// 模块级稳定引用，避免每次渲染都让 react-markdown 认为插件变了。
+// rehype-katex 保持默认 trust:false + strict 缺省：公式内容是模型（间接是论文/网页）
+// 可控的，开 trust 等于放行 \href/\htmlClass 注入，参见 markdown-article.tsx 的注释。
+const REMARK_PLUGINS = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS = [rehypeKatex];
+
 /** 模型生成的链接一律新开标签页，且不给外链传递权重 */
 const MARKDOWN_COMPONENTS = {
   a: ({
@@ -483,10 +512,11 @@ export const ChatMessage = memo(function ChatMessage({
             return (
               <div key={block.key} className={MARKDOWN_CLASS}>
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
+                  remarkPlugins={REMARK_PLUGINS}
+                  rehypePlugins={REHYPE_PLUGINS}
                   components={MARKDOWN_COMPONENTS}
                 >
-                  {block.text}
+                  {normalizeMathDelimiters(block.text)}
                 </ReactMarkdown>
               </div>
             );
