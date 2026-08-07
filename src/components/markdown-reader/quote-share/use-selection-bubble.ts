@@ -80,7 +80,13 @@ export function useSelectionBubble(articleRef: RefObject<HTMLElement | null>): {
       draggingRef.current = true;
       setState(null);
     };
-    const onPointerUp = () => {
+    // pointerup 之外还要兜底 pointercancel 与 blur：拖到窗口外再松手（触控板/鼠标
+    // 移出窗口）、触控笔中途取消、拖拽过程中窗口失焦，都不会给 document 发 pointerup，
+    // draggingRef 会永远卡在 true。而 schedule() 里 `!draggingRef.current` 这道门连
+    // selectionchange（键盘 Shift+方向键选中）也一起挡住，纯键盘用户会因此看起来
+    // 「选中分享」整个失效，直到随便点一下页面才能自愈——所以必须主动兜底，不能指望
+    // pointerup 总会到达。
+    const endDrag = () => {
       draggingRef.current = false;
       schedule();
     };
@@ -91,20 +97,24 @@ export function useSelectionBubble(articleRef: RefObject<HTMLElement | null>): {
     };
 
     document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("pointerup", endDrag);
+    document.addEventListener("pointercancel", endDrag);
     document.addEventListener("selectionchange", schedule);
     document.addEventListener("keydown", onKeyDown);
     // capture:true —— 正文在可滚动容器里时，事件不冒泡到 window
     window.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
+    window.addEventListener("blur", endDrag);
 
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("pointerup", endDrag);
+      document.removeEventListener("pointercancel", endDrag);
       document.removeEventListener("selectionchange", schedule);
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("blur", endDrag);
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current);
       }

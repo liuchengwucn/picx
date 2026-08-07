@@ -6,16 +6,8 @@ import {
   createRelativeImageUrlTransform,
   MarkdownArticle,
 } from "#/components/markdown-reader/markdown-article";
-import {
-  encodeAnchor,
-  type QuoteAnchor,
-} from "#/components/markdown-reader/quote-share/quote-anchor";
-import { QuoteShareBubble } from "#/components/markdown-reader/quote-share/quote-share-bubble";
-import {
-  type QuoteShareContext,
-  QuoteShareDialog,
-} from "#/components/markdown-reader/quote-share/quote-share-dialog";
-import { useSelectionBubble } from "#/components/markdown-reader/quote-share/use-selection-bubble";
+import type { QuoteShareContext } from "#/components/markdown-reader/quote-share/quote-share-dialog";
+import { QuoteShareOverlay } from "#/components/markdown-reader/quote-share/quote-share-overlay";
 import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
 import { useToc } from "#/components/markdown-reader/reader-toc";
 import { ReaderTocDrawer } from "#/components/markdown-reader/reader-toc-drawer";
@@ -23,7 +15,6 @@ import { useReaderSettings } from "#/components/markdown-reader/use-reader-setti
 import { PaperStateCard } from "#/components/papers/paper-state-card";
 import { TOOL_BTN } from "#/components/reader/reader-ui";
 import { useTRPC } from "#/integrations/trpc/react";
-import { paperQuoteUrl } from "#/lib/embed-code";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -136,9 +127,7 @@ function ReaderArticle({
   imageBase,
   articleRef,
   setArticleRef,
-  // 本任务用不上，留给 Task 3 的落地定位 hook（正文重新挂载后需要重新触发一次滚动）；
-  // 加下划线前缀让 tsc 的 noUnusedParameters 放行，而不是把 prop 从类型里删掉
-  contentKey: _contentKey,
+  contentKey,
   toc,
   share,
 }: {
@@ -160,8 +149,6 @@ function ReaderArticle({
   // 而不是页面层：tab 切走时这整棵组件树连同这个 state 一起卸载，不会留下悬挂的
   // 「抽屉曾经开着」状态。
   const [tocDrawerOpen, setTocDrawerOpen] = useState(false);
-  const [shareAnchor, setShareAnchor] = useState<QuoteAnchor | null>(null);
-  const bubble = useSelectionBubble(articleRef);
 
   return (
     <div className="paper-card p-4 sm:p-6">
@@ -207,28 +194,10 @@ function ReaderArticle({
         onJump={toc.jumpTo}
       />
 
-      {bubble.state && !shareAnchor && (
-        <QuoteShareBubble
-          state={bubble.state}
-          onShare={() => {
-            setShareAnchor(bubble.state?.anchor ?? null);
-            bubble.dismiss();
-          }}
-        />
-      )}
-
-      <QuoteShareDialog
-        open={!!shareAnchor}
-        onOpenChange={(next) => {
-          if (!next) {
-            setShareAnchor(null);
-          }
-        }}
-        url={
-          shareAnchor
-            ? paperQuoteUrl(share.shortId, encodeAnchor(shareAnchor))
-            : ""
-        }
+      <QuoteShareOverlay
+        articleRef={articleRef}
+        share={share}
+        contentKey={contentKey}
       />
     </div>
   );
