@@ -1,5 +1,7 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { useState } from "react";
+import { useTRPC } from "#/integrations/trpc/react";
 import { paperQuoteUrl } from "#/lib/embed-code";
 import { encodeAnchor, type QuoteAnchor } from "./quote-anchor";
 import { buildCardContent, type CardContent } from "./quote-card-content";
@@ -28,6 +30,19 @@ export function QuoteShareOverlay({
   const [cardContent, setCardContent] = useState<CardContent | null>(null);
   const bubble = useSelectionBubble(articleRef);
   useQuoteAnchorScroll(articleRef, contentKey);
+
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const togglePublic = useMutation(
+    trpc.paper.togglePublic.mutationOptions({
+      onSuccess: () => {
+        // 详情页的 paper 查询要重取，提示条才会消失
+        void queryClient.invalidateQueries({
+          queryKey: trpc.paper.getByShortId.queryKey(share.shortId),
+        });
+      },
+    }),
+  );
 
   return (
     <>
@@ -63,6 +78,9 @@ export function QuoteShareOverlay({
         }
         content={cardContent}
         title={share.title}
+        share={share}
+        publishing={togglePublic.isPending}
+        onMakePublic={() => togglePublic.mutate({ paperId: share.paperId })}
       />
     </>
   );

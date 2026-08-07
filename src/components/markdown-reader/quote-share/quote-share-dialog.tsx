@@ -41,12 +41,18 @@ export function QuoteShareDialog({
   url,
   content,
   title,
+  share,
+  onMakePublic,
+  publishing,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   url: string;
   content: CardContent | null;
   title: string;
+  share: QuoteShareContext;
+  onMakePublic: () => void;
+  publishing: boolean;
 }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [cardHeight, setCardHeight] = useState(0);
@@ -54,6 +60,7 @@ export function QuoteShareDialog({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [canSystemShare, setCanSystemShare] = useState(false);
+  const [failed, setFailed] = useState(false);
   // 截图链路要跨越几百毫秒到数秒。弹窗关掉再为另一段引文打开时，上一次的异步收尾
   // （setBusy / flash / 错误日志）不能落到新会话上——用自增序号判定归属。
   const generationRef = useRef(0);
@@ -120,6 +127,7 @@ export function QuoteShareDialog({
     }
     const gen = ++generationRef.current;
     setBusy(true);
+    setFailed(false);
     try {
       const blob = await renderQuoteCard(node);
       await copyCardAndLink(blob, url);
@@ -132,6 +140,7 @@ export function QuoteShareDialog({
         return;
       }
       console.error("Failed to copy quote card:", err);
+      setFailed(true);
     } finally {
       if (generationRef.current === gen) {
         setBusy(false);
@@ -146,12 +155,18 @@ export function QuoteShareDialog({
     }
     const gen = ++generationRef.current;
     setBusy(true);
+    setFailed(false);
     let file: File | null = null;
     try {
       const blob = await renderQuoteCard(node);
       file = new File([blob], "picx-quote.png", { type: "image/png" });
     } catch (err) {
-      console.error("Failed to render quote card for share:", err);
+      // 只在仍属于本会话时报错与标记失败：旧会话的截图失败不该记到新会话头上，
+      // 也不该在新会话的弹窗上冒出一条不相干的错误提示。
+      if (generationRef.current === gen) {
+        console.error("Failed to render quote card for share:", err);
+        setFailed(true);
+      }
     }
     if (generationRef.current !== gen) {
       return;
@@ -164,8 +179,12 @@ export function QuoteShareDialog({
         await navigator.share({ title, url, files: [file] });
         return;
       } catch (err) {
-        // 用户主动关掉分享面板，不要再弹第二次
-        if (err instanceof DOMException && err.name === "AbortError") {
+        // AbortError = 用户主动关掉面板；InvalidStateError = 上一次 share 还没结束
+        // （Web Share 规范只允许一个在途请求）。两种都不该再弹一次 link-only 面板。
+        if (
+          err instanceof DOMException &&
+          (err.name === "AbortError" || err.name === "InvalidStateError")
+        ) {
           return;
         }
         console.warn(
@@ -173,6 +192,11 @@ export function QuoteShareDialog({
           err,
         );
       }
+    }
+    // navigator.share 是用户可见的系统 UI，不是内部状态——弹窗已经因为陈旧会话被关掉
+    // 时，绝不能再弹一个 OS 级分享面板打扰用户，所以这里要再判一次 generation。
+    if (generationRef.current !== gen) {
+      return;
     }
     try {
       await navigator.share({ title, url });
@@ -193,6 +217,7 @@ export function QuoteShareDialog({
           setQrDataUrl(null);
           setCardHeight(0);
           setBusy(false);
+          setFailed(false);
           generationRef.current += 1;
         }
         onOpenChange(next);
@@ -204,6 +229,26 @@ export function QuoteShareDialog({
             {m.quote_share_dialog_title()}
           </DialogTitle>
         </DialogHeader>
+
+        {!share.isPublic && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-3 py-2">
+            <span className="text-xs text-[var(--ink)]">
+              {m.quote_share_private_notice()}
+            </span>
+            {share.canPublish && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                disabled={publishing}
+                onClick={onMakePublic}
+              >
+                {publishing && <Loader2 className="h-4 w-4 animate-spin" />}
+                {m.quote_share_make_public()}
+              </Button>
+            )}
+          </div>
+        )}
 
         {content ? (
           <div className="max-h-[52vh] overflow-auto rounded-lg bg-[var(--parchment-warm)] p-4">
@@ -281,6 +326,12 @@ export function QuoteShareDialog({
             </Button>
           )}
         </div>
+
+        {failed && (
+          <p className="text-xs text-[var(--sienna)]">
+            {m.quote_share_render_failed()}
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );
