@@ -236,6 +236,7 @@
   "quote_share_link_copied": "Link copied",
   "quote_share_located": "Jumped to the shared passage",
   "quote_share_make_public": "Make public and continue",
+  "quote_share_make_public_failed": "Couldn't make the paper public — please try again",
   "quote_share_private_notice": "This paper isn't public yet — the link won't open for anyone else",
   "quote_share_qr_hint": "Scan or open the link to jump to this passage",
   "quote_share_render_failed": "Couldn't generate the card — you can still copy the link",

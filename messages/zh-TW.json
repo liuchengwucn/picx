@@ -236,6 +236,7 @@
   "quote_share_link_copied": "連結已複製",
   "quote_share_located": "已定位到分享的段落",
   "quote_share_make_public": "設為公開並繼續",
+  "quote_share_make_public_failed": "設為公開失敗，請重試",
   "quote_share_private_notice": "這篇論文尚未公開，分享出去的連結對方打不開",
   "quote_share_qr_hint": "掃碼或點連結，直接跳到原文這一段",
   "quote_share_render_failed": "卡片產生失敗，你仍可以複製連結",

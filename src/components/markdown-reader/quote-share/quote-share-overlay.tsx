@@ -1,8 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { useTRPC } from "#/integrations/trpc/react";
 import { paperQuoteUrl } from "#/lib/embed-code";
+import { m } from "#/paraglide/messages";
 import { encodeAnchor, type QuoteAnchor } from "./quote-anchor";
 import { buildCardContent, type CardContent } from "./quote-card-content";
 import { QuoteShareBubble } from "./quote-share-bubble";
@@ -41,6 +43,9 @@ export function QuoteShareOverlay({
           queryKey: trpc.paper.getByShortId.queryKey(share.shortId),
         });
       },
+      // 这是流程中途的模态决策点，不是设置页的后台动作：静默失败会让用户带着
+      // 一条他们以为已经解除、实则仍是死链的分享出门，必须显式提示。
+      onError: () => toast.error(m.quote_share_make_public_failed()),
     }),
   );
 

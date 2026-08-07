@@ -236,6 +236,7 @@
   "quote_share_link_copied": "リンクをコピーしました",
   "quote_share_located": "共有された箇所に移動しました",
   "quote_share_make_public": "公開にして続ける",
+  "quote_share_make_public_failed": "公開に変更できませんでした。もう一度お試しください",
   "quote_share_private_notice": "この論文は未公開です。共有してもリンクは開けません",
   "quote_share_qr_hint": "QRコードまたはリンクからこの箇所へ",
   "quote_share_render_failed": "カードを生成できませんでした。リンクはコピーできます",
