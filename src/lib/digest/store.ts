@@ -379,11 +379,17 @@ export async function saveDigestContent(
     .where(eq(digests.id, digestId));
 }
 
-/** 供 workflow 里把 angle/搜索产出的 arXiv 链接规范化 */
+/**
+ * 供 workflow 里把角度搜索产出的候选按 URL 权威定性 kind：gallery 入库路径
+ * （createGalleryPaper / 队列 PDF 下载）只认 arXiv，"paper" 必须是代码能兑现的
+ * 承诺，而不是模型的主观判断——命中 arXiv 才规范化 URL 并置 kind:"paper"；
+ * 否则无论模型标了什么，强制降级为 "intel"，避免 OpenReview/exa.ai 等无法
+ * 处理的来源被当作论文建卡后永远处理失败。
+ */
 export function canonicalizeCandidate(item: CandidateItem): CandidateItem {
   const id = canonicalArxivId(item.canonicalUrl);
   if (id) {
     return { ...item, canonicalUrl: canonicalArxivUrl(id), kind: "paper" };
   }
-  return item;
+  return { ...item, kind: "intel" };
 }

@@ -130,7 +130,7 @@ export async function searchAngle(
       UNTRUSTED_NOTE,
       "When done, output JSON only (no prose):",
       '{"items":[{"url":"...","title":"...","kind":"paper"|"intel","excerpt":"one-sentence why relevant","publishedAt":"YYYY-MM-DD or empty"}]}',
-      'kind="paper" only for arxiv/openreview papers; everything else is "intel".',
+      'kind="paper" ONLY for arXiv papers (arxiv.org/abs/...); everything else — including OpenReview, exa.ai library pages, personal sites, conference pages, and PDFs on university domains — is "intel", even if it is itself a preprint.',
     ].join("\n\n"),
   });
   const json = extractFirstJsonObject(text);
