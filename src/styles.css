@@ -563,3 +563,11 @@ a:hover { color: var(--academic-brown-deep); }
   overflow-y: hidden;
   padding-block: 0.4em;
 }
+
+/* 分享深链落地时的段落高亮。用 CSS Custom Highlight API（见
+   use-quote-anchor-scroll.ts）：跨节点 Range 无法 surroundContents，而手动切分文本
+   节点插 span 会跟 React 管理的 DOM 打架，这里必须做到零 DOM 改动。 */
+::highlight(picx-quote) {
+  background-color: rgba(201, 169, 97, 0.42);
+  color: inherit;
+}

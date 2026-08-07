@@ -231,6 +231,7 @@
   "quote_share_copy_link": "リンクをコピー",
   "quote_share_dialog_title": "引用を共有",
   "quote_share_link_copied": "リンクをコピーしました",
+  "quote_share_located": "共有された箇所に移動しました",
   "whiteboard_prompt_page_title": "ホワイトボードプロンプト管理",
   "whiteboard_prompt_page_description": "ホワイトボード生成プロンプトを管理",
   "whiteboard_prompt_create": "新規プロンプト作成",

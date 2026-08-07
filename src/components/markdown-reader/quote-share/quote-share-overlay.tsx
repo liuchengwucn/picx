@@ -4,6 +4,7 @@ import { paperQuoteUrl } from "#/lib/embed-code";
 import { encodeAnchor, type QuoteAnchor } from "./quote-anchor";
 import { QuoteShareBubble } from "./quote-share-bubble";
 import { type QuoteShareContext, QuoteShareDialog } from "./quote-share-dialog";
+import { useQuoteAnchorScroll } from "./use-quote-anchor-scroll";
 import { useSelectionBubble } from "./use-selection-bubble";
 
 /**
@@ -11,15 +12,12 @@ import { useSelectionBubble } from "./use-selection-bubble";
  * 而不断膨胀（后续还要加卡片生成、截图、未公开提示）。ReaderArticle 只需要把
  * articleRef 与 share 交出来，其余状态都归这里管。
  *
- * contentKey 先收着但本任务不用——Task 3 的落地定位 hook（useQuoteAnchorScroll）
- * 会挂在这里，靠它判断正文是否已重新挂载完成。
+ * contentKey 用于驱动 useQuoteAnchorScroll：正文重新挂载/内容变化时重跑一次深链定位。
  */
 export function QuoteShareOverlay({
   articleRef,
   share,
-  // 本任务用不上，Task 3 接 useQuoteAnchorScroll(articleRef, contentKey) 时才会用到；
-  // 加下划线前缀让 tsc 的 noUnusedParameters 放行，而不是把 prop 从类型里删掉
-  contentKey: _contentKey,
+  contentKey,
 }: {
   articleRef: RefObject<HTMLElement | null>;
   share: QuoteShareContext;
@@ -27,6 +25,7 @@ export function QuoteShareOverlay({
 }) {
   const [shareAnchor, setShareAnchor] = useState<QuoteAnchor | null>(null);
   const bubble = useSelectionBubble(articleRef);
+  useQuoteAnchorScroll(articleRef, contentKey);
 
   return (
     <>
