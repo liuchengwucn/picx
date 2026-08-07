@@ -202,10 +202,11 @@ function NewsPage() {
             <div className="rounded-2xl border border-dashed border-[var(--line)] px-6 py-16 text-center">
               <Newspaper className="mx-auto h-8 w-8 text-[var(--ink-soft)] opacity-60" />
               <h2 className="mt-4 font-serif text-lg font-semibold text-[var(--ink)]">
-                {m.news_empty_title()}
+                {/* 用 URL 上的 q 而非 inputValue：debounce 期间查询还没跑，文案不该提前翻转 */}
+                {q ? m.news_no_results_title() : m.news_empty_title()}
               </h2>
               <p className="mt-1 text-sm text-[var(--ink-soft)]">
-                {m.news_empty_desc()}
+                {q ? m.news_no_results_desc() : m.news_empty_desc()}
               </p>
             </div>
           ) : !flatList ? (

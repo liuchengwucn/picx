@@ -452,6 +452,8 @@
   "news_x_mentions": "{count} 个 X 账号",
   "news_empty_title": "暂无资讯",
   "news_empty_desc": "聚合管道每小时运行一次，稍后再来看看。",
+  "news_no_results_title": "没有匹配的新闻",
+  "news_no_results_desc": "换个关键词试试。",
   "news_timeline": "报道时间线",
   "news_back": "返回资讯",
   "news_not_found": "该资讯不存在或已被移除。",

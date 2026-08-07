@@ -452,6 +452,8 @@
   "news_x_mentions": "{count} アカウント",
   "news_empty_title": "まだニュースがありません",
   "news_empty_desc": "集約パイプラインは1時間ごとに実行されます。しばらくしてからご確認ください。",
+  "news_no_results_title": "一致するニュースはありません",
+  "news_no_results_desc": "別のキーワードでお試しください。",
   "news_timeline": "報道タイムライン",
   "news_back": "ニュース一覧へ",
   "news_not_found": "このストーリーは存在しないか、削除されました。",
