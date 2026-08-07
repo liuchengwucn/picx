@@ -41,9 +41,10 @@ import type { Env } from "#/types/env";
 
 // 窗口/阈值都是产品参数，集中放这里便于调整（spec：72h 窗口可配置）
 const CLUSTER_WINDOW_HOURS = 72;
-// 60：打分几乎都落在 5 的倍数上，55 档实测多为擦边内容（营销稿/小版本发布），
-// 与 filter prompt 的 "serious content scores above 60" 锚点对齐
-const RELEVANCE_THRESHOLD = 60;
+// 打分几乎都落在 5 的倍数上，55 档实测多为擦边内容（营销稿/小版本发布）。
+// 2026-08-07 由 60 提到 65：加入 Techmeme/TechCrunch/Verge/晚点 等产业流后
+// 60 档放行量偏大（首日 +14 story/天），提一档收紧首页密度
+const RELEVANCE_THRESHOLD = 65;
 const SIM_CANDIDATE_THRESHOLD = 0.6;
 const TOP_K = 5;
 const FILTER_BATCH_SIZE = 25;
