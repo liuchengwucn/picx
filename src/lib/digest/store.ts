@@ -254,9 +254,25 @@ export async function finalizeDigestPapers(
     .delete(digestPapers)
     .where(eq(digestPapers.digestId, input.digestId));
 
-  const paperIds: string[] = [];
-  let createdCount = 0;
+  // 去重：picks 按 rank 排序到达，先到者 rank 更优；重复 URL 会撞 digest_papers 的
+  // (digestId, paperId) 主键并让整个 finalize step 反复失败（详见协调者反馈）。
+  const seenUrls = new Set<string>();
+  const dedupedPicks: SynthesisPick[] = [];
   for (const pick of input.picks) {
+    if (seenUrls.has(pick.canonicalUrl)) {
+      console.warn(
+        `[finalizeDigestPapers] duplicate pick canonicalUrl dropped: digestId=${input.digestId} url=${pick.canonicalUrl}`,
+      );
+      continue;
+    }
+    seenUrls.add(pick.canonicalUrl);
+    dedupedPicks.push(pick);
+  }
+
+  const paperIds: string[] = [];
+  const seenPaperIds = new Set<string>();
+  let createdCount = 0;
+  for (const pick of dedupedPicks) {
     const reviewed = input.reviewedByUrl.get(pick.canonicalUrl);
     const title = reviewed?.item.title ?? pick.canonicalUrl;
     const { created, paperId } = await createGalleryPaper(db, env, {
@@ -267,6 +283,15 @@ export async function finalizeDigestPapers(
       creditDescription: `Digest ${input.directionSlug}#${input.issueNumber}: ${title}`,
     });
     if (!paperId) continue;
+    // 二次防护：不同 canonicalUrl 若因上游规范化不一致最终解析到同一 paperId
+    // （createGalleryPaper 按 sourceUrl 查重），也不能重复插入同一 (digestId, paperId)。
+    if (seenPaperIds.has(paperId)) {
+      console.warn(
+        `[finalizeDigestPapers] duplicate resolved paperId dropped: digestId=${input.digestId} paperId=${paperId} url=${pick.canonicalUrl}`,
+      );
+      continue;
+    }
+    seenPaperIds.add(paperId);
     if (created) createdCount++;
     paperIds.push(paperId);
     await db.insert(digestPapers).values({

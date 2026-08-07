@@ -109,15 +109,3 @@ export async function chatJson<T>(
   if (!json) throw new DigestAiError("digest-ai: no JSON object in response");
   return JSON.parse(json) as T;
 }
-
-export async function chatText(
-  cfg: DigestModelConfig,
-  system: string,
-  user: string,
-  maxTokens: number,
-  temperature = 0.3,
-): Promise<string> {
-  const content = await chat(cfg, system, user, maxTokens, temperature);
-  if (!content.trim()) throw new DigestAiError("digest-ai: empty response");
-  return content.trim();
-}
