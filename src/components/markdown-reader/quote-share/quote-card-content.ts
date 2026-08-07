@@ -179,12 +179,30 @@ function pruneEmptyShells(block: HTMLElement): void {
   }
 }
 
+/** 内容模型只允许 <li> 的容器：省略号不能作为它们的直接子节点 */
+const LIST_TAGS = new Set(["UL", "OL"]);
+
+/**
+ * 省略号的落点。列表容器的直接子节点只能是 <li>，裸文本节点虽然浏览器容忍，但会被
+ * 开成一个匿名块，在卡片上表现为一个没有项目符号的孤立「…」独占一行。
+ */
+function ellipsisHost(block: HTMLElement, at: "start" | "end"): Element {
+  if (!LIST_TAGS.has(block.tagName)) {
+    return block;
+  }
+  const item =
+    at === "start" ? block.firstElementChild : block.lastElementChild;
+  return item ?? block;
+}
+
 function prependEllipsis(block: HTMLElement): void {
-  block.insertBefore(document.createTextNode(ELLIPSIS), block.firstChild);
+  const host = ellipsisHost(block, "start");
+  host.insertBefore(document.createTextNode(ELLIPSIS), host.firstChild);
 }
 
 function appendEllipsis(block: HTMLElement): void {
-  block.appendChild(document.createTextNode(ELLIPSIS));
+  const host = ellipsisHost(block, "end");
+  host.appendChild(document.createTextNode(ELLIPSIS));
 }
 
 /** 起始块往前找最近的 h1/h2/h3 文本 */
