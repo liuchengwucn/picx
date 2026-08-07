@@ -841,7 +841,9 @@ async function mineruSubmitAndWait(
           msg.paperId,
           result,
           aiConfig,
-          async () => pdfBuffer,
+          // 传拷贝：pdfjs 的 getDocument 会 transfer/detach 输入的底层
+          // ArrayBuffer，而 persist 失败后 fallbackToPdfjs 还要用原 buffer。
+          async () => pdfBuffer.slice(0),
           env,
           log,
           logWarn,

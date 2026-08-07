@@ -25,8 +25,10 @@
  *   3. `paper-content/{id}/full.md` — repaired markdown, written LAST as the
  *      "this paper is done" marker: repairFffd is idempotent, so on a re-run a
  *      finished paper reads back its repaired full.md, repairs zero runs and is
- *      skipped; an unfinished paper is fully redone and the derived overwrites
- *      are harmless.
+ *      skipped (note: a converged paper that still contains unrepairable � does
+ *      re-download its PDF and re-extract the text layer before skipping — a
+ *      cost, not a correctness issue); an unfinished paper is fully redone and
+ *      the derived overwrites are harmless.
  *
  * Defensive image-ref check: by construction repairFffd only replaces �-runs
  * with non-ASCII characters and cannot alter image references, but before
@@ -242,7 +244,7 @@ async function r2GetText(name, key, path) {
 async function extractPdfTextLayer(pdfKey, tmp) {
   const pdfPath = join(tmp, "paper.pdf");
   rmSync(pdfPath, { force: true });
-  await r2(`r2 get pdf`, [
+  await r2("r2 get pdf", [
     "r2", "object", "get",
     `${BUCKET}/${pdfKey}`,
     "--file", pdfPath, R2_FLAG,
