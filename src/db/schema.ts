@@ -440,9 +440,15 @@ export const newsSources = sqliteTable("news_sources", {
   name: text("name").notNull(),
   config: text("config", { mode: "json" }).notNull().$type<NewsSourceConfig>(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  // 最后一次「成功」抓取的时间——失败不更新，是来源新鲜度的真实口径
   lastFetchedAt: integer("last_fetched_at", { mode: "timestamp" }),
+  // 最后一次「尝试」抓取的时间，成功与失败都写。熔断后的指数退避探活按它计时：
+  // 复用 lastFetchedAt 会因失败不更新而每轮都探活，冷却形同虚设。
+  lastAttemptAt: integer("last_attempt_at", { mode: "timestamp" }),
   lastError: text("last_error"),
-  // 连续失败达到阈值自动禁用，避免死源每小时空转
+  // 连续失败达到阈值自动熔断（enabled=false），之后转入指数退避探活自愈，见 lib/news/source-health.ts。
+  // 注意：「人为停用」与「故障熔断」共用 enabled 这一位，靠本列区分——
+  // 想永久停用一个源，请保证 consecutive_failures 为 0，否则会被探活重新唤醒。
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
