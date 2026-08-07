@@ -190,6 +190,11 @@ export function buildCardContent(
   const out: HTMLElement[] = [];
   for (let i = anchor.startBlock; i <= lastBlock; i += 1) {
     const text = texts[i - anchor.startBlock];
+    // 贡献不了规范化文本的块（插图、纯装饰元素）整块不要：normalizeBlock 不认它们，
+    // trimOutside 也就管不着，留下来只会把图注这类文字原样漏进卡片。
+    if (!text) {
+      continue;
+    }
     const clone = blocks[i].cloneNode(true) as HTMLElement;
     // 克隆体不能带走 TOC 的锚点 id —— 卡片是离屏渲染的，重复 id 会让 TOC 跳转
     // 与 scrollspy 命中错误的节点。块自身与后代都要清。

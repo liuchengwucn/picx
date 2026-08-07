@@ -27,13 +27,16 @@ export function QuoteCard({
 }) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
-  // content.blocks 是原生 DOM 克隆（保留了 KaTeX 渲染产物），只能手动挂载
+  // content.blocks 是真实 DOM 节点，而节点只能有一个父节点：直接挂载会把它们从别处
+  // 摘走。每个实例挂自己的深拷贝，卡片就可以被安全地渲染多份。
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) {
       return;
     }
-    body.replaceChildren(...content.blocks);
+    body.replaceChildren(
+      ...content.blocks.map((block) => block.cloneNode(true)),
+    );
   }, [content]);
 
   return (
