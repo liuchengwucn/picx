@@ -217,9 +217,10 @@ function NewsPage() {
           </div>
           <Popover open={calOpen} onOpenChange={setCalOpen}>
             <PopoverTrigger asChild>
+              {/* size=icon 与 Input / 排序按钮同为 h-9，同排控件基线一致 */}
               <Button
                 variant={selectedDate ? "default" : "outline"}
-                size="sm"
+                size="icon"
                 aria-label={m.news_jump_to_date()}
               >
                 <CalendarIcon className="size-4" />
@@ -229,6 +230,8 @@ function NewsPage() {
               <Calendar
                 mode="single"
                 selected={selectedDate ?? undefined}
+                // 上月留白日全墨色、未来日置灰，两种数字一行之隔却语义相反；直接不渲染
+                showOutsideDays={false}
                 // v10 的 getInitialMonth 是 month || defaultMonth || today，不看
                 // selected：不给 defaultMonth 则重开日历总跳回本月，翻月选历史日期后
                 // 想改选相邻一天得重新翻回去
@@ -256,14 +259,12 @@ function NewsPage() {
           <div className="flex items-center gap-2">
             <Button
               variant={sort === "latest" ? "default" : "outline"}
-              size="sm"
               onClick={() => setSort("latest")}
             >
               {m.news_sort_latest()}
             </Button>
             <Button
               variant={sort === "active" ? "default" : "outline"}
-              size="sm"
               onClick={() => setSort("active")}
             >
               {m.news_sort_active()}
@@ -272,20 +273,21 @@ function NewsPage() {
         </div>
 
         {dateParam && selectedDate && (
-          <div className="rise-in mt-3 flex items-center gap-2 text-sm text-[var(--ink-soft)]">
-            <span>
+          <div className="rise-in mt-3">
+            {/* 与 gallery 已选筛选项同一 chip 语汇：标签与 ✕ 同处一枚药丸内 */}
+            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--academic-brown)]/30 bg-[var(--academic-brown)]/8 px-2.5 py-0.5 text-xs text-[var(--academic-brown)]">
               {m.news_up_to_date({ date: dateFormat.format(selectedDate) })}
+              <button
+                type="button"
+                aria-label={m.news_clear_date()}
+                onClick={() =>
+                  navigate({ search: (prev) => ({ ...prev, date: undefined }) })
+                }
+                className="ml-0.5 hover:opacity-70"
+              >
+                <X className="h-3 w-3" />
+              </button>
             </span>
-            <button
-              type="button"
-              aria-label={m.news_clear_date()}
-              onClick={() =>
-                navigate({ search: (prev) => ({ ...prev, date: undefined }) })
-              }
-              className="rounded-full border border-[var(--line)] p-1 transition-colors hover:bg-[var(--line)]"
-            >
-              <X className="size-3.5" />
-            </button>
           </div>
         )}
 
