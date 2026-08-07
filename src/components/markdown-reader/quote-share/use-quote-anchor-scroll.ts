@@ -7,6 +7,16 @@ import { anchorToRange, decodeAnchor } from "./quote-anchor";
 const HIGHLIGHT_NAME = "picx-quote";
 const HIGHLIGHT_MS = 3000;
 
+/**
+ * 已经定位过的锚点。tab 切到总结再切回来会让 <article> 重挂、contentKey 变化、effect
+ * 重跑——但用户并没有再次点开链接，不该被重新滚动并再弹一次 toast。
+ *
+ * 放在模块作用域而不是 ref：QuoteShareOverlay 会随 ReaderArticle 一起卸载，ref 存不住。
+ * 整页刷新时这个 Set 自然清空，所以直接访问深链仍然照常定位。
+ * key 带上 pathname，免得不同论文碰巧用了同一个锚点串时互相干扰。
+ */
+const located = new Set<string>();
+
 /** CSS Custom Highlight API 在旧浏览器上不存在；不支持时只滚动、不高亮。 */
 function highlightsSupported(): boolean {
   return (
@@ -30,6 +40,10 @@ export function useQuoteAnchorScroll(
   useEffect(() => {
     const anchor = decodeAnchor(window.location.hash);
     if (!anchor) {
+      return;
+    }
+    const key = `${window.location.pathname}${window.location.hash}`;
+    if (located.has(key)) {
       return;
     }
 
@@ -69,6 +83,7 @@ export function useQuoteAnchorScroll(
         window.addEventListener("touchmove", clearHighlight, { once: true });
         clearTimer = setTimeout(clearHighlight, HIGHLIGHT_MS);
       }
+      located.add(key);
       toast.success(m.quote_share_located());
       return true;
     };
