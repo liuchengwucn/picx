@@ -84,9 +84,12 @@ function ExplorePage() {
   // Local controlled input — debounced before writing to URL
   const [inputValue, setInputValue] = useState(search.q ?? "");
 
-  // Keep local input in sync if URL q changes externally (e.g. browser back/forward)
+  // Keep local input in sync if URL q changes externally (e.g. browser back/forward).
+  // We write the trimmed value to the URL, so overwriting unconditionally would eat
+  // a trailing space the user is still typing after ("gpt " + "5" → "gpt5").
   useEffect(() => {
-    setInputValue(search.q ?? "");
+    const next = search.q ?? "";
+    setInputValue((cur) => (cur.trim() === next ? cur : next));
   }, [search.q]);
 
   // Debounce search input → URL
