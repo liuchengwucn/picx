@@ -44,7 +44,12 @@ export default {
       console.log(`[ArxivCron] Fetched ${hfPapers.length} papers from HF`);
 
       // Step 2.5: 全量写入 HF 热度信号（供方向周报挖掘加权），90 天滚动清理
-      await recordHfSignals(db, hfPapers, yesterday);
+      // 信号写入失败不应阻断当天 gallery 论文创建，故单独 catch 且不 rethrow。
+      try {
+        await recordHfSignals(db, hfPapers, yesterday);
+      } catch (error) {
+        console.error("[ArxivCron] Failed to record HF signals:", error);
+      }
 
       // Step 3: 筛选：upvotes >= 30 全取，不足 3 篇补到 3 篇
       const selected = selectPapers(hfPapers);
@@ -122,7 +127,9 @@ async function recordHfSignals(
   date: string,
 ): Promise<void> {
   const now = new Date();
-  // 单条 4 个绑定参数，25 条/批 = 100 参数封顶线以内（D1 上限 100）
+  // 单条 4 个绑定参数 + ON CONFLICT DO UPDATE 里的 updated_at=? 每条语句只出现
+  // 一次，故 N 条/批的参数数是 4N+1。20 条/批 = 81 参数，在 D1 上限 100 内留有
+  // 余量（25 条/批则是 101，会超限）。
   const rows = hfPapers.map((p) => ({
     arxivId: p.paper.id,
     upvotes: p.paper.upvotes,
