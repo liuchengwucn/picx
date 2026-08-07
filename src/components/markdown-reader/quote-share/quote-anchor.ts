@@ -178,12 +178,16 @@ export function quoteTextBetween(
   return parts.join("\n");
 }
 
-/** 规范化偏移 → DOM 点，用于反向构造 Range。 */
-export function offsetToPoint(
-  nb: NormalizedBlock,
-  block: Element,
-  offset: number,
-): DomPoint | null {
+/**
+ * 规范化偏移 → DOM 点，用于反向构造 Range。
+ *
+ * 只接收 block，内部自己 normalize —— 不接收调用方传来的 NormalizedBlock。
+ * 之前的签名 (nb, block, offset) 要求 nb 与 block 描述同一个 DOM 元素，但类型层面
+ * 完全没有约束，传错了会静默返回错误的 Range；折算成本很低（block 就那么大），
+ * 换成单参数不留这个坑。
+ */
+export function offsetToPoint(block: Element, offset: number): DomPoint | null {
+  const nb = normalizeBlock(block);
   for (const seg of nb.segments) {
     if (offset > seg.start + seg.length) {
       continue;
@@ -200,6 +204,7 @@ export function offsetToPoint(
   }
   const last = nb.segments[nb.segments.length - 1];
   if (!last) {
+    // 块完全没有可用文本（比如整块都是被跳过的图片/图注）时的兜底：定位到块自身的起点
     return { node: block, offset: 0 };
   }
   if (!last.synthetic) {
@@ -295,16 +300,8 @@ export function anchorToRange(
     if (quote === null || fingerprint(quote) !== anchor.fingerprint) {
       return null;
     }
-    const from = offsetToPoint(
-      normalizeBlock(blocks[startBlock]),
-      blocks[startBlock],
-      anchor.startOffset,
-    );
-    const to = offsetToPoint(
-      normalizeBlock(blocks[endBlock]),
-      blocks[endBlock],
-      anchor.endOffset,
-    );
+    const from = offsetToPoint(blocks[startBlock], anchor.startOffset);
+    const to = offsetToPoint(blocks[endBlock], anchor.endOffset);
     if (!from || !to) {
       return null;
     }

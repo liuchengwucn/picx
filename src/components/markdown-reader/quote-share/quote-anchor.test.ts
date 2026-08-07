@@ -5,9 +5,20 @@ import {
   blocksOf,
   decodeAnchor,
   encodeAnchor,
+  fingerprint,
   normalizeBlock,
+  type QuoteAnchor,
   rangeToAnchor,
 } from "./quote-anchor";
+
+/** 断言锚点非空并收窄类型，避免在测试里撒 `!` */
+function expectAnchor(anchor: QuoteAnchor | null): QuoteAnchor {
+  expect(anchor).not.toBeNull();
+  if (!anchor) {
+    throw new Error("unreachable");
+  }
+  return anchor;
+}
 
 /**
  * 真实 KaTeX 产物的最小复刻：mathml 与 html 各含一份「α」，textContent 会拿到两份。
@@ -80,7 +91,7 @@ describe("rangeToAnchor / anchorToRange", () => {
     expect(anchor?.startOffset).toBe(6);
     expect(anchor?.endOffset).toBe(16);
 
-    const range = anchorToRange(article, anchor!);
+    const range = anchorToRange(article, expectAnchor(anchor));
     expect(range?.toString()).toBe("beta gamma");
   });
 
@@ -99,7 +110,9 @@ describe("rangeToAnchor / anchorToRange", () => {
 
     const anchor = rangeToAnchor(article, range);
     expect(anchor?.startOffset).toBe(expected);
-    expect(anchorToRange(article, anchor!)?.toString()).toBe("be small");
+    expect(anchorToRange(article, expectAnchor(anchor))?.toString()).toBe(
+      "be small",
+    );
   });
 
   it("空选区被拒", () => {
@@ -121,7 +134,7 @@ describe("rangeToAnchor / anchorToRange", () => {
     const anchor = rangeToAnchor(article, range);
     expect(anchor?.startBlock).toBe(0);
     expect(anchor?.endBlock).toBe(1);
-    expect(anchorToRange(article, anchor!)?.toString()).toBe(
+    expect(anchorToRange(article, expectAnchor(anchor))?.toString()).toBe(
       "block heresecond",
     );
   });
@@ -133,15 +146,24 @@ describe("rangeToAnchor / anchorToRange", () => {
 
     // 模拟渲染管线改动：正文前面多了一个块，原来的 1 变成 2
     article.insertAdjacentHTML("afterbegin", "<p>newly inserted</p>");
-    const range = anchorToRange(article, anchor!);
+    const range = anchorToRange(article, expectAnchor(anchor));
     expect(range?.toString()).toBe("target");
   });
 
   it("内容对不上时返回 null 而不是指向错误位置", () => {
     const article = mount("<p>alpha one</p>");
     const anchor = rangeToAnchor(article, rangeAt(article, 0, 0, 5));
-    const tampered = { ...anchor!, fingerprint: "zzzzz" };
+    const tampered = { ...expectAnchor(anchor), fingerprint: "zzzzz" };
     expect(anchorToRange(article, tampered)).toBeNull();
+  });
+});
+
+describe("fingerprint", () => {
+  it("指纹是固定值：算法被误改时往返测试抓不到，这里能", () => {
+    // encodeAnchor/decodeAnchor 与 rangeToAnchor/anchorToRange 的往返测试用的都是
+    // 同一份 fingerprint 实现，算法本身算错了（FNV 常量抄错、异或和乘法顺序颠倒）
+    // 两头会一起错，往返测试照样绿。这里钉一个硬编码期望值防住这类回归。
+    expect(fingerprint("the reward model saturates")).toBe("1ac4d34");
   });
 });
 
