@@ -223,6 +223,19 @@ describe("repairFffd", () => {
     expect(result.repaired).toBe(1);
   });
 
+  it("ignores ASCII control characters in the pdf text layer", () => {
+    // PDF 文本层实存 \x02 之类伪影：留在比较流会挡住对齐（gap 混入 ASCII
+    // 被闸拒绝），丢弃后正常回补。
+    const md = "then we select the top-� blocks for the final merge stage.";
+    const pdf =
+      "then we select the top-\u0002𝑘 blocks for the final merge stage.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(
+      "then we select the top-𝑘 blocks for the final merge stage.",
+    );
+    expect(result.repaired).toBe(1);
+  });
+
   it("no longer restores a lost standalone symbol (dropped from comparison)", () => {
     // ① 的取舍：×/∈ 等非 ASCII 标点符号不在比较流里，作为丢失字符不可回补。
     const md =

@@ -10,7 +10,7 @@
  * 算法概要：
  * 1. 把 markdown 中连续的 �（run）逐个处理，取 run 前后各一段上下文；
  * 2. 双侧做同一套归一化，投影到可比较空间：丢弃 markdown/LaTeX 语法字符
- *    与全部空白，以及非 ASCII 的标点/符号（\p{P}/\p{S}，数学字母数字区
+ *    、全部空白与 ASCII 控制字符，以及非 ASCII 的标点/符号（\p{P}/\p{S}，数学字母数字区
  *    U+1D400–U+1D7FF 除外）——markdown 里符号写作 LaTeX 命令
  *    （\times/\prime/\in），命令被剥后 md 侧没有它们，PDF 侧却是真实字符
  *    （×/′/∈），不丢就两侧错位。取舍：这类字符不再出现在比较流，也不再
@@ -138,6 +138,11 @@ function isDroppedChar(ch: string): boolean {
     return true;
   }
   const cp = ch.codePointAt(0) as number;
+  // ASCII 控制字符（PDF 文本层实存 \x02 等伪影）也丢弃：它本就会被
+  // ASCII 闸拒绝作 gap，留在比较流里只会挡住对齐。
+  if (cp < 0x20 || cp === 0x7f) {
+    return true;
+  }
   if (cp <= 0x7f || (cp >= 0x1d400 && cp <= 0x1d7ff)) {
     return false;
   }
@@ -343,6 +348,22 @@ function resolveGap(
   return gap;
 }
 
+/** 逐元素比较两个 gap 元组是否完全一致。 */
+function sameTuple(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let k = 0; k < a.length; k++) {
+    if (a[k] !== b[k]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 单个簇联合匹配允许的 DFS 节点总预算（全部 prefix 命中累计），超限整簇放弃。 */
+const CLUSTER_NODE_BUDGET = 100_000;
+
 /**
  * ③ 相邻 run 簇的链式联合匹配：prefix + gap₁ + mid₁ + … + gapₙ + suffix
  * 在归一化 PDF 流中整体对齐（n = mids.length + 1 个 run）。每个 gap 在
@@ -350,6 +371,11 @@ function resolveGap(
  * 是空 mid 时唯一分割的前提），不允许切在代理对中间。所有完整匹配位置
  * 给出的 gap 元组必须完全一致，且每个 gap 独立过全部安全闸；任何一处
  * 不满足即整簇返回 null（原子性，零替换）。
+ *
+ * 复杂度防护（空 mid 的簇分支数可达 GAP_MAX_UNITS^(n-1)）：
+ * - 先预计算 suffix 的全部命中位；某 prefix 命中的可达窗口内没有任何
+ *   suffix 命中时，该分支直接归零（suffix 缺席场景 O(1) 退出）；
+ * - 全簇累计 DFS 节点预算 CLUSTER_NODE_BUDGET，超限整簇放弃（保守方向）。
  */
 function resolveClusterGaps(
   normPrefix: string,
@@ -362,9 +388,33 @@ function resolveClusterGaps(
     return null;
   }
   const n = normMids.length + 1;
-  let agreedKey: string | null = null;
-  let agreed: string[] | null = null;
-  let ambiguous = false;
+  let midsTotal = 0;
+  for (const mid of normMids) {
+    midsTotal += mid.length;
+  }
+  // suffix 命中位预计算（升序）。流中缺席则整簇无解，不进 DFS。
+  const suffixHits: number[] = [];
+  let sFrom = 0;
+  while (true) {
+    const s = pdf.text.indexOf(normSuffix, sFrom);
+    if (s === -1) {
+      break;
+    }
+    suffixHits.push(s);
+    sFrom = s + 1;
+  }
+  if (suffixHits.length === 0) {
+    return null;
+  }
+  // 闭包共享的可变状态：集中放对象属性上（也避免 TS 对闭包内赋值的
+  // 局部变量做出错误收窄）。
+  const state = {
+    /** 目前唯一一致的 gap 元组；null = 尚无完整匹配。 */
+    tuple: null as string[] | null,
+    /** 歧义或超预算，整簇放弃。 */
+    dead: false,
+    nodes: 0,
+  };
   // gap 边界不能落在代理对中间（否则同一原始字符会被两个 gap 重复取回）。
   const splitsSurrogate = (u: number): boolean => {
     const c = pdf.text.charCodeAt(u);
@@ -374,7 +424,12 @@ function resolveClusterGaps(
   const spans: number[] = [];
   const dfs = (cursor: number, stage: number): void => {
     for (let g = 1; g <= GAP_MAX_UNITS; g++) {
-      if (ambiguous) {
+      if (state.dead) {
+        return;
+      }
+      state.nodes += 1;
+      if (state.nodes > CLUSTER_NODE_BUDGET) {
+        state.dead = true; // 超预算：宁可漏补，整簇放弃。
         return;
       }
       const gapEnd = cursor + g;
@@ -401,28 +456,44 @@ function resolveClusterGaps(
           tuple.push(extractOriginal(pdf, pdfText, spans[k], spans[k + 1]));
         }
         spans.length -= 2;
-        const key = tuple.join(" ");
-        if (agreedKey === null) {
-          agreedKey = key;
-          agreed = tuple;
-        } else if (agreedKey !== key) {
-          ambiguous = true; // 歧义：不同完整匹配给出不同 gap 元组。
+        if (state.tuple === null) {
+          state.tuple = tuple;
+        } else if (!sameTuple(state.tuple, tuple)) {
+          state.dead = true; // 歧义：不同完整匹配给出不同 gap 元组。
           return;
         }
       }
     }
   };
   let from = 0;
-  while (!ambiguous) {
+  while (!state.dead) {
     const p = pdf.text.indexOf(normPrefix, from);
     if (p === -1) {
       break;
     }
     from = p + 1;
-    dfs(p + normPrefix.length, 0);
+    const start = p + normPrefix.length;
+    // 可达窗口：n 个 gap 各 1–GAP_MAX_UNITS 单元加全部 mid；窗口内没有
+    // suffix 命中则该 prefix 分支不可能有完整匹配，直接跳过。
+    const lo = start + n + midsTotal;
+    const hi = start + n * GAP_MAX_UNITS + midsTotal;
+    let reachable = false;
+    for (const s of suffixHits) {
+      if (s > hi) {
+        break;
+      }
+      if (s >= lo) {
+        reachable = true;
+        break;
+      }
+    }
+    if (!reachable) {
+      continue;
+    }
+    dfs(start, 0);
   }
-  const gaps: string[] | null = agreed;
-  if (ambiguous || gaps === null) {
+  const gaps = state.tuple;
+  if (state.dead || gaps === null) {
     return null;
   }
   for (const gap of gaps) {
