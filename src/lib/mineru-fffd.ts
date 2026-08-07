@@ -10,10 +10,16 @@
  * 算法概要：
  * 1. 把 markdown 中连续的 �（run）逐个处理，取 run 前后各一段上下文；
  * 2. 双侧做同一套归一化，投影到可比较空间：丢弃 markdown/LaTeX 语法字符
- *    与全部空白；把数学字母数字符号（U+1D400–U+1D7FF 及字母式符号区的
- *    ℎ/ℋ 等）折叠为基础字母——markdown 里写作 LaTeX（$r$、\mathcal{H}），
- *    PDF 文本层却是真实字形（𝑟、ℋ），不折叠就对不上；markdown 侧另外
- *    剥掉 LaTeX 命令名（\mathcal 等）。刻意不用 NFKC——它是全局折叠，
+ *    与全部空白，以及非 ASCII 的标点/符号（\p{P}/\p{S}，数学字母数字区
+ *    U+1D400–U+1D7FF 除外）——markdown 里符号写作 LaTeX 命令
+ *    （\times/\prime/\in），命令被剥后 md 侧没有它们，PDF 侧却是真实字符
+ *    （×/′/∈），不丢就两侧错位。取舍：这类字符不再出现在比较流，也不再
+ *    可被作为 gap 回补（实测丢失的只有数学字母数字区字符，均为
+ *    Letter/Number 类，不受影响）；把数学字母数字符号（U+1D400–U+1D7FF
+ *    及字母式符号区的 ℎ/ℋ 等）折叠为基础字母——markdown 里写作 LaTeX
+ *    （$r$、\mathcal{H}），PDF 文本层却是真实字形（𝑟、ℋ），不折叠就对
+ *    不上；markdown 侧另外剥掉 <sub>/<sup> 标签（只删标签、保留内容）与
+ *    LaTeX 命令名（\mathcal 等）。刻意不用 NFKC——它是全局折叠，
  *    会把要回补进 markdown 的 𝑘 折叠成 k，且波及无关字符；
  * 3. 在归一化 PDF 文本中找 prefix+suffix 的所有匹配位，取两者之间的
  *    gap（从原始文本层取回）作为丢失内容；任何歧义（不同匹配位给出
@@ -21,7 +27,13 @@
  * 4. 安全闸：gap 为 1–8 个 code point 且全部非 ASCII——丢失的只会是
  *    特殊字符，含 ASCII 的 gap 一律视为错位注入拒绝。gap 只取归一化后
  *    仍存在的字符（语法字符/空白按定义不可比较、不注入），因此错位到
- *    真实 ASCII 内容上的 gap 必被该闸拦截。
+ *    真实 ASCII 内容上的 gap 必被该闸拦截；
+ * 5. 单 run 失败后的补充路径：相邻 run 间字面段过短（归一化后 <
+ *    CONTEXT_MIN）会互相截断上下文，单 run 永远无解。把这样的连续 run
+ *    识别为「簇」，用 prefix + gap₁ + mid₁ + … + gapₙ + suffix 在归一化
+ *    PDF 流中整体联合匹配。每个 gap 独立过全部安全闸；任何一个 gap 不过
+ *    闸或不同完整匹配位置给出不同 gap 元组（歧义），整簇放弃、零替换
+ *    （原子性）。簇长上限 CLUSTER_MAX_RUNS，超限放弃。
  *
  * 纯函数、确定性、幂等；宁可漏补，绝不错改。
  */
@@ -113,8 +125,23 @@ function foldMathChar(ch: string): string {
   return ch; // 区内保留码位
 }
 
+/**
+ * 非 ASCII 的标点/符号（Unicode General_Category 属 P 或 S）也丢弃：md 侧写
+ * LaTeX 命令（\times 等）被剥，PDF 侧是真实字符（×/′/∈），不丢则错位。
+ * 数学字母数字区（U+1D400–U+1D7FF）豁免——它是折叠与回补的目标域，区内
+ * 少量 Sm 字符（𝛁/𝛛 等）折叠后仍参与比较，且保持可回补。
+ */
+const NON_ASCII_PUNCT_SYMBOL_RE = /[\p{P}\p{S}]/u;
+
 function isDroppedChar(ch: string): boolean {
-  return DROPPED_CHARS.has(ch) || /\s/.test(ch);
+  if (DROPPED_CHARS.has(ch) || /\s/.test(ch)) {
+    return true;
+  }
+  const cp = ch.codePointAt(0) as number;
+  if (cp <= 0x7f || (cp >= 0x1d400 && cp <= 0x1d7ff)) {
+    return false;
+  }
+  return NON_ASCII_PUNCT_SYMBOL_RE.test(ch);
 }
 
 /** 上下文归一化后的目标长度（UTF-16 单元）。 */
@@ -131,6 +158,16 @@ const GAP_MAX_CODEPOINTS = 8;
 
 /** markdown 侧的 LaTeX 命令名（\mathcal、\tag 等），比较前整体剥掉。 */
 const LATEX_COMMAND_RE = /\\[a-zA-Z]+/g;
+
+/**
+ * markdown 侧的 <sub>/<sup> 标签，比较前整体剥掉（只删标签、保留内容）：
+ * 否则 h<sub>�</sub> 的标签名字母会混进比较串（hsub…sub），永远对不上
+ * PDF 侧的 h 𝑡。作用于按 � 截断后的上下文片段（见 collectPrefix/Suffix）。
+ */
+const SUBSUP_TAG_RE = /<\/?su[bp]>/g;
+
+/** 相邻 run 簇（链式联合匹配）允许的最大 run 数，超限整簇放弃。 */
+const CLUSTER_MAX_RUNS = 6;
 
 interface NormalizedPdf {
   /** 归一化后的文本（丢语法字符与空白、折叠数学字母，不做其他折叠）。 */
@@ -164,9 +201,9 @@ function normalizePdfText(pdfText: string): NormalizedPdf {
   return { text: chunks.join(""), origStart, origEnd };
 }
 
-/** markdown 上下文归一化：剥 LaTeX 命令名，再逐字符丢弃/折叠。 */
+/** markdown 上下文归一化：剥 <sub>/<sup> 标签与 LaTeX 命令名，再逐字符丢弃/折叠。 */
 function normalizeMarkdownContext(raw: string): string {
-  const stripped = raw.replace(LATEX_COMMAND_RE, "");
+  const stripped = raw.replace(SUBSUP_TAG_RE, "").replace(LATEX_COMMAND_RE, "");
   const chunks: string[] = [];
   let i = 0;
   while (i < stripped.length) {
@@ -221,6 +258,47 @@ function collectSuffix(markdown: string, end: number): string {
 }
 
 /**
+ * 从原始 PDF 文本取回归一化单元区间 [fromU, toU) 对应的字符：只取归一化
+ * 后仍存在的字符（被丢弃的语法字符/空白/非 ASCII 标点符号按定义不可比较、
+ * 不注入）。折叠后的 astral 字符按原始字符取回，连续单元按起始索引去重。
+ */
+function extractOriginal(
+  pdf: NormalizedPdf,
+  pdfText: string,
+  fromU: number,
+  toU: number,
+): string {
+  let out = "";
+  let lastStart = -1;
+  for (let u = fromU; u < toU; u++) {
+    if (pdf.origStart[u] !== lastStart) {
+      lastStart = pdf.origStart[u];
+      out += pdfText.slice(pdf.origStart[u], pdf.origEnd[u]);
+    }
+  }
+  return out;
+}
+
+/** gap 安全闸：1–8 个 code point、全部非 ASCII、不把 � 回注。 */
+function passesGapGates(gap: string): boolean {
+  const codePoints = [...gap];
+  if (
+    codePoints.length < GAP_MIN_CODEPOINTS ||
+    codePoints.length > GAP_MAX_CODEPOINTS
+  ) {
+    return false;
+  }
+  for (const ch of codePoints) {
+    const cp = ch.codePointAt(0) as number;
+    // 全部必须非 ASCII（丢失的只会是特殊字符），且不能把 � 又补回去。
+    if (cp <= 0x7f || cp === 0xfffd) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * 在归一化 PDF 文本中对齐 prefix+suffix，返回唯一确定且通过安全闸的
  * gap 内容；任何拿不准的情况（无匹配、歧义、gap 不合规）返回 null。
  */
@@ -250,18 +328,8 @@ function resolveGap(
       if (!pdf.text.startsWith(normSuffix, s)) {
         continue;
       }
-      // 从原始 PDF 文本逐单元取回 gap：只取归一化后仍存在的字符
-      // （被丢弃的语法字符/空白全是 ASCII，本就不该注入 markdown；
-      // 若错位到真实 ASCII 内容上，安全闸会拒绝）。折叠后的 astral
-      // 字符按原始字符取回，连续单元按起始索引去重。
-      let candidate = "";
-      let lastStart = -1;
-      for (let u = prefixEnd; u < s; u++) {
-        if (pdf.origStart[u] !== lastStart) {
-          lastStart = pdf.origStart[u];
-          candidate += pdfText.slice(pdf.origStart[u], pdf.origEnd[u]);
-        }
-      }
+      // 若错位到真实 ASCII 内容上，安全闸会拒绝。
+      const candidate = extractOriginal(pdf, pdfText, prefixEnd, s);
       if (gap === null) {
         gap = candidate;
       } else if (gap !== candidate) {
@@ -269,52 +337,179 @@ function resolveGap(
       }
     }
   }
-  if (gap === null) {
+  if (gap === null || !passesGapGates(gap)) {
     return null;
-  }
-  const codePoints = [...gap];
-  if (
-    codePoints.length < GAP_MIN_CODEPOINTS ||
-    codePoints.length > GAP_MAX_CODEPOINTS
-  ) {
-    return null;
-  }
-  for (const ch of codePoints) {
-    const cp = ch.codePointAt(0) as number;
-    // 全部必须非 ASCII（丢失的只会是特殊字符），且不能把 � 又补回去。
-    if (cp <= 0x7f || cp === 0xfffd) {
-      return null;
-    }
   }
   return gap;
 }
 
-/** 单遍扫描：对快照里的每个 run 尝试回补，返回新文本与计数。 */
+/**
+ * ③ 相邻 run 簇的链式联合匹配：prefix + gap₁ + mid₁ + … + gapₙ + suffix
+ * 在归一化 PDF 流中整体对齐（n = mids.length + 1 个 run）。每个 gap 在
+ * GAP_MAX_UNITS 窗口内枚举（至少 1 个单元——run 必然对应丢失内容，且这
+ * 是空 mid 时唯一分割的前提），不允许切在代理对中间。所有完整匹配位置
+ * 给出的 gap 元组必须完全一致，且每个 gap 独立过全部安全闸；任何一处
+ * 不满足即整簇返回 null（原子性，零替换）。
+ */
+function resolveClusterGaps(
+  normPrefix: string,
+  normMids: string[],
+  normSuffix: string,
+  pdf: NormalizedPdf,
+  pdfText: string,
+): string[] | null {
+  if (normPrefix.length < CONTEXT_MIN || normSuffix.length < CONTEXT_MIN) {
+    return null;
+  }
+  const n = normMids.length + 1;
+  let agreedKey: string | null = null;
+  let agreed: string[] | null = null;
+  let ambiguous = false;
+  // gap 边界不能落在代理对中间（否则同一原始字符会被两个 gap 重复取回）。
+  const splitsSurrogate = (u: number): boolean => {
+    const c = pdf.text.charCodeAt(u);
+    return c >= 0xdc00 && c <= 0xdfff;
+  };
+  // 当前分支各 gap 的单元区间，扁平存 [start₀, end₀, start₁, end₁, …]。
+  const spans: number[] = [];
+  const dfs = (cursor: number, stage: number): void => {
+    for (let g = 1; g <= GAP_MAX_UNITS; g++) {
+      if (ambiguous) {
+        return;
+      }
+      const gapEnd = cursor + g;
+      if (gapEnd > pdf.text.length) {
+        return;
+      }
+      if (splitsSurrogate(gapEnd)) {
+        continue;
+      }
+      if (stage < n - 1) {
+        if (!pdf.text.startsWith(normMids[stage], gapEnd)) {
+          continue;
+        }
+        spans.push(cursor, gapEnd);
+        dfs(gapEnd + normMids[stage].length, stage + 1);
+        spans.length -= 2;
+      } else {
+        if (!pdf.text.startsWith(normSuffix, gapEnd)) {
+          continue;
+        }
+        spans.push(cursor, gapEnd);
+        const tuple: string[] = [];
+        for (let k = 0; k < spans.length; k += 2) {
+          tuple.push(extractOriginal(pdf, pdfText, spans[k], spans[k + 1]));
+        }
+        spans.length -= 2;
+        const key = tuple.join(" ");
+        if (agreedKey === null) {
+          agreedKey = key;
+          agreed = tuple;
+        } else if (agreedKey !== key) {
+          ambiguous = true; // 歧义：不同完整匹配给出不同 gap 元组。
+          return;
+        }
+      }
+    }
+  };
+  let from = 0;
+  while (!ambiguous) {
+    const p = pdf.text.indexOf(normPrefix, from);
+    if (p === -1) {
+      break;
+    }
+    from = p + 1;
+    dfs(p + normPrefix.length, 0);
+  }
+  const gaps: string[] | null = agreed;
+  if (ambiguous || gaps === null) {
+    return null;
+  }
+  for (const gap of gaps) {
+    if (!passesGapGates(gap)) {
+      return null; // 簇内原子性：一个 gap 不过闸，整簇放弃。
+    }
+  }
+  return gaps;
+}
+
+/** 单遍扫描：对快照里的每个 run 尝试回补（单 run 路径 + 簇路径），返回新文本与计数。 */
 function repairPass(
   markdown: string,
   pdf: NormalizedPdf,
   pdfText: string,
 ): { markdown: string; total: number; repaired: number } {
-  let total = 0;
+  const runs: { start: number; end: number }[] = [];
+  for (const m of markdown.matchAll(FFFD_RUN_RE)) {
+    runs.push({ start: m.index, end: m.index + m[0].length });
+  }
+  // 先走单 run 路径。
+  const gaps: (string | null)[] = runs.map((r) =>
+    resolveGap(
+      collectPrefix(markdown, r.start),
+      collectSuffix(markdown, r.end),
+      pdf,
+      pdfText,
+    ),
+  );
+  // 单 run 失败的，尝试簇路径：相邻 run 间字面段归一化后 < CONTEXT_MIN
+  // （即互相截断上下文、单独不可解）的连续失败 run 组成簇。
+  let i = 0;
+  while (i < runs.length) {
+    if (gaps[i] !== null) {
+      i += 1;
+      continue;
+    }
+    const mids: string[] = [];
+    let j = i;
+    while (j + 1 < runs.length && gaps[j + 1] === null) {
+      const rawMid = markdown.slice(runs[j].end, runs[j + 1].start);
+      // 原始 mid 超过上下文窗口的按不可链处理（归一化开销有界，也更保守）。
+      if (rawMid.length > CONTEXT_RAW_CAP) {
+        break;
+      }
+      const normMid = normalizeMarkdownContext(rawMid);
+      if (normMid.length >= CONTEXT_MIN) {
+        break;
+      }
+      mids.push(normMid);
+      j += 1;
+    }
+    const size = j - i + 1;
+    if (size >= 2 && size <= CLUSTER_MAX_RUNS) {
+      // 簇外侧 prefix/suffix 按现有规则取（遇簇外 � 截断、≥CONTEXT_MIN）。
+      const resolved = resolveClusterGaps(
+        collectPrefix(markdown, runs[i].start),
+        mids,
+        collectSuffix(markdown, runs[j].end),
+        pdf,
+        pdfText,
+      );
+      if (resolved !== null) {
+        for (let k = 0; k < size; k++) {
+          gaps[i + k] = resolved[k];
+        }
+      }
+    }
+    i = j + 1;
+  }
+  // 统一重建：每个 run 至多被一条路径赋值，不存在重复替换。
   let repaired = 0;
   const parts: string[] = [];
   let pos = 0;
-  for (const m of markdown.matchAll(FFFD_RUN_RE)) {
-    total += 1;
-    const prefix = collectPrefix(markdown, m.index);
-    const suffix = collectSuffix(markdown, m.index + m[0].length);
-    const gap = resolveGap(prefix, suffix, pdf, pdfText);
+  for (let k = 0; k < runs.length; k++) {
+    const gap = gaps[k];
     if (gap !== null) {
-      parts.push(markdown.slice(pos, m.index), gap);
-      pos = m.index + m[0].length;
+      parts.push(markdown.slice(pos, runs[k].start), gap);
+      pos = runs[k].end;
       repaired += 1;
     }
   }
   if (repaired === 0) {
-    return { markdown, total, repaired: 0 };
+    return { markdown, total: runs.length, repaired: 0 };
   }
   parts.push(markdown.slice(pos));
-  return { markdown: parts.join(""), total, repaired };
+  return { markdown: parts.join(""), total: runs.length, repaired };
 }
 
 /**

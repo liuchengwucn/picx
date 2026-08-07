@@ -79,14 +79,17 @@ describe("repairFffd", () => {
     expect(result.repaired).toBe(1);
   });
 
-  it("keeps immediately adjacent runs whose shared context is too short", () => {
-    // �(�)：两个 run 的中间上下文只剩 "("，归一化后为空，双双安全放弃。
+  it("repairs immediately adjacent runs via the cluster path", () => {
+    // �(�)：两个 run 的中间上下文只剩 "("，归一化后为空，单 run 路径无解；
+    // 簇路径联合匹配（每个 gap 至少 1 个单元）唯一分割出 𝑂/𝑁。
     const md = "the cost is reduced from �(�) to linear time overall.";
     const pdf = "the cost is reduced from 𝑂(𝑁) to linear time overall.";
     const result = repairFffd(md, pdf);
-    expect(result.markdown).toBe(md);
+    expect(result.markdown).toBe(
+      "the cost is reduced from 𝑂(𝑁) to linear time overall.",
+    );
     expect(result.total).toBe(2);
-    expect(result.repaired).toBe(0);
+    expect(result.repaired).toBe(2);
   });
 
   it("repairs two nearby runs when the shared context is long enough", () => {
@@ -153,12 +156,14 @@ describe("repairFffd", () => {
   });
 
   it("is idempotent on both repaired and unrepairable output", () => {
+    // 后半段的 �(�) 簇在 PDF 里没有对应上下文（PDF 写的是 drops quickly），
+    // 单 run 与簇路径都无解，保持不可修，验证幂等覆盖两种结果。
     const md =
       "For query position � the model picks exactly top-� blocks; " +
       "the cost drops from �(�) to linear.";
     const pdf =
       "For query position 𝑖 the model picks exactly top-𝑘 blocks; " +
-      "the cost drops from 𝑂(𝑁) to linear.";
+      "the cost drops quickly in practice.";
     const first = repairFffd(md, pdf);
     expect(first.repaired).toBeGreaterThan(0);
     expect(first.repaired).toBeLessThan(first.total);
@@ -190,6 +195,122 @@ describe("repairFffd", () => {
     const pdf = "𝑘 subset selection is used";
     const result = repairFffd(md, pdf);
     expect(result.markdown).toBe(md);
+    expect(result.repaired).toBe(0);
+  });
+
+  // ① 非 ASCII 标点/符号丢弃集扩展
+  it("aligns through LaTeX \\times against a real multiplication sign", () => {
+    // md 写 \times（命令被剥），PDF 文本层是真实 ×（U+00D7，Sm）：丢弃后两侧一致。
+    const md =
+      "the corpus grows from $2.58 \\times 10^{5}$ tokens to � items overall.";
+    const pdf = "the corpus grows from 2.58×105 tokens to 𝑁 items overall.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(
+      "the corpus grows from $2.58 \\times 10^{5}$ tokens to 𝑁 items overall.",
+    );
+    expect(result.repaired).toBe(1);
+  });
+
+  it("aligns through LaTeX \\prime against a real prime character", () => {
+    // md 写 \prime，PDF 文本层是真实 ′（U+2032，标点）。
+    const md =
+      "the updated state $s^{\\prime}$ then feeds the � module directly.";
+    const pdf = "the updated state s′ then feeds the 𝑄 module directly.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(
+      "the updated state $s^{\\prime}$ then feeds the 𝑄 module directly.",
+    );
+    expect(result.repaired).toBe(1);
+  });
+
+  it("no longer restores a lost standalone symbol (dropped from comparison)", () => {
+    // ① 的取舍：×/∈ 等非 ASCII 标点符号不在比较流里，作为丢失字符不可回补。
+    const md =
+      "the operation a � b denotes elementwise product in this section.";
+    const pdf =
+      "the operation a × b denotes elementwise product in this section.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(md);
+    expect(result.repaired).toBe(0);
+  });
+
+  // ② <sub>/<sup> 标签剥除
+  it("repairs a damaged char wrapped in sub tags", () => {
+    const md =
+      "the hidden state h<sub>�</sub> evolves smoothly over time steps.";
+    const pdf = "the hidden state ℎ𝑡 evolves smoothly over time steps.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(
+      "the hidden state h<sub>𝑡</sub> evolves smoothly over time steps.",
+    );
+    expect(result.repaired).toBe(1);
+  });
+
+  it("repairs a run whose suffix context is a legit sub tag with content", () => {
+    const md = "the memory component �<sub>mem</sub> stores past activations.";
+    const pdf = "the memory component 𝑀mem stores past activations.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(
+      "the memory component 𝑀<sub>mem</sub> stores past activations.",
+    );
+    expect(result.repaired).toBe(1);
+  });
+
+  // ③ 相邻 run 链式联合匹配
+  it("repairs a two-run chain joined by a short mid segment", () => {
+    const md = "the two representations � and � (from different layers) align.";
+    const pdf =
+      "the two representations 𝑋 and 𝑌 (from different layers) align.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(
+      "the two representations 𝑋 and 𝑌 (from different layers) align.",
+    );
+    expect(result.total).toBe(2);
+    expect(result.repaired).toBe(2);
+  });
+
+  it("repairs a three-run chain and stays idempotent", () => {
+    const md = "we set the scale � = 10, � = 1, � = 32 for all experiments.";
+    const pdf = "we set the scale 𝛼 = 10, 𝛽 = 1, 𝛾 = 32 for all experiments.";
+    const first = repairFffd(md, pdf);
+    expect(first.markdown).toBe(
+      "we set the scale 𝛼 = 10, 𝛽 = 1, 𝛾 = 32 for all experiments.",
+    );
+    expect(first.total).toBe(3);
+    expect(first.repaired).toBe(3);
+    const second = repairFffd(first.markdown, pdf);
+    expect(second.markdown).toBe(first.markdown);
+    expect(second.repaired).toBe(0);
+  });
+
+  it("abandons the whole cluster when one chained gap is ASCII", () => {
+    // 簇内原子性：X 是 ASCII 不过闸，连同本可回补的 𝑌 一起放弃，零替换。
+    const md = "the two representations � and � (from different layers) align.";
+    const pdf =
+      "the two representations X and 𝑌 (from different layers) align.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(md);
+    expect(result.repaired).toBe(0);
+  });
+
+  it("abandons the whole cluster when the chain is ambiguous", () => {
+    // 两处完整匹配给出不同 gap 元组（𝑋/𝑌 与 𝐴/𝐵），整簇放弃。
+    const md = "the two representations � and � (from different layers) align.";
+    const pdf =
+      "the two representations 𝑋 and 𝑌 (from different layers) align. " +
+      "the two representations 𝐴 and 𝐵 (from different layers) align.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(md);
+    expect(result.repaired).toBe(0);
+  });
+
+  it("abandons clusters longer than the run cap", () => {
+    // 7 个 run 连成一簇，超过 CLUSTER_MAX_RUNS=6，整簇放弃。
+    const md = "we sweep the values �, �, �, �, �, �, � over the search grid.";
+    const pdf = "we sweep the values 𝛼, 𝛽, 𝛾, 𝛿, 𝜖, 𝜁, 𝜂 over the search grid.";
+    const result = repairFffd(md, pdf);
+    expect(result.markdown).toBe(md);
+    expect(result.total).toBe(7);
     expect(result.repaired).toBe(0);
   });
 });
