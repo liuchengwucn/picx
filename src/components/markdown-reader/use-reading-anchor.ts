@@ -1,10 +1,4 @@
-import {
-  type RefObject,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
 /**
  * 视口顶部的参照线（px）：与页面里 sticky 侧栏的 `top-24` 对齐，约等于站点 header 下沿。
@@ -18,10 +12,13 @@ const MIN_CORRECTION_PX = 0.5;
 
 interface ReadingAnchor {
   el: Element;
-  /** 锚点块整体落在参照线下方时：记录块顶到视口顶的距离，重排后原样还原 */
-  top: number;
-  /** 参照线穿过锚点块内部时：记录穿过点在块内的相对位置（0~1），按新高度还原 */
+  /**
+   * null = 对齐块顶（锚点块整体落在参照线下方，重排不改变它上沿的位置）；
+   * 否则 = 对齐「块内这个比例处」，块高变了按新高度还原，跨屏长段落才不会段内漂移。
+   */
   ratio: number | null;
+  /** 记录时那个参考点在视口中的 y；补偿就是把它还原回来 */
+  refY: number;
   /** 拖拽期间为 true：补偿后保留锚点，供后续每一帧继续对齐同一个位置 */
   hold: boolean;
 }
@@ -42,11 +39,12 @@ const useIsomorphicLayoutEffect =
  * 把 layoutKey 换成新值；DOM 提交后本 hook 的 layout effect 会在浏览器绘制前把滚动位置
  * 补回去，锚点块停在原处。连续变化（拖拽）用 capture({ hold: true }) + release()。
  *
- * @param rootRef 正文根节点；锚点从它的直接子元素里挑
+ * @param getRoot 取当前正文根节点；锚点从它的直接子元素里挑。用函数而不是 ref，是因为
+ *   论文页有「总结 / 原文」两个视图，各自的正文容器不同，得按当前视图现取。
  * @param layoutKey 把所有会改变正文宽度的量拼成一个字符串，变了就补偿一次
  */
 export function useReadingAnchor(
-  rootRef: RefObject<HTMLElement | null>,
+  getRoot: () => HTMLElement | null,
   layoutKey: string,
 ) {
   const anchorRef = useRef<ReadingAnchor | null>(null);
@@ -54,8 +52,9 @@ export function useReadingAnchor(
   const capture = useCallback(
     (options?: { hold?: boolean }) => {
       anchorRef.current = null;
-      const root = rootRef.current;
+      const root = getRoot();
       if (!root) return;
+      const hold = options?.hold ?? false;
 
       // 参照线之下的第一个非空子元素就是读者正在看的那一块
       for (const child of root.children) {
@@ -63,19 +62,23 @@ export function useReadingAnchor(
         // 零高节点（隐藏元素、纯锚点 span）当锚点没有意义，比例也会除零
         if (rect.height <= 0) continue;
         if (rect.bottom <= ANCHOR_LINE_PX) continue;
+        const inside = rect.top <= ANCHOR_LINE_PX;
         anchorRef.current = {
           el: child,
-          top: rect.top,
-          ratio:
-            rect.top <= ANCHOR_LINE_PX
-              ? (ANCHOR_LINE_PX - rect.top) / rect.height
-              : null,
-          hold: options?.hold ?? false,
+          ratio: inside ? (ANCHOR_LINE_PX - rect.top) / rect.height : null,
+          refY: inside ? ANCHOR_LINE_PX : rect.top,
+          hold,
         };
         return;
       }
+
+      // 正文整个在参照线之上：读者已经翻过全文，眼前是正文下方的相关论文那一带。
+      // 那些块在 grid 之外，位置由 grid 行高决定（还受聊天栏那一列牵制），跟正文底边
+      // 并不同步，拿正文里的锚点去补只会补错方向。这一段留给浏览器原生 scroll
+      // anchoring——它在「变化点全在视口之上」时正是拿手好戏，实测把 87483px 的潜在
+      // 位移压到了 270px，无需我们插手。
     },
-    [rootRef],
+    [getRoot],
   );
 
   const release = useCallback(() => {
@@ -91,12 +94,9 @@ export function useReadingAnchor(
     if (!anchor.el.isConnected) return;
 
     const rect = anchor.el.getBoundingClientRect();
-    // ratio 非空说明参照线原本穿过块内部：块高变了要按比例还原穿过点，
-    // 否则跨越多屏的长段落只对齐块顶，段内位置照样漂。
     const now =
       anchor.ratio === null ? rect.top : rect.top + anchor.ratio * rect.height;
-    const was = anchor.ratio === null ? anchor.top : ANCHOR_LINE_PX;
-    const delta = now - was;
+    const delta = now - anchor.refY;
     if (Math.abs(delta) < MIN_CORRECTION_PX) return;
     // instant：正文里 TOC 跳转用的是 smooth，这里绝不能被带成动画——补偿必须在
     // 这一帧绘制前就位，否则读者仍会看到跳变

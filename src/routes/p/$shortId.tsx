@@ -23,6 +23,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
 } from "react";
 import ReactMarkdown from "react-markdown";
@@ -593,14 +594,21 @@ function PaperDetailPage() {
   const paperReader = usePaperReader(paperId, isReaderViewReady);
 
   // 中栏是 minmax(0,1fr)：收起聊天栏后它直接吃掉第三列的宽度，正文行宽从「被容器
-  // 压住」跳到「由 --reader-measure 决定」（约 +110px），整篇长文重新断行、高度缩掉
-  // 一成多，而 scrollY 不变——读者眼前那一段会被顶走好几屏。拖宽把手是同一回事，只是
-  // 每帧几 px 所以不刺眼。两者都在改宽度之前捕获锚点，由 layout effect 在绘制前补偿。
+  // 压住」跳到「由 --reader-measure 决定」（实测 762→963px），整篇长文重新断行、高度
+  // 缩掉两成，而 scrollY 不变——读者眼前那一段会被顶走近二十屏。拖宽把手是同一回事，
+  // 只是每帧几 px 所以不刺眼。两者都在改宽度之前捕获锚点，由 layout effect 在绘制前补偿。
+  const summaryProseRef = useRef<HTMLDivElement | null>(null);
+  // 两个视图各有各的正文容器，且互斥渲染，所以按当前视图现取：原文视图取 <article>，
+  // 总结视图取那块 markdown 的 prose 容器（accordion 收起时它不挂载，取到 null 就不补偿）。
+  const getAnchorRoot = useCallback(
+    () =>
+      activeView === "reader"
+        ? paperReader.articleRef.current
+        : summaryProseRef.current,
+    [activeView, paperReader.articleRef],
+  );
   const { capture: captureReadingAnchor, release: releaseReadingAnchor } =
-    useReadingAnchor(
-      paperReader.articleRef,
-      `${chatCollapsed}:${chatPanelWidth}`,
-    );
+    useReadingAnchor(getAnchorRoot, `${chatCollapsed}:${chatPanelWidth}`);
 
   const handleChatCollapsedChange = useCallback(
     (next: boolean) => {
@@ -1234,7 +1242,11 @@ function PaperDetailPage() {
                     </div>
                   </div>
                   <AccordionContent>
-                    <div className="prose prose-sm max-w-none text-[var(--ink)] break-words overflow-hidden">
+                    {/* ref 供 useReadingAnchor 取锚点：总结正文同样会随中栏宽度重排 */}
+                    <div
+                      ref={summaryProseRef}
+                      className="prose prose-sm max-w-none text-[var(--ink)] break-words overflow-hidden"
+                    >
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm, remarkMath]}
                         rehypePlugins={[rehypeKatex, rehypeHighlight]}
