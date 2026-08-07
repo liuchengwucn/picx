@@ -157,8 +157,11 @@ const RenderedMarkdown = memo(function RenderedMarkdown({
     ),
     img: ({ src, alt }) => {
       const url = typeof src === "string" ? src : "";
+      // 插图的垂直间距写在 styles.css 的 .reader-prose figure/img 里,不挂 Tailwind
+      // 工具类:typography 插件的 `.prose figure|img` 与工具类特异性相同却排在其后,
+      // `my-*` 在这里一律被压掉(图片上下 2em 死白即源于此)。
       return (
-        <figure className="my-[1.9em] text-center">
+        <figure className="text-center">
           <button
             type="button"
             className="group inline-block max-w-full cursor-zoom-in rounded-[12px] border-0 bg-transparent p-0 leading-[0]"

@@ -525,6 +525,19 @@ a:hover { color: var(--academic-brown-deep); }
   color: var(--ink-soft);
 }
 
+/* 插图(组件里的 <figure><button><img>):间距只能写在这里,不能挂 Tailwind 工具类 ——
+   typography 插件的 `.prose :where(figure|img)` 与工具类特异性同为 (0,1,0) 且同在
+   utilities 层、排在工具类之后,`my-*` 一律被它压掉。
+   img 归零是关键:插件给 `.prose img` 挂了 margin-block:2em,自带的归零规则只覆盖
+   `figure > *`(这里是缩放按钮),够不到孙子层的 <img>;而 img 是替换元素,垂直 margin
+   计入所在行盒,会把按钮撑高,表现为图片上下各多出 2em 死白。 */
+.reader-prose figure {
+  margin-block: 1.9em;
+}
+.reader-prose figure img {
+  margin-block: 0;
+}
+
 /* markdown 表格单元格(react-markdown 生成;滚动容器 chrome 在组件内用 Tailwind):
    短词不在词内断行(避免 "2048" → "20/48"),按内容自然排布,过宽时由容器横向滚动。 */
 .reader-prose table {
