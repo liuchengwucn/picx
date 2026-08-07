@@ -158,11 +158,28 @@ function trimOutside(
 const KEEP_EMPTY = new Set(["BR", "HR"]);
 
 /**
+ * 裁剪前就已经没有文本的元素。pruneEmptyShells 只该清理「被 trimOutside 裁空的」外壳，
+ * 源文档里本来就空的元素（论文对比表里故意留白的单元格）删掉会让整行少一列、跟其他行错位。
+ */
+function snapshotAlreadyEmpty(block: HTMLElement): Set<Element> {
+  const empty = new Set<Element>();
+  for (const el of block.querySelectorAll("*")) {
+    if (!el.textContent?.trim()) {
+      empty.add(el);
+    }
+  }
+  return empty;
+}
+
+/**
  * 删掉裁剪后彻底空掉的元素外壳。trimOutside 只删文本节点，留下的空 <li> 在列表里
  * 仍会渲染出一个孤零零的项目符号。自底向上删（querySelectorAll 是文档序，反过来遍历
  * 即最深的先处理），好让「子节点删空后父节点也空了」一次收敛。
  */
-function pruneEmptyShells(block: HTMLElement): void {
+function pruneEmptyShells(
+  block: HTMLElement,
+  alreadyEmpty: Set<Element>,
+): void {
   const nodes = Array.from(block.querySelectorAll("*")).reverse();
   for (const el of nodes) {
     if (KEEP_EMPTY.has(el.tagName)) {
@@ -173,6 +190,9 @@ function pruneEmptyShells(block: HTMLElement): void {
       continue;
     }
     if (el.textContent?.trim()) {
+      continue;
+    }
+    if (alreadyEmpty.has(el)) {
       continue;
     }
     el.remove();
@@ -310,8 +330,10 @@ export function buildCardContent(
     wrapRange(clone, keepFrom, quoteFrom, MUTED_CLASS);
     wrapRange(clone, quoteTo, keepTo, MUTED_CLASS);
     wrapRange(clone, quoteFrom, quoteTo, MARK_CLASS);
+    // 裁剪前先记下源文档里本来就空的元素，trimOutside 之后就分不清是谁裁空的了
+    const alreadyEmpty = snapshotAlreadyEmpty(clone);
     trimOutside(clone, keepFrom, keepTo);
-    pruneEmptyShells(clone);
+    pruneEmptyShells(clone, alreadyEmpty);
 
     if (i === anchor.startBlock && keepFrom > 0) {
       prependEllipsis(clone);
