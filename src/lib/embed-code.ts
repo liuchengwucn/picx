@@ -22,6 +22,14 @@ export function paperImageUrl(shortId: string): string {
 }
 
 /**
+ * 段落级深链。?view=reader 让详情页直接落在原文视图（该参数已由 $shortId.tsx 的
+ * validateSearch 支持，登录回跳也带着它），锚点写在 hash 里因此不会被服务端看到。
+ */
+export function paperQuoteUrl(shortId: string, anchor: string): string {
+  return `${paperPageUrl(shortId)}?view=reader#${anchor}`;
+}
+
+/**
  * 生成带回链的嵌入代码: 图片包在指向论文页的 <a> 里, 锚文本/alt 固定英文 + 动态标题,
  * 第三方贴出去即自带指向 picx.dev 的反链。
  */

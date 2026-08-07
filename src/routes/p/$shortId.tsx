@@ -45,6 +45,7 @@ import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badg
 import {
   type PaperReaderState,
   PaperReaderView,
+  type QuoteShareContext,
   usePaperReader,
 } from "#/components/papers/paper-reader-view";
 import { PaperStateCard } from "#/components/papers/paper-state-card";
@@ -1120,6 +1121,13 @@ function PaperDetailPage() {
             {activeView === "reader" ? (
               <ReaderPane
                 reader={paperReader}
+                share={{
+                  paperId,
+                  shortId: paper.shortId ?? shortId,
+                  title: paper.title,
+                  isPublic: paper.isPublic,
+                  canPublish: isOwner,
+                }}
                 isSessionPending={isSessionPending}
                 isSignedIn={!!effectiveSession}
                 onSignIn={startReaderSignIn}
@@ -1425,11 +1433,13 @@ function PaperDetailPage() {
  */
 function ReaderPane({
   reader,
+  share,
   isSessionPending,
   isSignedIn,
   onSignIn,
 }: {
   reader: PaperReaderState;
+  share: QuoteShareContext;
   isSessionPending: boolean;
   isSignedIn: boolean;
   onSignIn: () => void;
@@ -1453,7 +1463,7 @@ function ReaderPane({
     );
   }
 
-  return <PaperReaderView reader={reader} />;
+  return <PaperReaderView reader={reader} share={share} />;
 }
 
 /**

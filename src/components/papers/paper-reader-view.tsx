@@ -1,10 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileText, List, Loader2 } from "lucide-react";
+import type { RefObject } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   createRelativeImageUrlTransform,
   MarkdownArticle,
 } from "#/components/markdown-reader/markdown-article";
+import {
+  encodeAnchor,
+  type QuoteAnchor,
+} from "#/components/markdown-reader/quote-share/quote-anchor";
+import { QuoteShareBubble } from "#/components/markdown-reader/quote-share/quote-share-bubble";
+import {
+  type QuoteShareContext,
+  QuoteShareDialog,
+} from "#/components/markdown-reader/quote-share/quote-share-dialog";
+import { useSelectionBubble } from "#/components/markdown-reader/quote-share/use-selection-bubble";
 import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
 import { useToc } from "#/components/markdown-reader/reader-toc";
 import { ReaderTocDrawer } from "#/components/markdown-reader/reader-toc-drawer";
@@ -12,8 +23,11 @@ import { useReaderSettings } from "#/components/markdown-reader/use-reader-setti
 import { PaperStateCard } from "#/components/papers/paper-state-card";
 import { TOOL_BTN } from "#/components/reader/reader-ui";
 import { useTRPC } from "#/integrations/trpc/react";
+import { paperQuoteUrl } from "#/lib/embed-code";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
+
+export type { QuoteShareContext } from "#/components/markdown-reader/quote-share/quote-share-dialog";
 
 /**
  * 页面级 hook：把「原文阅读」的 getContent 查询与 TOC 提升到详情页，好让目录能渲染在
@@ -59,8 +73,9 @@ export function usePaperReader(paperId: string, enabled: boolean) {
   const toc = useToc(articleRef, contentKey);
 
   // articleRef 一并交出去：页面层收起/展开聊天栏时要拿正文节点做滚动锚定
-  // （见 useReadingAnchor）。
-  return { query, articleRef, setArticleRef, toc };
+  // （见 useReadingAnchor），也给「选中分享」的气泡定位用。contentKey 交给
+  // Task 3 的落地定位 hook（用来在正文重新挂载后触发一次滚动）。
+  return { query, articleRef, setArticleRef, contentKey, toc };
 }
 
 export type PaperReaderState = ReturnType<typeof usePaperReader>;
@@ -71,7 +86,13 @@ export type PaperReaderState = ReturnType<typeof usePaperReader>;
  * 受控组件：查询状态与 articleRef 由 usePaperReader（页面层）提供，这里只负责三态
  * UI（加载 / 出错 / 内容不可用）与正文渲染。登录墙仍在调用方（ReaderPane）处理。
  */
-export function PaperReaderView({ reader }: { reader: PaperReaderState }) {
+export function PaperReaderView({
+  reader,
+  share,
+}: {
+  reader: PaperReaderState;
+  share: QuoteShareContext;
+}) {
   const { data, isPending, isError } = reader.query;
 
   if (isPending) {
@@ -101,8 +122,11 @@ export function PaperReaderView({ reader }: { reader: PaperReaderState }) {
     <ReaderArticle
       markdown={data.markdown}
       imageBase={data.imageBase}
+      articleRef={reader.articleRef}
       setArticleRef={reader.setArticleRef}
+      contentKey={reader.contentKey}
       toc={reader.toc}
+      share={share}
     />
   );
 }
@@ -110,13 +134,21 @@ export function PaperReaderView({ reader }: { reader: PaperReaderState }) {
 function ReaderArticle({
   markdown,
   imageBase,
+  articleRef,
   setArticleRef,
+  // 本任务用不上，留给 Task 3 的落地定位 hook（正文重新挂载后需要重新触发一次滚动）；
+  // 加下划线前缀让 tsc 的 noUnusedParameters 放行，而不是把 prop 从类型里删掉
+  contentKey: _contentKey,
   toc,
+  share,
 }: {
   markdown: string;
   imageBase: string;
+  articleRef: RefObject<HTMLElement | null>;
   setArticleRef: (node: HTMLElement | null) => void;
+  contentKey: string;
   toc: PaperReaderState["toc"];
+  share: QuoteShareContext;
 }) {
   const { settings, update, reset } = useReaderSettings();
   // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
@@ -128,6 +160,8 @@ function ReaderArticle({
   // 而不是页面层：tab 切走时这整棵组件树连同这个 state 一起卸载，不会留下悬挂的
   // 「抽屉曾经开着」状态。
   const [tocDrawerOpen, setTocDrawerOpen] = useState(false);
+  const [shareAnchor, setShareAnchor] = useState<QuoteAnchor | null>(null);
+  const bubble = useSelectionBubble(articleRef);
 
   return (
     <div className="paper-card p-4 sm:p-6">
@@ -171,6 +205,30 @@ function ReaderArticle({
         items={toc.items}
         activeId={toc.activeId}
         onJump={toc.jumpTo}
+      />
+
+      {bubble.state && !shareAnchor && (
+        <QuoteShareBubble
+          state={bubble.state}
+          onShare={() => {
+            setShareAnchor(bubble.state?.anchor ?? null);
+            bubble.dismiss();
+          }}
+        />
+      )}
+
+      <QuoteShareDialog
+        open={!!shareAnchor}
+        onOpenChange={(next) => {
+          if (!next) {
+            setShareAnchor(null);
+          }
+        }}
+        url={
+          shareAnchor
+            ? paperQuoteUrl(share.shortId, encodeAnchor(shareAnchor))
+            : ""
+        }
       />
     </div>
   );
