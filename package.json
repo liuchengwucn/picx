@@ -23,6 +23,7 @@
     "db:backfill-paper-content": "tsx scripts/backfill-paper-content.mjs",
     "db:backfill-paper-text-from-content": "tsx scripts/backfill-paper-text-from-content.mjs",
     "db:backfill-clean-garble": "tsx scripts/backfill-clean-garble.mjs",
+    "db:backfill-fffd-repair": "tsx scripts/backfill-fffd-repair.mjs",
     "format": "biome format",
     "lint": "biome lint",
     "typecheck": "tsc --noEmit",
