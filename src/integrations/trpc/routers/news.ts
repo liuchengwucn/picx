@@ -61,7 +61,7 @@ export const newsRouter = createTRPCRouter({
         sort: z.enum(["latest", "active"]).default("latest"),
         locale: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(),
         // 关键词搜索：escapeLike 转义后 LIKE 当前 locale + en 两个 json key
-        q: z.string().trim().min(1).max(100).optional(),
+        q: z.string().trim().max(100).optional(),
         // 日期跳转：客户端算好的「次日本地零点」epoch 毫秒，折算为游标起点。
         // 不直接用 initialCursor 是因为 infinite query 缓存键不含游标，
         // 日期必须进入输入对象才能区分缓存。
@@ -84,7 +84,8 @@ export const newsRouter = createTRPCRouter({
       if (input.q) {
         const needle = `%${escapeLike(input.q)}%`;
         // 只搜当前 locale + en 兜底两个 key，避免 LIKE 整列 JSON 跨语言误命中。
-        // 顶层单表 WHERE 插值本表 Column 安全（剥限定符后仍解析到本表）。
+        // WHERE 不受 isSingleTable 剥限定符影响（那只作用于 SELECT 投影），
+        // 这里插值 Column 渲染为完整限定名，安全。
         const paths =
           localeKey === "en" ? [`$."en"`] : [`$."${localeKey}"`, `$."en"`];
         const matches = paths.flatMap((p) => [
