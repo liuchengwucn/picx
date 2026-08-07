@@ -29,7 +29,7 @@ export function mergeCandidates(
       const key = item.canonicalUrl;
       const existing = byUrl.get(key);
       if (existing) {
-        if (!existing.sourceLabel.includes(item.sourceLabel)) {
+        if (!existing.sourceLabel.split(",").includes(item.sourceLabel)) {
           existing.sourceLabel = `${existing.sourceLabel},${item.sourceLabel}`;
         }
         continue;

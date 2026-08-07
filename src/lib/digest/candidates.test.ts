@@ -39,6 +39,24 @@ describe("mergeCandidates", () => {
     );
     expect(merged[0].hfUpvotes).toBe(55);
   });
+
+  it("does not drop a label that is a strict substring of the existing label", () => {
+    const merged = mergeCandidates(
+      [
+        [
+          paper("https://arxiv.org/abs/2508.00003", {
+            sourceLabel: "atp-verify",
+          }),
+        ],
+        [paper("https://arxiv.org/abs/2508.00003", { sourceLabel: "atp" })],
+      ],
+      new Map(),
+    );
+    expect(merged).toHaveLength(1);
+    const labels = merged[0].sourceLabel.split(",");
+    expect(labels).toContain("atp-verify");
+    expect(labels).toContain("atp");
+  });
 });
 
 describe("partitionCandidates", () => {

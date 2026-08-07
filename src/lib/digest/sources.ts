@@ -45,6 +45,9 @@ export async function fetchArxivQuery(
   const doc = atomParser.parse(xml) as {
     feed?: { entry?: unknown | unknown[] };
   };
+  if (!doc.feed) {
+    throw new Error("arxiv api: unrecognized response (no feed)");
+  }
   const entries = asArray(doc.feed?.entry) as Array<Record<string, unknown>>;
   const items: CandidateItem[] = [];
   for (const e of entries) {
