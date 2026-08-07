@@ -29,8 +29,12 @@ function highlightsSupported(): boolean {
 /**
  * 分享深链落地：解析 hash 里的锚点 → 定位 → 滚动 → 高亮渐隐。
  *
- * contentKey 变化（正文重挂或 markdown 变化）时重跑。定位要等 KaTeX 渲染完成才准，
- * 因此先延一帧试一次，失败后再延 300ms 补一次；两次都不中就静默放弃，页面照常展示。
+ * contentKey 变化（正文重挂或 markdown 变化）时重跑。react-markdown 的 Markdown 组件
+ * 靠 processor.runSync(...) 同步跑完整条 remark/rehype 管线（含 rehype-katex），
+ * 首帧 DOM 提交前公式就已经渲染好；React 又保证 ref 回调（layout 阶段）先于 passive
+ * effect 执行，所以 effect body 跑的时候 articleRef.current 理论上已经是就绪节点，
+ * 不存在「等 KaTeX 异步渲染完」这回事。这里的 rAF + 300ms 重试只是廉价兜底（万一
+ * anchorToRange 因为别的原因暂时定位不到），失败两次就放弃并留一条日志。
  */
 export function useQuoteAnchorScroll(
   articleRef: RefObject<HTMLElement | null>,
@@ -58,6 +62,10 @@ export function useQuoteAnchorScroll(
       }
       window.removeEventListener("wheel", clearHighlight);
       window.removeEventListener("touchmove", clearHighlight);
+      if (clearTimer) {
+        clearTimeout(clearTimer);
+        clearTimer = null;
+      }
     };
 
     const attempt = (): boolean => {
@@ -93,10 +101,15 @@ export function useQuoteAnchorScroll(
       if (attempt()) {
         return;
       }
-      // KaTeX 渲染会改变布局与节点结构，给它一次补机会
+      // 首帧理论上已经就绪（见上），这次重试只是兜底，不是在等某个异步渲染阶段
       retryTimer = setTimeout(() => {
         retryTimer = null;
-        attempt();
+        if (!attempt()) {
+          // 深链失效对用户表现为「点了没反应」，留一条线索方便排查
+          console.warn(
+            `[quote-anchor] failed to locate shared passage: ${window.location.hash}`,
+          );
+        }
       }, 300);
     });
 
@@ -108,9 +121,7 @@ export function useQuoteAnchorScroll(
       if (retryTimer) {
         clearTimeout(retryTimer);
       }
-      if (clearTimer) {
-        clearTimeout(clearTimer);
-      }
+      // clearHighlight 自己会顺带清掉 clearTimer，这里不用重复判空清一遍
       clearHighlight();
     };
   }, [articleRef, contentKey]);

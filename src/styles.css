@@ -568,6 +568,6 @@ a:hover { color: var(--academic-brown-deep); }
    use-quote-anchor-scroll.ts）：跨节点 Range 无法 surroundContents，而手动切分文本
    节点插 span 会跟 React 管理的 DOM 打架，这里必须做到零 DOM 改动。 */
 ::highlight(picx-quote) {
-  background-color: rgba(201, 169, 97, 0.42);
+  background-color: color-mix(in srgb, var(--gold) 42%, transparent);
   color: inherit;
 }
