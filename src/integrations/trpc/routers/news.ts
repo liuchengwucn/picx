@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import { newsItems, newsSources, newsStories } from "#/db/schema";
+import { escapeLike } from "#/lib/gallery-search";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 import { createTRPCRouter, publicProcedure } from "../init";
 
@@ -59,6 +60,12 @@ export const newsRouter = createTRPCRouter({
         limit: z.number().int().min(1).max(50).default(20),
         sort: z.enum(["latest", "active"]).default("latest"),
         locale: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(),
+        // 关键词搜索：escapeLike 转义后 LIKE 当前 locale + en 两个 json key
+        q: z.string().trim().min(1).max(100).optional(),
+        // 日期跳转：客户端算好的「次日本地零点」epoch 毫秒，折算为游标起点。
+        // 不直接用 initialCursor 是因为 infinite query 缓存键不含游标，
+        // 日期必须进入输入对象才能区分缓存。
+        beforeTs: z.number().int().positive().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -73,20 +80,36 @@ export const newsRouter = createTRPCRouter({
         input.sort === "latest"
           ? newsStories.earliestPublishedAt
           : newsStories.lastActivityAt;
-      let where: SQL | undefined = visible;
-      if (input.cursor) {
-        const cursorDate = new Date(input.cursor.ts);
-        where = and(
-          visible,
-          or(
-            lt(sortCol, cursorDate),
-            and(
-              eq(sortCol, cursorDate),
-              lt(newsStories.shortId, input.cursor.shortId),
-            ),
+      const conditions: SQL[] = [visible];
+      if (input.q) {
+        const needle = `%${escapeLike(input.q)}%`;
+        // 只搜当前 locale + en 兜底两个 key，避免 LIKE 整列 JSON 跨语言误命中。
+        // 顶层单表 WHERE 插值本表 Column 安全（剥限定符后仍解析到本表）。
+        const paths =
+          localeKey === "en" ? [`$."en"`] : [`$."${localeKey}"`, `$."en"`];
+        const matches = paths.flatMap((p) => [
+          sql`json_extract(${newsStories.title}, ${p}) LIKE ${needle} ESCAPE '\\'`,
+          sql`json_extract(${newsStories.summary}, ${p}) LIKE ${needle} ESCAPE '\\'`,
+        ]);
+        const qCond = or(...matches);
+        if (qCond) conditions.push(qCond);
+      }
+      // beforeTs 仅作首页的游标起点；翻页后 nextCursor 接管
+      const effectiveCursor =
+        input.cursor ??
+        (input.beforeTs != null ? { ts: input.beforeTs, shortId: "" } : null);
+      if (effectiveCursor) {
+        const cursorDate = new Date(effectiveCursor.ts);
+        const keyset = or(
+          lt(sortCol, cursorDate),
+          and(
+            eq(sortCol, cursorDate),
+            lt(newsStories.shortId, effectiveCursor.shortId),
           ),
         );
+        if (keyset) conditions.push(keyset);
       }
+      const where = and(...conditions);
 
       // 显式投影：不要 select() 全列，避免把 4KB centroid blob 一并带出
       // limit+1 探测：多取一行判断是否还有下一页，避免恰好整除时产生幽灵
