@@ -1,6 +1,6 @@
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2, Newspaper, Search } from "lucide-react";
+import { Loader2, Newspaper, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import {
@@ -60,7 +60,10 @@ function NewsPage() {
 
   // 浏览器前进后退时同步回输入框
   useEffect(() => {
-    setInputValue(search.q ?? "");
+    const next = search.q ?? "";
+    // 回填仅用于外部改动（前进后退）。我们写入 URL 的是 trim 后的值，
+    // 无条件覆盖会吃掉用户正在输入的尾部空格。
+    setInputValue((cur) => (cur.trim() === next ? cur : next));
   }, [search.q]);
 
   // 300ms debounce 后 replace 写 URL，避免每字符一条历史记录
@@ -82,7 +85,7 @@ function NewsPage() {
       { limit: PAGE_SIZE, sort, locale, q },
       { getNextPageParam: (last) => last.nextCursor },
     ),
-    // 排序切换换 key 期间沿用旧数据，由下方 isPlaceholderData 降透明度提示
+    // 搜索词 / 排序切换换 key 期间沿用旧数据，由下方 isPlaceholderData 降透明度提示
     placeholderData: keepPreviousData,
     // infinite query 的 refetch 按页串行；不设 staleTime 的话，用户翻了几页后
     // 离开再回来会串行重取全部已加载页。feed 由每小时 cron 喂，分钟级陈旧无害。
@@ -169,9 +172,20 @@ function NewsPage() {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={m.news_search_placeholder()}
+              aria-label={m.news_search_placeholder()}
               maxLength={100}
-              className="pl-9"
+              className="pl-9 pr-9"
             />
+            {inputValue && (
+              <button
+                type="button"
+                onClick={() => setInputValue("")}
+                aria-label={m.news_clear_search()}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-soft)] transition-colors hover:text-[var(--ink)]"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button

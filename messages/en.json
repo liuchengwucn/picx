@@ -443,6 +443,7 @@
   "news_heading": "AI Frontier News",
   "news_subheading": "What the AI community is talking about right now",
   "news_search_placeholder": "Search news…",
+  "news_clear_search": "Clear search",
   "news_sort_latest": "Daily highlights",
   "news_sort_active": "Recently updated",
   "news_reports_count": "{count} reports",

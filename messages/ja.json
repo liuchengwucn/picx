@@ -443,6 +443,7 @@
   "news_heading": "AI最前線ニュース",
   "news_subheading": "AIコミュニティが今話題にしていること",
   "news_search_placeholder": "ニュースを検索…",
+  "news_clear_search": "検索をクリア",
   "news_sort_latest": "デイリーハイライト",
   "news_sort_active": "更新順",
   "news_reports_count": "{count} 件の報道",
