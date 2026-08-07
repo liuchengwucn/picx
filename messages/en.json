@@ -445,7 +445,7 @@
   "news_search_placeholder": "Search news…",
   "news_clear_search": "Clear search",
   "news_jump_to_date": "Jump to date",
-  "news_from_date": "From {date}",
+  "news_up_to_date": "{date} and earlier",
   "news_clear_date": "Clear date",
   "news_sort_latest": "Daily highlights",
   "news_sort_active": "Recently updated",

@@ -445,7 +445,7 @@
   "news_search_placeholder": "ニュースを検索…",
   "news_clear_search": "検索をクリア",
   "news_jump_to_date": "日付へジャンプ",
-  "news_from_date": "{date} 以降",
+  "news_up_to_date": "{date} 以前",
   "news_clear_date": "日付をクリア",
   "news_sort_latest": "デイリーハイライト",
   "news_sort_active": "更新順",

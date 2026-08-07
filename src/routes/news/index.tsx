@@ -218,7 +218,7 @@ function NewsPage() {
           <Popover open={calOpen} onOpenChange={setCalOpen}>
             <PopoverTrigger asChild>
               <Button
-                variant={dateParam ? "default" : "outline"}
+                variant={selectedDate ? "default" : "outline"}
                 size="sm"
                 aria-label={m.news_jump_to_date()}
               >
@@ -229,6 +229,10 @@ function NewsPage() {
               <Calendar
                 mode="single"
                 selected={selectedDate ?? undefined}
+                // v10 的 getInitialMonth 是 month || defaultMonth || today，不看
+                // selected：不给 defaultMonth 则重开日历总跳回本月，翻月选历史日期后
+                // 想改选相邻一天得重新翻回去
+                defaultMonth={selectedDate ?? undefined}
                 onSelect={(d) => {
                   setCalOpen(false);
                   if (!d) return;
@@ -243,6 +247,8 @@ function NewsPage() {
                   window.scrollTo({ top: 0 });
                 }}
                 disabled={{ after: new Date() }}
+                // disabled 只置灰未来日期，不挡翻页；endMonth 才能停在本月
+                endMonth={new Date()}
                 locale={dayPickerLocale}
               />
             </PopoverContent>
@@ -268,7 +274,7 @@ function NewsPage() {
         {dateParam && selectedDate && (
           <div className="rise-in mt-3 flex items-center gap-2 text-sm text-[var(--ink-soft)]">
             <span>
-              {m.news_from_date({ date: dateFormat.format(selectedDate) })}
+              {m.news_up_to_date({ date: dateFormat.format(selectedDate) })}
             </span>
             <button
               type="button"
