@@ -58,4 +58,12 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   -- X 资讯账号（isTweet 标记推文特化；实例已就绪，等用户确认后置 enabled=1）
   ('src-x-karpathy',     'rsshub', 'X @karpathy',          '{"route":"/twitter/user/karpathy","isTweet":true}', 0, 0, strftime('%s','now')),
   ('src-x-akhaliq',      'rsshub', 'X @_akhaliq',          '{"route":"/twitter/user/_akhaliq","isTweet":true}', 0, 0, strftime('%s','now')),
-  ('src-x-iscienceluvr', 'rsshub', 'X @iScienceLuvr',      '{"route":"/twitter/user/iScienceLuvr","isTweet":true}', 0, 0, strftime('%s','now'));
+  ('src-x-iscienceluvr', 'rsshub', 'X @iScienceLuvr',      '{"route":"/twitter/user/iScienceLuvr","isTweet":true}', 0, 0, strftime('%s','now')),
+  -- 行业内幕/资本/人事类（2026-08-07 补，此前该类别零覆盖，漏掉字节 5 万亿参数模型爆料）。
+  -- 均为全站/全科技流，非 AI 内容靠相关性打分层过滤。feed 用 picx-news-bot UA verified 2026-08-07。
+  -- Techmeme 是前页精选流（非 River 全量），标题会转述 The Information/Bloomberg 等付费墙独家。
+  ('src-techmeme',       'rss',    'Techmeme',        '{"url":"https://www.techmeme.com/feed.xml"}', 1, 0, strftime('%s','now')),
+  ('src-techcrunch-ai',  'rss',    'TechCrunch AI',   '{"url":"https://techcrunch.com/category/artificial-intelligence/feed/"}', 1, 0, strftime('%s','now')),
+  ('src-verge-ai',       'rss',    'The Verge AI',    '{"url":"https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"}', 1, 0, strftime('%s','now')),
+  -- 晚点：RSSHub 官方路由（非自建自定义路由），feed 仅 5 条、日更 2-5 篇，小时级 cron 足够覆盖
+  ('src-latepost',       'rsshub', '晚点 LatePost',   '{"route":"/latepost"}', 1, 0, strftime('%s','now'));
