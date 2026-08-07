@@ -8,6 +8,8 @@ import {
   DialogTitle,
 } from "#/components/ui/dialog";
 import { m } from "#/paraglide/messages";
+import { QuoteCard } from "./quote-card";
+import type { CardContent } from "./quote-card-content";
 
 export interface QuoteShareContext {
   paperId: string;
@@ -22,10 +24,14 @@ export function QuoteShareDialog({
   open,
   onOpenChange,
   url,
+  content,
+  title,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   url: string;
+  content: CardContent | null;
+  title: string;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -56,9 +62,19 @@ export function QuoteShareDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <p className="break-all rounded-lg border border-[var(--line)] bg-[var(--parchment-warm)] p-3 font-mono text-xs text-[var(--ink-soft)]">
-          {url}
-        </p>
+        {content ? (
+          <div className="max-h-[52vh] overflow-y-auto rounded-lg bg-[var(--parchment-warm)] p-4">
+            <div className="origin-top scale-[0.62]">
+              <QuoteCard
+                cardRef={null}
+                content={content}
+                title={title}
+                url={url}
+                qrDataUrl={null}
+              />
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-2">
           <Button

@@ -1,7 +1,8 @@
 import type { RefObject } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { paperQuoteUrl } from "#/lib/embed-code";
 import { encodeAnchor, type QuoteAnchor } from "./quote-anchor";
+import { buildCardContent } from "./quote-card-content";
 import { QuoteShareBubble } from "./quote-share-bubble";
 import { type QuoteShareContext, QuoteShareDialog } from "./quote-share-dialog";
 import { useQuoteAnchorScroll } from "./use-quote-anchor-scroll";
@@ -27,6 +28,14 @@ export function QuoteShareOverlay({
   const bubble = useSelectionBubble(articleRef);
   useQuoteAnchorScroll(articleRef, contentKey);
 
+  const cardContent = useMemo(() => {
+    const article = articleRef.current;
+    if (!shareAnchor || !article) {
+      return null;
+    }
+    return buildCardContent(article, shareAnchor);
+  }, [shareAnchor, articleRef]);
+
   return (
     <>
       {bubble.state && !shareAnchor && (
@@ -51,6 +60,8 @@ export function QuoteShareOverlay({
             ? paperQuoteUrl(share.shortId, encodeAnchor(shareAnchor))
             : ""
         }
+        content={cardContent}
+        title={share.title}
       />
     </>
   );

@@ -571,3 +571,17 @@ a:hover { color: var(--academic-brown-deep); }
   background-color: color-mix(in srgb, var(--gold) 42%, transparent);
   color: inherit;
 }
+
+/* 引用卡片正文里的标记。卡片正文是克隆的正文 DOM，没有模板可以挂 Tailwind 类。
+   这里用真实 <span> 而非 ::highlight()——foreignObject 序列化不保证保留高亮伪元素，
+   而卡片最终要被截成图（Task 5）。 */
+.quote-card-mark {
+  /* 走变量而不是写死金色：卡片容器已把 --gold 钉成亮色值（见 quote-card.tsx），
+     所以这里引用变量既拿得到正确的亮色，也不会在别处被误用时锁死主题。 */
+  background-color: color-mix(in srgb, var(--gold) 32%, transparent);
+  border-radius: 2px;
+}
+.quote-card-muted {
+  color: var(--ink-soft);
+  opacity: 0.62;
+}

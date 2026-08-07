@@ -232,6 +232,8 @@
   "quote_share_dialog_title": "Share quote",
   "quote_share_link_copied": "Link copied",
   "quote_share_located": "Jumped to the shared passage",
+  "quote_share_qr_hint": "Scan or open the link to jump to this passage",
+  "quote_share_truncated": "Quote truncated — open the link for the full passage",
   "whiteboard_prompt_page_title": "Whiteboard Prompt Management",
   "whiteboard_prompt_page_description": "Manage your whiteboard generation prompts",
   "whiteboard_prompt_create": "Create New Prompt",
