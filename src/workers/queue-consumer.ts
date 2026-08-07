@@ -25,6 +25,7 @@ import {
 import { decrypt } from "#/lib/crypto";
 import type { MineruResult } from "#/lib/mineru";
 import { createBatch, getBatchResult } from "#/lib/mineru";
+import { repairFffd } from "#/lib/mineru-fffd";
 import type { MineruZipImage } from "#/lib/mineru-zip";
 import {
   buildImageResolver,
@@ -840,6 +841,7 @@ async function mineruSubmitAndWait(
           msg.paperId,
           result,
           aiConfig,
+          async () => pdfBuffer,
           env,
           log,
           logWarn,
@@ -973,6 +975,7 @@ async function resolveMineruPoll(
       msg.paperId,
       result,
       aiConfig,
+      () => loadPdfFromR2(paperRow, env, log),
       env,
       log,
       logWarn,
@@ -1048,6 +1051,8 @@ async function persistMineruContent(
   paperId: string,
   result: MineruResult,
   aiConfig: AIConfig,
+  // 惰性取 PDF：只在 markdown 含 U+FFFD 需要回补时才调用（避免无谓的 R2 读）。
+  loadPdf: () => Promise<ArrayBuffer>,
   env: Env,
   log: LogFn,
   logWarn: LogWarnFn,
@@ -1115,6 +1120,30 @@ async function persistMineruContent(
   if (markdown.trim().length === 0) {
     logWarn("mineru-persist", "MinerU zip has no usable markdown");
     return null;
+  }
+
+  // U+FFFD 回补：MinerU 会把部分 astral 数学字符损坏为 �，从原始 PDF 的
+  // 文本层按上下文对齐取回（见 mineru-fffd.ts）。放在 parseMineruZip 的
+  // 连字清洗之后，上下文更完整能多救回若干处。不传 aiConfig（不做 AI 裁尾）。
+  // 尽力而为：任何失败（超页数、R2 读失败等）只告警并用未回补的 markdown
+  // 继续——绝不能把论文打成 failed 或触发 pdfjs 降级。
+  if (markdown.includes("�")) {
+    try {
+      const pdfText = (await extractPDFText(await loadPdf(), PDFJS_MAX_PAGES))
+        .rawText;
+      const repair = repairFffd(markdown, pdfText);
+      markdown = repair.markdown;
+      log(
+        "mineru-fffd",
+        `Repaired ${repair.repaired}/${repair.total} U+FFFD run(s) from PDF text layer`,
+      );
+    } catch (error) {
+      logWarn(
+        "mineru-fffd",
+        "U+FFFD repair failed, keeping markdown as-is",
+        error,
+      );
+    }
   }
 
   // 先剥危险 HTML 再重写图片：R2 的 full.md 与由它派生的 plainText 都保持干净，
