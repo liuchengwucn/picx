@@ -94,4 +94,4 @@ CREATE TABLE `paper_feedback` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `paper_feedback_paper_user_unique` ON `paper_feedback` (`paper_id`,`user_id`);--> statement-breakpoint
-ALTER TABLE `papers` ADD `direction_id` text REFERENCES directions(id);
+ALTER TABLE `papers` ADD `direction_id` text REFERENCES `directions`(`id`) ON UPDATE no action ON DELETE set null;
