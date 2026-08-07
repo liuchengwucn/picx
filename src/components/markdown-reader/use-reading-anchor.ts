@@ -1,0 +1,107 @@
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
+
+/**
+ * 视口顶部的参照线（px）：与页面里 sticky 侧栏的 `top-24` 对齐，约等于站点 header 下沿。
+ * 只用来决定「挑哪一块当锚点」，取值稍有偏差不影响补偿精度——补偿对齐的是同一个块的
+ * 同一相对位置，参照线只是选块的判据。
+ */
+const ANCHOR_LINE_PX = 96;
+
+/** 小于半像素的位移不值得动滚动条，纯属重排噪声 */
+const MIN_CORRECTION_PX = 0.5;
+
+interface ReadingAnchor {
+  el: Element;
+  /** 锚点块整体落在参照线下方时：记录块顶到视口顶的距离，重排后原样还原 */
+  top: number;
+  /** 参照线穿过锚点块内部时：记录穿过点在块内的相对位置（0~1），按新高度还原 */
+  ratio: number | null;
+  /** 拖拽期间为 true：补偿后保留锚点，供后续每一帧继续对齐同一个位置 */
+  hold: boolean;
+}
+
+// SSR 没有 layout 阶段。useEffect 在服务端同样不执行，换掉只是为了绕开 React 对
+// useLayoutEffect 的 SSR 告警。
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+/**
+ * 长正文的「阅读位置锚定」。
+ *
+ * 页面是 window 滚动，正文行宽由中栏宽度决定（见 .reader-prose 的 max-width）。收起 /
+ * 展开聊天栏、拖动栏宽把手都会改变中栏宽度，正文随之重新断行、整篇高度大幅变化，而
+ * window.scrollY 一动不动——读者眼前那一段就被顶走好几屏，心流直接断掉。
+ *
+ * 用法：在触发布局变化「之前」（事件处理函数里，此时读到的还是旧布局）调 capture()，
+ * 把 layoutKey 换成新值；DOM 提交后本 hook 的 layout effect 会在浏览器绘制前把滚动位置
+ * 补回去，锚点块停在原处。连续变化（拖拽）用 capture({ hold: true }) + release()。
+ *
+ * @param rootRef 正文根节点；锚点从它的直接子元素里挑
+ * @param layoutKey 把所有会改变正文宽度的量拼成一个字符串，变了就补偿一次
+ */
+export function useReadingAnchor(
+  rootRef: RefObject<HTMLElement | null>,
+  layoutKey: string,
+) {
+  const anchorRef = useRef<ReadingAnchor | null>(null);
+
+  const capture = useCallback(
+    (options?: { hold?: boolean }) => {
+      anchorRef.current = null;
+      const root = rootRef.current;
+      if (!root) return;
+
+      // 参照线之下的第一个非空子元素就是读者正在看的那一块
+      for (const child of root.children) {
+        const rect = child.getBoundingClientRect();
+        // 零高节点（隐藏元素、纯锚点 span）当锚点没有意义，比例也会除零
+        if (rect.height <= 0) continue;
+        if (rect.bottom <= ANCHOR_LINE_PX) continue;
+        anchorRef.current = {
+          el: child,
+          top: rect.top,
+          ratio:
+            rect.top <= ANCHOR_LINE_PX
+              ? (ANCHOR_LINE_PX - rect.top) / rect.height
+              : null,
+          hold: options?.hold ?? false,
+        };
+        return;
+      }
+    },
+    [rootRef],
+  );
+
+  const release = useCallback(() => {
+    anchorRef.current = null;
+  }, []);
+
+  useIsomorphicLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    // 一次性锚点用完即弃，免得读者手动滚动之后下一次布局变化拿着过期坐标乱补
+    if (!anchor.hold) anchorRef.current = null;
+    // 切回总结视图等场景会把整棵 article 卸载，锚点跟着 detach
+    if (!anchor.el.isConnected) return;
+
+    const rect = anchor.el.getBoundingClientRect();
+    // ratio 非空说明参照线原本穿过块内部：块高变了要按比例还原穿过点，
+    // 否则跨越多屏的长段落只对齐块顶，段内位置照样漂。
+    const now =
+      anchor.ratio === null ? rect.top : rect.top + anchor.ratio * rect.height;
+    const was = anchor.ratio === null ? anchor.top : ANCHOR_LINE_PX;
+    const delta = now - was;
+    if (Math.abs(delta) < MIN_CORRECTION_PX) return;
+    // instant：正文里 TOC 跳转用的是 smooth，这里绝不能被带成动画——补偿必须在
+    // 这一帧绘制前就位，否则读者仍会看到跳变
+    window.scrollBy({ top: delta, behavior: "instant" });
+  }, [layoutKey]);
+
+  return { capture, release };
+}

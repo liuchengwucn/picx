@@ -545,9 +545,13 @@ function SignInPrompt({
 function PanelResizeHandle({
   width,
   onWidthChange,
+  onResizeStart,
+  onResizeEnd,
 }: {
   width: number;
   onWidthChange: (width: number) => void;
+  onResizeStart?: () => void;
+  onResizeEnd?: () => void;
 }) {
   // 拖拽起点：pointerdown 记一次，move 全程相对它算，不累计增量避免误差漂移
   const dragRef = useRef<{
@@ -556,10 +560,19 @@ function PanelResizeHandle({
     width: number;
   } | null>(null);
 
+  // 卸载 cleanup 要调最新的 onResizeEnd，但那个 effect 依赖必须是空数组（只在真正
+  // 卸载时跑），所以经 ref 取值而不是进依赖表。
+  const onResizeEndRef = useRef(onResizeEnd);
+  useEffect(() => {
+    onResizeEndRef.current = onResizeEnd;
+  }, [onResizeEnd]);
+
   // 组件若在拖拽中途被卸载（视口切换等），别把「禁止选择文本」留在 body 上
   useEffect(
     () => () => {
       document.body.style.userSelect = "";
+      // 同理：拖拽中途卸载时页面那边还 hold 着阅读锚点，得还回去
+      if (dragRef.current) onResizeEndRef.current?.();
     },
     [],
   );
@@ -571,6 +584,7 @@ function PanelResizeHandle({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     document.body.style.userSelect = "";
+    onResizeEnd?.();
   };
 
   return (
@@ -586,6 +600,8 @@ function PanelResizeHandle({
           x: event.clientX,
           width,
         };
+        // 必须在第一次改宽之前捕获阅读锚点——此刻读到的还是旧布局
+        onResizeStart?.();
         event.currentTarget.setPointerCapture(event.pointerId);
         // 拖拽中禁选：不然指针扫过正文会拉出一路选区
         document.body.style.userSelect = "none";
@@ -613,6 +629,9 @@ export interface PaperChatProps {
   panelWidth?: number;
   /** 提供了才渲染拖宽把手；新值已 clamp 到 CHAT_PANEL_WIDTH 范围 */
   onPanelWidthChange?: (width: number) => void;
+  /** 拖宽把手按下 / 松开：页面用它在正文重排前后锚定阅读位置 */
+  onPanelResizeStart?: () => void;
+  onPanelResizeEnd?: () => void;
   /** 宽屏侧栏是否收起成右下角 FAB；不影响 <xl 的抽屉形态 */
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
@@ -628,6 +647,8 @@ export function PaperChat({
   onSignIn,
   panelWidth,
   onPanelWidthChange,
+  onPanelResizeStart,
+  onPanelResizeEnd,
   collapsed,
   onCollapsedChange,
 }: PaperChatProps) {
@@ -713,6 +734,8 @@ export function PaperChat({
           <PanelResizeHandle
             width={panelWidth ?? CHAT_PANEL_WIDTH.default}
             onWidthChange={onPanelWidthChange}
+            onResizeStart={onPanelResizeStart}
+            onResizeEnd={onPanelResizeEnd}
           />
         )}
         {isSignedIn ? (

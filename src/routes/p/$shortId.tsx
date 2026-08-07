@@ -32,6 +32,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { type TocItem, TocList } from "#/components/markdown-reader/reader-toc";
+import { useReadingAnchor } from "#/components/markdown-reader/use-reading-anchor";
 import {
   CHAT_COLLAPSED_STORAGE_KEY,
   CHAT_PANEL_WIDTH,
@@ -590,6 +591,29 @@ function PaperDetailPage() {
   const isReaderViewReady =
     activeView === "reader" && !isSessionPending && !!effectiveSession;
   const paperReader = usePaperReader(paperId, isReaderViewReady);
+
+  // 中栏是 minmax(0,1fr)：收起聊天栏后它直接吃掉第三列的宽度，正文行宽从「被容器
+  // 压住」跳到「由 --reader-measure 决定」（约 +110px），整篇长文重新断行、高度缩掉
+  // 一成多，而 scrollY 不变——读者眼前那一段会被顶走好几屏。拖宽把手是同一回事，只是
+  // 每帧几 px 所以不刺眼。两者都在改宽度之前捕获锚点，由 layout effect 在绘制前补偿。
+  const { capture: captureReadingAnchor, release: releaseReadingAnchor } =
+    useReadingAnchor(
+      paperReader.articleRef,
+      `${chatCollapsed}:${chatPanelWidth}`,
+    );
+
+  const handleChatCollapsedChange = useCallback(
+    (next: boolean) => {
+      captureReadingAnchor();
+      setChatCollapsed(next);
+    },
+    [captureReadingAnchor],
+  );
+
+  // 拖拽是连续变化：按下时捕获一次并 hold 住，之后每一帧都对齐同一个锚点，松手才释放
+  const handleChatResizeStart = useCallback(() => {
+    captureReadingAnchor({ hold: true });
+  }, [captureReadingAnchor]);
 
   const { data: whiteboardsData } = useQuery({
     ...trpc.paper.listWhiteboards.queryOptions(paperId),
@@ -1261,8 +1285,10 @@ function PaperDetailPage() {
               onSignIn={startGitHubSignIn}
               panelWidth={chatPanelWidth}
               onPanelWidthChange={setChatPanelWidth}
+              onPanelResizeStart={handleChatResizeStart}
+              onPanelResizeEnd={releaseReadingAnchor}
               collapsed={chatCollapsed}
-              onCollapsedChange={setChatCollapsed}
+              onCollapsedChange={handleChatCollapsedChange}
             />
           )}
         </div>

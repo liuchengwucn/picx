@@ -58,7 +58,9 @@ export function usePaperReader(paperId: string, enabled: boolean) {
   );
   const toc = useToc(articleRef, contentKey);
 
-  return { query, setArticleRef, toc };
+  // articleRef 一并交出去：页面层收起/展开聊天栏时要拿正文节点做滚动锚定
+  // （见 useReadingAnchor）。
+  return { query, articleRef, setArticleRef, toc };
 }
 
 export type PaperReaderState = ReturnType<typeof usePaperReader>;
