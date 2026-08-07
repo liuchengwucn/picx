@@ -1,5 +1,5 @@
 // src/lib/digest/store.ts
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import {
   type DirectionSourceConfig,
@@ -14,6 +14,7 @@ import {
 } from "#/db/schema";
 import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
 import { createGalleryPaper, ensureGuestUser } from "#/lib/gallery-paper";
+import { MAX_SOURCE_FAILURES } from "#/lib/news/source-health";
 import type { Env } from "#/types/env";
 import type { PoolEntry } from "./candidates";
 import type {
@@ -76,6 +77,10 @@ export async function loadDirectionContext(
     .orderBy(desc(paperFeedback.updatedAt))
     .limit(50);
 
+  // 候选池会无限增长（从不删除），全量读回有撞 workflow 1MiB step-return 上限的风险。
+  // recommended 必须永久保留——否则已发布论文可能在后续期数被重新选中；
+  // 其余 seen/rejected 超过 180 天允许被遗忘，最坏情形只是白白重评一次、大概率仍会被拒。
+  const poolCutoff = new Date(Date.now() - 180 * 86400_000);
   const poolRows = await db
     .select({
       canonicalUrl: directionCandidates.canonicalUrl,
@@ -83,7 +88,15 @@ export async function loadDirectionContext(
       score: directionCandidates.score,
     })
     .from(directionCandidates)
-    .where(eq(directionCandidates.directionId, directionId));
+    .where(
+      and(
+        eq(directionCandidates.directionId, directionId),
+        or(
+          eq(directionCandidates.status, "recommended"),
+          gte(directionCandidates.lastSeenAt, poolCutoff),
+        ),
+      ),
+    );
 
   const since = new Date(Date.now() - 14 * 86400_000)
     .toISOString()
@@ -150,10 +163,16 @@ export async function ensureDigestShell(
   return { digestId, issueNumber };
 }
 
-/** 源健康回写（成功/失败），字段语义与 news_sources 一致 */
+/**
+ * 源健康回写（成功/失败），字段语义与 news_sources / source-health 一致。
+ * currentFailures 由调用方传入（workflow 手上就有，来自 loadDirectionContext）；
+ * 失败计数写绝对值而非 `col + 1` 的相对表达式，使本函数在 step 重试下天然幂等，
+ * 同时据此维护 enabled：达到 MAX_SOURCE_FAILURES 即熔断，探活/常规抓取成功即自愈。
+ */
 export async function recordSourceResult(
   db: Db,
   sourceId: string,
+  currentFailures: number,
   result: { ok: true } | { ok: false; error: string },
 ): Promise<void> {
   const now = new Date();
@@ -165,15 +184,19 @@ export async function recordSourceResult(
         lastAttemptAt: now,
         lastError: null,
         consecutiveFailures: 0,
+        // 探活成功即自愈；对本来就健康的源是 no-op
+        enabled: true,
       })
       .where(eq(directionSources.id, sourceId));
   } else {
+    const failures = currentFailures + 1;
     await db
       .update(directionSources)
       .set({
         lastAttemptAt: now,
         lastError: result.error.slice(0, 500),
-        consecutiveFailures: sql`${directionSources.consecutiveFailures} + 1`,
+        consecutiveFailures: failures,
+        enabled: failures < MAX_SOURCE_FAILURES,
       })
       .where(eq(directionSources.id, sourceId));
   }

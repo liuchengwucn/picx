@@ -43,7 +43,10 @@ import type {
   ReviewedCandidate,
   SynthesisResult,
 } from "#/lib/digest/types";
-import { shouldProbe } from "#/lib/news/source-health";
+import {
+  MAX_SOURCE_FAILURES,
+  selectFetchTargets,
+} from "#/lib/news/source-health";
 import type { Env } from "#/types/env";
 
 export type DigestWorkflowParams = {
@@ -114,12 +117,22 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       );
 
       // ── 3. 确定性扫源（每源一个 step；熔断源按探活节奏跳过）──
+      // 候选集与 news-cron 一致：enabled 的健康源 ∪ 已达熔断阈值的源（后者才是
+      // shouldProbe 的探活对象——人为停用的源 consecutiveFailures 恒为 0，两个
+      // 条件都不满足，正确地被排除）。
       const now = Date.now();
-      const activeSources = ctx.sources.filter(
-        (s) =>
-          (s.enabled && s.consecutiveFailures === 0) ||
-          (s.enabled && shouldProbe(s, now)),
+      const sourceCandidates = ctx.sources.filter(
+        (s) => s.enabled || s.consecutiveFailures >= MAX_SOURCE_FAILURES,
       );
+      const { targets: activeSources, probes } = selectFetchTargets(
+        sourceCandidates,
+        now,
+      );
+      if (probes.length > 0) {
+        console.log(
+          `[Digest] ${ctx.direction.slug}: probing ${probes.length} tripped source(s): ${probes.map((s) => s.id).join(", ")}`,
+        );
+      }
       const sourceGroups: CandidateItem[][] = [];
       for (const batch of chunk(activeSources, 3)) {
         const results = await Promise.all(
@@ -138,14 +151,24 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                   ctx.direction.focusBrief,
                   items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
                 );
-                await recordSourceResult(db, source.id, { ok: true });
+                await recordSourceResult(
+                  db,
+                  source.id,
+                  source.consecutiveFailures,
+                  { ok: true },
+                );
                 return items.filter((_, i) => scores[i] >= RELEVANCE_THRESHOLD);
               } catch (e) {
                 // 源失败不失败整期：记熔断，返回空
-                await recordSourceResult(db, source.id, {
-                  ok: false,
-                  error: e instanceof Error ? e.message : String(e),
-                });
+                await recordSourceResult(
+                  db,
+                  source.id,
+                  source.consecutiveFailures,
+                  {
+                    ok: false,
+                    error: e instanceof Error ? e.message : String(e),
+                  },
+                );
                 return [] as CandidateItem[];
               }
             }),
@@ -203,13 +226,19 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       });
 
       // ── 6. 逐篇精读（每篇一个 step，含全文抓取）──
+      // step 名带全局序号（同角度搜索的理由）：批内下标会在不同批次间重复，
+      // URL 尾 60 字符理论上也可能撞车，全局序号才是唯一性的真正保证。
       const reviewed: ReviewedCandidate[] = [];
-      for (const batch of chunk(partition.toReview, 4)) {
+      const indexedToReview = partition.toReview.map((item, i) => ({
+        item,
+        i,
+      }));
+      for (const batch of chunk(indexedToReview, 4)) {
         const results = await Promise.all(
-          batch.map((item, bi) =>
+          batch.map(({ item, i }) =>
             step
               .do(
-                `review-${item.canonicalUrl.slice(-60)}-${bi}`,
+                `review-${i}-${item.canonicalUrl.slice(-60)}`,
                 LLM_RETRIES,
                 async () => {
                   const fullText =
@@ -253,14 +282,16 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       const intelCandidates = reviewed.filter((r) => r.item.kind === "intel");
 
       // ── 7. 对抗验证（每篇一个 step，step 内 3 票）──
+      // 同上：step 名用全局序号保证唯一，URL 尾 60 字符仅供可读性。
       const verdicts: Array<{ r: ReviewedCandidate; outcome: VoteOutcome }> =
         [];
-      for (const batch of chunk(paperCandidates, 4)) {
+      const indexedPaperCandidates = paperCandidates.map((r, i) => ({ r, i }));
+      for (const batch of chunk(indexedPaperCandidates, 4)) {
         const results = await Promise.all(
-          batch.map((r, bi) =>
+          batch.map(({ r, i }) =>
             step
               .do(
-                `verify-${r.item.canonicalUrl.slice(-60)}-${bi}`,
+                `verify-${i}-${r.item.canonicalUrl.slice(-60)}`,
                 LLM_RETRIES,
                 async () => {
                   const votes = await Promise.all(
