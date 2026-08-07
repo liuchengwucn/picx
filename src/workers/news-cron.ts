@@ -1,4 +1,15 @@
-import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { drizzle } from "drizzle-orm/d1";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
@@ -17,6 +28,10 @@ import {
 } from "#/lib/news/ai";
 import { mergeRelated, pickRelated } from "#/lib/news/related";
 import { buildSignalsSummary } from "#/lib/news/signals";
+import {
+  MAX_SOURCE_FAILURES,
+  selectFetchTargets,
+} from "#/lib/news/source-health";
 import { cleanScrapedResearchTitle } from "#/lib/news/title-clean";
 import type { NormalizedItem } from "#/lib/news/types";
 import { hashUrl } from "#/lib/news/url";
@@ -40,7 +55,6 @@ const MAX_SUMMARIZE_PER_ROUND = 30;
 // related 候选窗口：近 90 天内的可见 story
 const RELATED_WINDOW_DAYS = 90;
 const MAX_HN_REFRESH_PER_ROUND = 50;
-const MAX_SOURCE_FAILURES = 10;
 // Cron 触发的硬上限是 15 分钟；留 4 分钟余量，让平台 kill 永远不会落在写入中途。
 // 各阶段在循环边界主动收手，未处理的积压下一轮继续（所有阶段都按状态幂等取活）。
 const ROUND_BUDGET_MS = 11 * 60_000;
@@ -116,10 +130,26 @@ async function fetchForSource(
 
 async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
   const ingestCutoff = windowStart(env);
-  const sources = await db
+  // 候选 = 健康源 + 已熔断源。人为停用的源（failures=0）两个条件都不满足，取不到。
+  const candidates = await db
     .select()
     .from(newsSources)
-    .where(eq(newsSources.enabled, true));
+    .where(
+      or(
+        eq(newsSources.enabled, true),
+        gte(newsSources.consecutiveFailures, MAX_SOURCE_FAILURES),
+      ),
+    );
+  const { targets: sources, probes } = selectFetchTargets(
+    candidates,
+    Date.now(),
+  );
+  if (probes.length > 0) {
+    log(
+      "fetch",
+      `probing ${probes.length} tripped source(s): ${probes.map((s) => s.id).join(", ")}`,
+    );
+  }
   for (const source of sources) {
     if (pastDeadline(deadline, "fetch")) break;
     try {
@@ -194,10 +224,19 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
         .update(newsSources)
         .set({
           lastFetchedAt: new Date(),
+          lastAttemptAt: new Date(),
           lastError: null,
           consecutiveFailures: 0,
+          // 探活成功即自愈；对本来就健康的源是 no-op
+          enabled: true,
         })
         .where(eq(newsSources.id, source.id));
+      if (!source.enabled) {
+        log(
+          "fetch",
+          `${source.id}: probe succeeded after ${source.consecutiveFailures} failures, re-enabled`,
+        );
+      }
       log(
         "fetch",
         `${source.id}: ${items.length} fetched, ${inserted} new${itemErrors > 0 ? `, ${itemErrors} write errors` : ""}`,
@@ -207,6 +246,7 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
       await db
         .update(newsSources)
         .set({
+          lastAttemptAt: new Date(),
           lastError: String(error).slice(0, 500),
           consecutiveFailures: failures,
           enabled: failures < MAX_SOURCE_FAILURES,
