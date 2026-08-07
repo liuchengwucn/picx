@@ -21,7 +21,7 @@ import {
   copyCardAndLink,
   renderQuoteCard,
   renderQuoteQr,
-} from "./use-quote-card-image";
+} from "./quote-card-image";
 
 /** 弹窗里预览卡片的缩放比例：720px 宽的卡片塞进弹窗宽度 */
 const PREVIEW_SCALE = 0.62;
@@ -54,6 +54,9 @@ export function QuoteShareDialog({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [canSystemShare, setCanSystemShare] = useState(false);
+  // 截图链路要跨越几百毫秒到数秒。弹窗关掉再为另一段引文打开时，上一次的异步收尾
+  // （setBusy / flash / 错误日志）不能落到新会话上——用自增序号判定归属。
+  const generationRef = useRef(0);
 
   // transform 不改变布局盒：外层的滚动区会按未缩放的 720px 卡片算，多出约 40% 的空白
   // 可滚区域，横向也会冒出滚动条。用实测的未缩放高度（offsetHeight，不受 transform
@@ -115,15 +118,24 @@ export function QuoteShareDialog({
     if (!node) {
       return;
     }
+    const gen = ++generationRef.current;
     setBusy(true);
     try {
       const blob = await renderQuoteCard(node);
       await copyCardAndLink(blob, url);
+      if (generationRef.current !== gen) {
+        return;
+      }
       flash("image");
     } catch (err) {
+      if (generationRef.current !== gen) {
+        return;
+      }
       console.error("Failed to copy quote card:", err);
     } finally {
-      setBusy(false);
+      if (generationRef.current === gen) {
+        setBusy(false);
+      }
     }
   };
 
@@ -132,21 +144,40 @@ export function QuoteShareDialog({
     if (!node) {
       return;
     }
+    const gen = ++generationRef.current;
     setBusy(true);
+    let file: File | null = null;
     try {
       const blob = await renderQuoteCard(node);
-      const file = new File([blob], "picx-quote.png", { type: "image/png" });
-      await navigator.share({ title, url, files: [file] });
+      file = new File([blob], "picx-quote.png", { type: "image/png" });
     } catch (err) {
-      // 用户取消或平台不支持带文件分享，退回只分享链接
-      console.warn("System share with image failed:", err);
+      console.error("Failed to render quote card for share:", err);
+    }
+    if (generationRef.current !== gen) {
+      return;
+    }
+    // 面板是系统模态，用户在上面停留多久都不该让按钮一直转圈——截图一出结果就收尾。
+    setBusy(false);
+
+    if (file) {
       try {
-        await navigator.share({ title, url });
-      } catch {
-        // 用户取消，什么都不做
+        await navigator.share({ title, url, files: [file] });
+        return;
+      } catch (err) {
+        // 用户主动关掉分享面板，不要再弹第二次
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
+        console.warn(
+          "Share with image failed; falling back to link only:",
+          err,
+        );
       }
-    } finally {
-      setBusy(false);
+    }
+    try {
+      await navigator.share({ title, url });
+    } catch {
+      // 用户取消，什么都不做
     }
   };
 
@@ -155,7 +186,14 @@ export function QuoteShareDialog({
       open={open}
       onOpenChange={(next) => {
         if (!next) {
+          // 换一段引文再打开前把上一段的残留状态清掉：不然会先闪一下旧二维码，
+          // 占位盒也会先按旧卡片的高度渲染一帧。同时让在途的异步收尾（见
+          // generationRef）都判定为「过期」，不再落到下一次会话上。
           setCopiedKey(null);
+          setQrDataUrl(null);
+          setCardHeight(0);
+          setBusy(false);
+          generationRef.current += 1;
         }
         onOpenChange(next);
       }}
