@@ -32,6 +32,7 @@ import {
   countUnfinishedPapers,
   ensureDigestShell,
   finalizeDigestPapers,
+  findUnfinishedPaperIds,
   loadDirectionContext,
   recordSourceResult,
   saveDigestContent,
@@ -120,7 +121,12 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       // 候选集与 news-cron 一致：enabled 的健康源 ∪ 已达熔断阈值的源（后者才是
       // shouldProbe 的探活对象——人为停用的源 consecutiveFailures 恒为 0，两个
       // 条件都不满足，正确地被排除）。
-      const now = Date.now();
+      // 用 event.timestamp（实例创建时刻，跨重放不变）而非 Date.now()：run() 主体
+      // 在每次 hibernate 唤醒后从头重新求值，本轮 publish-poll 最长跨 3 小时，若用
+      // Date.now() 会让「本轮扫哪些源」在重放间漂移——已缓存的 scan-source-* 步骤
+      // 不受影响，但新落入候选集的源会在重放时真的执行一次（含真实抓取/付费 LLM
+      // 调用），产出却被 merge-and-budget 的缓存结果丢弃。
+      const now = event.timestamp.getTime();
       const sourceCandidates = ctx.sources.filter(
         (s) => s.enabled || s.consecutiveFailures >= MAX_SOURCE_FAILURES,
       );
@@ -219,10 +225,18 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           ...result.toReview,
           ...result.overBudget,
         ]);
+        // 四个计数是「no silent caps」审计轨迹，必须完整保留——即使 skipped
+        // 本身不会进入下面的 return（下游从不读它）。
         console.log(
           `[Digest] ${ctx.direction.slug}: merged=${merged.length} review=${result.toReview.length} overBudget=${result.overBudget.length} skipped=${result.skipped.length}`,
         );
-        return result;
+        // step 返回值会整份持久化在 workflow state 里：只带下游真正读取的字段
+        // （toReview 全量、overBudget 仅 title），skipped 与 overBudget 的其余
+        // 字段不返回。
+        return {
+          toReview: result.toReview,
+          overBudgetTitles: result.overBudget.map((i) => i.title),
+        };
       });
 
       // ── 6. 逐篇精读（每篇一个 step，含全文抓取）──
@@ -346,7 +360,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
             })),
             intel: intelCandidates,
             rejectedTitles,
-            overBudgetTitles: partition.overBudget.map((i) => i.title),
+            overBudgetTitles: partition.overBudgetTitles,
           }),
       );
 
@@ -413,12 +427,24 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       });
 
       // ── 11. 等论文处理完（或 3 小时兜底）后发布 ──
+      let unfinished = 0;
       for (let i = 0; i < PUBLISH_POLL_ROUNDS; i++) {
-        const unfinished = await step.do(`check-papers-${i}`, () =>
+        unfinished = await step.do(`check-papers-${i}`, () =>
           countUnfinishedPapers(db, finalize.paperIds),
         );
         if (unfinished === 0) break;
         await step.sleep(`wait-papers-${i}`, "10 minutes");
+      }
+      // 3 小时兜底到点仍有未完成论文：不阻塞发布、不自动补救，但必须留下可见痕迹——
+      // 已知有「论文行已插但入队失败」的窄失败面（PAPER_QUEUE.send 在 papers 行插入
+      // 后失败，重试时去重 SELECT 会短路，永远不会重新入队），不留痕会悄无声息漏发。
+      if (unfinished > 0) {
+        await step.do("warn-unfinished-before-publish", async () => {
+          const ids = await findUnfinishedPaperIds(db, finalize.paperIds);
+          console.warn(
+            `[Digest] digest ${shell.digestId}: publishing with ${unfinished} paper(s) still unfinished after ${PUBLISH_POLL_ROUNDS} poll rounds: ${ids.join(", ")}`,
+          );
+        });
       }
       await step.do("publish", () =>
         saveDigestContent(db, shell.digestId, {
@@ -429,10 +455,19 @@ export class DigestWorkflow extends WorkflowEntrypoint<
 
       return { digestId: shell.digestId, picks: synthesis.picks.length };
     } catch (e) {
-      // 编排级失败：标记 failed 后原样抛出（实例进 errored，便于排查/restart）
-      await step.do("mark-failed", () =>
-        saveDigestContent(db, shell.digestId, { status: "failed" }),
-      );
+      // 编排级失败：标记 failed 后原样抛出（实例进 errored，便于排查/restart）。
+      // mark-failed 自身若失败（默认重试策略耗尽后仍抛出），不能让这个记账错误
+      // 盖过根因——单独 catch、记录，再无条件抛出原始 e。
+      try {
+        await step.do("mark-failed", () =>
+          saveDigestContent(db, shell.digestId, { status: "failed" }),
+        );
+      } catch (markFailedError) {
+        console.error(
+          `[Digest] mark-failed itself failed for digest ${shell.digestId}:`,
+          markFailedError,
+        );
+      }
       throw e;
     }
   }

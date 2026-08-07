@@ -347,6 +347,21 @@ export async function countUnfinishedPapers(
     .length;
 }
 
+/** 兜底发布前的可见性检查：返回仍未完成的论文 id，供 console.warn 定位具体是哪几篇 */
+export async function findUnfinishedPaperIds(
+  db: Db,
+  paperIds: string[],
+): Promise<string[]> {
+  if (paperIds.length === 0) return [];
+  const rows = await db
+    .select({ id: papers.id, status: papers.status })
+    .from(papers)
+    .where(inArray(papers.id, paperIds));
+  return rows
+    .filter((r) => r.status !== "completed" && r.status !== "failed")
+    .map((r) => r.id);
+}
+
 export async function saveDigestContent(
   db: Db,
   digestId: string,
