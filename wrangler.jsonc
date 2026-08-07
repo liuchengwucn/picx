@@ -13,7 +13,8 @@
       "0 14 * * *", // 22:00 北京时间: tweet-poster-cron 发当天 top-1（北美早高峰）
       "30 14 * * *", // 22:30 北京时间: tweet-poster-cron 发当天 top-2
       "0 15 * * *", // 23:00 北京时间: tweet-poster-cron 发当天 top-3
-      "0 * * * *" // 每小时: news-cron 新闻聚合流水线（00:00 会与 arxiv-cron 各自独立触发，互不影响）
+      "0 * * * *", // 每小时: news-cron 新闻聚合流水线（00:00 会与 arxiv-cron 各自独立触发，互不影响）
+      "0 12 * * 6" // 东京周六 21:00: digest-cron 方向周报挖掘
     ]
   },
 
@@ -62,6 +63,15 @@
       }
     ]
   },
+
+  // Workflows 配置
+  "workflows": [
+    {
+      "binding": "DIGEST_WORKFLOW",
+      "name": "digest-workflow",
+      "class_name": "DigestWorkflow"
+    }
+  ],
 
   // 本地开发配置
   "dev": {

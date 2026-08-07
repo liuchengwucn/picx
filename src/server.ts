@@ -4,9 +4,12 @@ import { prefersMarkdown } from "#/lib/content-negotiation";
 import { loadPaperMarkdown } from "#/lib/paper-markdown";
 import type { Env } from "#/types/env";
 import arxivCron from "#/workers/arxiv-cron";
+import digestCron from "#/workers/digest-cron";
 import newsCron from "#/workers/news-cron";
 import queueConsumer from "#/workers/queue-consumer";
 import tweetPosterCron from "#/workers/tweet-poster-cron";
+
+export { DigestWorkflow } from "#/workflows/digest-workflow";
 
 const MARKDOWN_HEADERS = {
   "Content-Type": "text/markdown; charset=utf-8",
@@ -57,6 +60,8 @@ const ARXIV_CRON = "0 0 * * *";
 const POSTER_CRONS = new Set(["0 14 * * *", "30 14 * * *", "0 15 * * *"]);
 // 每小时整点: news-cron 新闻聚合流水线（与 ARXIV_CRON 在 00:00 各自独立触发）
 const NEWS_CRON = "0 * * * *";
+// 东京周六 21:00: digest-cron 方向周报挖掘
+const DIGEST_CRON = "0 12 * * 6";
 
 async function dispatchScheduled(
   controller: ScheduledController,
@@ -68,6 +73,9 @@ async function dispatchScheduled(
   }
   if (controller.cron === NEWS_CRON) {
     return newsCron.scheduled(controller, env, ctx);
+  }
+  if (controller.cron === DIGEST_CRON) {
+    return digestCron.scheduled(controller, env, ctx);
   }
   // ARXIV_CRON 及兜底
   return arxivCron.scheduled(controller, env, ctx);

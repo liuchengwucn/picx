@@ -33,7 +33,6 @@
     "@ai-sdk/react": "^4.0.54",
     "@better-auth/drizzle-adapter": "^1.5.3",
     "@cf-wasm/photon": "^0.3.6",
-    "@cloudflare/vite-plugin": "^1.13.8",
     "@faker-js/faker": "^10.0.0",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@tailwindcss/vite": "^4.1.18",
@@ -88,6 +87,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
+    "@cloudflare/vite-plugin": "^1.43.1",
     "@cloudflare/workers-types": "^4.20260305.1",
     "@inlang/paraglide-js": "^2.8.0",
     "@tailwindcss/typography": "^0.5.16",
@@ -108,7 +108,7 @@
     "vite": "^7.1.7",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.0.5",
-    "wrangler": "^4.40.3"
+    "wrangler": "^4.107.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
