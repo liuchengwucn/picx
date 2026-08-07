@@ -204,6 +204,13 @@
       "when": 1786067929036,
       "tag": "0028_zippy_cerebro",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1786102629186,
+      "tag": "0029_lame_impossible_man",
+      "breakpoints": true
     }
   ]
 }

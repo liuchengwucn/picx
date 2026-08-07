@@ -99,6 +99,10 @@ export const papers = sqliteTable(
     // HuggingFace Daily Papers 的 upvotes，由 arxiv-cron 落库，供 X bot 阈值筛选。
     // 用户上传 / 历史论文为 NULL（不会被 bot 选中，符合防洪）。
     upvotes: integer("upvotes"),
+    // 方向挖掘入库的论文归属方向；HF 爆款兜底与历史论文为 NULL
+    directionId: text("direction_id").references(() => directions.id, {
+      onDelete: "set null",
+    }),
     status: text("status", {
       enum: [
         "pending",
@@ -753,3 +757,216 @@ export const userProfiles = sqliteTable("user_profiles", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// ==================== Gallery 方向化（direction digest）====================
+
+/** direction_sources.config 的形状，按 adapterType 取用对应字段 */
+export type DirectionSourceConfig = {
+  /** arxiv_query: arXiv API search_query 表达式 */
+  query?: string;
+  maxResults?: number;
+  /** rss: feed 地址 */
+  url?: string;
+};
+
+export const directions = sqliteTable("directions", {
+  // 种子数据用可读固定 id（如 "dir-ai4formath"），便于 INSERT OR IGNORE 幂等 seed
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  name: text("name", { mode: "json" })
+    .notNull()
+    .$type<Record<string, string>>(),
+  // 当前关注的小方向 + 口味描述，直接喂给 LLM；小方向流变 = 改这段文字
+  focusBrief: text("focus_brief").notNull(),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const directionSources = sqliteTable(
+  "direction_sources",
+  {
+    id: text("id").primaryKey(), // 可读固定 id（如 "dsrc-ai4formath-arxiv-atp"）
+    directionId: text("direction_id")
+      .notNull()
+      .references(() => directions.id, { onDelete: "cascade" }),
+    // Zulip 适配器本期不做（匿名 API 401，需 bot 凭据）；届时加 enum 值即可，
+    // SQLite 侧 enum 只是 drizzle 类型标注，不生成 CHECK 约束，无需迁移
+    adapterType: text("adapter_type", {
+      enum: ["arxiv_query", "rss"],
+    }).notNull(),
+    config: text("config", { mode: "json" })
+      .notNull()
+      .$type<DirectionSourceConfig>(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    // 熔断字段与 news_sources 同构，复用 #/lib/news/source-health
+    lastFetchedAt: integer("last_fetched_at", { mode: "timestamp" }),
+    lastAttemptAt: integer("last_attempt_at", { mode: "timestamp" }),
+    lastError: text("last_error"),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    directionIdx: index("direction_sources_direction_idx").on(
+      table.directionId,
+    ),
+  }),
+);
+
+export const digests = sqliteTable(
+  "digests",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    directionId: text("direction_id")
+      .notNull()
+      .references(() => directions.id, { onDelete: "cascade" }),
+    issueNumber: integer("issue_number").notNull(),
+    periodStart: integer("period_start", { mode: "timestamp" }).notNull(),
+    periodEnd: integer("period_end", { mode: "timestamp" }).notNull(),
+    status: text("status", { enum: ["generating", "published", "failed"] })
+      .notNull()
+      .default("generating"),
+    title: text("title", { mode: "json" }).$type<Record<string, string>>(),
+    // 四语 markdown 正文：本期看点、非论文情报段落、被否决候选附注、open questions
+    content: text("content", { mode: "json" }).$type<Record<string, string>>(),
+    // LLM 对 focusBrief 的更新提案，Phase 3 管理页人工采纳
+    proposedFocusUpdate: text("proposed_focus_update"),
+    // workflow instanceId，step 重试幂等守卫
+    workflowInstanceId: text("workflow_instance_id").notNull().unique(),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    issueUnique: uniqueIndex("digests_direction_issue_unique").on(
+      table.directionId,
+      table.issueNumber,
+    ),
+    directionPublishedIdx: index("digests_direction_published_idx").on(
+      table.directionId,
+      table.publishedAt,
+    ),
+  }),
+);
+
+export const digestPapers = sqliteTable(
+  "digest_papers",
+  {
+    digestId: text("digest_id")
+      .notNull()
+      .references(() => digests.id, { onDelete: "cascade" }),
+    paperId: text("paper_id")
+      .notNull()
+      .references(() => papers.id, { onDelete: "cascade" }),
+    rank: integer("rank").notNull(),
+    // 「这篇新在哪、为什么值得读」——某一期的编辑判断，所以放关联表不放 papers
+    recommendationNote: text("recommendation_note", { mode: "json" }).$type<
+      Record<string, string>
+    >(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.digestId, table.paperId] }),
+    paperIdx: index("digest_papers_paper_idx").on(table.paperId),
+  }),
+);
+
+export const directionCandidates = sqliteTable(
+  "direction_candidates",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    directionId: text("direction_id")
+      .notNull()
+      .references(() => directions.id, { onDelete: "cascade" }),
+    canonicalUrl: text("canonical_url").notNull(),
+    title: text("title").notNull(),
+    kind: text("kind", { enum: ["paper", "intel"] })
+      .notNull()
+      .default("paper"),
+    status: text("status", { enum: ["seen", "recommended", "rejected"] })
+      .notNull()
+      .default("seen"),
+    // 最近一次精读评审的综合分 0-100；未评审过为 NULL
+    score: integer("score"),
+    sourceMeta: text("source_meta", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
+    firstSeenAt: integer("first_seen_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    urlUnique: uniqueIndex("direction_candidates_url_unique").on(
+      table.directionId,
+      table.canonicalUrl,
+    ),
+    statusIdx: index("direction_candidates_status_idx").on(
+      table.directionId,
+      table.status,
+    ),
+  }),
+);
+
+export const paperFeedback = sqliteTable(
+  "paper_feedback",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    paperId: text("paper_id")
+      .notNull()
+      .references(() => papers.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    vote: integer("vote").notNull(), // 1 | -1
+    reasonPreset: text("reason_preset", {
+      enum: ["off-topic", "incremental", "hype", "seen", "other"],
+    }),
+    reasonText: text("reason_text"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    paperUserUnique: uniqueIndex("paper_feedback_paper_user_unique").on(
+      table.paperId,
+      table.userId,
+    ),
+  }),
+);
+
+export const hfSignals = sqliteTable(
+  "hf_signals",
+  {
+    arxivId: text("arxiv_id").primaryKey(),
+    upvotes: integer("upvotes").notNull(),
+    date: text("date").notNull(), // YYYY-MM-DD（HF daily 的日期）
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    dateIdx: index("hf_signals_date_idx").on(table.date),
+  }),
+);

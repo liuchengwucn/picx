@@ -46,6 +46,10 @@ interface AppEnvBindings {
   API_KEY_ENCRYPTION_SECRET: string;
   MINERU_TOKEN?: string;
   INDEXNOW_KEY?: string;
+  // Gallery 方向化（direction digest）
+  DIGEST_WORKFLOW: Workflow;
+  DIGEST_CHEAP_MODEL?: string; // 扫源初筛/精读/对抗投票，回落 OPENAI_MODEL
+  DIGEST_STRONG_MODEL?: string; // Scope 分解/定稿，回落 OPENAI_MODEL
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {

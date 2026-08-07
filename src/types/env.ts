@@ -53,4 +53,9 @@ export interface Env {
   CRON_TRIGGER_KEY?: string;
   // news 摄入/活跃窗口小时数覆盖（可选；仅用于历史回填等运维场景，默认 72）
   NEWS_INGEST_WINDOW_HOURS?: string;
+
+  // Gallery 方向化（direction digest）
+  DIGEST_WORKFLOW: Workflow;
+  DIGEST_CHEAP_MODEL?: string; // 扫源初筛/精读/对抗投票，回落 OPENAI_MODEL
+  DIGEST_STRONG_MODEL?: string; // Scope 分解/定稿，回落 OPENAI_MODEL
 }
