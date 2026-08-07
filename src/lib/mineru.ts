@@ -6,6 +6,12 @@
  */
 
 const MINERU_BASE = "https://mineru.net/api/v4";
+// 已实测（2026-08，生产 0TQ6yq / uC7Rna 两篇病例）：部分 PDF 会触发 MinerU 的
+// 系统性转写错误（x 字高字母被误判为 <sub>、astral 字符损坏为 U+FFFD、ffi 连字
+// 误读为 fi），且 pipeline 与 vlm 两个后端同样复现，切换后端无法解决，pipeline
+// 反而在连字上更差。故保持官方推荐的 vlm；sub 误判与连字误读由
+// mineru-clean.ts 在落盘前清洗（见 parseMineruZip），U+FFFD 属第三类症状，
+// 暂不处理。
 const MINERU_MODEL_VERSION = "vlm"; // 备选 "pipeline"
 
 export type MineruState =

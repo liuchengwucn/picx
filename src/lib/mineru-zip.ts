@@ -6,6 +6,7 @@
  */
 
 import { strFromU8, unzipSync } from "fflate";
+import { cleanMineruMarkdown } from "./mineru-clean";
 
 const IMAGE_EXTENSIONS = [
   ".png",
@@ -73,7 +74,7 @@ export interface MineruZipImage {
 }
 
 export interface MineruZipContent {
-  /** 原始 markdown，图片引用未重写。 */
+  /** 已做乱码清洗（cleanMineruMarkdown）的 markdown，图片引用未重写。 */
   markdown: string;
   title: string | null;
   images: MineruZipImage[];
@@ -96,7 +97,9 @@ export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
     return { markdown: "", title: null, images: [] };
   }
 
-  const markdown = strFromU8(entries[markdownName]);
+  // 落盘前清洗 MinerU 的系统性乱码（连字误读、sub/sup 误判），在
+  // extractTitle 之前应用，标题提取同样受益。
+  const markdown = cleanMineruMarkdown(strFromU8(entries[markdownName]));
 
   const imageNames = entryNames.filter(
     (name) => isImagePath(name) && MIME_BY_EXT[getExtension(name)],
