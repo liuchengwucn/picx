@@ -1,5 +1,5 @@
 import type { CSSProperties, Ref } from "react";
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { m } from "#/paraglide/messages";
 import type { CardContent } from "./quote-card-content";
 
@@ -29,7 +29,11 @@ export function QuoteCard({
 
   // content.blocks 是真实 DOM 节点，而节点只能有一个父节点：直接挂载会把它们从别处
   // 摘走。每个实例挂自己的深拷贝，卡片就可以被安全地渲染多份。
-  useEffect(() => {
+  //
+  // 用 useLayoutEffect 而非 useEffect：卡片同时是截图素材（Task 5），不能有「渲染完
+  // 但内容还没挂上」的一帧——useEffect 是 passive 的，会等浏览器先绘制一次空卡片再
+  // 执行；useLayoutEffect 在浏览器绘制前同步跑，没有这个空窗口。
+  useLayoutEffect(() => {
     const body = bodyRef.current;
     if (!body) {
       return;

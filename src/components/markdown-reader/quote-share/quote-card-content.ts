@@ -1,4 +1,10 @@
-import { blocksOf, normalizeBlock, type QuoteAnchor } from "./quote-anchor";
+import {
+  blocksOf,
+  type NormalizedBlock,
+  type NormalizedSegment,
+  normalizeBlock,
+  type QuoteAnchor,
+} from "./quote-anchor";
 
 /** 选中部分的字符上限。超出即截断——卡片高度可控，聊天窗口里永远能看清 */
 const MAX_QUOTE = 400;
@@ -56,6 +62,33 @@ function clampBackward(text: string, to: number, max: number): number {
     return hard + boundary + 1;
   }
   return hard;
+}
+
+/**
+ * 把偏移吸附出 synthetic（KaTeX 折算）段的内部。
+ *
+ * clampForward/clampBackward 是纯字符串算术、不认识段边界，切点可能落在 `$...$` 中间；
+ * 而 wrapRange 对 synthetic 段只能整体包，切点落在里面时同一个公式会先后被压灰和高亮
+ * 各包一次，渲染出一个又灰又高亮的公式。吸附到边界即可根治。
+ *
+ * 用户选区自身的端点不需要吸附：normalizeBlock 解析落在 .katex 内部的 DOM 点时已经
+ * 收敛到公式起点，所以 anchor 的偏移天然就在边界上。
+ */
+function snapOutOfSynthetic(
+  segments: NormalizedSegment[],
+  offset: number,
+  direction: "forward" | "backward",
+): number {
+  for (const seg of segments) {
+    if (!seg.synthetic) {
+      continue;
+    }
+    const end = seg.start + seg.length;
+    if (offset > seg.start && offset < end) {
+      return direction === "forward" ? end : seg.start;
+    }
+  }
+  return offset;
 }
 
 /** 在克隆块上把 [from, to) 区间包进 className。从后往前处理，避免 splitText 打乱前面的段。 */
@@ -121,6 +154,31 @@ function trimOutside(
   }
 }
 
+/** 空壳里也要保留的元素：它们本来就没有文本内容，删了会改变排版语义 */
+const KEEP_EMPTY = new Set(["BR", "HR"]);
+
+/**
+ * 删掉裁剪后彻底空掉的元素外壳。trimOutside 只删文本节点，留下的空 <li> 在列表里
+ * 仍会渲染出一个孤零零的项目符号。自底向上删（querySelectorAll 是文档序，反过来遍历
+ * 即最深的先处理），好让「子节点删空后父节点也空了」一次收敛。
+ */
+function pruneEmptyShells(block: HTMLElement): void {
+  const nodes = Array.from(block.querySelectorAll("*")).reverse();
+  for (const el of nodes) {
+    if (KEEP_EMPTY.has(el.tagName)) {
+      continue;
+    }
+    // 公式与图片没有文本内容但必须留下
+    if (el.querySelector("img, .katex") || el.classList.contains("katex")) {
+      continue;
+    }
+    if (el.textContent?.trim()) {
+      continue;
+    }
+    el.remove();
+  }
+}
+
 function prependEllipsis(block: HTMLElement): void {
   block.insertBefore(document.createTextNode(ELLIPSIS), block.firstChild);
 }
@@ -155,9 +213,11 @@ export function buildCardContent(
     return null;
   }
 
-  const texts: string[] = [];
+  // 留住整个 NormalizedBlock（而不只是 text）：截断/前后文的切点算出来后要吸附出
+  // synthetic 段的边界，吸附需要 segments。
+  const nbs: NormalizedBlock[] = [];
   for (let i = anchor.startBlock; i <= anchor.endBlock; i += 1) {
-    texts.push(normalizeBlock(blocks[i]).text);
+    nbs.push(normalizeBlock(blocks[i]));
   }
 
   // 1) 引文上限：逐块累计，超预算的那一块收口，其后的块整个不要
@@ -167,7 +227,8 @@ export function buildCardContent(
   let truncated = false;
 
   for (let i = anchor.startBlock; i <= anchor.endBlock; i += 1) {
-    const text = texts[i - anchor.startBlock];
+    const nb = nbs[i - anchor.startBlock];
+    const text = nb.text;
     const from = i === anchor.startBlock ? anchor.startOffset : 0;
     const to = i === anchor.endBlock ? anchor.endOffset : text.length;
     if (to - from <= budget) {
@@ -175,21 +236,35 @@ export function buildCardContent(
       continue;
     }
     lastBlock = i;
-    lastQuoteEnd = clampForward(text, from, budget);
+    // 收口切点是纯字符串算术算出来的，可能落进公式内部——往回吸附到公式起点，
+    // 既避免公式被半个包，也不会撑破 MAX_QUOTE 预算。
+    lastQuoteEnd = snapOutOfSynthetic(
+      nb.segments,
+      clampForward(text, from, budget),
+      "backward",
+    );
     truncated = true;
     break;
   }
 
   // 2) 两端补前后文
-  const startText = texts[0];
-  const endText = texts[lastBlock - anchor.startBlock];
-  const leadStart = clampBackward(startText, anchor.startOffset, MAX_CONTEXT);
-  const tailEnd = clampForward(endText, lastQuoteEnd, MAX_CONTEXT);
+  const startNb = nbs[0];
+  const endNb = nbs[lastBlock - anchor.startBlock];
+  const leadStart = snapOutOfSynthetic(
+    startNb.segments,
+    clampBackward(startNb.text, anchor.startOffset, MAX_CONTEXT),
+    "backward",
+  );
+  const tailEnd = snapOutOfSynthetic(
+    endNb.segments,
+    clampForward(endNb.text, lastQuoteEnd, MAX_CONTEXT),
+    "forward",
+  );
 
   // 3) 逐块克隆 → 打标记 → 裁剪 → 省略号
   const out: HTMLElement[] = [];
   for (let i = anchor.startBlock; i <= lastBlock; i += 1) {
-    const text = texts[i - anchor.startBlock];
+    const text = nbs[i - anchor.startBlock].text;
     // 贡献不了规范化文本的块（插图、纯装饰元素）整块不要：normalizeBlock 不认它们，
     // trimOutside 也就管不着，留下来只会把图注这类文字原样漏进卡片。
     if (!text) {
@@ -218,6 +293,7 @@ export function buildCardContent(
     wrapRange(clone, quoteTo, keepTo, MUTED_CLASS);
     wrapRange(clone, quoteFrom, quoteTo, MARK_CLASS);
     trimOutside(clone, keepFrom, keepTo);
+    pruneEmptyShells(clone);
 
     if (i === anchor.startBlock && keepFrom > 0) {
       prependEllipsis(clone);

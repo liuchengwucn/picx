@@ -232,7 +232,7 @@
   "quote_share_dialog_title": "引用を共有",
   "quote_share_link_copied": "リンクをコピーしました",
   "quote_share_located": "共有された箇所に移動しました",
-  "quote_share_qr_hint": "QRまたはリンクからこの箇所へ",
+  "quote_share_qr_hint": "QRコードまたはリンクからこの箇所へ",
   "quote_share_truncated": "引用は省略されています。全文はリンクから",
   "whiteboard_prompt_page_title": "ホワイトボードプロンプト管理",
   "whiteboard_prompt_page_description": "ホワイトボード生成プロンプトを管理",

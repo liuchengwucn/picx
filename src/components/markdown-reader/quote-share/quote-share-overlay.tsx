@@ -1,8 +1,8 @@
 import type { RefObject } from "react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { paperQuoteUrl } from "#/lib/embed-code";
 import { encodeAnchor, type QuoteAnchor } from "./quote-anchor";
-import { buildCardContent } from "./quote-card-content";
+import { buildCardContent, type CardContent } from "./quote-card-content";
 import { QuoteShareBubble } from "./quote-share-bubble";
 import { type QuoteShareContext, QuoteShareDialog } from "./quote-share-dialog";
 import { useQuoteAnchorScroll } from "./use-quote-anchor-scroll";
@@ -25,16 +25,9 @@ export function QuoteShareOverlay({
   contentKey: string;
 }) {
   const [shareAnchor, setShareAnchor] = useState<QuoteAnchor | null>(null);
+  const [cardContent, setCardContent] = useState<CardContent | null>(null);
   const bubble = useSelectionBubble(articleRef);
   useQuoteAnchorScroll(articleRef, contentKey);
-
-  const cardContent = useMemo(() => {
-    const article = articleRef.current;
-    if (!shareAnchor || !article) {
-      return null;
-    }
-    return buildCardContent(article, shareAnchor);
-  }, [shareAnchor, articleRef]);
 
   return (
     <>
@@ -42,7 +35,14 @@ export function QuoteShareOverlay({
         <QuoteShareBubble
           state={bubble.state}
           onShare={() => {
-            setShareAnchor(bubble.state?.anchor ?? null);
+            // buildCardContent 只由这次点击驱动，不是渲染期间要保持的派生值——直接在
+            // 事件回调里算完存进 state，不用 useMemo（读 ref 也不该发生在 render 期间）。
+            const anchor = bubble.state?.anchor ?? null;
+            const article = articleRef.current;
+            setShareAnchor(anchor);
+            setCardContent(
+              anchor && article ? buildCardContent(article, anchor) : null,
+            );
             bubble.dismiss();
           }}
         />
@@ -53,6 +53,7 @@ export function QuoteShareOverlay({
         onOpenChange={(next) => {
           if (!next) {
             setShareAnchor(null);
+            setCardContent(null);
           }
         }}
         url={
