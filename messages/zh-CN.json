@@ -442,6 +442,7 @@
   "news_page_desc": "AI 圈正在关注什么——每小时聚合自实验室官博、研究者博客、X 与 Hacker News。",
   "news_heading": "AI 前沿资讯",
   "news_subheading": "AI 圈此刻正在讨论的新闻",
+  "news_search_placeholder": "搜索新闻…",
   "news_sort_latest": "每日热点",
   "news_sort_active": "最近更新",
   "news_reports_count": "{count} 篇报道",

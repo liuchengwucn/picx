@@ -442,6 +442,7 @@
   "news_page_desc": "AIコミュニティが今注目しているニュースを毎時集約。",
   "news_heading": "AI最前線ニュース",
   "news_subheading": "AIコミュニティが今話題にしていること",
+  "news_search_placeholder": "ニュースを検索…",
   "news_sort_latest": "デイリーハイライト",
   "news_sort_active": "更新順",
   "news_reports_count": "{count} 件の報道",

@@ -1,7 +1,7 @@
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2, Newspaper } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { Loader2, Newspaper, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import {
   FeaturedStory,
@@ -9,25 +9,40 @@ import {
 } from "#/components/news/featured-story";
 import { StoryRow, StoryRowSkeleton } from "#/components/news/story-row";
 import { Button } from "#/components/ui/button";
+import { Input } from "#/components/ui/input";
 import { useTRPC } from "#/integrations/trpc/react";
 import { dateKeyOf, groupStoriesByDay } from "#/lib/news/group-stories";
 import { useDebugScores } from "#/lib/news/use-debug-scores";
+import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
 const newsSearchSchema = z.object({
   sort: z.enum(["latest", "active"]).optional(),
+  q: z.string().max(100).optional().catch(undefined),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .catch(undefined),
 });
 
 export const Route = createFileRoute("/news/")({
   validateSearch: newsSearchSchema,
   component: NewsPage,
-  head: () => ({
-    meta: [
-      { title: m.news_page_title() },
-      { name: "description", content: m.news_page_desc() },
-    ],
-  }),
+  head: ({ match }) => {
+    const filtered = Boolean(match.search.q || match.search.date);
+    return {
+      meta: [
+        { title: m.news_page_title() },
+        { name: "description", content: m.news_page_desc() },
+        ...(filtered ? [{ name: "robots", content: "noindex,follow" }] : []),
+      ],
+      ...(filtered
+        ? { links: [{ rel: "canonical", href: `${SITE_URL}/news` }] }
+        : {}),
+    };
+  },
 });
 
 const PAGE_SIZE = 20;
@@ -40,10 +55,31 @@ function NewsPage() {
   const showScores = useDebugScores();
   const locale = getLocale();
   const sort = search.sort ?? "latest";
+  const q = search.q?.trim() || undefined;
+  const [inputValue, setInputValue] = useState(search.q ?? "");
+
+  // 浏览器前进后退时同步回输入框
+  useEffect(() => {
+    setInputValue(search.q ?? "");
+  }, [search.q]);
+
+  // 300ms debounce 后 replace 写 URL，避免每字符一条历史记录
+  const urlQ = search.q?.trim() ?? "";
+  useEffect(() => {
+    const trimmed = inputValue.trim();
+    if (trimmed === urlQ) return;
+    const timer = setTimeout(() => {
+      navigate({
+        replace: true,
+        search: (prev) => ({ ...prev, q: trimmed || undefined }),
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [inputValue, urlQ, navigate]);
 
   const newsQuery = useInfiniteQuery({
     ...trpc.news.list.infiniteQueryOptions(
-      { limit: PAGE_SIZE, sort, locale },
+      { limit: PAGE_SIZE, sort, locale, q },
       { getNextPageParam: (last) => last.nextCursor },
     ),
     // 排序切换换 key 期间沿用旧数据，由下方 isPlaceholderData 降透明度提示
@@ -60,10 +96,12 @@ function NewsPage() {
       (s) => !seen.has(s.shortId) && seen.add(s.shortId),
     );
   }, [newsQuery.data]);
+  // 搜索时禁用按天分组：把命中结果塞进日期头 + 头条结构没有意义
+  const flatList = sort === "active" || Boolean(q);
   // 分组/头条在累积后的完整列表上计算：日期头不重复
   const groups = useMemo(
-    () => (sort === "latest" ? groupStoriesByDay(stories) : []),
-    [sort, stories],
+    () => (flatList ? [] : groupStoriesByDay(stories)),
+    [flatList, stories],
   );
   // 还有下一页时最后一天可能未加载完，其头条/次头条会随下一批数据修正。
   // 无限滚动的触发点就在视口附近，重排会造成可见跳动，因此扣留该天
@@ -83,7 +121,12 @@ function NewsPage() {
   };
 
   const setSort = (next: "latest" | "active") => {
-    navigate({ search: { sort: next === "latest" ? undefined : next } });
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        sort: next === "latest" ? undefined : next,
+      }),
+    });
   };
 
   // 无限滚动：哨兵进入视口（提前 800px 预取）时自动加载下一页。
@@ -118,22 +161,34 @@ function NewsPage() {
           </p>
         </div>
 
-        {/* Sort toggle */}
-        <div className="rise-in mt-6 flex items-center gap-2">
-          <Button
-            variant={sort === "latest" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setSort("latest")}
-          >
-            {m.news_sort_latest()}
-          </Button>
-          <Button
-            variant={sort === "active" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setSort("active")}
-          >
-            {m.news_sort_active()}
-          </Button>
+        {/* Toolbar: search + sort */}
+        <div className="rise-in mt-6 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 basis-56">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--ink-soft)]" />
+            <Input
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder={m.news_search_placeholder()}
+              maxLength={100}
+              className="pl-9"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={sort === "latest" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSort("latest")}
+            >
+              {m.news_sort_latest()}
+            </Button>
+            <Button
+              variant={sort === "active" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSort("active")}
+            >
+              {m.news_sort_active()}
+            </Button>
+          </div>
         </div>
 
         <div
@@ -153,7 +208,7 @@ function NewsPage() {
                 {m.news_empty_desc()}
               </p>
             </div>
-          ) : sort === "latest" ? (
+          ) : !flatList ? (
             visibleGroups.map((group, groupIndex) => (
               // 日期标题线是天与天之间唯一的分界：每天最后一排 story 去掉自身底线，
               // 避免与下一天标题线双线冗余（无 rest 时最后一个 article 即头条/次头条）
