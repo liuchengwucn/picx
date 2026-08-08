@@ -6,12 +6,25 @@ import {
   type QuoteAnchor,
 } from "./quote-anchor";
 
-/** 选中部分的字符上限。超出即截断——卡片高度可控，聊天窗口里永远能看清 */
-const MAX_QUOTE = 400;
+/**
+ * 选中部分的字符上限。绝大多数论文段落都落在这个量级以内，也就是「用户选多少、卡片
+ * 收多少」；真超了才截断，靠末尾省略号 + 卡片底部提示 + 深链兜底。
+ */
+const MAX_QUOTE = 2000;
 /** 前后文各自的字符上限 */
 const MAX_CONTEXT = 120;
-/** 收口时至少要保住的比例：句/词边界离硬上限太远就不用它，宁可硬截 */
-const BOUNDARY_FLOOR = 0.5;
+/**
+ * 为了断在句/词边界，最多允许比硬上限少收这么多字符；够不着就宁可硬截。
+ *
+ * 不能写成「保住上限的百分之多少」：那样的容忍度会随上限一起放大，MAX_QUOTE 抬到
+ * 2000 之后就意味着可以为了一个句号白扔一千字。收口浪费本就该是个绝对量。
+ */
+const BOUNDARY_SLACK = 160;
+
+/** 收口时允许放弃的字符数：窗口很小时（补前后文）按半窗算，避免 slack 反超窗口本身 */
+function slackOf(max: number): number {
+  return Math.min(BOUNDARY_SLACK, max * 0.5);
+}
 
 export const MARK_CLASS = "quote-card-mark";
 export const MUTED_CLASS = "quote-card-muted";
@@ -32,6 +45,8 @@ function clampForward(text: string, from: number, max: number): number {
     return text.length;
   }
   const slice = text.slice(from, hard);
+  // hard < text.length 时 hard 必然就是 from + max，所以 slice.length === max
+  const minKeep = slice.length - slackOf(max);
   const sentence = Math.max(
     slice.lastIndexOf("."),
     slice.lastIndexOf("。"),
@@ -40,11 +55,11 @@ function clampForward(text: string, from: number, max: number): number {
     slice.lastIndexOf("?"),
     slice.lastIndexOf("？"),
   );
-  if (sentence > max * BOUNDARY_FLOOR) {
+  if (sentence >= minKeep) {
     return from + sentence + 1;
   }
   const space = slice.lastIndexOf(" ");
-  if (space > max * BOUNDARY_FLOOR) {
+  if (space >= minKeep) {
     return from + space;
   }
   return hard;
@@ -58,7 +73,7 @@ function clampBackward(text: string, to: number, max: number): number {
   }
   const slice = text.slice(hard, to);
   const boundary = slice.search(/[\s。！？.!?]/);
-  if (boundary >= 0 && boundary < max * BOUNDARY_FLOOR) {
+  if (boundary >= 0 && boundary <= slackOf(max)) {
     return hard + boundary + 1;
   }
   return hard;
@@ -285,7 +300,8 @@ export function buildCardContent(
     break;
   }
 
-  // 2) 两端补前后文
+  // 2) 两端补前后文。已截断时尾部不再补：那段文本本就在选区之内，压灰渲染等于告诉
+  //    读者「这不是你选的」，而末尾省略号与卡片底部的截断提示已经交代了后面还有。
   const startNb = nbs[0];
   const endNb = nbs[lastBlock - anchor.startBlock];
   const leadStart = snapOutOfSynthetic(
@@ -293,11 +309,13 @@ export function buildCardContent(
     clampBackward(startNb.text, anchor.startOffset, MAX_CONTEXT),
     "backward",
   );
-  const tailEnd = snapOutOfSynthetic(
-    endNb.segments,
-    clampForward(endNb.text, lastQuoteEnd, MAX_CONTEXT),
-    "forward",
-  );
+  const tailEnd = truncated
+    ? lastQuoteEnd
+    : snapOutOfSynthetic(
+        endNb.segments,
+        clampForward(endNb.text, lastQuoteEnd, MAX_CONTEXT),
+        "forward",
+      );
 
   // 3) 逐块克隆 → 打标记 → 裁剪 → 省略号
   const out: HTMLElement[] = [];

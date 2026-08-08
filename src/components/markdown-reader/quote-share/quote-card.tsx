@@ -80,7 +80,9 @@ export function QuoteCard({
       <div className="px-5 py-4">
         <div
           ref={bodyRef}
-          className="reader-prose"
+          // 首尾块的段间距归零:.reader-prose 的 margin-block 是「段与段之间」的节奏,
+          // 卡片正文的上下边界由容器 padding 负责,两者叠加就是多余的空白。
+          className="reader-prose [&>:first-child]:mt-0 [&>:last-child]:mb-0"
           data-reader-font="serif"
           style={
             {

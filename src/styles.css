@@ -469,7 +469,6 @@ a:hover { color: var(--academic-brown-deep); }
   font-size: var(--reader-font-size, 19px);
   line-height: var(--reader-leading, 1.8);
   color: var(--ink);
-  padding-block: 2.5rem 6rem;
 }
 .reader-prose[data-reader-font="serif"] {
   font-family: var(--reader-serif);

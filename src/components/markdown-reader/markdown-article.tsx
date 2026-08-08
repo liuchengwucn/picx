@@ -213,7 +213,9 @@ export function MarkdownArticle({
         ref={articleRef}
         data-reader-font={settings.font}
         className={cn(
-          "reader-prose prose",
+          // 页面级留白挂在这里而不是 .reader-prose 里:那个类还被引用卡片复用(见
+          // quote-card.tsx),阅读页的顶部让位与底部收尾留白搬进卡片就是上下两块死白。
+          "reader-prose prose pt-10 pb-24",
           settings.textAlign === "justify" && "text-justify",
         )}
         style={
