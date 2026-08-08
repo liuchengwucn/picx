@@ -24,8 +24,16 @@ export function useQuoteCardShare(url: string, title: string) {
   }, []);
 
   const flash = (key: string) => {
+    // 捕获当前 generation：弹窗关掉再为另一段引文打开时，上一轮挂着的这个 timer
+    // 不该把新会话的「已复制」勾提前清掉（reset 只清 copiedKey，管不到已排队的 timer）。
+    const gen = generationRef.current;
     setCopiedKey(key);
-    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
+    setTimeout(() => {
+      if (generationRef.current !== gen) {
+        return;
+      }
+      setCopiedKey((k) => (k === key ? null : k));
+    }, 2000);
   };
 
   const copyLink = async () => {

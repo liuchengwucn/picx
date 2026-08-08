@@ -50,7 +50,7 @@ export function QuoteShareDialog({
   // 截图/复制/系统分享这条链路的会话态（含 generationRef 归属判定）都收在这个 hook
   // 里，二维码是另一条独立的、只跟 open/url 相关的异步链路，各自管各自的状态与重置。
   const cardShare = useQuoteCardShare(url, title);
-  const qrDataUrl = useQuoteQr(open, url);
+  const { qrDataUrl, failed: qrFailed } = useQuoteQr(open, url);
 
   return (
     <Dialog
@@ -157,6 +157,11 @@ export function QuoteShareDialog({
         {cardShare.failed && (
           <p className="text-xs text-[var(--sienna)]">
             {m.quote_share_render_failed()}
+          </p>
+        )}
+        {qrFailed && (
+          <p className="text-xs text-[var(--sienna)]">
+            {m.quote_share_qr_failed()}
           </p>
         )}
       </DialogContent>

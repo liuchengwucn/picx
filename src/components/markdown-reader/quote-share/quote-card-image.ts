@@ -1,6 +1,3 @@
-import { getFontEmbedCSS, toBlob } from "html-to-image";
-import QRCode from "qrcode";
-
 /** 字体内联最多等这么久；超时就不带字体重来一次 */
 const FONT_TIMEOUT_MS = 5000;
 
@@ -16,7 +13,12 @@ const FONT_TIMEOUT_MS = 5000;
  */
 let fontCssPromise: Promise<string> | null = null;
 
-function embedFontCss(node: HTMLElement): Promise<string> {
+// getFontEmbedCSS 从调用方（renderQuoteCard）传入而不是这里自己动态 import：
+// 「这个模块什么时候被加载」只应该有一处决策点，不能散在两个函数里各 import 一次。
+function embedFontCss(
+  node: HTMLElement,
+  getFontEmbedCSS: typeof import("html-to-image").getFontEmbedCSS,
+): Promise<string> {
   if (!fontCssPromise) {
     fontCssPromise = Promise.race([
       getFontEmbedCSS(node),
@@ -50,7 +52,11 @@ function embedFontCss(node: HTMLElement): Promise<string> {
 }
 
 export async function renderQuoteCard(node: HTMLElement): Promise<Blob> {
-  const fontEmbedCSS = await embedFontCss(node);
+  // html-to-image 只在用户真正点击「复制图片」或「系统分享」时才用得到；静态 import
+  // 会把它打进 /p/{shortId} 路由的主分片，让每个访问论文详情页的人都白白下载几十 KB
+  // 代码。动态 import() 把加载成本推迟到真正生成卡片的那一刻。
+  const { getFontEmbedCSS, toBlob } = await import("html-to-image");
+  const fontEmbedCSS = await embedFontCss(node, getFontEmbedCSS);
   const blob = await toBlob(node, {
     pixelRatio: 2,
     backgroundColor: "#faf8f3",
@@ -64,7 +70,9 @@ export async function renderQuoteCard(node: HTMLElement): Promise<Blob> {
   return blob;
 }
 
-export function renderQuoteQr(url: string): Promise<string> {
+export async function renderQuoteQr(url: string): Promise<string> {
+  // 同样的理由：qrcode 只在弹窗打开时才用得到，动态导入避免它常驻论文页主分片。
+  const QRCode = (await import("qrcode")).default;
   return QRCode.toDataURL(url, {
     margin: 0,
     width: 176,

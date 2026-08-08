@@ -11,26 +11,40 @@ import { renderQuoteQr } from "./quote-card-image";
  * 里没有引入新的可观察状态，只是把「关闭时清空」这一步从调用方的重置块搬进了它自己
  * 的生命周期里。
  */
-export function useQuoteQr(open: boolean, url: string): string | null {
+export interface QuoteQrResult {
+  qrDataUrl: string | null;
+  /** 二维码生成失败，卡片本身照样能出（跟 quote_share_render_failed 是两码事） */
+  failed: boolean;
+}
+
+export function useQuoteQr(open: boolean, url: string): QuoteQrResult {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!open || !url) {
       setQrDataUrl(null);
+      setFailed(false);
       return;
     }
     let cancelled = false;
+    setFailed(false);
     renderQuoteQr(url)
       .then((data) => {
         if (!cancelled) {
           setQrDataUrl(data);
         }
       })
-      .catch((err) => console.error("Failed to render quote QR:", err));
+      .catch((err) => {
+        console.error("Failed to render quote QR:", err);
+        if (!cancelled) {
+          setFailed(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [open, url]);
 
-  return qrDataUrl;
+  return { qrDataUrl, failed };
 }

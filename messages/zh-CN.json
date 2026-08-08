@@ -238,6 +238,7 @@
   "quote_share_make_public": "设为公开并继续",
   "quote_share_make_public_failed": "设为公开失败，请重试",
   "quote_share_private_notice": "这篇论文尚未公开，分享出去的链接对方打不开",
+  "quote_share_qr_failed": "二维码生成失败，卡片上的链接仍然可用",
   "quote_share_qr_hint": "扫码或点链接，直接跳到原文这一段",
   "quote_share_render_failed": "卡片生成失败，你仍可以复制链接",
   "quote_share_system_share": "系统分享",
