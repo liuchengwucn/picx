@@ -588,10 +588,12 @@ function PaperDetailPage() {
     data?.paper?.status === "completed" && !!data?.hasContent;
   const activeView: "summary" | "reader" =
     view === "reader" && isReaderAvailable ? "reader" : "summary";
-  // 与 ReaderPane 的三态分诊完全一致：session 未定/未登录时 ReaderPane 根本不会渲染
-  // <PaperReaderView>，这里的查询也绝不能发出去。
+  // 与 ReaderPane 的分诊完全一致：公开论文不看登录态直接取；私有论文在 session
+  // 未定/未登录时 ReaderPane 根本不会渲染 <PaperReaderView>，查询也绝不能发出去
+  // （否则是一个注定 401 的请求）。
   const isReaderViewReady =
-    activeView === "reader" && !isSessionPending && !!effectiveSession;
+    activeView === "reader" &&
+    (!!data?.paper?.isPublic || (!isSessionPending && !!effectiveSession));
   const paperReader = usePaperReader(paperId, isReaderViewReady);
 
   // 中栏是 minmax(0,1fr)：收起聊天栏后它直接吃掉第三列的宽度，正文行宽从「被容器
@@ -1428,8 +1430,8 @@ function PaperDetailPage() {
 }
 
 /**
- * 原文视图的三态分诊：session 未定 → 占位；未登录 → 登录墙；已登录 → 原文。
- * （原文由服务端强制登录可见，这里的登录墙只是体验层。）
+ * 原文视图的分诊：公开论文直接出原文（不看登录态）；私有论文 session 未定 → 占位，
+ * 未登录 → 登录墙，已登录 → 原文。（服务端才是权限的真实边界，这里只是体验层。）
  */
 function ReaderPane({
   reader,
@@ -1444,6 +1446,12 @@ function ReaderPane({
   isSignedIn: boolean;
   onSignIn: () => void;
 }) {
+  // 公开论文谁都能读，没必要等 session 解析完——段落深链的访客多半没登录过，
+  // 让他们先等一轮 session 往返再出正文纯属白等。
+  if (share.isPublic) {
+    return <PaperReaderView reader={reader} share={share} />;
+  }
+
   // SSR / 首帧 session 还没解析出来，先占位，别把已登录用户闪一下登录墙
   if (isSessionPending) {
     return <PaperStateCard icon={Loader2} spinning />;

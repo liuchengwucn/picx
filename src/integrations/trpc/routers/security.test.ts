@@ -134,3 +134,66 @@ describe("paperRouter.create security checks", () => {
     });
   });
 });
+
+const PAPER_ID = "33333333-3333-4333-8333-333333333333";
+
+describe("paperRouter.getContent access control", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("serves a public paper's full text to anonymous callers", async () => {
+    // 段落分享链接的核心前提：公开论文的原文不该被登录墙挡住。
+    const ctx = createContext({
+      auth: { api: { getSession: vi.fn().mockResolvedValue(null) } },
+      db: createDbMock([
+        [{ id: PAPER_ID, userId: "other-user", isPublic: true }],
+        [{ markdownR2Key: "paper-content/x/full.md" }],
+      ]),
+      env: {
+        PAPERS_BUCKET: {
+          get: vi.fn().mockResolvedValue({ text: async () => "# hello" }),
+        },
+      },
+    });
+
+    const caller = paperRouter.createCaller(ctx as never);
+
+    await expect(caller.getContent({ paperId: PAPER_ID })).resolves.toEqual({
+      available: true,
+      markdown: "# hello",
+      imageBase: `/api/paper-content/${PAPER_ID}/images/`,
+    });
+    // 公开路径不该白付一次 session 查库
+    expect(ctx.auth.api.getSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects an anonymous caller on a private paper", async () => {
+    const ctx = createContext({
+      auth: { api: { getSession: vi.fn().mockResolvedValue(null) } },
+      db: createDbMock([
+        [{ id: PAPER_ID, userId: "other-user", isPublic: false }],
+      ]),
+    });
+
+    const caller = paperRouter.createCaller(ctx as never);
+
+    await expect(
+      caller.getContent({ paperId: PAPER_ID }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("rejects a signed-in non-owner on a private paper", async () => {
+    const ctx = createContext({
+      db: createDbMock([
+        [{ id: PAPER_ID, userId: "other-user", isPublic: false }],
+      ]),
+    });
+
+    const caller = paperRouter.createCaller(ctx as never);
+
+    await expect(
+      caller.getContent({ paperId: PAPER_ID }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});

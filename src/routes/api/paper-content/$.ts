@@ -13,8 +13,8 @@ import {
 /**
  * 论文原文图片的鉴权读取端点：/api/paper-content/{paperId}/images/{name}
  *
- * 原文视图「仅登录可见」，故不能走无鉴权的 /api/r2/$。规则与 paper.getContent
- * 一致：登录（或 review-guest 预览模式）+ owner-或-公开论文。
+ * 私有论文的原文不可匿名读取，故不能走无鉴权的 /api/r2/$。规则与 paper.getContent
+ * 一致：公开论文匿名可读；私有论文需登录（或 review-guest 预览模式）且是 owner。
  */
 
 interface AppEnvBindings {
@@ -42,13 +42,6 @@ async function handler({
   }
   const [, paperId, imageName] = match;
 
-  const session =
-    (await auth.api.getSession({ headers: request.headers })) ??
-    (isReviewGuestModeEnabled() ? await getReviewGuestServerSession(db) : null);
-  if (!session) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
   const [paper] = await db
     .select({ userId: papers.userId, isPublic: papers.isPublic })
     .from(papers)
@@ -57,9 +50,21 @@ async function handler({
   if (!paper) {
     return new Response("Not found", { status: 404 });
   }
-  const isOwner = paper.userId === session.user.id;
-  if (!isOwner && !paper.isPublic) {
-    return new Response("Forbidden", { status: 403 });
+
+  // 公开论文的正文图片匿名可读——否则未登录访客拿到 markdown 却看到一屏裂图。
+  // 私有论文才解析 session，顺序与 paper.getContent 保持一致。
+  if (!paper.isPublic) {
+    const session =
+      (await auth.api.getSession({ headers: request.headers })) ??
+      (isReviewGuestModeEnabled()
+        ? await getReviewGuestServerSession(db)
+        : null);
+    if (!session) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    if (paper.userId !== session.user.id) {
+      return new Response("Forbidden", { status: 403 });
+    }
   }
 
   const obj = await appEnv.PAPERS_BUCKET.get(
@@ -75,7 +80,9 @@ async function handler({
         obj.httpMetadata?.contentType ?? "application/octet-stream",
       // contentType 源自 zip 内的扩展名，别让浏览器再去嗅探成 HTML/脚本
       "X-Content-Type-Options": "nosniff",
-      // 内容不可变（同 key 不会被覆盖为不同图片），浏览器私有缓存即可
+      // 内容不可变（同 key 不会被覆盖为不同图片），浏览器私有缓存即可。
+      // 公开论文也不放 public：可见性随时可能被作者改回私有，共享缓存会继续
+      // 分发已经撤回的正文图片。
       "Cache-Control": "private, max-age=31536000, immutable",
       ETag: obj.etag,
     },

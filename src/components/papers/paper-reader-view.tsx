@@ -25,8 +25,9 @@ export type { QuoteShareContext } from "#/components/markdown-reader/quote-share
  * 页面左栏而不是挤在中栏卡片内部。
  *
  * `enabled` 由调用方传入，必须与 ReaderPane 决定渲染 <PaperReaderView> 的条件完全一致
- * （原文视图激活 + isReaderAvailable + 已登录）——否则未登录/pending 时会打一个注定
- * 401 的请求。tanstack-query 按 queryKey 去重，多处引用同一 paperId 不会重复发请求。
+ * （原文视图激活 + isReaderAvailable + 公开-或-已登录）——否则私有论文在未登录/pending
+ * 时会打一个注定 401 的请求。tanstack-query 按 queryKey 去重，多处引用同一 paperId
+ * 不会重复发请求。
  */
 export function usePaperReader(paperId: string, enabled: boolean) {
   const trpc = useTRPC();

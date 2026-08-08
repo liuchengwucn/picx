@@ -668,10 +668,10 @@ export const paperRouter = router({
     }),
 
   /**
-   * 原文 markdown（MinerU 解析产物）。仅登录用户；owner 或公开论文可读。
+   * 原文 markdown（MinerU 解析产物）。公开论文匿名可读，私有论文仅 owner。
    * 无 paper_contents 行（pdfjs 回退/存量论文）返回 available: false。
    */
-  getContent: protectedProcedure
+  getContent: publicProcedure
     .input(z.object({ paperId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const [paper] = await ctx.db
@@ -687,12 +687,28 @@ export const paperRouter = router({
       if (!paper) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Paper not found" });
       }
-      const isOwner = paper.userId === ctx.session.user.id;
-      if (!isOwner && !paper.isPublic) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You don't have permission to view this paper",
-        });
+      // 公开论文匿名可读：段落深链（?view=reader#anchor）分享出去后，收到链接的人
+      // 不该被一堵 GitHub 登录墙挡住——这篇论文的摘要与白板本来就已经匿名可见了。
+      // 只有私有论文才需要解析 session，公开路径因此省掉一次 session 查库。
+      // 端点鉴权与 /api/paper-content/$（正文内图片）必须保持同一套规则。
+      if (!paper.isPublic) {
+        const session =
+          (await ctx.auth.api.getSession({ headers: ctx.headers })) ??
+          (isReviewGuestModeEnabled()
+            ? await getReviewGuestServerSession(ctx.db)
+            : null);
+        if (!session) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "You must be logged in to access this resource",
+          });
+        }
+        if (paper.userId !== session.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have permission to view this paper",
+          });
+        }
       }
 
       const [content] = await ctx.db
