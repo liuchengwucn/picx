@@ -1,5 +1,14 @@
 import type { CSSProperties, Ref } from "react";
 import { useLayoutEffect, useRef } from "react";
+// logo-mark.png 由 public/logo512.png 抠底后缩到 48px 而来：favicon 全系列都自带一层
+// 不透明米白底，直接放上来会在 parchment 卡片上露出一个色块。抠底只从图像四边做
+// flood fill，被图案包住的内部浅色区（卷轴纸面、右侧屏幕）因此原样保留。
+//
+// ?inline 强制打成 data URL（5.6KB，超过 assetsInlineLimit 默认阈值，不加这个后缀会
+// 被输出成独立文件）。卡片是截图素材：外链 src 得等 html-to-image 现场 fetch 再转
+// base64，多一条会失败的网络路径；data URL 走的是和二维码一样的路子，预览里看到
+// 什么，导出的图里就是什么。
+import logoMark from "#/assets/logo-mark.png?inline";
 import { m } from "#/paraglide/messages";
 import type { CardContent } from "./quote-card-content";
 
@@ -72,9 +81,10 @@ export function QuoteCard({
             </div>
           )}
         </div>
-        <div className="shrink-0 text-[11px] tracking-[0.08em] text-[var(--ink-soft)]">
-          picx
-        </div>
+        {/* 24px：轮廓是斜放的卷轴，见方的框里只占七成，20px 时在 720px 宽的卡片上显得
+            孤零零；再大就压过 15px 的标题。@2x 导出正好吃满 48px 源图。
+            mt-px 补掉标题首行的行高内边距，让图标视觉上与标题顶端齐平。 */}
+        <img src={logoMark} alt="PicX" className="mt-px h-6 w-6 shrink-0" />
       </div>
 
       <div className="px-5 py-4">
