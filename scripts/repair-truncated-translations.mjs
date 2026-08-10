@@ -178,8 +178,17 @@ async function translate(summaryText, targetLanguage) {
       // thinking tokens eat into max_tokens, silently truncating the content —
       // the very bug this script repairs. Disable explicitly — mirrors
       // reasoningParam() in src/lib/ai.ts (only sent to OpenRouter endpoints).
+      // REPAIR_REASONING=<low|high> re-enables thinking for stubborn papers:
+      // long inputs (≥12k chars) with reasoning off tend to fall into a
+      // wrong-language attractor (ja answered in Chinese); thinking restores
+      // compliance. Pair it with REPAIR_MAX_TOKENS=16000 — thinking tokens
+      // count against max_tokens on OpenRouter.
       ...(/openrouter/i.test(OPENAI_BASE_URL)
-        ? { reasoning: { enabled: false } }
+        ? {
+            reasoning: process.env.REPAIR_REASONING
+              ? { effort: process.env.REPAIR_REASONING }
+              : { enabled: false },
+          }
         : {}),
     }),
   });
