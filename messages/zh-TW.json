@@ -340,6 +340,8 @@
   "gallery_filtered_label": "已篩選:",
   "gallery_clear_filters": "清除篩選",
   "gallery_no_results": "沒有符合的論文",
+  "gallery_load_failed": "畫廊內容載入失敗，請重試。",
+  "gallery_retry": "重試",
   "gallery_all_categories": "全部",
   "gallery_show_more": "展開",
   "gallery_show_less": "收合",

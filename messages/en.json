@@ -340,6 +340,8 @@
   "gallery_filtered_label": "Filtered:",
   "gallery_clear_filters": "Clear filters",
   "gallery_no_results": "No papers match your filters",
+  "gallery_load_failed": "Couldn't load the gallery. Please try again.",
+  "gallery_retry": "Try again",
   "gallery_all_categories": "All",
   "gallery_show_more": "Show more",
   "gallery_show_less": "Show less",

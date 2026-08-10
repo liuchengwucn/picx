@@ -340,6 +340,8 @@
   "gallery_filtered_label": "已筛选:",
   "gallery_clear_filters": "清除筛选",
   "gallery_no_results": "没有匹配的论文",
+  "gallery_load_failed": "画廊内容加载失败，请重试。",
+  "gallery_retry": "重试",
   "gallery_all_categories": "全部",
   "gallery_show_more": "展开",
   "gallery_show_less": "收起",

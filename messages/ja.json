@@ -340,6 +340,8 @@
   "gallery_filtered_label": "絞り込み:",
   "gallery_clear_filters": "絞り込みを解除",
   "gallery_no_results": "条件に一致する論文がありません",
+  "gallery_load_failed": "ギャラリーの読み込みに失敗しました。もう一度お試しください。",
+  "gallery_retry": "再試行",
   "gallery_all_categories": "すべて",
   "gallery_show_more": "もっと見る",
   "gallery_show_less": "閉じる",
