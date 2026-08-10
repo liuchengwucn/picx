@@ -31,7 +31,7 @@ import { canonicalArxivUrl } from "#/lib/arxiv";
 import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { submitIndexNow } from "#/lib/indexnow";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
-import { likeCountSql } from "#/lib/paper-feedback";
+import { likeCountSql, likeFilter } from "#/lib/paper-feedback";
 import { selectRelatedPapers } from "#/lib/related-papers";
 import {
   getReviewGuestServerSession,
@@ -643,20 +643,15 @@ export const paperRouter = router({
       const hasContent = !!content;
 
       // 赞数只对上架画廊的公开论文有意义（setFeedback 同样只放行这类论文），其余
-      // 情况省掉这次 D1 往返。口径与 likeCountSql 一致（vote = 1）；没复用那个
-      // helper 是因为它插值 Column、只在多表 join 里成立，而上面取 paper 是单表
-      // 查询——单表里 Drizzle 会剥掉表限定符，子查询会静默退化成自引用。
+      // 情况省掉这次 D1 往返。这里走 likeFilter 而不是 likeCountSql：后者插值
+      // Column、只在多表 join 里成立，而上面取 paper 是单表查询——单表里 Drizzle
+      // 会剥掉表限定符，子查询会静默退化成自引用。两者口径同源，见 paper-feedback.ts。
       const [likeRow] =
         paper.isPublic && paper.isListedInGallery
           ? await ctx.db
               .select({ value: count() })
               .from(paperFeedback)
-              .where(
-                and(
-                  eq(paperFeedback.paperId, paper.id),
-                  eq(paperFeedback.vote, 1),
-                ),
-              )
+              .where(likeFilter(paper.id))
           : [];
       const likeCount = likeRow?.value ?? 0;
 

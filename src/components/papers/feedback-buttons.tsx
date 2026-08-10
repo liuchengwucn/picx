@@ -1,12 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { inferRouterInputs } from "@trpc/server";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
-import { type MouseEvent, useState } from "react";
+import { type MouseEvent, useId, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import {
   Popover,
   PopoverContent,
+  PopoverTitle,
   PopoverTrigger,
 } from "#/components/ui/popover";
 import { useTRPC } from "#/integrations/trpc/react";
@@ -83,12 +84,22 @@ export function FeedbackButtons({
   );
   const [reasonText, setReasonText] = useState("");
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const titleId = useId();
 
-  // 赞数和「我的投票」都可能变; 没有乐观更新, 粗粒度整命名空间失效即可
-  // (digest 也失效: 简报期内清单同样带赞数)
+  // 没有乐观更新, 投完票靠失效重取。只点名真正带「我的投票」或赞数的查询:
+  // 整个 trpc.paper 命名空间一起失效会把 paper.getContent 也带上, 而详情页在原文
+  // 视图下正挂着它——那是 MinerU 解析出的全文 markdown, 可达数百 KB, 点一次赞
+  // 就重下一遍。这里是三处调用点(详情页 / gallery 列表 / 简报期)的并集, 新增带
+  // 赞数的查询时要往这里加一行(漏加只是数字延迟到下次挂载, 不会有别的副作用)。
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: trpc.paper.pathKey() });
-    queryClient.invalidateQueries({ queryKey: trpc.digest.pathKey() });
+    for (const queryKey of [
+      trpc.paper.getMyFeedback.pathKey(),
+      trpc.paper.getByShortId.pathKey(),
+      trpc.paper.listPublic.pathKey(),
+      trpc.digest.getIssue.pathKey(),
+    ]) {
+      queryClient.invalidateQueries({ queryKey });
+    }
   };
   const setFeedback = useMutation(
     trpc.paper.setFeedback.mutationOptions({ onSuccess: invalidate }),
@@ -179,15 +190,30 @@ export function FeedbackButtons({
   const iconClassName = isCard ? "h-3 w-3" : "h-3.5 w-3.5";
 
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
+    // data-feedback-open 不是死代码: 卡片形态靠 opacity-0 group-hover:opacity-100
+    // 浮现, 而 popover 是 portal 到 body 的, 指针一移进浮层卡片就 un-hover, 按钮
+    // 连着浮层的锚点一起淡出。父卡片用 has-[[data-feedback-open]]:opacity-100
+    // 之类在开着的时候锁定可见。(group-focus-within 救不了: Radix FocusScope 把
+    // 焦点移进了卡片 DOM 之外的 portal 内容。)
+    <div
+      className={cn("flex items-center gap-1.5", className)}
+      data-feedback-open={popoverOpen || undefined}
+    >
       <button
         type="button"
         onClick={handleLike}
         disabled={isMutating}
         aria-disabled={isReadOnly || undefined}
         aria-pressed={myVote === 1}
-        // detail 形态自带文案(还带赞数), 再加 aria-label 反而把赞数从读屏里抹掉
-        aria-label={isCard ? m.feedback_like() : undefined}
+        // detail 形态自带文案(还带赞数), 再加 aria-label 反而把赞数从读屏里抹掉;
+        // card 形态没文案, 赞数得拼进 label, 否则读屏用户听不到
+        aria-label={
+          isCard
+            ? likeCount > 0
+              ? `${m.feedback_like()} (${likeCount})`
+              : m.feedback_like()
+            : undefined
+        }
         title={hint}
         className={cn(pillClassName, myVote === 1 && votedClassName)}
       >
@@ -224,23 +250,28 @@ export function FeedbackButtons({
             {!isCard && <span>{m.feedback_dislike()}</span>}
           </button>
         </PopoverTrigger>
-        {/* Radix portal 到 body, 但 React 事件仍沿组件树冒泡, 卡片场景要挡住外层 Link */}
+        {/* Radix portal 到 body, 但 React 事件仍沿组件树冒泡, 卡片场景要挡住外层 Link。
+            aria-labelledby 是必须的: PopoverContent 是 role="dialog", 而仓库的
+            PopoverTitle 只是个样式化的 div, 不会自动接线, 不给名字读屏会播报一个无名对话框。 */}
         <PopoverContent
           align="start"
+          aria-labelledby={titleId}
           className="w-64 space-y-3 p-3"
           onClick={(event) => event.stopPropagation()}
         >
-          <p className="text-xs font-medium text-[var(--ink-soft)]">
+          <PopoverTitle id={titleId} className="text-xs text-[var(--ink-soft)]">
             {m.feedback_reason_title()}
-          </p>
+          </PopoverTitle>
           <div className="flex flex-wrap gap-1.5">
             {REASON_CHIPS.map((preset) => (
               <button
                 key={preset}
                 type="button"
-                onClick={() =>
-                  setReasonPreset((prev) => (prev === preset ? null : preset))
-                }
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setReasonPreset((prev) => (prev === preset ? null : preset));
+                }}
                 aria-pressed={reasonPreset === preset}
                 className={cn(
                   "rounded-full border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",

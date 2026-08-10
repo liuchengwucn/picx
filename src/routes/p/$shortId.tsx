@@ -242,29 +242,31 @@ export const Route = createFileRoute("/p/$shortId")({
 
         const defaultWhiteboard = whiteboards.find((w) => w.isDefault) || null;
 
-        // 与 paper.getByShortId 保持一致：没有 paper_contents 行的论文（存量数据）
-        // 首帧就该把「原文阅读」置灰。
-        const [content] = await db
-          .select({ id: paperContents.id })
-          .from(paperContents)
-          .where(eq(paperContents.paperId, paper.id))
-          .limit(1);
-        const hasContent = !!content;
-
-        // 赞数首帧就要准（ssrData 当 initialData 且 staleTime 30s，先给 0 会让
-        // 已有的赞数消失半分钟）。口径与 paper.getByShortId 那边完全一致。
-        const [likeRow] = paper.isListedInGallery
-          ? await db
-              .select({ value: count() })
-              .from(paperFeedback)
-              .where(
-                and(
-                  eq(paperFeedback.paperId, paper.id),
-                  eq(paperFeedback.vote, 1),
-                ),
-              )
-          : [];
-        const likeCount = likeRow?.value ?? 0;
+        // 两件事：
+        // 1. 与 paper.getByShortId 保持一致：没有 paper_contents 行的论文（存量数据）
+        //    首帧就该把「原文阅读」置灰。
+        // 2. 赞数首帧就要准（ssrData 当 initialData 且 staleTime 30s，先给 0 会让
+        //    已有的赞数消失半分钟）。口径来自 likeFilter，与 paper.getByShortId 同源
+        //    （单表 count 不能用 likeCountSql，见 paper-feedback.ts 的说明）。
+        //    门条件只判 isListedInGallery：上面 :200 的 paper 查询已经过滤了
+        //    isPublic，所以这里等价于 router 侧的 isPublic && isListedInGallery。
+        // 两次查询互不依赖，并行掉——这段在 SSR TTFB 关键路径上。
+        const { likeFilter } = await import("#/lib/paper-feedback");
+        const [contentRows, likeRows] = await Promise.all([
+          db
+            .select({ id: paperContents.id })
+            .from(paperContents)
+            .where(eq(paperContents.paperId, paper.id))
+            .limit(1),
+          paper.isListedInGallery
+            ? db
+                .select({ value: count() })
+                .from(paperFeedback)
+                .where(likeFilter(paper.id))
+            : Promise.resolve([] as { value: number }[]),
+        ]);
+        const hasContent = contentRows.length > 0;
+        const likeCount = likeRows[0]?.value ?? 0;
 
         const summaries = (result?.summaries as Record<string, string>) ?? null;
         const currentLanguage = result?.summaryLanguage ?? "en";
@@ -667,6 +669,9 @@ function PaperDetailPage() {
     // protected procedure：未登录发出去注定 401
     enabled: !!paperId && feedbackAuth === "signed-in",
   });
+  // 只取 vote：同一行里的 reasonPreset 是有意丢弃的。改票不带理由时后端会清掉旧
+  // 理由，前端也就不该把它回填进 popover——否则会喂出「赞 + 理由是炒作」这种自相
+  // 矛盾的 few-shot 样本。
   const myVoteRaw = myFeedback.data?.[paperId]?.vote;
   // vote 在 schema 里是 integer，收窄回 1 | -1
   const myVote = myVoteRaw === 1 || myVoteRaw === -1 ? myVoteRaw : undefined;
