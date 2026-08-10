@@ -107,8 +107,14 @@ export function ChatInputArea({
    * 起来完全空白**的输入框（滚到了引用末尾那个空行），除了滚动条什么反馈都没有。
    * 用 useEffect 而不是 useLayoutEffect：这块要 SSR，且它必须早于 PaperChat 里那个
    * 「注入后把光标滚进视野」的 effect 跑——子组件的 effect 本来就排在父组件前面。
+   *
+   * ⚠️ `[input]` 是**必须**的，尽管 effect 体里没有读它：高度要跟着内容变，而内容只
+   * 能从这个 prop 感知（节点走 ref，不在依赖表里）。biome 只看 effect 体，于是判定
+   * 「依赖多于必要：input」并给出一个 **unsafe autofix：删掉多余依赖**。真被
+   * `biome check --write --unsafe` 执行掉，依赖表就成了 `[]`，effect 只在挂载时跑一
+   * 次，自动增高静默失效、且不会有任何测试或类型报错。删这条抑制前先想清楚这件事。
    */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 高度只跟内容走，input 就是那个内容；node 从 ref 读
+  // biome-ignore lint/correctness/useExhaustiveDependencies: input 是有意保留的「内容变了」信号，规则的 autofix 会删掉它并悄悄废掉自动增高（详见上方注释）
   useEffect(() => {
     const el = localRef.current;
     if (!el) return;

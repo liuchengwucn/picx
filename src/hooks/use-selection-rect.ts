@@ -11,10 +11,17 @@ export interface SelectionRect {
 export interface SelectionRectState {
   rect: SelectionRect;
   /**
-   * **已裁剪到 root 之内**的选中文本。原生选区可以横跨整页：Ctrl+A、以及从正文里
-   * 往外拖到面板边缘触发浏览器自动滚动，都会让 Range 顺着 DOM 顺序一路吃进导航栏、
-   * 右侧 chat 面板、页脚，甚至气泡自己的按钮文案。直接 range.toString() 交给下游
-   * （PDF 的「问这段」要把它塞进 chat 输入框）就是把整页 chrome 当引文发出去。
+   * **已裁剪到 root 之内**的选中文本，且是**渲染文本**（行/块边界带换行）。
+   *
+   * 两个限定各修一个坑，缺一不可：
+   * - 裁剪：原生选区可以横跨整页：Ctrl+A、以及从正文里往外拖到面板边缘触发浏览器
+   *   自动滚动，都会让 Range 顺着 DOM 顺序一路吃进导航栏、右侧 chat 面板、页脚，
+   *   甚至气泡自己的按钮文案。不裁就是把整页 chrome 当引文发出去。
+   * - 渲染文本：`Range.toString()` 按文本节点直接拼接，**不认行/块边界**，只有
+   *   `Selection.toString()` 走渲染文本算法才会补换行。pdf.js 的文本层是每个视觉行
+   *   之间夹一个 `<br role="presentation">`（textContent 是空串），于是用
+   *   `Range.toString()` 会把相邻两行焊死：实测 `for` + `large` → `forlarge`、
+   *   `infer-` + `ence` → `infer-ence`。引文是要送进 LLM 的，粘连词必须消掉。
    *
    * 注意与下面的 range 不是同一个语义：text 是「用户在 root 里选中的东西」，
    * range 是「用户选中的东西」原样。
@@ -39,6 +46,113 @@ export interface SelectionRectState {
  * 顺序无关紧要：相交前提下，跑出 root 的端点只可能跑在 root 的外侧那一头，
  * setStart/setEnd 都不会把区间折叠掉。
  */
+/**
+ * 会在渲染文本里断行的标签。刻意用白名单而不是 `getComputedStyle(display)`：这里拿到
+ * 的是 `cloneContents()` 出来的游离片段，脱离文档就没有 used value 可读。
+ *
+ * 名单宁滥勿缺：下游（`normalizePdfSelection`）会把所有空白折成单空格，多发一个换行
+ * 不留痕迹，少发一个就是两个词焊死。
+ */
+const BLOCK_LEVEL_TAGS = new Set([
+  "ADDRESS",
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "DD",
+  "DETAILS",
+  "DIV",
+  "DL",
+  "DT",
+  "FIELDSET",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "FORM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "HEADER",
+  "HR",
+  "LI",
+  "MAIN",
+  "NAV",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL",
+]);
+
+/**
+ * 把一棵 DOM 子树序列化成「渲染文本」：文本节点原样收下，`<br>` 与块级元素的边界发
+ * 一个换行。行内元素（pdf.js 文本层里同一视觉行上的相邻 `<span>`）之间**不补任何东
+ * 西**——那些 span 视觉上本来就是紧挨着的，凭空插空格会把 `Index` + `Cache` 拆成
+ * `Index Cache`。
+ *
+ * 导出是为了单测：这一层正是 `Range.toString()` 与浏览器渲染文本的差异所在，而那个
+ * 差异曾经整整一轮没人发现（下游 `normalizePdfSelection` 的「把硬换行折成空格」因此
+ * 从未被触发过）。测它必须喂真实的 pdf.js 文本层形状。
+ */
+export function renderedTextOf(root: Node): string {
+  const parts: string[] = [];
+
+  const visit = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parts.push(node.nodeValue ?? "");
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = (node as Element).tagName;
+    if (tag === "BR") {
+      parts.push("\n");
+      return;
+    }
+    const isBlock = BLOCK_LEVEL_TAGS.has(tag);
+    if (isBlock) parts.push("\n");
+    for (const child of Array.from(node.childNodes)) visit(child);
+    if (isBlock) parts.push("\n");
+  };
+
+  for (const child of Array.from(root.childNodes)) visit(child);
+  return parts.join("");
+}
+
+/**
+ * 「裁剪后区间的渲染文本」。两个要求得同时满足，所以分两条路：
+ *
+ * - 裁剪没真的动过端点（绝大多数正常拖选都是这样）：直接用 `Selection` 的字符串化。
+ *   它走的就是渲染文本算法，是浏览器自己的口径，比我们手写的白名单准，还不用付任何
+ *   额外代价（实测整页 6607 字符 `toString()` 0.02ms）。
+ * - 真裁掉了东西（Ctrl+A、从容器外拖进来）：`Selection` 的字符串化包含被裁掉的部分，
+ *   用不了，只能自己序列化克隆片段（实测每页 0.65ms，只在这条稀有路径上付）。
+ *
+ * `rangeCount === 1` 是必要条件：Firefox 允许多段选区，而 `Selection.toString()` 会
+ * 把所有段拼起来，跟我们只取 `getRangeAt(0)` 的口径对不上。
+ */
+function clippedRenderedText(
+  selection: Selection,
+  range: Range,
+  clipped: Range,
+): string {
+  const boundariesIntact =
+    selection.rangeCount === 1 &&
+    clipped.compareBoundaryPoints(Range.START_TO_START, range) === 0 &&
+    clipped.compareBoundaryPoints(Range.END_TO_END, range) === 0;
+  return boundariesIntact
+    ? selection.toString()
+    : renderedTextOf(clipped.cloneContents());
+}
+
 function clipRangeTo(range: Range, root: Node): Range {
   const clipped = range.cloneRange();
   if (!root.contains(clipped.startContainer)) {
@@ -101,7 +215,7 @@ export function useSelectionRect(rootRef: RefObject<HTMLElement | null>): {
     // 相交只说明「碰到了 root」，选区照样可以一路吃到 root 外面去。文本与坐标都以
     // 裁剪后的区间为准，原始 range 只作为快照原样交出去（见 SelectionRectState）。
     const clipped = clipRangeTo(range, root);
-    const text = clipped.toString();
+    const text = clippedRenderedText(selection, range, clipped);
     if (!text.trim()) {
       setState(null);
       return;

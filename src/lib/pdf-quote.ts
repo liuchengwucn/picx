@@ -17,12 +17,17 @@ const QUOTE_TRAILER = "\n\n";
 /**
  * 把 PDF 文本层选出来的原始文本整理成可读的一行。
  *
- * PDF 的文本层保留的是排版换行（每个视觉行一个换行），直接丢进 chat 会是一堆断句。
- * 这里把所有空白折成单空格。
+ * 输入是 `useSelectionRect` 产出的**渲染文本**：每个视觉行之间一个 `\n`（pdf.js 的
+ * 文本层用 `<br>` 分行）。直接丢进 chat 会是一堆断句，这里把所有空白折成单空格。
  *
- * 刻意不处理行尾连字符断词（`repre-\nsentation`）：无法可靠区分排版断词与真实连字符
+ * 刻意不处理行尾连字符断词（`infer-\nence`）：无法可靠区分排版断词与真实连字符
  * （`state-of-the-art` 恰好断在连字符处时两者完全同形），猜错会造出不存在的词，
- * 宁可保留原样让人一眼看出是断词。
+ * 宁可折成 `infer- ence` 让人一眼看出是断词。
+ *
+ * 注意这条取舍成立的前提是上游真的给了换行。曾经上游用的是 `Range.toString()`，它
+ * 不认行边界，断词到这儿已经是焊死的 `infer-ence`、跨行词是 `forlarge`——比这里讨论
+ * 的情况严格更糟，而且本函数对它完全是 no-op。改动上游前先看
+ * `use-selection-rect.ts` 的 `clippedRenderedText`。
  */
 export function normalizePdfSelection(
   raw: string,

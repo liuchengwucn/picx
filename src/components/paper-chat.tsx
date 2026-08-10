@@ -713,29 +713,32 @@ export function PaperChat({
   // 重新水合——这就是两种折叠形态下「收起中若正在流式回复」的处理方式：客户端
   // 状态（选中会话、useChat 内部消息列表）会丢，但服务端已落库的内容会在重新
   // 打开时立刻拿回来，不算真正丢失。
-  const invalidateChatQueries = () => {
+  // 这三个都包了 useCallback 而不是写成普通函数：下面的注入 effect 要调它们，而它的
+  // 全部正确性论证就建立在依赖表上。普通函数每渲染重建，要么让 effect 每渲染空转，
+  // 要么逼出一条 hook 级的 biome-ignore——那会把整个 effect 的依赖检查一起关掉，以后
+  // 真缺依赖也不会有人提醒。稳定引用换来的是依赖表可以照实写。
+  const invalidateChatQueries = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: trpc.chat.getMessages.pathKey(),
     });
     void queryClient.invalidateQueries({
       queryKey: trpc.chat.listSessions.pathKey(),
     });
-  };
+  }, [queryClient, trpc]);
 
-  const handleSheetOpenChange = (open: boolean) => {
-    setIsSheetOpen(open);
-    if (open) invalidateChatQueries();
-  };
+  const handleSheetOpenChange = useCallback(
+    (open: boolean) => {
+      setIsSheetOpen(open);
+      if (open) invalidateChatQueries();
+    },
+    [invalidateChatQueries],
+  );
 
-  const expandPanel = () => {
+  const expandPanel = useCallback(() => {
     onCollapsedChange(false);
     invalidateChatQueries();
-  };
+  }, [onCollapsedChange, invalidateChatQueries]);
 
-  // expandPanel / handleSheetOpenChange 是每次渲染重建的普通函数（不是 useCallback），
-  // 进依赖数组等于让这个 effect 每渲染都跑一遍。它们在 effect 里只被直接调用，闭包取
-  // 到的永远是当前这次渲染的版本，语义上不需要进依赖。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 见上：每渲染重建的普通函数，进依赖数组会让 effect 每渲染空转
   useEffect(() => {
     if (!pendingQuote) return;
     // 刻意不用函数式更新：下面的聚焦 effect 要拿这次注入的结果去比对 DOM，得先
@@ -759,6 +762,8 @@ export function PaperChat({
     collapsed,
     isSheetOpen,
     input,
+    expandPanel,
+    handleSheetOpenChange,
   ]);
 
   const focusInputEnd = useCallback(() => {
@@ -870,16 +875,22 @@ export function PaperChat({
           aria-describedby={sheetDescriptionId}
           onOpenAutoFocus={(event) => {
             // 抽屉是被「问这段」自动拉开的：焦点该落在那个已经带着引用的输入框上。
-            // 不接管的话 Radix 的 FocusScope 会把焦点放到内容里第一个可聚焦元素
-            // （会话条上的「新对话」按钮）上，而且它是在抽屉子树挂载那一帧的 effect
-            // 里干的——上面那个「每渲染重试」的 effect 挂在 PaperChat 上，抽屉内部
-            // 挂载不会让 PaperChat 重渲染，所以根本追不上。
+            //
+            // 上面那个无依赖的 effect 其实也能把焦点抢回来（开抽屉本身就是 PaperChat
+            // 的状态变更，它会在那次 commit 里重渲染，父级 effect 排在子级 FocusScope
+            // 之后）——但那是「先让 Radix 把焦点放到会话条的『新对话』按钮上，我们再
+            // 抢回来」，中间会闪一次焦点环。这里直接 preventDefault 掉，让焦点一步到位。
+            //
             // 用户自己点 FAB 打开时不插手，保持 Radix 默认（移动端不无故弹键盘）。
             if (focusPendingRef.current === null) return;
             const el = inputRef.current;
             // 未登录时抽屉里是登录提示，没有输入框：让 Radix 按默认走，否则焦点会
-            // 掉进真空
-            if (!el) return;
+            // 掉进真空。顺手把闩解了——这次注入永远等不到 textarea 了，留着它下次
+            // 用户手动开抽屉会被莫名其妙地抢焦点。
+            if (!el) {
+              focusPendingRef.current = null;
+              return;
+            }
             event.preventDefault();
             focusPendingRef.current = null;
             focusInputEnd();
