@@ -235,8 +235,16 @@ async function chatCompletion(systemPrompt, userContent, opts) {
       // content — the very bug this script repairs. Disable explicitly —
       // mirrors reasoningParam() in src/lib/ai.ts (only sent to OpenRouter
       // endpoints; the official OpenAI API rejects unknown params).
+      // REPAIR_REASONING=<low|high> re-enables thinking for stubborn papers:
+      // long inputs with reasoning off tend to fall into a wrong-language
+      // attractor (ja answered in Chinese). Pair with REPAIR_MAX_TOKENS=16000 —
+      // thinking tokens count against max_tokens on OpenRouter.
       ...(/openrouter/i.test(OPENAI_BASE_URL)
-        ? { reasoning: { enabled: false } }
+        ? {
+            reasoning: process.env.REPAIR_REASONING
+              ? { effort: process.env.REPAIR_REASONING }
+              : { enabled: false },
+          }
         : {}),
     }),
   });
@@ -379,7 +387,12 @@ function generateSummary(paperText, language) {
   return chatCompletion(
     summarySystemPrompt(language),
     `Please summarize the following academic paper:\n\n${paperText}`,
-    { temperature: 0.7, maxTokens: 8000, label: "Summary", expectLanguage: language },
+    {
+      temperature: 0.7,
+      maxTokens: Number(process.env.REPAIR_MAX_TOKENS || 8000),
+      label: "Summary",
+      expectLanguage: language,
+    },
   );
 }
 
@@ -468,7 +481,7 @@ STRICT OUTPUT RULES:
   // so the head is enough and keeps input cost down.
   return chatCompletion(sys, summaryText.slice(0, 3500), {
     temperature: 0.5,
-    maxTokens: 400,
+    maxTokens: Number(process.env.REPAIR_MAX_TOKENS || 400),
     label: `Tldr (${language})`,
     expectLanguage: language,
   });
@@ -484,7 +497,7 @@ STRICT OUTPUT RULES:
 - Preserve the concise, single-sentence form.`;
   return chatCompletion(sys, tldrText, {
     temperature: 0.3,
-    maxTokens: 400,
+    maxTokens: Number(process.env.REPAIR_MAX_TOKENS || 400),
     label: `Tldr translation (${targetLanguage})`,
     expectLanguage: targetLanguage,
   });
