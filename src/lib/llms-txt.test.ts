@@ -26,6 +26,21 @@ const papers = [
   },
 ];
 
+const digests = [
+  {
+    directionSlug: "ai4formath",
+    issueNumber: 1,
+    title: "Issue 1: Formalization hits research level",
+    content: "## Highlights\n\nAutoformalization moved past competition math.",
+  },
+  {
+    directionSlug: "ai4formath",
+    issueNumber: 2,
+    title: "Issue 2: Verifier-guided search",
+    content: "## Highlights\n\nProof search now leans on learned verifiers.",
+  },
+];
+
 describe("buildLlmsTxt", () => {
   it("starts with the PicX H1 header", () => {
     const txt = buildLlmsTxt({ siteUrl, papers });
@@ -100,6 +115,26 @@ describe("buildLlmsTxt", () => {
 
     const txtEmpty = buildLlmsTxt({ siteUrl, papers, stories: [] });
     expect(txtEmpty).not.toContain("## Latest AI News");
+  });
+
+  it("renders a digests section linking each issue page", () => {
+    const txt = buildLlmsTxt({ siteUrl, papers, digests });
+    expect(txt).toContain("## Research Direction Digests");
+    expect(txt).toContain(
+      "- [Issue 1: Formalization hits research level](https://picx.dev/gallery/d/ai4formath/1)",
+    );
+    expect(txt).toContain(
+      "- [Issue 2: Verifier-guided search](https://picx.dev/gallery/d/ai4formath/2)",
+    );
+  });
+
+  it("omits the digests section when digests is absent or empty", () => {
+    expect(buildLlmsTxt({ siteUrl, papers })).not.toContain(
+      "## Research Direction Digests",
+    );
+    expect(buildLlmsTxt({ siteUrl, papers, digests: [] })).not.toContain(
+      "## Research Direction Digests",
+    );
   });
 
   it("escapes brackets and flattens newlines in link text", () => {
@@ -213,6 +248,64 @@ describe("buildLlmsFullTxt", () => {
       maxBytes: 100_000,
     });
     expect(txtEmpty).not.toContain("## Latest AI News");
+  });
+
+  it("inlines a digests section with the full English issue body", () => {
+    const txt = buildLlmsFullTxt({
+      siteUrl,
+      papers,
+      digests,
+      maxBytes: 100_000,
+    });
+    expect(txt).toContain("## Research Direction Digests");
+    expect(txt).toContain("## Issue 1: Formalization hits research level");
+    expect(txt).toContain(
+      "- **Permalink:** https://picx.dev/gallery/d/ai4formath/1",
+    );
+    expect(txt).toContain("Autoformalization moved past competition math.");
+  });
+
+  it("omits the digests section when digests is absent or empty", () => {
+    expect(
+      buildLlmsFullTxt({ siteUrl, papers, maxBytes: 100_000 }),
+    ).not.toContain("## Research Direction Digests");
+    expect(
+      buildLlmsFullTxt({ siteUrl, papers, digests: [], maxBytes: 100_000 }),
+    ).not.toContain("## Research Direction Digests");
+  });
+
+  it("drops overflow digests and notes how many were omitted", () => {
+    const bigDigests = [
+      {
+        directionSlug: "ai4formath",
+        issueNumber: 1,
+        title: "Issue 1",
+        content: "A".repeat(4000),
+      },
+      {
+        directionSlug: "ai4formath",
+        issueNumber: 2,
+        title: "Issue 2",
+        content: "B".repeat(4000),
+      },
+    ];
+    const maxBytes = 6000;
+    const txt = buildLlmsFullTxt({
+      siteUrl,
+      papers: [],
+      digests: bigDigests,
+      maxBytes,
+    });
+    expect(new TextEncoder().encode(txt).length).toBeLessThanOrEqual(maxBytes);
+    expect(txt).toContain("A".repeat(4000));
+    expect(txt).not.toContain("B".repeat(4000));
+    expect(txt).toContain("_1 more digest(s) omitted for size._");
+  });
+
+  it("drops the whole digests section when papers already spent the budget", () => {
+    // 预算只够 header + 第一篇论文, 简报小节整个不出现 (不留孤立空标题)。
+    const txt = buildLlmsFullTxt({ siteUrl, papers, digests, maxBytes: 700 });
+    expect(txt).not.toContain("## Research Direction Digests");
   });
 
   it("flattens newlines in heading titles but leaves summary bodies raw", () => {

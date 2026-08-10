@@ -2,7 +2,13 @@ import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { newsStories, paperResults, papers } from "#/db/schema";
+import {
+  digests,
+  directions,
+  newsStories,
+  paperResults,
+  papers,
+} from "#/db/schema";
 import { buildLlmsFullTxt } from "#/lib/llms-txt";
 import { SITE_URL } from "#/lib/site-url";
 
@@ -16,6 +22,9 @@ const MAX_BYTES = 200_000;
 
 // 新闻 story 的上限, 同样是"最新即可"的站点地图逻辑。
 const MAX_STORIES = 100;
+
+// 方向简报期数上限。正文整篇内联, 比 story 更占预算, 取最近若干期即可。
+const MAX_DIGESTS = 30;
 
 /**
  * `/llms-full.txt` —— 在 llms.txt 概要之上内联每篇公开论文的英文完整摘要,
@@ -58,6 +67,29 @@ async function handler() {
     // Degrade to overview-only llms-full.txt
   }
 
+  let digestRows: Array<{
+    directionSlug: string;
+    issueNumber: number;
+    title: unknown;
+    content: unknown;
+  }> = [];
+  try {
+    digestRows = await db
+      .select({
+        directionSlug: directions.slug,
+        issueNumber: digests.issueNumber,
+        title: digests.title,
+        content: digests.content,
+      })
+      .from(digests)
+      .innerJoin(directions, eq(digests.directionId, directions.id))
+      .where(eq(digests.status, "published"))
+      .orderBy(desc(digests.publishedAt))
+      .limit(MAX_DIGESTS);
+  } catch {
+    // Degrade to llms-full.txt without direction digests
+  }
+
   let storyRows: Array<{
     shortId: string;
     title: unknown;
@@ -98,6 +130,14 @@ async function handler() {
           sourceUrl: r.sourceUrl,
         };
       }),
+    digests: digestRows
+      .map((r) => ({
+        directionSlug: r.directionSlug,
+        issueNumber: r.issueNumber,
+        title: (r.title as Record<string, string> | null)?.en ?? "",
+        content: (r.content as Record<string, string> | null)?.en ?? "",
+      }))
+      .filter((d) => d.title !== "" && d.content !== ""),
     stories: storyRows
       .map((r) => ({
         shortId: r.shortId,

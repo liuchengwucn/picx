@@ -2,7 +2,13 @@ import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { newsStories, paperResults, papers } from "#/db/schema";
+import {
+  digests,
+  directions,
+  newsStories,
+  paperResults,
+  papers,
+} from "#/db/schema";
 import { buildLlmsTxt } from "#/lib/llms-txt";
 import { SITE_URL } from "#/lib/site-url";
 
@@ -16,6 +22,9 @@ const MAX_PAPERS = 200;
 
 // 新闻 story 的上限, 同样是"最新即可"的站点地图逻辑。
 const MAX_STORIES = 100;
+
+// 方向简报期数上限, 同上; 出刊节奏低, 这个数够覆盖很长的历史。
+const MAX_DIGESTS = 100;
 
 /**
  * `/llms.txt` —— 给 AI 爬虫的站点入口: 站点概要 + 关键页面 + 最新公开论文索引,
@@ -53,6 +62,27 @@ async function handler() {
     // Degrade to overview-only llms.txt
   }
 
+  let digestRows: Array<{
+    directionSlug: string;
+    issueNumber: number;
+    title: unknown;
+  }> = [];
+  try {
+    digestRows = await db
+      .select({
+        directionSlug: directions.slug,
+        issueNumber: digests.issueNumber,
+        title: digests.title,
+      })
+      .from(digests)
+      .innerJoin(directions, eq(digests.directionId, directions.id))
+      .where(eq(digests.status, "published"))
+      .orderBy(desc(digests.publishedAt))
+      .limit(MAX_DIGESTS);
+  } catch {
+    // Degrade to llms.txt without direction digests
+  }
+
   let storyRows: Array<{
     shortId: string;
     title: unknown;
@@ -85,6 +115,13 @@ async function handler() {
         shortId: r.shortId,
         tldr: (r.tldr as Record<string, string> | null)?.en ?? null,
       })),
+    digests: digestRows
+      .map((r) => ({
+        directionSlug: r.directionSlug,
+        issueNumber: r.issueNumber,
+        title: (r.title as Record<string, string> | null)?.en ?? "",
+      }))
+      .filter((d) => d.title !== ""),
     stories: storyRows
       .map((r) => ({
         shortId: r.shortId,

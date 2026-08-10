@@ -44,10 +44,12 @@ import type {
   ReviewedCandidate,
   SynthesisResult,
 } from "#/lib/digest/types";
+import { submitIndexNow } from "#/lib/indexnow";
 import {
   MAX_SOURCE_FAILURES,
   selectFetchTargets,
 } from "#/lib/news/source-health";
+import { SITE_URL } from "#/lib/site-url";
 import type { Env } from "#/types/env";
 
 export type DigestWorkflowParams = {
@@ -496,12 +498,24 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           );
         });
       }
-      await step.do("publish", () =>
-        saveDigestContent(db, shell.digestId, {
+      await step.do("publish", async () => {
+        await saveDigestContent(db, shell.digestId, {
           status: "published",
           publishedAt: new Date(),
-        }),
-      );
+        });
+        // 发布后主动通知 IndexNow（Bing/Copilot/DuckDuckGo 等几分钟内抓取）。
+        // submitIndexNow 内部吞掉一切失败、未配置 key 时直接返回，所以 await 它
+        // 不会让发布失败；必须 await——step 返回后上下文可能被拆掉，浮着的
+        // promise 会被丢弃。
+        await submitIndexNow({
+          siteUrl: SITE_URL,
+          key: env.INDEXNOW_KEY,
+          urls: [
+            `${SITE_URL}/gallery/d/${ctx.direction.slug}/${shell.issueNumber}`,
+            `${SITE_URL}/gallery/d/${ctx.direction.slug}`,
+          ],
+        });
+      });
 
       return { digestId: shell.digestId, picks: synthesis.picks.length };
     } catch (e) {

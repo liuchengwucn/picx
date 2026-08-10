@@ -2,7 +2,13 @@ import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { newsStories, papers, whiteboardImages } from "#/db/schema";
+import {
+  digests,
+  directions,
+  newsStories,
+  papers,
+  whiteboardImages,
+} from "#/db/schema";
 import { escapeHtml } from "#/lib/embed-code";
 import { PAPER_CATEGORY_SLUGS } from "#/lib/paper-categories";
 
@@ -81,6 +87,37 @@ async function handler({ request }: { request: Request }) {
     // Degrade gracefully to sitemap without news stories
   }
 
+  let digestIssues: Array<{
+    slug: string;
+    issueNumber: number;
+    updatedAt: Date;
+  }> = [];
+  try {
+    digestIssues = await db
+      .select({
+        slug: directions.slug,
+        issueNumber: digests.issueNumber,
+        updatedAt: digests.updatedAt,
+      })
+      .from(digests)
+      .innerJoin(directions, eq(digests.directionId, directions.id))
+      .where(eq(digests.status, "published"))
+      .orderBy(desc(digests.publishedAt));
+  } catch {
+    // Degrade gracefully to sitemap without digest issues
+  }
+
+  let activeDirections: Array<{ slug: string }> = [];
+  try {
+    activeDirections = await db
+      .select({ slug: directions.slug })
+      .from(directions)
+      .where(eq(directions.isActive, true))
+      .orderBy(directions.sortOrder);
+  } catch {
+    // Degrade gracefully to sitemap without direction hubs
+  }
+
   // publicPapers 已按 publishedAt 倒序, 取最新一篇的发布日作为首页/画廊的
   // lastmod —— 在 sitemap 顶部给出"内容刚更新"的新鲜度信号, 这是 Google
   // 现在真正参考的字段 (changefreq/priority 已被忽略)。
@@ -142,10 +179,35 @@ async function handler({ request }: { request: Request }) {
     lastmod: s.lastActivityAt.toISOString().split("T")[0],
   }));
 
+  // 已发布简报期页: 定稿后基本不再变动, lastmod 用该期最后一次写入时间。
+  const digestRoutes: SitemapRoute[] = digestIssues.map((d) => ({
+    url: `${origin}/gallery/d/${d.slug}/${d.issueNumber}`,
+    priority: "0.6",
+    changefreq: "monthly",
+    lastmod: d.updatedAt.toISOString().split("T")[0],
+  }));
+
+  // 方向主页是栏目页 (对齐 /gallery/c/{slug} 的 0.7), 但只在新一期发布时才变,
+  // 所以 lastmod 取该方向最新一期的时间, changefreq 按出刊节奏给 weekly。
+  const latestIssueDateBySlug = new Map<string, string>();
+  for (const d of digestIssues) {
+    const day = d.updatedAt.toISOString().split("T")[0];
+    const prev = latestIssueDateBySlug.get(d.slug);
+    if (!prev || day > prev) latestIssueDateBySlug.set(d.slug, day);
+  }
+  const directionRoutes: SitemapRoute[] = activeDirections.map((d) => ({
+    url: `${origin}/gallery/d/${d.slug}`,
+    priority: "0.7",
+    changefreq: "weekly",
+    lastmod: latestIssueDateBySlug.get(d.slug),
+  }));
+
   const allRoutes = [
     ...staticRoutes,
     ...categoryRoutes,
+    ...directionRoutes,
     ...paperRoutes,
+    ...digestRoutes,
     ...storyRoutes,
   ];
 

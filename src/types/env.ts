@@ -54,6 +54,9 @@ export interface Env {
   // news 摄入/活跃窗口小时数覆盖（可选；仅用于历史回填等运维场景，默认 72）
   NEWS_INGEST_WINDOW_HOURS?: string;
 
+  // IndexNow（可选；未配置时所有 ping 直接跳过）
+  INDEXNOW_KEY?: string;
+
   // Gallery 方向化（direction digest）
   DIGEST_WORKFLOW: Workflow;
   DIGEST_CHEAP_MODEL?: string; // 扫源初筛/精读/对抗投票，回落 OPENAI_MODEL
