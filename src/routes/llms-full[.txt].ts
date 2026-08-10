@@ -83,7 +83,10 @@ async function handler() {
       })
       .from(digests)
       .innerJoin(directions, eq(digests.directionId, directions.id))
-      .where(eq(digests.status, "published"))
+      // isActive: 方向下线后期页已 404, 别再把全文喂给爬虫
+      .where(
+        and(eq(digests.status, "published"), eq(directions.isActive, true)),
+      )
       .orderBy(desc(digests.publishedAt))
       .limit(MAX_DIGESTS);
   } catch {

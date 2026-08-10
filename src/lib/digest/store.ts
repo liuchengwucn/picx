@@ -560,6 +560,12 @@ export interface IssueDetail {
   nextIssue: number | null;
 }
 
+/**
+ * isActive 与 listActiveDirections / getDirectionDetailBySlug 同一条件, 不是可省的:
+ * 少了它, 下线方向的 tab 与主页都没了(那两个函数都过滤), 期页却仍 200 出全文, 且
+ * 页脚「返回方向页」链到一个 404。方向下线 = 连历史期一起隐藏, 期页也 404, 并从
+ * sitemap / llms.txt / llms-full.txt 一起移除(那三处各自手写同一条 join, 要同步改)。
+ */
 export async function getPublishedIssueDetail(
   db: Db,
   slug: string,
@@ -583,6 +589,7 @@ export async function getPublishedIssueDetail(
     .where(
       and(
         eq(directions.slug, slug),
+        eq(directions.isActive, true),
         eq(digests.issueNumber, issueNumber),
         eq(digests.status, "published"),
       ),

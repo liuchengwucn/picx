@@ -60,7 +60,10 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
           params.slug,
           issueNumber,
         );
-        // 查不到(方向下线 / 期未发布 / 期号越界)→ 真 404 状态码, 不是 200 空壳
+        // 查不到 → 真 404 状态码, 不是 200 空壳。getPublishedIssueDetail 返回 null 的
+        // 全部情形: 方向 slug 不存在 / 方向已下线(isActive=0) / 该期不是 published /
+        // 期号没有对应的期。「方向已下线」这一档连历史 published 期一起 404, 与
+        // listDirections、getDirection 以及 sitemap / llms 两个路由同一口径。
         if (!issue) throw notFound();
         // 显式标注类型 = 编译期钉住「与 getIssue 输出同构」这条契约
         const ssrData: IssueOutput = mapIssueToLocale(issue, localeKey);

@@ -101,7 +101,11 @@ async function handler({ request }: { request: Request }) {
       })
       .from(digests)
       .innerJoin(directions, eq(digests.directionId, directions.id))
-      .where(eq(digests.status, "published"))
+      // isActive 与下面 activeDirections 同一条件: 下线方向的期页已 404,
+      // 留在 sitemap 里就是让爬虫去撞 404
+      .where(
+        and(eq(digests.status, "published"), eq(directions.isActive, true)),
+      )
       .orderBy(desc(digests.publishedAt));
   } catch {
     // Degrade gracefully to sitemap without digest issues

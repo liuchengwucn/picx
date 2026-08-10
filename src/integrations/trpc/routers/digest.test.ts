@@ -299,6 +299,14 @@ describe("digest.getIssue", () => {
     ).resolves.toBeNull();
   });
 
+  // 方向下线 = 连历史 published 期一起隐藏。少了这条断言, 期页会成为下线方向唯一
+  // 还能 200 打开、还留在 sitemap / llms.txt 里的入口, 而它页脚的「返回方向页」是 404。
+  it("hides published issues of an inactive direction", async () => {
+    await expect(
+      caller.getIssue({ slug: "retired", issueNumber: 1 }),
+    ).resolves.toBeNull();
+  });
+
   it("never leaks internal digest fields", async () => {
     const issue = await caller.getIssue({
       slug: "ai4formath",
