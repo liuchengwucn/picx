@@ -7,6 +7,7 @@ import {
   inArray,
   isNull,
   lt,
+  notLike,
   or,
   sql,
 } from "drizzle-orm";
@@ -26,6 +27,7 @@ import {
   normalizeKeyFacts,
   scoreRelevance,
 } from "#/lib/news/ai";
+import { EnrichRateLimitError, fetchReadable } from "#/lib/news/enrich";
 import { mergeRelated, pickRelated } from "#/lib/news/related";
 import { buildSignalsSummary } from "#/lib/news/signals";
 import {
@@ -49,6 +51,13 @@ const SIM_CANDIDATE_THRESHOLD = 0.6;
 const TOP_K = 5;
 const FILTER_BATCH_SIZE = 25;
 // 每轮各阶段上限：控制单次调用成本与时长；积压由后续轮次消化（有 log）
+const MAX_ENRICH_PER_ROUND = 20;
+// 正文补抓最多试 2 轮；耗尽后条目放行给 filter 走无正文老路（标题打分），不阻塞管线
+const ENRICH_MAX_ATTEMPTS = 2;
+// 补抓等待的年龄上限（对 fetchedAt）：超龄条目无条件放行给 filter。这是失败计数
+// 之外的兜底逃生门——持续 429 时计数不增长（见 enrichStage），入库洪峰时每轮
+// 20 条的名额也可能轮不到老条目，没有它们 filter 的让路谓词会把条目无限期挂起
+const ENRICH_MAX_AGE_HOURS = 6;
 const MAX_FILTER_PER_ROUND = 150;
 const MAX_EMBED_PER_ROUND = 100;
 const MAX_CLUSTER_PER_ROUND = 60;
@@ -261,7 +270,81 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
   }
 }
 
-// ---- Stage 2: filter ----
+// ---- Stage 2: enrich（正文补抓） ----
+
+/**
+ * 尚可重试正文补抓的条目谓词。filter 对这类条目让路，因此这里的每个条件都同时是
+ * 「放行给 filter」的出口：excerpt 补到了 / 失败次数耗尽 / 超龄 / HN 讨论页。
+ * HN 讨论页（自帖 url 回退）不补抓：渲染结果是站头导航+评论而非正文，
+ * 自帖的真正文（story_text）已在 hn 适配器入库时写入 excerpt。
+ */
+function enrichEligible() {
+  return and(
+    isNull(newsItems.excerpt),
+    sql`coalesce(json_extract(${newsItems.extra}, '$.enrichAttempts'), 0) < ${ENRICH_MAX_ATTEMPTS}`,
+    gt(
+      newsItems.fetchedAt,
+      new Date(Date.now() - ENRICH_MAX_AGE_HOURS * 3600_000),
+    ),
+    notLike(newsItems.url, "https://news.ycombinator.com/%"),
+  );
+}
+
+async function enrichStage(db: Db, env: Env, deadline: number): Promise<void> {
+  const targets = await db
+    .select({
+      id: newsItems.id,
+      url: newsItems.url,
+    })
+    .from(newsItems)
+    .where(
+      and(
+        eq(newsItems.status, "pending"),
+        isNull(newsItems.relevanceScore),
+        enrichEligible(),
+      ),
+    )
+    // 新条目优先：同轮紧跟的 filter 就能用上正文；老条目多半已在耗尽重试的路上
+    .orderBy(desc(newsItems.fetchedAt))
+    .limit(MAX_ENRICH_PER_ROUND);
+  if (targets.length === 0) return;
+
+  let enriched = 0;
+  for (const item of targets) {
+    if (pastDeadline(deadline, "enrich")) break;
+    try {
+      const content = await fetchReadable(item.url, env.JINA_API_KEY);
+      if (content) {
+        await db
+          .update(newsItems)
+          .set({ excerpt: content })
+          .where(eq(newsItems.id, item.id));
+        enriched++;
+        continue;
+      }
+    } catch (error) {
+      if (error instanceof EnrichRateLimitError) {
+        // 限流是出口 IP 级别的，继续打只会加重；本轮收手，不计条目失败次数
+        // （持续限流的逃生门是 enrichEligible 的年龄上限，不依赖计数增长）
+        log("enrich", "rate limited, deferring rest to next round");
+        break;
+      }
+      console.error(
+        `[NewsCron][enrich] ${item.url.slice(0, 120)} failed:`,
+        error,
+      );
+    }
+    // 抓取失败/内容过短：失败计数 +1。纯 SQL 自增（json_set 只动本键，
+    // 保住 extra 里已有的键如 hnId），免去读回多 KB 的 extra 做读改写
+    const patch: Pick<SQLiteUpdateSetSource<typeof newsItems>, "extra"> = {
+      extra: sql`json_set(coalesce(${newsItems.extra}, '{}'), '$.enrichAttempts', coalesce(json_extract(${newsItems.extra}, '$.enrichAttempts'), 0) + 1)`,
+    };
+    await db.update(newsItems).set(patch).where(eq(newsItems.id, item.id));
+  }
+  log("enrich", `enriched ${enriched}/${targets.length} items`);
+}
+
+// ---- Stage 3: filter ----
 
 async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
   const pending = await db
@@ -272,7 +355,15 @@ async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
     })
     .from(newsItems)
     .where(
-      and(eq(newsItems.status, "pending"), isNull(newsItems.relevanceScore)),
+      and(
+        eq(newsItems.status, "pending"),
+        isNull(newsItems.relevanceScore),
+        // 给 enrich 让路：excerpt 还空着且重试未耗尽的条目先不打分，
+        // 否则首轮补抓失败的条目会立刻被标题打分「消费」（score 非 NULL 即退出
+        // enrich 选取集），重试机制形同虚设。正常最长延迟 = 2 轮 cron（2 小时）；
+        // 极端情形（持续 429/入库洪峰）由 enrichEligible 的年龄上限兜底放行。
+        sql`not (${enrichEligible()})`,
+      ),
     )
     .limit(MAX_FILTER_PER_ROUND);
   if (pending.length === 0) return;
@@ -304,7 +395,7 @@ async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
   log("filter", `scored ${scored}/${pending.length} items`);
 }
 
-// ---- Stage 3: embed ----
+// ---- Stage 4: embed ----
 
 // 配置了 REST 凭据时 embed 走 Workers AI REST API（本地 dev 关闭 remote bindings
 // 后 AI binding 不可用的回退路径）；未配置时走 binding（生产默认）
@@ -364,7 +455,7 @@ async function embedStage(db: Db, env: Env, deadline: number): Promise<void> {
   log("embed", `embedded ${embedded}/${items.length} items`);
 }
 
-// ---- Stage 4: cluster ----
+// ---- Stage 5: cluster ----
 
 async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
   // 显式投影：media/extra 可达数 KB，聚类用不到，别白拉过来
@@ -515,7 +606,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
   );
 }
 
-// ---- Stage 5: summarize ----
+// ---- Stage 6: summarize ----
 
 async function summarizeStage(
   db: Db,
@@ -525,11 +616,18 @@ async function summarizeStage(
   const dirtyStories = await db
     .select({ id: newsStories.id, shortId: newsStories.shortId })
     .from(newsStories)
-    // dirty 的 partial index 只认字面量谓词，不能用 eq()（绑定参数会退化为全表扫描）
-    .where(and(sql`${newsStories.dirty} = 1`, eq(newsStories.status, "active")))
-    // 活跃度倒序：反复失败的 poison story 无法永久占满这 MAX_SUMMARIZE_PER_ROUND 个名额，
-    // 新鲜 story 始终优先。poison story 的放弃路径是 72h 后被 archiveStage 置为
-    // archived —— status 不再是 active，自然退出本查询的轮换。
+    // dirty 的 partial index 只认字面量谓词，不能用 eq()/ne()（绑定参数会退化为全表扫描）。
+    // archived 也要取：可见性谓词是 dirty = 0（archived 正常对外可见），
+    // 若这里只认 active，被回填脚本/运维手工置 dirty 的 archived story、以及
+    // 反复失败拖到被 archiveStage 归档的 story 会带着 dirty = 1 永久从站点消失。
+    .where(
+      and(
+        sql`${newsStories.dirty} = 1`,
+        sql`${newsStories.status} != 'hidden'`,
+      ),
+    )
+    // 活跃度倒序：反复失败的 poison story 与老 archived story 无法永久占满这
+    // MAX_SUMMARIZE_PER_ROUND 个名额，新鲜 story 始终优先。
     .orderBy(desc(newsStories.lastActivityAt))
     .limit(MAX_SUMMARIZE_PER_ROUND);
 
@@ -606,6 +704,7 @@ async function summarizeStage(
           title: m.title,
           excerpt: m.excerpt,
           sourceName: m.sourceName,
+          publishedAt: m.publishedAt,
         })),
         config,
       );
@@ -685,7 +784,7 @@ async function summarizeStage(
     log("summarize", `processed ${done}/${targets.length} dirty stories`);
 }
 
-// ---- Stage 6: refresh HN signals ----
+// ---- Stage 7: refresh HN signals ----
 
 async function refreshStage(db: Db, env: Env, deadline: number): Promise<void> {
   // 按 extra.hnId 取活，而不是 join sourceType='hn'：HN 帖与原文 RSS 共享 canonical URL 时，
@@ -754,7 +853,7 @@ async function refreshStage(db: Db, env: Env, deadline: number): Promise<void> {
     );
 }
 
-// ---- Stage 7: archive + 清理 ----
+// ---- Stage 8: archive + 清理 ----
 
 async function archiveStage(db: Db, env: Env): Promise<void> {
   await db
@@ -798,6 +897,7 @@ export default {
     // 阶段串行、独立容错：单阶段失败不阻塞后续（所有阶段幂等，下轮 cron 续跑）
     const stages: Array<[string, () => Promise<void>]> = [
       ["fetch", () => fetchStage(db, env, deadline)],
+      ["enrich", () => enrichStage(db, env, deadline)],
       ["filter", () => filterStage(db, env, deadline)],
       ["embed", () => embedStage(db, env, deadline)],
       ["cluster", () => clusterStage(db, env, deadline)],
