@@ -121,6 +121,9 @@ export async function searchAngle(
     model: provider.chat(modelId),
     tools: { web_search: provider.tools.webSearch({ maxResults: 10 }) },
     stopWhen: isStepCount(12),
+    // 不传时 deepseek 系默认开思考，大任务思考超时会让网关吐空白 body
+    // （AI_APICallError: Invalid JSON response），必须显式关闭
+    providerOptions: { openrouter: { reasoning: { enabled: false } } },
     prompt: [
       `You research one angle of a weekly AI-research digest. Time window: ${windowDescription}.`,
       `Research focus:\n${focusBrief}`,
@@ -328,6 +331,9 @@ export async function synthesizeDigest(
       model: provider.chat(modelId),
       tools: { web_search: provider.tools.webSearch({ maxResults: 5 }) },
       stopWhen: isStepCount(8),
+      // 同 searchAngle：deepseek 系默认思考 + 定稿大 prompt，实跑 3/3 次
+      // 网关超时吐空白 body，必须显式关闭
+      providerOptions: { openrouter: { reasoning: { enabled: false } } },
       system: extraSystem ? `${system}\n${extraSystem}` : system,
       prompt: user,
       temperature: 0.4,
