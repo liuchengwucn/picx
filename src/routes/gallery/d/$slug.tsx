@@ -58,6 +58,7 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         return {
           directionName: pickTldr(row.name, normalizeLocaleKey(getLocale())),
           focusBrief: row.focusBrief,
+          ssrFailed: false,
         };
       } catch (error) {
         // notFound 必须穿透; 其余错误(D1 不可用等)降级为纯 CSR。
@@ -65,7 +66,9 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         // 兜底; 但故障本身不能就这么无声无息, 留日志。
         if (isNotFound(error)) throw error;
         console.error("[direction loader] SSR D1 read failed", error);
-        return { directionName: null, focusBrief: null };
+        // ssrFailed 是给 head() 用的: 这一帧既证明不了 slug 存在、也拿不到方向名,
+        // 必须 noindex 且不发 canonical(见 head 里的注释)。
+        return { directionName: null, focusBrief: null, ssrFailed: true };
       }
     }
 
@@ -78,10 +81,27 @@ export const Route = createFileRoute("/gallery/d/$slug")({
     if (!direction) throw notFound();
     // listDirections 不含 focusBrief, 客户端导航时描述留空: meta 只对爬虫有意义,
     // 而爬虫拿的永远是 SSR 那份。为一句 description 再发一次 getDirection 不值。
-    return { directionName: direction.name, focusBrief: null };
+    return {
+      directionName: direction.name,
+      focusBrief: null,
+      ssrFailed: false,
+    };
   },
   head: ({ loaderData, params }) => {
-    // SSR 拿得到方向名; loader 降级(D1 不可用)时退回 slug, 总比站点默认标题精确
+    // SSR 读失败时的降级帧, 与简报期页 ssrFailed 同一口径: 这一帧没有任何证据说明
+    // 这个 slug 存在(下线或压根不存在的方向本该 404, 降级把它变成了 200), 组件要到
+    // 客户端拿到 listDirections 才会补 notFound() —— 不执行 JS 的抓取方看到的就是一个
+    // 软 404。所以 noindex, 且不发 canonical / og:url: 自指 canonical 等于主动请求收录。
+    // 标题也只能退回 slug(方向名没读出来), 更不该拿它去当 og 卡片。
+    if (loaderData?.ssrFailed) {
+      return {
+        meta: [
+          { title: `${params.slug} | PicX` },
+          { name: "robots", content: "noindex" },
+        ],
+      };
+    }
+
     const name = loaderData?.directionName ?? params.slug;
     const title = `${name} | PicX`;
     const url = `${SITE_URL}/gallery/d/${params.slug}`;
