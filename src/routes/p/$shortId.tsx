@@ -41,10 +41,7 @@ import {
   clampChatPanelWidth,
   PaperChat,
 } from "#/components/paper-chat";
-import {
-  type FeedbackAuthState,
-  FeedbackButtons,
-} from "#/components/papers/feedback-buttons";
+import { FeedbackButtons } from "#/components/papers/feedback-buttons";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 import {
   type PaperReaderState,
@@ -88,6 +85,7 @@ import {
 } from "#/components/ui/select";
 import { Skeleton } from "#/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
@@ -655,28 +653,20 @@ function PaperDetailPage() {
     enabled: !!data?.paper && data.paper.status === "completed",
   });
 
-  // 反馈按钮的登录态：pending 单独一档（否则已登录用户会先看到一下登录墙），
-  // review-guest 只读账号禁用（后端 assertGuestWriteAllowed 是第二道防线）。
-  // 这里刻意不在页面级把 pending 拦掉：那样服务端渲染的按钮区与客户端首帧会对不上，
-  // 详见 FeedbackButtons 里的 hydration 竞态注释。
-  const feedbackAuth: FeedbackAuthState = isSessionPending
-    ? "pending"
-    : !effectiveSession
-      ? "signed-out"
-      : isReviewGuestReadOnlySession(effectiveSession)
-        ? "readonly-guest"
-        : "signed-in";
-  const myFeedback = useQuery({
-    ...trpc.paper.getMyFeedback.queryOptions({ paperIds: [paperId] }),
-    // protected procedure：未登录发出去注定 401
-    enabled: !!paperId && feedbackAuth === "signed-in",
-  });
-  // 只取 vote：同一行里的 reasonPreset 是有意丢弃的。改票不带理由时后端会清掉旧
-  // 理由，前端也就不该把它回填进 popover——否则会喂出「赞 + 理由是炒作」这种自相
-  // 矛盾的 few-shot 样本。
-  const myVoteRaw = myFeedback.data?.[paperId]?.vote;
-  // vote 在 schema 里是 integer，收窄回 1 | -1
-  const myVote = myVoteRaw === 1 || myVoteRaw === -1 ? myVoteRaw : undefined;
+  // 反馈按钮的装配（登录态四态 + 登录回跳地址 + 我的投票）走与 /gallery、方向主页、
+  // 简报期页同一个 hook。这里原先是把 hook 里那道四态梯逐字抄了一遍，抄件不会跟着
+  // 改——往梯子里加一档时详情页会静默保持旧行为。
+  //
+  // 回跳地址尤其不能自己拼：原先写死 `/p/${shortId}`，于是在
+  // /p/abc?view=reader 上未登录点赞，OAuth 回来会落到 /p/abc，阅读态和查询串全丢。
+  // hook 用的是 useRouterState 的 location.href，带全 search。
+  //
+  // paperId 为空（论文数据还没到）时传空数组而不是 [""]：hook 只按 signed-in 开关
+  // 查询，不会替这里补 !!paperId 那道门，传 [""] 就是一次注定拿不到东西的请求。
+  const { feedbackAuth, signInCallbackURL, myVoteByPaperId } = usePaperFeedback(
+    paperId ? [paperId] : [],
+  );
+  const myVote = myVoteByPaperId.get(paperId);
 
   const deleteMutation = useMutation(
     trpc.paper.delete.mutationOptions({
@@ -901,7 +891,7 @@ function PaperDetailPage() {
                         likeCount={likeCount}
                         myVote={myVote}
                         auth={feedbackAuth}
-                        signInCallbackURL={`/p/${paper.shortId ?? shortId}`}
+                        signInCallbackURL={signInCallbackURL}
                         variant="detail"
                       />
                     </div>
