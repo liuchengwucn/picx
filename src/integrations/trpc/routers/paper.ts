@@ -33,6 +33,7 @@ import { submitIndexNow } from "#/lib/indexnow";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
 import {
   FEEDBACK_BATCH_SIZE,
+  FEEDBACK_REASON_TEXT_MAX_LENGTH,
   likeCountSql,
   likeFilter,
 } from "#/lib/paper-feedback";
@@ -1273,7 +1274,12 @@ export const paperRouter = router({
         reasonPreset: z
           .enum(["off-topic", "incremental", "hype", "seen", "other"])
           .optional(),
-        reasonText: z.string().trim().max(500).optional(),
+        // 上限与前端输入框的 maxLength 共用一个常量, 别改回字面量
+        reasonText: z
+          .string()
+          .trim()
+          .max(FEEDBACK_REASON_TEXT_MAX_LENGTH)
+          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

@@ -11,6 +11,21 @@ import { paperFeedback } from "#/db/schema";
 export const FEEDBACK_BATCH_SIZE = 90;
 
 /**
+ * 踩票自由文本理由的长度上限, 前后端共用这一个数。
+ *
+ * 后端 paper.setFeedback 的 zod `.max()` 与前端 popover 输入框的 `maxLength` 必须是
+ * 同一个值, 两边分别写字面量时会静默错开:
+ * - 只调高后端: 输入框仍在旧值处截断, 用户敲不满新上限, 后端那点余量永远用不上,
+ *   而且"调过了"这件事没人发现。
+ * - 只调低后端: 输入框放用户敲到旧上限, 提交才被 BAD_REQUEST 打回 —— 而 setFeedback
+ *   的错误现在只弹一句通用失败提示, 说不出"太长了", 用户只会看到踩票莫名失败。
+ *
+ * 500 的由来: 理由是简报口味校准的 few-shot 素材, 一两句短句足够; 再长的自由文本
+ * 反而会挤掉 prompt 里其它样本的位置。
+ */
+export const FEEDBACK_REASON_TEXT_MAX_LENGTH = 500;
+
+/**
  * 论文赞数 = paper_feedback 里 vote = 1 的行数(踩不计)。
  *
  * 「赞」的口径只在这个文件里定义, 两种形态同源, 调用处不要手写 vote = 1:

@@ -15,6 +15,7 @@ import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
 import { startGitHubSignIn } from "#/lib/auth-client";
 import { GALLERY_LIST_QUERY_KEY } from "#/lib/gallery-search";
+import { FEEDBACK_REASON_TEXT_MAX_LENGTH } from "#/lib/paper-feedback";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -346,7 +347,8 @@ export function FeedbackButtons({
               submitDislike();
             }}
             placeholder={m.feedback_reason_placeholder()}
-            maxLength={500}
+            // 与后端 setFeedback 的 zod .max() 共用一个常量, 别改回字面量
+            maxLength={FEEDBACK_REASON_TEXT_MAX_LENGTH}
             className="h-8 text-sm"
           />
           <div className="flex justify-end">
