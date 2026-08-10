@@ -45,6 +45,9 @@ export function clean(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** 429 限流退避；瞬时并发峰值（角度打分/验证票）实跑撞过网关限流 */
+const RATE_LIMIT_RETRY_DELAYS_MS = [15_000, 30_000];
+
 async function chat(
   cfg: DigestModelConfig,
   system: string,
@@ -59,23 +62,37 @@ async function chat(
   if (cfg.cfApiToken)
     headers["cf-aig-authorization"] = `Bearer ${cfg.cfApiToken}`;
 
-  const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: cfg.model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature,
-      max_tokens: maxTokens,
-      // 关闭推理（OpenRouter 统一参数）：思考 token 计入 max_tokens，
-      // 会把小预算调用顶到 finish_reason=length
-      reasoning: { enabled: false },
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
+  let response: Response;
+  for (let attempt = 0; ; attempt++) {
+    response = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature,
+        max_tokens: maxTokens,
+        // 关闭推理（OpenRouter 统一参数）：思考 token 计入 max_tokens，
+        // 会把小预算调用顶到 finish_reason=length
+        reasoning: { enabled: false },
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (response.status !== 429 || attempt >= RATE_LIMIT_RETRY_DELAYS_MS.length)
+      break;
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const delay =
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1000, 60_000)
+        : RATE_LIMIT_RETRY_DELAYS_MS[attempt];
+    console.warn(
+      `[digest-ai] 429 rate limited, retry ${attempt + 1}/${RATE_LIMIT_RETRY_DELAYS_MS.length} in ${delay}ms`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new DigestAiError(

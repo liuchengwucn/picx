@@ -344,6 +344,13 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     ),
                   );
                   const outcome = tallyVotes(votes);
+                  if (outcome === "unverified") {
+                    // 有效票 <2 全是 infra 失败（单票 catch 是静默的）——必须留痕，
+                    // 否则限流吃掉高分候选时监控完全看不见（2026-08-10 实跑教训）
+                    console.warn(
+                      `[Digest] verify ${r.item.canonicalUrl}: <2 valid votes (infra failure), kept seen for next issue`,
+                    );
+                  }
                   if (outcome === "rejected") {
                     await updateCandidateStatus(
                       db,
