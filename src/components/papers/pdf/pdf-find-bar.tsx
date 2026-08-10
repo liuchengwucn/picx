@@ -136,6 +136,9 @@ export function PdfFindBar({
   // 收起。代价是焦点落在 PDF 正文里时 Esc 不管用，那时还有 X 和工具栏按钮两个出口。
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
+      // 组字中的 Esc 是「取消候选」，不是「关掉搜索条」。日文输入法下敲错字想撤回
+      // 候选窗，结果整个搜索条连同关键词一起没了——这是原生 find bar 都不会做的事。
+      if (event.nativeEvent.isComposing) return;
       event.preventDefault();
       onClose();
       return;
