@@ -212,11 +212,16 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     const scores = await scoreSourceItems(
                       cheapModel(env),
                       ctx.direction.focusBrief,
-                      items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
+                      items.map((i) => ({
+                        title: i.title,
+                        excerpt: i.excerpt,
+                      })),
                     );
                     return items
                       .map((it, i) => ({ ...it, prescore: scores[i] }))
-                      .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
+                      .filter(
+                        (it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD,
+                      );
                   } catch (e) {
                     // 初筛被限流（429）等瞬时失败时不能丢弃整个角度——昂贵的搜索
                     // 已经成功，打分只是省精读钱的优化。降级为不打分放行（prescore
@@ -371,16 +376,13 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         verdicts.push(...results);
       }
       const passedPapers = verdicts.filter((v) => v.outcome === "pass");
-      const rejectedTitles = verdicts
-        .filter((v) => v.outcome === "rejected")
-        .map((v) => v.r.item.title);
 
       // ── 8. 定稿（强模型）──
       const synthesis: SynthesisResult = await step.do(
         "synthesize",
         { ...LLM_RETRIES, timeout: "10 minutes" },
         () =>
-          synthesizeDigest(strongModel(env), {
+          synthesizeDigest(env, strongModel(env).model, {
             directionName: ctx.direction.name["zh-cn"] ?? ctx.direction.slug,
             focusBrief: ctx.direction.focusBrief,
             issueNumber: shell.issueNumber,
@@ -391,8 +393,6 @@ export class DigestWorkflow extends WorkflowEntrypoint<
               voteOutcome: v.outcome,
             })),
             intel: intelCandidates,
-            rejectedTitles,
-            overBudgetTitles: partition.overBudgetTitles,
           }),
       );
 

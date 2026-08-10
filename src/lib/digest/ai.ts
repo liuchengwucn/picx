@@ -268,9 +268,10 @@ export async function verifyCandidate(
   return { refuted: Boolean(v.refuted), evidence: v.evidence ?? "" };
 }
 
-/** 定稿（强模型，一次调用）：终选 + 推荐语 + 简报正文 + focus 提案 */
+/** 定稿（强模型 + web_search agent）：终选 + 推荐语 + 简报正文 + focus 提案 */
 export async function synthesizeDigest(
-  cfg: DigestModelConfig,
+  env: Env,
+  modelId: string, // strongModel(env).model
   input: {
     directionName: string;
     focusBrief: string;
@@ -279,17 +280,17 @@ export async function synthesizeDigest(
     feedback: FeedbackSample[];
     papers: Array<ReviewedCandidate & { voteOutcome: string }>;
     intel: ReviewedCandidate[];
-    rejectedTitles: string[]; // 对抗验证否决的（透明附注用）
-    overBudgetTitles: string[]; // 预算外记 seen 的（生成日志用）
   },
 ): Promise<SynthesisResult> {
   const system = [
     "You are the editor-in-chief finalizing one issue of a weekly research digest for one research direction. Write in Simplified Chinese (zh-cn).",
     "Tasks:",
     "1. picks: select papers genuinely worth the reader's time. Quality bar over quota — typically 3-10, fewer is fine. Rank by importance. For each write recommendationNote (zh-cn, 2-4 sentences: what's new + why read it).",
-    "2. content: the issue body in markdown (zh-cn), sections: 本期看点 (2-3 段总评) / 社区与动态 (based on intel items; skip if none) / 落选与存疑 (one-line transparency notes for rejected candidates) / 未解之问 (2-4 open questions).",
+    "2. content: the issue body in markdown (zh-cn), sections: 本期看点 (2-3 段总评) / 社区与动态 (based on intel items; skip if none) / 未解之问 (2-4 open questions).",
     "   Do NOT re-describe each picked paper in content — the picks render as cards below the body.",
     "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them.",
+    "   Every named team/system/dataset/benchmark/result claim in content MUST carry an inline markdown link [标题](URL) to its source. If the provided material has no URL for a claim and web_search cannot find an authoritative one, omit the claim entirely — 宁可不写, never leave a named claim unlinked.",
+    "You have a web_search tool. Its ONLY purpose is to find or verify the canonical URL / details for claims you want to mention in content (official announcement, repo, blog post). NEVER use it to discover new candidate papers or expand coverage beyond the material provided below.",
     "3. title: issue title (zh-cn), concrete not clickbait, e.g. 「第N期：<本期最重要主题>」.",
     "4. proposedFocusUpdate: if this week's findings or feedback suggest the focus brief should evolve (new sub-topic emerging, stale sub-topic), propose the FULL revised focus brief text (zh-cn); otherwise omit.",
     "5. usedIntelUrls: the canonicalUrl of every intel item you actually cited in content (exact URLs from the list below).",
@@ -315,20 +316,33 @@ export async function synthesizeDigest(
     `## User feedback\n${feedbackBlock(input.feedback)}`,
     `## Paper candidates (passed adversarial verification unless marked otherwise)\n${paperBlock || "(none)"}`,
     `## Intel items\n${intelBlock || "(none)"}`,
-    `## Rejected by verification\n${input.rejectedTitles.map((t) => `- ${clean(t)}`).join("\n") || "(none)"}`,
-    `## Deferred over budget (will be reconsidered next week)\n${input.overBudgetTitles.map((t) => `- ${clean(t)}`).join("\n") || "(none)"}`,
   ].join("\n\n");
+  const provider = createChatProvider({
+    OPENAI_API_KEY: env.OPENAI_API_KEY,
+    OPENAI_BASE_URL: env.OPENAI_BASE_URL,
+    OPENAI_MODEL: modelId,
+    CF_API_TOKEN: env.CF_API_TOKEN,
+  });
+  const runAgent = async (extraSystem?: string): Promise<SynthesisResult> => {
+    const { text } = await generateText({
+      model: provider.chat(modelId),
+      tools: { web_search: provider.tools.webSearch({ maxResults: 5 }) },
+      stopWhen: isStepCount(8),
+      system: extraSystem ? `${system}\n${extraSystem}` : system,
+      prompt: user,
+      temperature: 0.4,
+    });
+    const json = extractFirstJsonObject(text);
+    if (!json) throw new DigestAiError("synthesize: no JSON in response");
+    return JSON.parse(json) as SynthesisResult;
+  };
   const INTERNAL_REF_RE = /\b[IP]\d{1,2}\b/;
-  let r = await chatJson<SynthesisResult>(cfg, system, user, 6000, 0.4);
+  let r = await runAgent();
   if (r.content && INTERNAL_REF_RE.test(r.content)) {
     // 模型没听话用了内部编号：带着违规样例重试一次；再失败则放行并留痕（不失败整期）
     const offending = r.content.match(INTERNAL_REF_RE)?.[0];
-    r = await chatJson<SynthesisResult>(
-      cfg,
-      `${system}\nYour previous draft referenced items by internal code ("${offending}") which readers cannot resolve. Rewrite using inline markdown links [标题](URL) only.`,
-      user,
-      6000,
-      0.4,
+    r = await runAgent(
+      `Your previous draft referenced items by internal code ("${offending}") which readers cannot resolve. Rewrite using inline markdown links [标题](URL) only.`,
     );
     if (r.content && INTERNAL_REF_RE.test(r.content)) {
       console.warn("[Digest] synthesize: internal refs remain after retry");
