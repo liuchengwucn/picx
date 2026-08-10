@@ -540,5 +540,6 @@
   "digest_issue_n": "第 {n} 号",
   "digest_read_full": "全文を読む",
   "digest_empty_issue": "初回の号を生成中",
-  "digest_current_focus": "現在の注目"
+  "digest_current_focus": "現在の注目",
+  "digest_load_failed": "方向の読み込みに失敗しました。もう一度お試しください。"
 }

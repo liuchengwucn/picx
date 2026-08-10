@@ -540,5 +540,6 @@
   "digest_issue_n": "第 {n} 期",
   "digest_read_full": "閱讀全文",
   "digest_empty_issue": "首期簡報生成中",
-  "digest_current_focus": "當前關注"
+  "digest_current_focus": "當前關注",
+  "digest_load_failed": "方向內容載入失敗，請重試。"
 }

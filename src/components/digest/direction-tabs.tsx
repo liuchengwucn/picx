@@ -38,6 +38,9 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
   // 但取数期间要照常渲染只有「全部」的那一行: 方向列表是客户端取的, 加载期间返回
   // null 会让整行 34px 在 hydration 后凭空插入, 把下面的筛选栏/内容一起推下去。
   // 「全部」不依赖数据, 先占住这一行, 方向 tab 到货后只在横向追加, 纵向零位移。
+  //
+  // 代价是把位移挪给了「零方向」这一种部署: 那时先出现一行再消失(改动前它全程不闪)。
+  // 这么换是因为零方向只是 seed 跑起来之前的过渡态, 而有方向是长期稳态。
   if (directions.length === 0 && !isPending) return null;
 
   return (

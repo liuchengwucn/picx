@@ -540,5 +540,6 @@
   "digest_issue_n": "第 {n} 期",
   "digest_read_full": "阅读全文",
   "digest_empty_issue": "首期简报生成中",
-  "digest_current_focus": "当前关注"
+  "digest_current_focus": "当前关注",
+  "digest_load_failed": "方向内容加载失败，请重试。"
 }

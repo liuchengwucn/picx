@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
+import { useMemo } from "react";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -77,6 +78,12 @@ function IssueEyebrow({
   issueNumber: number;
   publishedAt: Date | null;
 }) {
+  const locale = getLocale();
+  // 与 IssueList 同一写法(同一批代码别两种风格), 也免得每次渲染重建 formatter
+  const dateFormat = useMemo(
+    () => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }),
+    [locale],
+  );
   return (
     <div className="flex items-center gap-2.5">
       <span className="shrink-0 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--academic-brown)]">
@@ -94,9 +101,7 @@ function IssueEyebrow({
           dateTime={publishedAt.toISOString()}
           className="shrink-0 text-xs text-[var(--ink-soft)]"
         >
-          {new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" }).format(
-            publishedAt,
-          )}
+          {dateFormat.format(publishedAt)}
         </time>
       ) : null}
     </div>

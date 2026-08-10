@@ -31,7 +31,11 @@ import { canonicalArxivUrl } from "#/lib/arxiv";
 import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { submitIndexNow } from "#/lib/indexnow";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
-import { likeCountSql, likeFilter } from "#/lib/paper-feedback";
+import {
+  FEEDBACK_BATCH_SIZE,
+  likeCountSql,
+  likeFilter,
+} from "#/lib/paper-feedback";
 import { selectRelatedPapers } from "#/lib/related-papers";
 import {
   getReviewGuestServerSession,
@@ -1339,13 +1343,13 @@ export const paperRouter = router({
 
   /**
    * 批量查当前用户对一组论文的投票, 供列表页一次点亮所有反馈按钮。
-   * 上限 90: inArray 每个 id 占一个绑定参数, 给 D1 单查询 100 个的上限留余量。
+   * 上限见 FEEDBACK_BATCH_SIZE(前端按同一个数切块)。
    * 单项 64 字符: papers.id 是 uuid(36), 挡住用超长串把 SQL 文本撑大。
    */
   getMyFeedback: protectedProcedure
     .input(
       z.object({
-        paperIds: z.array(z.string().max(64)).min(1).max(90),
+        paperIds: z.array(z.string().max(64)).min(1).max(FEEDBACK_BATCH_SIZE),
       }),
     )
     .query(async ({ ctx, input }) => {

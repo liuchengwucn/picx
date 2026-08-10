@@ -2,6 +2,15 @@ import { and, type Column, eq, type SQL, sql } from "drizzle-orm";
 import { paperFeedback } from "#/db/schema";
 
 /**
+ * paper.getMyFeedback 单次可查的 paperId 上限, 前后端共用这一个数。
+ *
+ * 90 的由来: inArray 每个 id 占一个绑定参数, 给 D1 单查询 100 个的上限留余量。
+ * 后端 zod 的 .max() 与前端 usePaperFeedback 的切块大小必须是同一个值 —— 前端切大了
+ * 会被 400 打回, 切小了白发请求。
+ */
+export const FEEDBACK_BATCH_SIZE = 90;
+
+/**
  * 论文赞数 = paper_feedback 里 vote = 1 的行数(踩不计)。
  *
  * 「赞」的口径只在这个文件里定义, 两种形态同源, 调用处不要手写 vote = 1:

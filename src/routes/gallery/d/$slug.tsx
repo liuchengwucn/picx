@@ -1,10 +1,5 @@
-import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
-import {
-  createFileRoute,
-  isNotFound,
-  notFound,
-  useRouterState,
-} from "@tanstack/react-router";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { createFileRoute, isNotFound, notFound } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import {
@@ -13,21 +8,15 @@ import {
 } from "#/components/digest/digest-issue-card";
 import { DirectionTabs } from "#/components/digest/direction-tabs";
 import { IssueList } from "#/components/digest/issue-list";
-import type { FeedbackAuthState } from "#/components/papers/feedback-buttons";
 import {
   GalleryCard,
   GalleryCardSkeleton,
 } from "#/components/papers/gallery-card";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
+import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { useTRPC, useTRPCClient } from "#/integrations/trpc/react";
-import { authClient } from "#/lib/auth-client";
 import { GALLERY_LIST_QUERY_KEY } from "#/lib/gallery-search";
-import {
-  getReviewGuestClientSession,
-  isReviewGuestModeEnabled,
-  isReviewGuestReadOnlySession,
-} from "#/lib/review-guest";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 import { m } from "#/paraglide/messages";
@@ -41,8 +30,8 @@ export const Route = createFileRoute("/gallery/d/$slug")({
   component: DirectionPage,
   /**
    * 方向 slug 是动态数据, 没法像 /gallery/c/$slug 那样静态白名单校验, 只能查库。
-   * 页面本身仍是客户端渲染, loader 只做两件小事: 校验 slug 存在, 并给 <title>
-   * 一个方向名。简报/论文内容一概不在这里预取。
+   * 页面本身仍是客户端渲染, loader 只做两件小事: 校验 slug 存在, 并给 <head> 一份
+   * 方向名 + focusBrief 做标题和描述。简报/论文内容一概不在这里预取。
    */
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR) {
@@ -55,7 +44,7 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         const { directions } = await import("#/db/schema");
         const db = drizzle((env as typeof env & AppEnvBindings).DB);
         const [row] = await db
-          .select({ name: directions.name })
+          .select({ name: directions.name, focusBrief: directions.focusBrief })
           .from(directions)
           .where(
             and(
@@ -68,11 +57,15 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         if (!row) throw notFound();
         return {
           directionName: pickTldr(row.name, normalizeLocaleKey(getLocale())),
+          focusBrief: row.focusBrief,
         };
       } catch (error) {
-        // notFound 必须穿透; 其余错误(D1 不可用等)降级为纯 CSR
+        // notFound 必须穿透; 其余错误(D1 不可用等)降级为纯 CSR。
+        // 降级会让一个本该 404 的 slug 拿到 200, 组件那边还有一道 data === null 的
+        // 兜底; 但故障本身不能就这么无声无息, 留日志。
         if (isNotFound(error)) throw error;
-        return { directionName: null };
+        console.error("[direction loader] SSR D1 read failed", error);
+        return { directionName: null, focusBrief: null };
       }
     }
 
@@ -83,21 +76,36 @@ export const Route = createFileRoute("/gallery/d/$slug")({
     );
     const direction = directions.find((d) => d.slug === params.slug);
     if (!direction) throw notFound();
-    return { directionName: direction.name };
+    // listDirections 不含 focusBrief, 客户端导航时描述留空: meta 只对爬虫有意义,
+    // 而爬虫拿的永远是 SSR 那份。为一句 description 再发一次 getDirection 不值。
+    return { directionName: direction.name, focusBrief: null };
   },
   head: ({ loaderData, params }) => {
     // SSR 拿得到方向名; loader 降级(D1 不可用)时退回 slug, 总比站点默认标题精确
     const name = loaderData?.directionName ?? params.slug;
     const title = `${name} | PicX`;
     const url = `${SITE_URL}/gallery/d/${params.slug}`;
-    return {
-      meta: [
-        { title },
-        { property: "og:title", content: title },
-        { property: "og:url", content: url },
-      ],
-      links: [{ rel: "canonical", href: url }],
-    };
+    // focusBrief 就是边栏「当前关注」那段公开文本, 截断做描述
+    const description = loaderData?.focusBrief?.slice(0, 160);
+    const meta: Array<
+      | { title: string }
+      | { name: string; content: string }
+      | {
+          property: string;
+          content: string;
+        }
+    > = [{ title }];
+    if (description) {
+      meta.push({ name: "description", content: description });
+    }
+    meta.push(
+      { property: "og:title", content: title },
+      { property: "og:url", content: url },
+    );
+    if (description) {
+      meta.push({ property: "og:description", content: description });
+    }
+    return { meta, links: [{ rel: "canonical", href: url }] };
   },
 });
 
@@ -108,9 +116,6 @@ const SKELETON_KEYS = Array.from(
   { length: 4 },
   (_, i) => `direction-skeleton-${i + 1}`,
 );
-
-/** getMyFeedback 的后端上限(zod max(90)); 无限滚动超过这个数就得分批。 */
-const FEEDBACK_BATCH_SIZE = 90;
 
 const SIDEBAR_HEADING =
   "text-[0.7rem] font-bold uppercase tracking-[0.18em] text-[var(--ink-soft)]";
@@ -168,49 +173,17 @@ function DirectionPage() {
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // 反馈按钮的登录态, 与 /gallery、详情页同一口径: pending 不渲染(否则已登录用户
-  // 会先看到一下登录墙), review-guest 只读账号禁用。
-  const { data: session, isPending: isSessionPending } =
-    authClient.useSession();
-  const effectiveSession =
-    session ??
-    (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
-  const feedbackAuth: FeedbackAuthState = isSessionPending
-    ? "pending"
-    : !effectiveSession
-      ? "signed-out"
-      : isReviewGuestReadOnlySession(effectiveSession)
-        ? "readonly-guest"
-        : "signed-in";
+  // 反馈按钮装配(登录态口径 / 登录回跳地址 / 「我的投票」分批取)三个页面共用,
+  // 细节与陷阱都在 usePaperFeedback 里。
+  const { feedbackAuth, signInCallbackURL, myVoteByPaperId } = usePaperFeedback(
+    papers.map((p) => p.id),
+  );
 
-  // 未登录点赞时登录后回到当前地址, 而不是甩回首页
-  const signInCallbackURL = useRouterState({
-    select: (state) => state.location.href,
-  });
-
-  // 「我的投票」按页面批量取(后端单次最多 90 个 id, 无限滚动会超), 与 /gallery 同构。
-  const feedbackBatches: string[][] = [];
-  for (let i = 0; i < papers.length; i += FEEDBACK_BATCH_SIZE) {
-    feedbackBatches.push(
-      papers.slice(i, i + FEEDBACK_BATCH_SIZE).map((p) => p.id),
-    );
-  }
-  const feedbackQueries = useQueries({
-    queries: feedbackBatches.map((paperIds) => ({
-      ...trpc.paper.getMyFeedback.queryOptions({ paperIds }),
-      // protected procedure: 未登录发出去注定 401
-      enabled: feedbackAuth === "signed-in",
-    })),
-  });
-  // 只取 vote: 同一行的 reasonPreset 有意丢弃(见详情页注释)。
-  const myVoteByPaperId = new Map<string, 1 | -1>();
-  for (const query of feedbackQueries) {
-    for (const [paperId, entry] of Object.entries(query.data ?? {})) {
-      if (entry.vote === 1 || entry.vote === -1) {
-        myVoteByPaperId.set(paperId, entry.vote);
-      }
-    }
-  }
+  // getDirection 返回 null = 方向不存在或已下线。正常路径上 loader 已经拦掉了, 这里
+  // 兜的是两种漏网情况: SSR 那次 D1 读失败导致 loader 降级放行, 以及 loader 之后方向
+  // 刚被下线。不兜的话会渲染出一个 h1 是 slug、卡片写着「首期简报生成中」的 200 假页面
+  // (软 404)。放在所有 hook 之后, 免得抛出那次渲染的 hook 数量对不上。
+  if (directionQuery.data === null) throw notFound();
 
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
@@ -227,7 +200,11 @@ function DirectionPage() {
             往下顶出空档。 */}
         <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-x-10">
           <div className="lg:col-start-1 lg:row-start-1">
-            {directionQuery.isLoading ? (
+            {/* 查询失败要与「还没有简报」分得开: 后者是虚线空态卡「首期简报生成中」,
+                把加载失败也说成生成中等于对用户撒谎。 */}
+            {directionQuery.isError ? (
+              <LoadFailedCard />
+            ) : directionQuery.isLoading ? (
               <Skeleton className="h-44 rounded-2xl" />
             ) : latestIssue ? (
               <DigestIssueCard
@@ -243,21 +220,25 @@ function DirectionPage() {
           </div>
 
           <aside className="mt-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0">
-            <section>
-              <h2 className={SIDEBAR_HEADING}>{m.digest_current_focus()}</h2>
-              {directionQuery.isLoading ? (
-                <div className="mt-3 space-y-2">
-                  <Skeleton className="h-3 w-full" />
-                  <Skeleton className="h-3 w-full" />
-                  <Skeleton className="h-3 w-2/3" />
-                </div>
-              ) : direction?.focusBrief ? (
-                // 纯文本, 不渲染 markdown(这段是喂 LLM 的方向说明, 不含标记)
-                <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-[var(--ink-soft)]">
-                  {direction.focusBrief}
-                </p>
-              ) : null}
-            </section>
+            {/* 查询失败时整节隐掉: 主列那张卡已经把失败说清楚了, 这里再留一个孤零零
+                的「当前关注」标题只是噪音。 */}
+            {directionQuery.isError ? null : (
+              <section>
+                <h2 className={SIDEBAR_HEADING}>{m.digest_current_focus()}</h2>
+                {directionQuery.isLoading ? (
+                  <div className="mt-3 space-y-2">
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-2/3" />
+                  </div>
+                ) : direction?.focusBrief ? (
+                  // 纯文本, 不渲染 markdown(这段是喂 LLM 的方向说明, 不含标记)
+                  <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-[var(--ink-soft)]">
+                    {direction.focusBrief}
+                  </p>
+                ) : null}
+              </section>
+            )}
 
             {/* 最新一期已经是上面那张大卡, 这里只列比它更早的期次 */}
             {issues.length > 1 ? (
@@ -272,9 +253,17 @@ function DirectionPage() {
 
           {/* 论文流为空时有意什么都不渲染: /gallery 的空态是「来上传第一篇」, 而方向
               论文流是管线挑出来的, 用户上传帮不上忙, 挂那句 CTA 只会误导; 此时上面
-              那张卡已经在说「首期简报生成中」, 状态交代清楚了。 */}
+              那张卡已经在说「首期简报生成中」, 状态交代清楚了。加载失败则相反, 必须
+              说出来, 否则和「这个方向暂时没有论文」长得一模一样。
+
+              网格是单列(不像 /gallery 的 lg:grid-cols-2): 主列被 280px 边栏挤掉一截后,
+              横向宽卡再切两列, 每张只剩约 400px, 缩略图一占就没有正文位置了。 */}
           <div className="mt-8 lg:col-start-1 lg:row-start-2">
-            {papersQuery.isLoading ? (
+            {papersQuery.isError ? (
+              <p className="py-12 text-center text-sm text-[var(--ink-soft)]">
+                {m.digest_load_failed()}
+              </p>
+            ) : papersQuery.isLoading ? (
               <div className="grid auto-rows-fr gap-5">
                 {SKELETON_KEYS.map((key) => (
                   <GalleryCardSkeleton key={key} />
@@ -316,5 +305,17 @@ function DirectionPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * 简报大卡位的加载失败态。实线边 + 常规底色, 与空态卡的虚线边区分开:
+ * 虚线 = 内容还没生成, 实线 = 内容应该在但这次没取到。
+ */
+function LoadFailedCard() {
+  return (
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-5 sm:p-6">
+      <p className="text-sm text-[var(--ink-soft)]">{m.digest_load_failed()}</p>
+    </div>
   );
 }

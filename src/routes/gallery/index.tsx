@@ -1,18 +1,17 @@
-import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Globe, Loader2, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { DirectionTabs } from "#/components/digest/direction-tabs";
-import type { FeedbackAuthState } from "#/components/papers/feedback-buttons";
 import {
   GalleryCard,
   GalleryCardSkeleton,
   getCategoryLabel,
 } from "#/components/papers/gallery-card";
 import { Button } from "#/components/ui/button";
+import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { useTRPC, useTRPCClient } from "#/integrations/trpc/react";
-import { authClient } from "#/lib/auth-client";
 import {
   GALLERY_LIST_QUERY_KEY,
   parseCsvParam,
@@ -22,11 +21,6 @@ import {
   normalizeCategorySlugs,
   PAPER_CATEGORY_SLUGS,
 } from "#/lib/paper-categories";
-import {
-  getReviewGuestClientSession,
-  isReviewGuestModeEnabled,
-  isReviewGuestReadOnlySession,
-} from "#/lib/review-guest";
 import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
@@ -81,9 +75,6 @@ const gallerySkeletonKeys = Array.from(
   { length: PAGE_SIZE },
   (_, i) => `gallery-skeleton-${i + 1}`,
 );
-
-/** getMyFeedback 的后端上限(zod max(90)); 无限滚动加载超过这个数就得分批。 */
-const FEEDBACK_BATCH_SIZE = 90;
 
 function ExplorePage() {
   const client = useTRPCClient();
@@ -166,54 +157,11 @@ function ExplorePage() {
     (directionsQuery.data ?? []).map((d) => [d.slug, d.name] as const),
   );
 
-  // 反馈按钮的登录态, 与详情页同一口径: pending 不渲染(否则已登录用户先看到一下
-  // 登录墙), review-guest 只读账号禁用。
-  const { data: session, isPending: isSessionPending } =
-    authClient.useSession();
-  const effectiveSession =
-    session ??
-    (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
-  const feedbackAuth: FeedbackAuthState = isSessionPending
-    ? "pending"
-    : !effectiveSession
-      ? "signed-out"
-      : isReviewGuestReadOnlySession(effectiveSession)
-        ? "readonly-guest"
-        : "signed-in";
-
-  // 未登录点赞时登录后回到当前这一页(含筛选与已展开到第几页), 而不是甩回首页
-  const signInCallbackURL = useRouterState({
-    select: (state) => state.location.href,
-  });
-
-  // 「我的投票」按页面批量取, 不是每卡一次。后端单次最多 90 个 id, 而这里是无限
-  // 滚动(PAGE_SIZE=8, 第 12 页就会超), 所以按 90 切块、一块一个查询。
-  // 注意别高估这个切块的收益: 不满 90 篇时 chunk 0 就是末块, 每翻一页 key 都变,
-  // 前 11 页的行为跟单查询完全一样; 只有过了 90 篇, 前面的块才固定下来不再重取
-  // (论文只往末尾追加), 翻页只动最后一块。相比截断的好处是深翻之后投票状态还准。
-  const feedbackBatches: string[][] = [];
-  for (let i = 0; i < papers.length; i += FEEDBACK_BATCH_SIZE) {
-    feedbackBatches.push(
-      papers.slice(i, i + FEEDBACK_BATCH_SIZE).map((p) => p.id),
-    );
-  }
-  const feedbackQueries = useQueries({
-    queries: feedbackBatches.map((paperIds) => ({
-      ...trpc.paper.getMyFeedback.queryOptions({ paperIds }),
-      // protected procedure: 未登录发出去注定 401
-      enabled: feedbackAuth === "signed-in",
-    })),
-  });
-  // 只取 vote: 同一行的 reasonPreset 有意丢弃(见详情页注释, 回填理由会喂出
-  // 「赞 + 理由是炒作」这种自相矛盾的样本)。vote 在 schema 里是 integer, 收窄回 1 | -1。
-  const myVoteByPaperId = new Map<string, 1 | -1>();
-  for (const query of feedbackQueries) {
-    for (const [paperId, entry] of Object.entries(query.data ?? {})) {
-      if (entry.vote === 1 || entry.vote === -1) {
-        myVoteByPaperId.set(paperId, entry.vote);
-      }
-    }
-  }
+  // 反馈按钮装配(登录态口径 / 登录回跳地址 / 「我的投票」分批取)三个页面共用,
+  // 细节与陷阱都在 usePaperFeedback 里。
+  const { feedbackAuth, signInCallbackURL, myVoteByPaperId } = usePaperFeedback(
+    papers.map((p) => p.id),
+  );
 
   // URL 的 page 表示"已展开到第几页": deep link / 刷新 / 点「加载更多」都通过它驱动,
   // 逐页补拉直到加载到目标页数 (单一数据源)。

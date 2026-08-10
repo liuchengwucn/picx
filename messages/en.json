@@ -540,5 +540,6 @@
   "digest_issue_n": "Issue {n}",
   "digest_read_full": "Read the full digest",
   "digest_empty_issue": "The first digest is being generated",
-  "digest_current_focus": "Current focus"
+  "digest_current_focus": "Current focus",
+  "digest_load_failed": "Couldn't load this direction. Please try again."
 }
