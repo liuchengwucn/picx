@@ -89,6 +89,7 @@
   "paper_processing_hint": "論文を処理中です。結果はここに自動的に表示されます。",
   "paper_view_summary": "要約",
   "paper_view_reader": "原文リーダー",
+  "paper_view_pdf": "PDF 原文",
   "paper_content_unavailable": "この論文の原文は利用できません",
   "paper_content_load_failed": "原文の読み込みに失敗しました",
   "paper_content_loading": "読み込み中…",

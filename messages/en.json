@@ -89,6 +89,7 @@
   "paper_processing_hint": "Your paper is being processed. Results will appear here automatically.",
   "paper_view_summary": "Summary",
   "paper_view_reader": "Full text",
+  "paper_view_pdf": "PDF",
   "paper_content_unavailable": "Full text not available for this paper",
   "paper_content_load_failed": "Failed to load full text",
   "paper_content_loading": "Loading…",

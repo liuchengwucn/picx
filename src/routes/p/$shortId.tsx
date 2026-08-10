@@ -169,9 +169,17 @@ function buildScholarlyArticleJsonLd(input: {
 
 export const Route = createFileRoute("/p/$shortId")({
   component: PaperDetailPage,
-  // 只有 ?view=reader 是有效状态；总结视图不带参数，URL 保持干净（分享链接可直达原文视图）
-  validateSearch: (search: Record<string, unknown>): { view?: "reader" } => ({
-    view: search.view === "reader" ? "reader" : undefined,
+  // 只有 ?view=reader / ?view=pdf 是有效状态；总结视图不带参数，URL 保持干净
+  // （分享链接可直达原文或 PDF 视图）
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { view?: "reader" | "pdf" } => ({
+    view:
+      search.view === "reader"
+        ? "reader"
+        : search.view === "pdf"
+          ? "pdf"
+          : undefined,
   }),
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR) {
@@ -551,15 +559,15 @@ function PaperDetailPage() {
     void beginGitHubSignIn(`/p/${shortId}?view=reader`);
   }, [shortId]);
 
-  // 留一条历史记录：切到原文后按返回键应该退回总结，而不是直接离开这篇论文
+  // 留一条历史记录：切到原文/PDF 后按返回键应该退回总结，而不是直接离开这篇论文
   const showView = useCallback(
-    (next: "summary" | "reader") => {
+    (next: "summary" | "reader" | "pdf") => {
       navigate({
         // from 让 search 更新器按本路由的 search 类型推断（不带它会退化成全路由联合）
         from: Route.fullPath,
         search: (prev) => ({
           ...prev,
-          view: next === "reader" ? ("reader" as const) : undefined,
+          view: next === "summary" ? undefined : next,
         }),
       });
     },
@@ -586,8 +594,16 @@ function PaperDetailPage() {
   // 提前知道是否该发请求——hooks 必须在任何 early return 之前无条件调用。
   const isReaderAvailable =
     data?.paper?.status === "completed" && !!data?.hasContent;
-  const activeView: "summary" | "reader" =
-    view === "reader" && isReaderAvailable ? "reader" : "summary";
+  // PDF 不需要 hasContent（那是 MinerU 产物）。但也不能只判 pdfR2Key 非空：arXiv
+  // 抓取的论文建行时写的是占位 key（arxiv-cron.ts），真 key 要等 queue-consumer
+  // 下载完 PDF 才回填。completed 是「R2 里确实有这个对象」的最简可靠判据。
+  const isPdfAvailable = data?.paper?.status === "completed";
+  const activeView: "summary" | "reader" | "pdf" =
+    view === "reader" && isReaderAvailable
+      ? "reader"
+      : view === "pdf" && isPdfAvailable
+        ? "pdf"
+        : "summary";
   // 与 ReaderPane 的分诊完全一致：公开论文不看登录态直接取；私有论文在 session
   // 未定/未登录时 ReaderPane 根本不会渲染 <PaperReaderView>，查询也绝不能发出去
   // （否则是一个注定 401 的请求）。
@@ -603,13 +619,13 @@ function PaperDetailPage() {
   const summaryProseRef = useRef<HTMLDivElement | null>(null);
   // 两个视图各有各的正文容器，且互斥渲染，所以按当前视图现取：原文视图取 <article>，
   // 总结视图取那块 markdown 的 prose 容器（accordion 收起时它不挂载，取到 null 就不补偿）。
-  const getAnchorRoot = useCallback(
-    () =>
-      activeView === "reader"
-        ? paperReader.articleRef.current
-        : summaryProseRef.current,
-    [activeView, paperReader.articleRef],
-  );
+  // PDF 视图返回 null：它是内部滚动的定高面板，不随中栏宽度重排，没有可补偿的东西。
+  const getAnchorRoot = useCallback(() => {
+    if (activeView === "pdf") return null;
+    return activeView === "reader"
+      ? paperReader.articleRef.current
+      : summaryProseRef.current;
+  }, [activeView, paperReader.articleRef]);
   const { capture: captureReadingAnchor, release: releaseReadingAnchor } =
     useReadingAnchor(getAnchorRoot, `${chatCollapsed}:${chatPanelWidth}`);
 
@@ -762,6 +778,26 @@ function PaperDetailPage() {
     paper.status === "completed"
       ? "mx-auto w-[min(1200px,calc(100%_-_2rem))] py-8 xl:w-[min(1520px,calc(100%_-_2rem))]"
       : "page-wrap py-8";
+  // 三档布局：未完成（无 chat 列）/ PDF（无左栏）/ 常规三栏。每档再按 chat 是否收起分两种。
+  // 六个分支都是完整字符串字面量（Tailwind 静态扫描要求）。
+  const gridClassName = (() => {
+    if (paper.status !== "completed") {
+      // 未完成的论文必须退回两栏，否则右侧空出 360px 死区把正文挤偏。
+      return "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start";
+    }
+    if (activeView === "pdf") {
+      // PDF 态砍掉左栏：极简档不做左栏大纲，剩下的元信息已挪进 PDF 工具栏。
+      // 单栏 → xl 才让出 chat 那一列，PDF 因此能拿到 ~1130px。
+      return chatCollapsed
+        ? "mt-6 grid gap-6"
+        : "mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_var(--chat-panel-width)] xl:items-start";
+    }
+    // 常规三栏：xl+ 让出第三栏给提问面板（正文仍有 ~810px），收起时那一列还给正文；
+    // xl 以下聊天折叠成右下角悬浮按钮，不占版面。
+    return chatCollapsed
+      ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)]"
+      : "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_var(--chat-panel-width)]";
+  })();
   // 面包屑 / 分享条 / 相关论文始终占满容器全宽（1520px），不随聊天栏宽度让位：
   // 聊天 aside 是 sticky 且只存在于中间那段 grid 里，上下这些块横穿无碍。
 
@@ -801,297 +837,289 @@ function PaperDetailPage() {
           </div>
         )}
 
-        {/* 论文 completed 时才有提问面板：xl+ 让出第三栏（配合上面放宽的容器，
-            正文仍有 ~810px），可收起腾出这一列给正文；xl 以下折叠成右下角悬浮
-            按钮，不占版面。未完成的论文必须退回两栏，否则右侧空出 360px 死区
-            把正文挤偏。三条都是完整字符串字面量（Tailwind 静态扫描要求）。 */}
-        <div
-          className={
-            paper.status !== "completed"
-              ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start"
-              : chatCollapsed
-                ? "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)]"
-                : "mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start xl:grid-cols-[300px_minmax(0,1fr)_var(--chat-panel-width)]"
-          }
-        >
-          <aside
-            className={
-              isReaderViewReady
-                ? "flex flex-col gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-8rem)]"
-                : "space-y-4 lg:sticky lg:top-24"
-            }
-          >
-            {isReaderViewReady ? (
-              <ReaderAsidePanel
-                paper={paper}
-                tocItems={paperReader.toc.items}
-                tocActiveId={paperReader.toc.activeId}
-                onTocJump={paperReader.toc.jumpTo}
-              />
-            ) : (
-              <>
-                <div className="paper-card p-6">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
-                      <FileText className="h-6 w-6 text-[var(--academic-brown)]" />
+        <div className={gridClassName}>
+          {activeView !== "pdf" && (
+            <aside
+              className={
+                isReaderViewReady
+                  ? "flex flex-col gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-8rem)]"
+                  : "space-y-4 lg:sticky lg:top-24"
+              }
+            >
+              {isReaderViewReady ? (
+                <ReaderAsidePanel
+                  paper={paper}
+                  tocItems={paperReader.toc.items}
+                  tocActiveId={paperReader.toc.activeId}
+                  onTocJump={paperReader.toc.jumpTo}
+                />
+              ) : (
+                <>
+                  <div className="paper-card p-6">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
+                        <FileText className="h-6 w-6 text-[var(--academic-brown)]" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h1 className="font-serif text-lg font-bold text-[var(--ink)] break-words">
+                          {paper.title}
+                        </h1>
+                        <p className="text-xs text-[var(--ink-soft)]">
+                          {new Date(paper.createdAt).toLocaleString()}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h1 className="font-serif text-lg font-bold text-[var(--ink)] break-words">
-                        {paper.title}
-                      </h1>
-                      <p className="text-xs text-[var(--ink-soft)]">
-                        {new Date(paper.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--ink-soft)]">
-                        {m.paper_status()}
-                      </span>
-                      <StatusBadge status={paper.status} />
-                    </div>
-                    {paper.status !== "failed" && (
-                      <Progress value={progress} className="mt-2 h-2" />
-                    )}
-                    {paper.errorMessage && (
-                      <p className="mt-2 text-xs text-[var(--sienna)]">
-                        {paper.errorMessage}
-                      </p>
-                    )}
-                    {paper.isPublic && (
+                    <div className="mt-4 space-y-3">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-[var(--ink-soft)]">
-                          {m.paper_visibility()}
+                          {m.paper_status()}
                         </span>
-                        <PublicBadge />
+                        <StatusBadge status={paper.status} />
                       </div>
-                    )}
-                  </div>
-
-                  <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-4 text-sm">
-                    <div className="flex justify-between gap-4">
-                      <span className="text-[var(--ink-soft)]">
-                        {m.paper_source()}
-                      </span>
-                      <span className="text-right">
-                        {paper.sourceType === "arxiv" && paper.sourceUrl ? (
-                          <a
-                            href={paper.sourceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[var(--academic-brown)] hover:underline"
-                          >
-                            arXiv
-                          </a>
-                        ) : paper.sourceType === "arxiv" ? (
-                          "arXiv"
-                        ) : (
-                          m.paper_source_upload()
-                        )}
-                      </span>
+                      {paper.status !== "failed" && (
+                        <Progress value={progress} className="mt-2 h-2" />
+                      )}
+                      {paper.errorMessage && (
+                        <p className="mt-2 text-xs text-[var(--sienna)]">
+                          {paper.errorMessage}
+                        </p>
+                      )}
+                      {paper.isPublic && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-[var(--ink-soft)]">
+                            {m.paper_visibility()}
+                          </span>
+                          <PublicBadge />
+                        </div>
+                      )}
                     </div>
-                    {paper.pageCount && (
+
+                    <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-4 text-sm">
                       <div className="flex justify-between gap-4">
                         <span className="text-[var(--ink-soft)]">
-                          {m.paper_pages()}
+                          {m.paper_source()}
                         </span>
-                        <span className="text-right">{paper.pageCount}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between gap-4">
-                      <span className="text-[var(--ink-soft)]">
-                        {m.paper_size()}
-                      </span>
-                      <span className="text-right">
-                        {(paper.fileSize / 1024 / 1024).toFixed(2)} MB
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex gap-2 border-t border-[var(--line)] pt-4">
-                    <Button variant="outline" size="sm" asChild>
-                      <a
-                        href={`/api/r2/${paper.pdfR2Key}`}
-                        download={`${paper.title}.pdf`}
-                      >
-                        <Download className="mr-1.5 h-4 w-4" />
-                        {m.paper_download_pdf()}
-                      </a>
-                    </Button>
-                    {/* Only show delete button to paper owner */}
-                    {isOwner &&
-                      (isReadOnlyGuest ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-[var(--sienna)]"
-                          onClick={startGitHubSignIn}
-                        >
-                          <Trash2 className="mr-1.5 h-4 w-4" />
-                          {m.paper_delete()}
-                        </Button>
-                      ) : (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-[var(--sienna)]"
+                        <span className="text-right">
+                          {paper.sourceType === "arxiv" && paper.sourceUrl ? (
+                            <a
+                              href={paper.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[var(--academic-brown)] hover:underline"
                             >
-                              <Trash2 className="mr-1.5 h-4 w-4" />
-                              {m.paper_delete()}
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                {m.paper_delete_confirm_title()}
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {m.paper_delete_confirm_description()}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>
-                                {m.cancel()}
-                              </AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => deleteMutation.mutate(paperId)}
-                                className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
-                              >
-                                {m.paper_delete()}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      ))}
-                  </div>
-                </div>
-
-                {activeView === "summary" && showWhiteboardCta && (
-                  <WhiteboardCtaCard
-                    regenerating={paper.whiteboardRegenerating}
-                    onGenerate={() => {
-                      if (isReadOnlyGuest) {
-                        startGitHubSignIn();
-                        return;
-                      }
-                      setIsRegenerateOpen(true);
-                    }}
-                  />
-                )}
-
-                {activeView === "summary" && whiteboardImageUrl && (
-                  <div className="paper-card p-4 sm:p-5">
-                    <div className="mb-4 space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
-                          {m.paper_whiteboard()}
-                        </h2>
-                        {paper.whiteboardRegenerating && (
-                          <div className="flex items-center gap-1.5 text-sm text-[var(--academic-brown)]">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            <span className="hidden sm:inline">
-                              {m.paper_whiteboard_regenerating()}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {paper.isPublic && whiteboardImageUrl && (
-                          <ShareDialog
-                            shortId={paper.shortId ?? shortId}
-                            title={paper.title}
-                          />
-                        )}
-                        {whiteboardsData &&
-                          whiteboardsData.whiteboards.length > 1 && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setIsGalleryOpen(true)}
-                              className="gap-1.5"
-                            >
-                              <ImageIcon className="h-4 w-4" />
-                              <span className="hidden sm:inline">
-                                {m.paper_whiteboard_view_all()}
-                              </span>
-                            </Button>
+                              arXiv
+                            </a>
+                          ) : paper.sourceType === "arxiv" ? (
+                            "arXiv"
+                          ) : (
+                            m.paper_source_upload()
                           )}
-                        {isOwner && (
+                        </span>
+                      </div>
+                      {paper.pageCount && (
+                        <div className="flex justify-between gap-4">
+                          <span className="text-[var(--ink-soft)]">
+                            {m.paper_pages()}
+                          </span>
+                          <span className="text-right">{paper.pageCount}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between gap-4">
+                        <span className="text-[var(--ink-soft)]">
+                          {m.paper_size()}
+                        </span>
+                        <span className="text-right">
+                          {(paper.fileSize / 1024 / 1024).toFixed(2)} MB
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex gap-2 border-t border-[var(--line)] pt-4">
+                      <Button variant="outline" size="sm" asChild>
+                        <a
+                          href={`/api/r2/${paper.pdfR2Key}`}
+                          download={`${paper.title}.pdf`}
+                        >
+                          <Download className="mr-1.5 h-4 w-4" />
+                          {m.paper_download_pdf()}
+                        </a>
+                      </Button>
+                      {/* Only show delete button to paper owner */}
+                      {isOwner &&
+                        (isReadOnlyGuest ? (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setIsRegenerateOpen(true)}
-                            className="gap-1.5"
+                            className="text-[var(--sienna)]"
+                            onClick={startGitHubSignIn}
                           >
-                            <Sparkles className="h-4 w-4" />
-                            <span className="hidden sm:inline">
-                              {m.paper_whiteboard_regenerate()}
-                            </span>
+                            <Trash2 className="mr-1.5 h-4 w-4" />
+                            {m.paper_delete()}
                           </Button>
-                        )}
-                        <Button variant="outline" size="sm" asChild>
-                          <a
-                            href={downloadImageUrl}
-                            download={`${paper.title}-whiteboard.png`}
-                            className="gap-1.5"
-                          >
-                            <Download className="h-4 w-4" />
-                            <span className="hidden sm:inline">
-                              {m.paper_whiteboard_download()}
-                            </span>
-                          </a>
-                        </Button>
-                      </div>
+                        ) : (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-[var(--sienna)]"
+                              >
+                                <Trash2 className="mr-1.5 h-4 w-4" />
+                                {m.paper_delete()}
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  {m.paper_delete_confirm_title()}
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  {m.paper_delete_confirm_description()}
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>
+                                  {m.cancel()}
+                                </AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteMutation.mutate(paperId)}
+                                  className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
+                                >
+                                  {m.paper_delete()}
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        ))}
                     </div>
+                  </div>
 
-                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--parchment-warm)] p-3 lg:hidden">
-                      <div className="overflow-hidden rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(245,237,223,0.95))]">
-                        <img
-                          src={displayImageUrl}
-                          alt={`${paper.title} ${m.paper_whiteboard()}`}
-                          className="mx-auto h-auto max-h-[420px] w-full object-contain"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isDesktopViewport) {
-                          setIsWhiteboardPreviewOpen(true);
+                  {activeView === "summary" && showWhiteboardCta && (
+                    <WhiteboardCtaCard
+                      regenerating={paper.whiteboardRegenerating}
+                      onGenerate={() => {
+                        if (isReadOnlyGuest) {
+                          startGitHubSignIn();
+                          return;
                         }
+                        setIsRegenerateOpen(true);
                       }}
-                      className="group hidden w-full rounded-2xl border border-[var(--line)] bg-[var(--parchment-warm)] p-3 text-left transition hover:border-[var(--academic-brown)]/30 hover:shadow-[0_18px_50px_rgba(87,61,38,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/35 lg:block"
-                      aria-label={m.paper_whiteboard()}
-                    >
-                      <div className="relative overflow-hidden rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(245,237,223,0.95))]">
-                        <img
-                          src={displayImageUrl}
-                          alt={`${paper.title} ${m.paper_whiteboard()}`}
-                          className="mx-auto h-auto max-h-[360px] w-full object-contain transition duration-300 group-hover:scale-[1.015]"
-                        />
-                        <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1.5 rounded-full border border-white/80 bg-white/88 px-3 py-1.5 text-xs font-medium text-[var(--ink)] shadow-sm backdrop-blur-sm">
-                          <Maximize2 className="h-3.5 w-3.5" />
-                          <span>{m.paper_whiteboard()}</span>
+                    />
+                  )}
+
+                  {activeView === "summary" && whiteboardImageUrl && (
+                    <div className="paper-card p-4 sm:p-5">
+                      <div className="mb-4 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <h2 className="font-serif text-lg font-semibold text-[var(--ink)]">
+                            {m.paper_whiteboard()}
+                          </h2>
+                          {paper.whiteboardRegenerating && (
+                            <div className="flex items-center gap-1.5 text-sm text-[var(--academic-brown)]">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              <span className="hidden sm:inline">
+                                {m.paper_whiteboard_regenerating()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {paper.isPublic && whiteboardImageUrl && (
+                            <ShareDialog
+                              shortId={paper.shortId ?? shortId}
+                              title={paper.title}
+                            />
+                          )}
+                          {whiteboardsData &&
+                            whiteboardsData.whiteboards.length > 1 && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setIsGalleryOpen(true)}
+                                className="gap-1.5"
+                              >
+                                <ImageIcon className="h-4 w-4" />
+                                <span className="hidden sm:inline">
+                                  {m.paper_whiteboard_view_all()}
+                                </span>
+                              </Button>
+                            )}
+                          {isOwner && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setIsRegenerateOpen(true)}
+                              className="gap-1.5"
+                            >
+                              <Sparkles className="h-4 w-4" />
+                              <span className="hidden sm:inline">
+                                {m.paper_whiteboard_regenerate()}
+                              </span>
+                            </Button>
+                          )}
+                          <Button variant="outline" size="sm" asChild>
+                            <a
+                              href={downloadImageUrl}
+                              download={`${paper.title}-whiteboard.png`}
+                              className="gap-1.5"
+                            >
+                              <Download className="h-4 w-4" />
+                              <span className="hidden sm:inline">
+                                {m.paper_whiteboard_download()}
+                              </span>
+                            </a>
+                          </Button>
                         </div>
                       </div>
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </aside>
+
+                      <div className="rounded-2xl border border-[var(--line)] bg-[var(--parchment-warm)] p-3 lg:hidden">
+                        <div className="overflow-hidden rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(245,237,223,0.95))]">
+                          <img
+                            src={displayImageUrl}
+                            alt={`${paper.title} ${m.paper_whiteboard()}`}
+                            className="mx-auto h-auto max-h-[420px] w-full object-contain"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isDesktopViewport) {
+                            setIsWhiteboardPreviewOpen(true);
+                          }
+                        }}
+                        className="group hidden w-full rounded-2xl border border-[var(--line)] bg-[var(--parchment-warm)] p-3 text-left transition hover:border-[var(--academic-brown)]/30 hover:shadow-[0_18px_50px_rgba(87,61,38,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/35 lg:block"
+                        aria-label={m.paper_whiteboard()}
+                      >
+                        <div className="relative overflow-hidden rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(245,237,223,0.95))]">
+                          <img
+                            src={displayImageUrl}
+                            alt={`${paper.title} ${m.paper_whiteboard()}`}
+                            className="mx-auto h-auto max-h-[360px] w-full object-contain transition duration-300 group-hover:scale-[1.015]"
+                          />
+                          <div className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1.5 rounded-full border border-white/80 bg-white/88 px-3 py-1.5 text-xs font-medium text-[var(--ink)] shadow-sm backdrop-blur-sm">
+                            <Maximize2 className="h-3.5 w-3.5" />
+                            <span>{m.paper_whiteboard()}</span>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </aside>
+          )}
 
           <section className="space-y-4 min-w-0">
             {showViewSwitch && (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 <Tabs
                   value={activeView}
-                  onValueChange={(v) => showView(v as "summary" | "reader")}
+                  onValueChange={(v) =>
+                    showView(v as "summary" | "reader" | "pdf")
+                  }
                 >
                   <TabsList>
                     <TabsTrigger value="summary">
@@ -1108,6 +1136,15 @@ function PaperDetailPage() {
                     >
                       {m.paper_view_reader()}
                     </TabsTrigger>
+                    <TabsTrigger
+                      value="pdf"
+                      disabled={!isPdfAvailable}
+                      title={
+                        isPdfAvailable ? undefined : m.paper_processing_hint()
+                      }
+                    >
+                      {m.paper_view_pdf()}
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
                 {/* 置灰的 tab 自己解释不了原因，而 title 在禁用元素上并非处处可见：
@@ -1120,7 +1157,12 @@ function PaperDetailPage() {
               </div>
             )}
 
-            {activeView === "reader" ? (
+            {activeView === "pdf" ? (
+              <PaperStateCard
+                icon={FileText}
+                message="PDF viewer placeholder"
+              />
+            ) : activeView === "reader" ? (
               <ReaderPane
                 reader={paperReader}
                 share={{
