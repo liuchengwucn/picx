@@ -178,6 +178,7 @@
   "pdf_page_input_label": "ページ番号",
   "pdf_outline": "アウトライン",
   "pdf_search": "文書内を検索",
+  "pdf_page_total": "全 {total} ページ",
   "paper_share_description": "ほかの人もアクセスできるようにします。",
   "paper_share_button": "公開する",
   "paper_share_requirement": "公開共有するには処理が完了している必要があります",

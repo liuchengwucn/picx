@@ -28,6 +28,9 @@ export const TOOL_BTN =
   "transition-[border-color,transform,background] duration-[160ms] " +
   "hover:-translate-y-px hover:border-[var(--academic-brown)]";
 
+/** 图标独占的工具条小按钮:把 TOOL_BTN 的横向内距收成正方形。用法:cn(TOOL_BTN, ICON_BTN)。 */
+export const ICON_BTN = "px-[0.45rem] py-[0.45rem]";
+
 /**
  * 居中状态卡片(分析 / 转换进度 / 错误 / 裁剪预览共用)。
  * 用法:cn(STATUS_CARD, "rise-in text-center")。图标色由各处自行追加。

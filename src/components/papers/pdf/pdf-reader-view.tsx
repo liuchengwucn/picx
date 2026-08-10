@@ -51,6 +51,7 @@ export default function PdfReaderView({
         title={title}
         downloadUrl={url}
         downloadName={downloadName}
+        ready={pdf.status === "ready"}
         pageNumber={pdf.pageNumber}
         pageCount={pdf.pageCount}
         scale={pdf.scale}
@@ -87,51 +88,58 @@ export default function PdfReaderView({
         >
           <div ref={pdf.viewerRef} className="pdfViewer" />
         </div>
-      </div>
 
-      {/* 遮罩里刻意不用 PaperStateCard：它的根类 .paper-card 是无 layer 的裸类，
-          按 CSS 层叠顺序胜过 @layer utilities 里的所有 Tailwind 工具类，
-          传 className 去掉它的底板/描边是覆盖不掉的（见 styles.css 的同款注释）。
-          这里本来就要「贴在 PDF 面板内的浮层」而不是「一张卡片套一张卡片」。 */}
-      {pdf.status !== "ready" && (
-        // 用 <output> 而不是 div + role="status"：它自带 role=status 与
-        // aria-live=polite，加载/出错文案会被读屏播报，而 div 默认什么都不播。
-        <output className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[var(--parchment)] px-6 text-center">
-          {pdf.status === "loading" ? (
-            <>
-              <Loader2 className="h-8 w-8 animate-spin text-[var(--academic-brown)]" />
-              <p className="text-sm text-[var(--ink-soft)]">
-                {m.pdf_loading()}
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
-                <FileText className="h-6 w-6 text-[var(--academic-brown)]" />
-              </div>
-              <p className="max-w-sm text-sm text-[var(--sienna)]">
-                {pdf.errorKind === "password"
-                  ? m.pdf_encrypted()
-                  : pdf.errorKind === "engine"
-                    ? m.pdf_engine_failed()
-                    : m.pdf_load_failed()}
-              </p>
-              <div className="flex gap-2">
-                {pdf.errorKind !== "password" && (
-                  <Button variant="outline" size="sm" onClick={pdf.reload}>
-                    {m.pdf_retry()}
+        {/* 遮罩只盖滚动区、不盖工具栏：9.4MB 的 PDF 在慢网下是十几秒空白转圈，盖住
+            工具栏就等于用户既看不到自己点开的是哪篇论文，也拿不到「等不及就直接下载」
+            这个逃生口——而下载入口正好就在被盖住的那 40px 里。出错态同理。
+            放在这一层是安全的：它本来就是 relative，遮罩是绝对定位浮层，不参与滚动
+            容器的定位与 clientWidth 计算，PDFViewer 对 container 的校验不受影响。
+            注意它只挡视觉与指针、不挡焦点，所以工具栏必须靠 ready 自己置灰。
+
+            遮罩里刻意不用 PaperStateCard：它的根类 .paper-card 是无 layer 的裸类，
+            按 CSS 层叠顺序胜过 @layer utilities 里的所有 Tailwind 工具类，
+            传 className 去掉它的底板/描边是覆盖不掉的（见 styles.css 的同款注释）。
+            这里本来就要「贴在 PDF 面板内的浮层」而不是「一张卡片套一张卡片」。 */}
+        {pdf.status !== "ready" && (
+          // 用 <output> 而不是 div + role="status"：它自带 role=status 与
+          // aria-live=polite，加载/出错文案会被读屏播报，而 div 默认什么都不播。
+          <output className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[var(--parchment)] px-6 text-center">
+            {pdf.status === "loading" ? (
+              <>
+                <Loader2 className="h-8 w-8 animate-spin text-[var(--academic-brown)]" />
+                <p className="text-sm text-[var(--ink-soft)]">
+                  {m.pdf_loading()}
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
+                  <FileText className="h-6 w-6 text-[var(--academic-brown)]" />
+                </div>
+                <p className="max-w-sm text-sm text-[var(--sienna)]">
+                  {pdf.errorKind === "password"
+                    ? m.pdf_encrypted()
+                    : pdf.errorKind === "engine"
+                      ? m.pdf_engine_failed()
+                      : m.pdf_load_failed()}
+                </p>
+                <div className="flex gap-2">
+                  {pdf.errorKind !== "password" && (
+                    <Button variant="outline" size="sm" onClick={pdf.reload}>
+                      {m.pdf_retry()}
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={url} download={downloadName}>
+                      {m.paper_download_pdf()}
+                    </a>
                   </Button>
-                )}
-                <Button variant="outline" size="sm" asChild>
-                  <a href={url} download={downloadName}>
-                    {m.paper_download_pdf()}
-                  </a>
-                </Button>
-              </div>
-            </>
-          )}
-        </output>
-      )}
+                </div>
+              </>
+            )}
+          </output>
+        )}
+      </div>
     </div>
   );
 }

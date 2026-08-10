@@ -178,6 +178,7 @@
   "pdf_page_input_label": "Page number",
   "pdf_outline": "Outline",
   "pdf_search": "Search in document",
+  "pdf_page_total": "of {total} pages",
   "paper_share_title": "Share Publicly",
   "paper_share_description": "Let other people access this paper, too.",
   "paper_share_button": "Share Publicly",

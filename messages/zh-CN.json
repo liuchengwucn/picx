@@ -178,6 +178,7 @@
   "pdf_page_input_label": "页码",
   "pdf_outline": "大纲",
   "pdf_search": "在文档中搜索",
+  "pdf_page_total": "共 {total} 页",
   "paper_share_title": "公开分享论文",
   "paper_share_description": "让其他人也可以访问",
   "paper_share_button": "公开论文",

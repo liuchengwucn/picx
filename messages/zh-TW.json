@@ -178,6 +178,7 @@
   "pdf_page_input_label": "頁碼",
   "pdf_outline": "大綱",
   "pdf_search": "在文件中搜尋",
+  "pdf_page_total": "共 {total} 頁",
   "paper_share_description": "讓其他人也可以存取",
   "paper_share_button": "公開論文",
   "paper_share_requirement": "需要完成處理後才能公開分享",

@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { TOOL_BTN } from "#/components/reader/reader-ui";
+import { ICON_BTN, TOOL_BTN } from "#/components/reader/reader-ui";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { type TocItem, TocList } from "./reader-toc";
@@ -82,7 +82,7 @@ export function ReaderTocDrawer({
           <button
             ref={closeButtonRef}
             type="button"
-            className={cn(TOOL_BTN, "px-[0.45rem] py-[0.45rem]")}
+            className={cn(TOOL_BTN, ICON_BTN)}
             onClick={() => onOpenChange(false)}
             aria-label={m.reader_toc_close()}
           >
