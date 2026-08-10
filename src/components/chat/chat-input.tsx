@@ -1,4 +1,6 @@
 import { Brain, Globe, Loader2, SendHorizontal, X } from "lucide-react";
+import type { RefObject } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { REASONING_EFFORTS } from "#/components/chat/use-chat-settings";
 import { Button } from "#/components/ui/button";
 import {
@@ -60,6 +62,8 @@ export interface ChatInputAreaProps {
   onToggleWebSearch: () => void;
   reasoningEffort: ChatReasoningEffort;
   onReasoningEffortChange: (value: string) => void;
+  /** 外部需要聚焦输入框时透传（如把 PDF 引用插进来之后） */
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 /**
@@ -83,11 +87,46 @@ export function ChatInputArea({
   onToggleWebSearch,
   reasoningEffort,
   onReasoningEffortChange,
+  inputRef,
 }: ChatInputAreaProps) {
+  // 自己也要拿到 textarea（外部不一定传 inputRef），下面的自动增高要用
+  const localRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachRef = useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      localRef.current = node;
+      if (inputRef) inputRef.current = node;
+    },
+    [inputRef],
+  );
+
+  /**
+   * 随内容增高，上限交给 className 的 max-h-40（超过就内部滚动）。
+   *
+   * 没有这段的话 rows=2 是死高度：写第三行起就只剩一个 2 行的窗口在滚，而 PDF 的
+   * 「问这段」会一次性塞进一段最长 2000 字的引用——实测注入后用户看到的是一个**看
+   * 起来完全空白**的输入框（滚到了引用末尾那个空行），除了滚动条什么反馈都没有。
+   * 用 useEffect 而不是 useLayoutEffect：这块要 SSR，且它必须早于 PaperChat 里那个
+   * 「注入后把光标滚进视野」的 effect 跑——子组件的 effect 本来就排在父组件前面。
+   *
+   * ⚠️ `[input]` 是**必须**的，尽管 effect 体里没有读它：高度要跟着内容变，而内容只
+   * 能从这个 prop 感知（节点走 ref，不在依赖表里）。biome 只看 effect 体，于是判定
+   * 「依赖多于必要：input」并给出一个 **unsafe autofix：删掉多余依赖**。真被
+   * `biome check --write --unsafe` 执行掉，依赖表就成了 `[]`，effect 只在挂载时跑一
+   * 次，自动增高静默失效、且不会有任何测试或类型报错。删这条抑制前先想清楚这件事。
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: input 是有意保留的「内容变了」信号，规则的 autofix 会删掉它并悄悄废掉自动增高（详见上方注释）
+  useEffect(() => {
+    const el = localRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
+
   return (
     <>
       <div className="flex items-end gap-2 rounded-lg border border-transparent px-2 py-1.5 transition-colors focus-within:border-[var(--academic-brown)]/60 focus-within:bg-[var(--parchment-warm)]/60">
         <textarea
+          ref={attachRef}
           value={input}
           onChange={(event) => onInputChange(event.target.value)}
           onKeyDown={(event) => {
