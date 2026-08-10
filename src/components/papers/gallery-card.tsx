@@ -5,6 +5,7 @@ import {
   FeedbackButtons,
 } from "#/components/papers/feedback-buttons";
 import { Skeleton } from "#/components/ui/skeleton";
+import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
 export interface GalleryCardPaper {
@@ -61,12 +62,20 @@ export function GalleryCard({
   const visibleTags = paper.tags?.slice(0, 2) ?? [];
   const likeCount = paper.likeCount ?? 0;
   const directionSlug = paper.directionSlug;
+  // 反馈 pill 是否渲染。下面 JSX 里那处仍写成 feedbackAuth && signInCallbackURL:
+  // 收敛成 boolean 会丢掉两个 prop 的类型收窄。
+  const hasFeedbackPill = Boolean(feedbackAuth && signInCallbackURL);
 
   return (
+    // min-w-0 不是冗余: 卡片装在 grid 里, 而方向徽标的 truncate 会给整卡一个很宽的
+    // min-content 尺寸。列轨道只要是 auto(移动端那些没写 grid-cols-1 的容器就是),
+    // 就会尊重这个 min-content 贡献, 轨道被撑到两倍视口宽、整页横向可滚, 而徽标上的
+    // 百分比 max-width 在这种"按内容定宽"的父级下不生效, 于是 truncate 永远不触发。
+    // 声明 min-width:0 把这条贡献切断, 轨道回落到容器宽, 省略号才出得来。
     <Link
       to="/p/$shortId"
       params={{ shortId: paper.shortId }}
-      className="rise-in group block no-underline"
+      className="rise-in group block min-w-0 no-underline"
       style={{ animationDelay: delay }}
     >
       <article className="relative flex h-full overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(139,111,71,0.16)]">
@@ -133,7 +142,15 @@ export function GalleryCard({
               }}
               // 只念方向名听不出点了会怎样, 补一句「查看方向」
               aria-label={m.digest_direction_view({ name: directionLabel })}
-              className="w-fit max-w-full truncate rounded-full bg-[var(--parchment-warm)] px-2 py-0.5 text-[11px] font-medium text-[var(--academic-brown)] transition-colors hover:bg-[var(--academic-brown)] hover:text-white"
+              // 徽标与反馈 pill 同处卡片顶行, 而 pill 有一层不透明底: 名字长到撞进
+              // pill 底下时, 省略号会正好被那块底盖住。所以在有 pill 的用法里给徽标
+              // 让出 pill 的横向占位。4.5rem = pill 自身 74px + right-3 的 12px 再减去
+              // 文字列本来就有的 16/20px 内边距, 留 2px 余量; 没有 pill 的用法(分类页/
+              // 方向页)不做这个让位, 免得白截短名字。
+              className={cn(
+                "w-fit truncate rounded-full bg-[var(--parchment-warm)] px-2 py-0.5 text-[11px] font-medium text-[var(--academic-brown)] transition-colors hover:bg-[var(--academic-brown)] hover:text-white",
+                hasFeedbackPill ? "max-w-[calc(100%-4.5rem)]" : "max-w-full",
+              )}
             >
               {directionLabel}
             </button>

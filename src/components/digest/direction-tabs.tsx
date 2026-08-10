@@ -27,7 +27,7 @@ const tabClassName = (active: boolean) =>
  */
 export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
   const trpc = useTRPC();
-  const { data, isPending } = useQuery({
+  const { data, isPending, isError } = useQuery({
     ...trpc.digest.listDirections.queryOptions({ locale: getLocale() }),
     // 方向列表一周才动一次, 页面间来回切不必重取
     staleTime: 5 * 60_000,
@@ -41,7 +41,13 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
   //
   // 代价是把位移挪给了「零方向」这一种部署: 那时先出现一行再消失(改动前它全程不闪)。
   // 这么换是因为零方向只是 seed 跑起来之前的过渡态, 而有方向是长期稳态。
-  if (directions.length === 0 && !isPending) return null;
+  //
+  // isError 必须与「零方向」分开: 取数失败时 data 是 undefined、isPending 已是 false,
+  // 落进上面那条空态就等于一次瞬时失败把整行导航抹掉(还连带把下面内容上移)。
+  // 而 listDirections 与本页另外两条查询在同一个 tRPC batch 里, 一条失败就是三条一起
+  // 失败, 这条路径比看着容易走到。失败就降级成只有「全部」的那一行: 布局不动, 用户
+  // 也还能回到 /gallery。整行不渲染只留给「取数成功但确实没有 active 方向」。
+  if (directions.length === 0 && !isPending && !isError) return null;
 
   return (
     <nav
