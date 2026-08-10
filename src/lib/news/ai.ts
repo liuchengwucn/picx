@@ -1,5 +1,6 @@
 import type { AIConfig } from "#/lib/ai";
 import { extractFirstJsonObject } from "#/lib/json-extract";
+import { MAX_EXCERPT } from "#/lib/news/enrich";
 
 // ---- 通用：OpenAI-compatible chat + JSON 输出 ----
 
@@ -185,9 +186,9 @@ export async function generateStoryContent(
   const user = items
     .slice(0, 20)
     .map((item) => {
-      // BODY 用满存储上限（抓取时截 1000）：中文媒体源前 400 字往往还是导语铺垫，
+      // BODY 用满存储上限：中文媒体源前 400 字往往还是导语铺垫，
       // 核心信息在后半段，截短会迫使模型退回抄 HEADLINE
-      const body = clean(item.excerpt ?? "").slice(0, 1000);
+      const body = clean(item.excerpt ?? "").slice(0, MAX_EXCERPT);
       // DATE 给到模型是「报旧闻」防线：BODY 里引用的历史时间线必须能和材料
       // 自身的发布日期对照，才能区分「事件」与「背景回顾」
       const date = item.publishedAt.toISOString().slice(0, 10);

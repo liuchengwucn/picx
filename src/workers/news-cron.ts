@@ -7,6 +7,7 @@ import {
   inArray,
   isNull,
   lt,
+  notLike,
   or,
   sql,
 } from "drizzle-orm";
@@ -53,6 +54,10 @@ const FILTER_BATCH_SIZE = 25;
 const MAX_ENRICH_PER_ROUND = 20;
 // 正文补抓最多试 2 轮；耗尽后条目放行给 filter 走无正文老路（标题打分），不阻塞管线
 const ENRICH_MAX_ATTEMPTS = 2;
+// 补抓等待的年龄上限（对 fetchedAt）：超龄条目无条件放行给 filter。这是失败计数
+// 之外的兜底逃生门——持续 429 时计数不增长（见 enrichStage），入库洪峰时每轮
+// 20 条的名额也可能轮不到老条目，没有它们 filter 的让路谓词会把条目无限期挂起
+const ENRICH_MAX_AGE_HOURS = 6;
 const MAX_FILTER_PER_ROUND = 150;
 const MAX_EMBED_PER_ROUND = 100;
 const MAX_CLUSTER_PER_ROUND = 60;
@@ -267,11 +272,21 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
 
 // ---- Stage 2: enrich（正文补抓） ----
 
-/** 尚可重试正文补抓的条目谓词（excerpt 为空且失败次数未耗尽）。filter 对这类条目让路。 */
+/**
+ * 尚可重试正文补抓的条目谓词。filter 对这类条目让路，因此这里的每个条件都同时是
+ * 「放行给 filter」的出口：excerpt 补到了 / 失败次数耗尽 / 超龄 / HN 讨论页。
+ * HN 讨论页（自帖 url 回退）不补抓：渲染结果是站头导航+评论而非正文，
+ * 自帖的真正文（story_text）已在 hn 适配器入库时写入 excerpt。
+ */
 function enrichEligible() {
   return and(
     isNull(newsItems.excerpt),
     sql`coalesce(json_extract(${newsItems.extra}, '$.enrichAttempts'), 0) < ${ENRICH_MAX_ATTEMPTS}`,
+    gt(
+      newsItems.fetchedAt,
+      new Date(Date.now() - ENRICH_MAX_AGE_HOURS * 3600_000),
+    ),
+    notLike(newsItems.url, "https://news.ycombinator.com/%"),
   );
 }
 
@@ -280,7 +295,6 @@ async function enrichStage(db: Db, env: Env, deadline: number): Promise<void> {
     .select({
       id: newsItems.id,
       url: newsItems.url,
-      extra: newsItems.extra,
     })
     .from(newsItems)
     .where(
@@ -311,6 +325,7 @@ async function enrichStage(db: Db, env: Env, deadline: number): Promise<void> {
     } catch (error) {
       if (error instanceof EnrichRateLimitError) {
         // 限流是出口 IP 级别的，继续打只会加重；本轮收手，不计条目失败次数
+        // （持续限流的逃生门是 enrichEligible 的年龄上限，不依赖计数增长）
         log("enrich", "rate limited, deferring rest to next round");
         break;
       }
@@ -319,13 +334,10 @@ async function enrichStage(db: Db, env: Env, deadline: number): Promise<void> {
         error,
       );
     }
-    // 抓取失败/内容过短：失败计数 +1（json_patch 保住 extra 里已有的键，如 hnId）
-    const attempts =
-      typeof item.extra?.enrichAttempts === "number"
-        ? item.extra.enrichAttempts
-        : 0;
+    // 抓取失败/内容过短：失败计数 +1。纯 SQL 自增（json_set 只动本键，
+    // 保住 extra 里已有的键如 hnId），免去读回多 KB 的 extra 做读改写
     const patch: Pick<SQLiteUpdateSetSource<typeof newsItems>, "extra"> = {
-      extra: sql`json_patch(coalesce(${newsItems.extra}, '{}'), ${JSON.stringify({ enrichAttempts: attempts + 1 })})`,
+      extra: sql`json_set(coalesce(${newsItems.extra}, '{}'), '$.enrichAttempts', coalesce(json_extract(${newsItems.extra}, '$.enrichAttempts'), 0) + 1)`,
     };
     await db.update(newsItems).set(patch).where(eq(newsItems.id, item.id));
   }
@@ -348,7 +360,8 @@ async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
         isNull(newsItems.relevanceScore),
         // 给 enrich 让路：excerpt 还空着且重试未耗尽的条目先不打分，
         // 否则首轮补抓失败的条目会立刻被标题打分「消费」（score 非 NULL 即退出
-        // enrich 选取集），重试机制形同虚设。最长延迟 = 2 轮 cron（2 小时）。
+        // enrich 选取集），重试机制形同虚设。正常最长延迟 = 2 轮 cron（2 小时）；
+        // 极端情形（持续 429/入库洪峰）由 enrichEligible 的年龄上限兜底放行。
         sql`not (${enrichEligible()})`,
       ),
     )
@@ -603,11 +616,18 @@ async function summarizeStage(
   const dirtyStories = await db
     .select({ id: newsStories.id, shortId: newsStories.shortId })
     .from(newsStories)
-    // dirty 的 partial index 只认字面量谓词，不能用 eq()（绑定参数会退化为全表扫描）
-    .where(and(sql`${newsStories.dirty} = 1`, eq(newsStories.status, "active")))
-    // 活跃度倒序：反复失败的 poison story 无法永久占满这 MAX_SUMMARIZE_PER_ROUND 个名额，
-    // 新鲜 story 始终优先。poison story 的放弃路径是 72h 后被 archiveStage 置为
-    // archived —— status 不再是 active，自然退出本查询的轮换。
+    // dirty 的 partial index 只认字面量谓词，不能用 eq()/ne()（绑定参数会退化为全表扫描）。
+    // archived 也要取：可见性谓词是 dirty = 0（archived 正常对外可见），
+    // 若这里只认 active，被回填脚本/运维手工置 dirty 的 archived story、以及
+    // 反复失败拖到被 archiveStage 归档的 story 会带着 dirty = 1 永久从站点消失。
+    .where(
+      and(
+        sql`${newsStories.dirty} = 1`,
+        sql`${newsStories.status} != 'hidden'`,
+      ),
+    )
+    // 活跃度倒序：反复失败的 poison story 与老 archived story 无法永久占满这
+    // MAX_SUMMARIZE_PER_ROUND 个名额，新鲜 story 始终优先。
     .orderBy(desc(newsStories.lastActivityAt))
     .limit(MAX_SUMMARIZE_PER_ROUND);
 

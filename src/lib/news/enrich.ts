@@ -3,8 +3,8 @@
 // 没有正文时摘要 LLM 只能凭标题用训练期旧知识脑补，是「报旧闻」事故的根因之一
 // （见 docs/superpowers/specs/2026-08-10-news-excerpt-enrichment-design.md）。
 
-// 与 rss 适配器的 MAX_EXCERPT 一致：excerpt 列的统一存储口径
-const MAX_EXCERPT = 1000;
+// excerpt 列的统一存储口径：rss 适配器、hn 适配器、摘要 prompt 的 BODY 截断共用本常量
+export const MAX_EXCERPT = 1000;
 // 渲染结果比这还短的基本是 cookie 墙/空壳页，视为抓取失败
 const MIN_CONTENT_LENGTH = 40;
 const FETCH_TIMEOUT_MS = 20_000;

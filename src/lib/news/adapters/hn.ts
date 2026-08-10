@@ -1,10 +1,14 @@
 import type { NewsSourceConfig } from "#/db/schema";
+import { MAX_EXCERPT } from "../enrich";
 import type { NormalizedItem } from "../types";
+import { stripHtml } from "./rss";
 
 interface AlgoliaHit {
   objectID: string;
   title: string | null;
   url: string | null;
+  // 自帖（Ask HN/Show HN 等）的正文 HTML；链接帖为 null
+  story_text?: string | null;
   points: number | null;
   num_comments: number | null;
   author: string;
@@ -18,6 +22,11 @@ export function hitToItem(hit: AlgoliaHit): NormalizedItem | null {
     // 与 rss 适配器一致：只接受 http(s) 链接，其余（javascript:/ftp: 等）回退 HN 讨论页
     url: hit.url?.startsWith("http") ? hit.url : hnUrl,
     title: hit.title,
+    // 自帖正文入库即有 excerpt；链接帖留空，由 enrich 阶段抓原文补
+    //（enrich 会跳过 news.ycombinator.com——讨论页渲染出来是站头导航+评论，不是正文）
+    excerpt: hit.story_text
+      ? stripHtml(hit.story_text).slice(0, MAX_EXCERPT) || undefined
+      : undefined,
     author: hit.author,
     publishedAt: new Date(hit.created_at_i * 1000),
     signals: { points: hit.points ?? 0, comments: hit.num_comments ?? 0 },
