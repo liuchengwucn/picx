@@ -28,6 +28,9 @@ export default function PdfReaderView({
   onPageChange,
 }: PdfReaderViewProps) {
   const pdf = usePdfViewer(url, initialPage);
+  // 下载文件名要显式给：url 是 /api/r2/<key>，不给的话浏览器会拿那串 R2 key 当
+  // 文件名。工具栏与出错遮罩两处入口共用同一份。
+  const downloadName = `${title}.pdf`;
 
   // 页码上报给页面层，切 tab 回来能恢复。onPageChange 必须是稳定引用，否则每次
   // 渲染都会重跑这个 effect（页面层用 useCallback 保证）。
@@ -47,7 +50,7 @@ export default function PdfReaderView({
       <PdfToolbar
         title={title}
         downloadUrl={url}
-        downloadName={`${title}.pdf`}
+        downloadName={downloadName}
         pageNumber={pdf.pageNumber}
         pageCount={pdf.pageCount}
         scale={pdf.scale}
@@ -120,7 +123,7 @@ export default function PdfReaderView({
                   </Button>
                 )}
                 <Button variant="outline" size="sm" asChild>
-                  <a href={url} download>
+                  <a href={url} download={downloadName}>
                     {m.paper_download_pdf()}
                   </a>
                 </Button>

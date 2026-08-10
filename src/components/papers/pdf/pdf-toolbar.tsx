@@ -1,5 +1,5 @@
 import { Download, List, Minus, Plus, Search } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { TOOL_BTN } from "#/components/reader/reader-ui";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
@@ -46,44 +46,38 @@ export function PdfToolbar({
   onZoomOut,
   onFitWidth,
 }: PdfToolbarProps) {
-  // 页码输入框的编辑态。null = 没在编辑，显示值直接跟随 pageNumber；一旦聚焦就
-  // 完全归用户所有，外部页码再变也绝不回写。
+  // 页码输入框的编辑态。null = 没在编辑，显示值实时跟随 pageNumber。
   //
-  // 刻意不用「state 存字符串 + effect 从 pageNumber 回填」那套：滚动会持续派发
-  // pagechanging，而用户点进输入框想跳页时页面往往还在惯性滚动，回填 effect 会
-  // 一帧一帧地把正在输入的内容冲掉。
+  // 提交语义刻意做成「回车提交、失焦取消」这一对，而不是去猜「用户到底改没改」：
   //
-  // 也刻意不靠「onChange 第一次触发才算进入编辑」：React 的受控输入在新值与旧值
-  // 相同时会吞掉 onChange（inputValueTracking），全选后重敲同一个数字就进不了
-  // 编辑态，后续按键会接在被滚动改写过的页码后面。改成聚焦即进入编辑，没有例外。
+  // - 聚焦即进入编辑态，编辑期间外部页码一律不回写。滚动会持续派发 pagechanging，
+  //   而用户点进输入框想跳页时页面往往还在惯性滚动，任何形式的回填都会一帧一帧地
+  //   把正在输入的内容冲掉。
+  // - 回车无条件提交后立刻 blur，把所有权交还回去。少了这一下 blur，编辑态会一直
+  //   挂着，指示器就永远不再跟踪文档了——跳到某页再接着往下读是最普通的流程。
+  // - 失焦一律取消、不提交。这样「点进来看看又点走」不会拿一个已被滚动甩在后面的
+  //   页码把视图硬拽回去，「输了一半改主意点别处」也不会误跳。
+  //
+  // 代价是「输完不按回车、直接点别处」不会跳；回车是这个控件的主交互路径，可预测
+  // 地不跳好过偶发地乱跳。反过来，任何「比对基准值判断是否编辑过」的做法都有洞：
+  // 基准值取聚焦那一刻的页码，而焦点期间页码会漂移，于是「重新输入基准值」和「压根
+  // 没输入」无法区分，第一次请求会被静默丢掉；改成 onChange 里置标志位也一样——
+  // React 的受控输入在新值与旧值相同时会吞掉 onChange（inputValueTracking），
+  // 全选后重敲同一个数字标志位根本不会被置上。
   //
   // draft 原样回显、不做任何规范化：本项目在 news 与 gallery 都踩过「受控输入框
   // 回填吃掉尾部空格」，只要显示值是从 draft 派生出来的就会复现。
   const [draft, setDraft] = useState<string | null>(null);
-  // 聚焦那一刻的页码。用来判断「用户到底改没改」——只是点进来又点走的话不能提交，
-  // 否则会拿一个已被滚动甩在后面的页码把视图硬拽回去。
-  const seedRef = useRef("");
 
-  const beginEdit = () => {
-    seedRef.current = String(pageNumber);
-    setDraft(seedRef.current);
-  };
-
-  const commit = () => {
-    if (draft === null) return;
-    if (draft !== seedRef.current) {
+  const submit = (input: HTMLInputElement) => {
+    if (draft !== null) {
       const next = Number(draft);
       if (Number.isInteger(next) && next >= 1 && next <= pageCount) {
         onGoToPage(next);
-        // 回车后输入框还在焦点里，编辑态得跟着落到新页码上
-        seedRef.current = String(next);
-        setDraft(seedRef.current);
-        return;
       }
     }
-    // 非法输入、或压根没改过：退回当下的真实页码
-    seedRef.current = String(pageNumber);
-    setDraft(seedRef.current);
+    // blur 会走到 onBlur，由那里统一把 draft 清成 null
+    input.blur();
   };
 
   const percent = Math.round(scale * 100);
@@ -126,17 +120,14 @@ export function PdfToolbar({
         <div className="flex items-center gap-0.5 text-xs text-[var(--ink-soft)] sm:gap-1">
           <input
             value={draft ?? String(pageNumber)}
-            onFocus={beginEdit}
+            onFocus={() => setDraft(String(pageNumber))}
             onChange={(event) => setDraft(event.target.value)}
-            onBlur={() => {
-              commit();
-              // 失焦即交还所有权，显示值回到跟随 pageNumber
-              setDraft(null);
-            }}
+            // 失焦一律取消：交还所有权，显示值回到实时跟随 pageNumber
+            onBlur={() => setDraft(null)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                commit();
+                submit(event.currentTarget);
               }
             }}
             inputMode="numeric"
@@ -179,9 +170,10 @@ export function PdfToolbar({
           <Plus className="h-4 w-4" />
         </button>
 
-        {/* TOOL_BTN 是给 <button> 写的，套在 <a> 上还差两笔：styles.css 里那条裸的
+        {/* TOOL_BTN 是给 <button> 写的，套在 <a> 上颜色会跑偏：styles.css 里那条裸的
             `a { color: … }` 没进 @layer，按层叠顺序压过 @layer utilities 里的
-            text-[var(--ink)]，图标会变成学术棕；下划线则来自 UA 样式表。 */}
+            text-[var(--ink)]，图标会变成学术棕。下划线其实已被 Tailwind preflight
+            重置掉，no-underline 只是与 reader-view.tsx 的既有写法保持一致。 */}
         <a
           href={downloadUrl}
           download={downloadName}
