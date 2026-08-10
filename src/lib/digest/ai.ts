@@ -162,7 +162,8 @@ export async function searchAngle(
     }));
 }
 
-const FULLTEXT_MAX_CHARS = 30_000;
+// 30k 只够读到方法节一半；flash 的上下文与价位允许全文量级
+const FULLTEXT_MAX_CHARS = 80_000;
 
 /** 抓论文全文：arXiv 原生 HTML → Jina Reader 兜底 → 无全文时返回 null（用 excerpt 评审） */
 export async function fetchFullText(
@@ -288,22 +289,24 @@ export async function synthesizeDigest(
     "1. picks: select papers genuinely worth the reader's time. Quality bar over quota — typically 3-10, fewer is fine. Rank by importance. For each write recommendationNote (zh-cn, 2-4 sentences: what's new + why read it).",
     "2. content: the issue body in markdown (zh-cn), sections: 本期看点 (2-3 段总评) / 社区与动态 (based on intel items; skip if none) / 落选与存疑 (one-line transparency notes for rejected candidates) / 未解之问 (2-4 open questions).",
     "   Do NOT re-describe each picked paper in content — the picks render as cards below the body.",
+    "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them.",
     "3. title: issue title (zh-cn), concrete not clickbait, e.g. 「第N期：<本期最重要主题>」.",
     "4. proposedFocusUpdate: if this week's findings or feedback suggest the focus brief should evolve (new sub-topic emerging, stale sub-topic), propose the FULL revised focus brief text (zh-cn); otherwise omit.",
+    "5. usedIntelUrls: the canonicalUrl of every intel item you actually cited in content (exact URLs from the list below).",
     "Respect user feedback below when judging taste.",
     UNTRUSTED_NOTE,
-    'Return JSON only: {"title":"...","content":"...","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
+    'Return JSON only: {"title":"...","content":"...","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"usedIntelUrls":["..."],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
   ].join("\n");
   const paperBlock = input.papers
     .map(
-      (p, i) =>
-        `### P${i} [vote:${p.voteOutcome}] ${clean(p.item.title)}\nURL: ${p.item.canonicalUrl}\nScore: ${p.review.score} · Relevance: ${p.review.relevance}${p.item.hfUpvotes ? ` · HF: ${p.item.hfUpvotes}` : ""}\nNovelty: ${p.review.novelty}\nQuote: "${p.review.noveltyQuote}"\nDraft note: ${p.review.recommendation}`,
+      (p) =>
+        `### [vote:${p.voteOutcome}] ${clean(p.item.title)}\nURL: ${p.item.canonicalUrl}\nScore: ${p.review.score} · Relevance: ${p.review.relevance}${p.item.hfUpvotes ? ` · HF: ${p.item.hfUpvotes}` : ""}\nNovelty: ${p.review.novelty}\nQuote: "${p.review.noveltyQuote}"\nDraft note: ${p.review.recommendation}`,
     )
     .join("\n\n");
   const intelBlock = input.intel
     .map(
-      (p, i) =>
-        `### I${i} ${clean(p.item.title)}\nURL: ${p.item.canonicalUrl}\nSummary: ${p.review.novelty}\nNote: ${p.review.recommendation}`,
+      (p) =>
+        `### ${clean(p.item.title)}\nURL: ${p.item.canonicalUrl}\nSummary: ${p.review.novelty}\nNote: ${p.review.recommendation}`,
     )
     .join("\n\n");
   const user = [
@@ -315,7 +318,22 @@ export async function synthesizeDigest(
     `## Rejected by verification\n${input.rejectedTitles.map((t) => `- ${clean(t)}`).join("\n") || "(none)"}`,
     `## Deferred over budget (will be reconsidered next week)\n${input.overBudgetTitles.map((t) => `- ${clean(t)}`).join("\n") || "(none)"}`,
   ].join("\n\n");
-  const r = await chatJson<SynthesisResult>(cfg, system, user, 6000, 0.4);
+  const INTERNAL_REF_RE = /\b[IP]\d{1,2}\b/;
+  let r = await chatJson<SynthesisResult>(cfg, system, user, 6000, 0.4);
+  if (r.content && INTERNAL_REF_RE.test(r.content)) {
+    // 模型没听话用了内部编号：带着违规样例重试一次；再失败则放行并留痕（不失败整期）
+    const offending = r.content.match(INTERNAL_REF_RE)?.[0];
+    r = await chatJson<SynthesisResult>(
+      cfg,
+      `${system}\nYour previous draft referenced items by internal code ("${offending}") which readers cannot resolve. Rewrite using inline markdown links [标题](URL) only.`,
+      user,
+      6000,
+      0.4,
+    );
+    if (r.content && INTERNAL_REF_RE.test(r.content)) {
+      console.warn("[Digest] synthesize: internal refs remain after retry");
+    }
+  }
   if (!r.title || !r.content || !Array.isArray(r.picks)) {
     throw new DigestAiError("synthesize: malformed result");
   }

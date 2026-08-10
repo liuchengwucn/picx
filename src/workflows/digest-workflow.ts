@@ -426,6 +426,18 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           reviewedByUrl,
           notesByUrl,
         });
+        // intel 跨期去重：只有被正文实际引用的 intel 才标 recommended（下期跳过）；
+        // 精读过但没用上的保持 seen，下期仍有入选机会。
+        const intelUrls = new Set(
+          intelCandidates.map((r) => r.item.canonicalUrl),
+        );
+        for (const url of synthesis.usedIntelUrls ?? []) {
+          if (intelUrls.has(url)) {
+            await updateCandidateStatus(db, directionId, url, {
+              status: "recommended",
+            });
+          }
+        }
         await saveDigestContent(db, shell.digestId, {
           title: Object.fromEntries(
             Object.entries(translations).map(([loc, t]) => [loc, t.title]),

@@ -53,6 +53,16 @@ describe("canonicalizeCandidate", () => {
     expect(out).toBeNull();
   });
 
+  it("drops pseudo arXiv IDs with an invalid month (unanchored regex false match)", () => {
+    // canonicalArxivId 的未锚定正则会从这个 URL 里"找到" 2699.12345；
+    // 月份 99 非法，无月份守卫时 monthsDiff 为负会误判为新鲜论文
+    const out = canonicalizeCandidate(
+      makeItem("https://example.com/2699.12345/page", "paper"),
+      periodEnd,
+    );
+    expect(out).toBeNull();
+  });
+
   it("demotes non-arXiv URLs to intel without age gating", () => {
     const out = canonicalizeCandidate(
       makeItem("https://openreview.net/forum?id=abc", "paper"),

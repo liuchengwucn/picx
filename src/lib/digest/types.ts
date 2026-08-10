@@ -61,6 +61,8 @@ export interface SynthesisResult {
   title: string; // 主语言
   content: string; // 主语言 markdown 正文
   picks: SynthesisPick[];
+  /** 正文实际引用的 intel canonicalUrl 列表；用于跨期去重（标 recommended） */
+  usedIntelUrls?: string[];
   proposedFocusUpdate?: string;
 }
 

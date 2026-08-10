@@ -402,6 +402,7 @@ export function canonicalizeCandidate(
   if (!m) return null; // 旧式 arXiv ID，必然超龄
   const paperYear = 2000 + Number(m[1]);
   const paperMonth = Number(m[2]);
+  if (paperMonth < 1 || paperMonth > 12) return null; // 伪 arXiv ID（canonicalArxivId 未锚定正则的误匹配）
   const monthsDiff =
     (periodEnd.getUTCFullYear() - paperYear) * 12 +
     (periodEnd.getUTCMonth() + 1 - paperMonth);
