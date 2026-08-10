@@ -18,6 +18,21 @@ describe("cleanReadableContent", () => {
     expect(out.length).toBe(1000);
     expect(out).not.toMatch(/\s{2}/);
   });
+
+  it("cuts leading nav chrome before the first h1 heading", () => {
+    const input =
+      "* [Donate](https://a.com/donate)\n* [About](https://a.com/about)\n\n# DeepSeek V4 Flash 0731\n\nAt max effort it scores 89.0% on ARC.";
+    expect(cleanReadableContent(input)).toBe(
+      "# DeepSeek V4 Flash 0731 At max effort it scores 89.0% on ARC.",
+    );
+  });
+
+  it("keeps content unchanged when there is no h1", () => {
+    const input = "9th August 2026\n\nPlain body without headings.";
+    expect(cleanReadableContent(input)).toBe(
+      "9th August 2026 Plain body without headings.",
+    );
+  });
 });
 
 describe("fetchReadable", () => {

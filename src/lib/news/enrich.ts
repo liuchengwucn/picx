@@ -20,9 +20,13 @@ export class EnrichRateLimitError extends Error {
 /**
  * Markdown 正文降噪：Reader 输出的页头常是导航链接/logo 图片堆，
  * 图片语法整体丢弃、链接只留文字，再折叠空白，让 1000 字预算尽量装正文。
+ * 导航杂质几乎总在正文 h1 之前（实测 arcprize 站头能吃掉 870/1000 字），
+ * 有 h1 就从它起截；没有 h1 的页面（Jina 常把标题单独放 Title 字段）保持原样。
  */
 export function cleanReadableContent(markdown: string): string {
-  return markdown
+  const h1 = markdown.search(/^# /m);
+  const body = h1 >= 0 ? markdown.slice(h1) : markdown;
+  return body
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\s+/g, " ")
