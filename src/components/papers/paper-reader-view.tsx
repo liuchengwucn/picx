@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileText, List, Loader2 } from "lucide-react";
+import type { RefObject } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   createRelativeImageUrlTransform,
   MarkdownArticle,
 } from "#/components/markdown-reader/markdown-article";
+import type { QuoteShareContext } from "#/components/markdown-reader/quote-share/quote-share-dialog";
+import { QuoteShareOverlay } from "#/components/markdown-reader/quote-share/quote-share-overlay";
 import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
 import { useToc } from "#/components/markdown-reader/reader-toc";
 import { ReaderTocDrawer } from "#/components/markdown-reader/reader-toc-drawer";
@@ -15,13 +18,16 @@ import { useTRPC } from "#/integrations/trpc/react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
+export type { QuoteShareContext } from "#/components/markdown-reader/quote-share/quote-share-dialog";
+
 /**
  * 页面级 hook：把「原文阅读」的 getContent 查询与 TOC 提升到详情页，好让目录能渲染在
  * 页面左栏而不是挤在中栏卡片内部。
  *
  * `enabled` 由调用方传入，必须与 ReaderPane 决定渲染 <PaperReaderView> 的条件完全一致
- * （原文视图激活 + isReaderAvailable + 已登录）——否则未登录/pending 时会打一个注定
- * 401 的请求。tanstack-query 按 queryKey 去重，多处引用同一 paperId 不会重复发请求。
+ * （原文视图激活 + isReaderAvailable + 公开-或-已登录）——否则私有论文在未登录/pending
+ * 时会打一个注定 401 的请求。tanstack-query 按 queryKey 去重，多处引用同一 paperId
+ * 不会重复发请求。
  */
 export function usePaperReader(paperId: string, enabled: boolean) {
   const trpc = useTRPC();
@@ -58,7 +64,10 @@ export function usePaperReader(paperId: string, enabled: boolean) {
   );
   const toc = useToc(articleRef, contentKey);
 
-  return { query, setArticleRef, toc };
+  // articleRef 一并交出去：页面层收起/展开聊天栏时要拿正文节点做滚动锚定
+  // （见 useReadingAnchor），也给「选中分享」的气泡定位用。contentKey 交给
+  // Task 3 的落地定位 hook（用来在正文重新挂载后触发一次滚动）。
+  return { query, articleRef, setArticleRef, contentKey, toc };
 }
 
 export type PaperReaderState = ReturnType<typeof usePaperReader>;
@@ -69,7 +78,13 @@ export type PaperReaderState = ReturnType<typeof usePaperReader>;
  * 受控组件：查询状态与 articleRef 由 usePaperReader（页面层）提供，这里只负责三态
  * UI（加载 / 出错 / 内容不可用）与正文渲染。登录墙仍在调用方（ReaderPane）处理。
  */
-export function PaperReaderView({ reader }: { reader: PaperReaderState }) {
+export function PaperReaderView({
+  reader,
+  share,
+}: {
+  reader: PaperReaderState;
+  share: QuoteShareContext;
+}) {
   const { data, isPending, isError } = reader.query;
 
   if (isPending) {
@@ -99,8 +114,11 @@ export function PaperReaderView({ reader }: { reader: PaperReaderState }) {
     <ReaderArticle
       markdown={data.markdown}
       imageBase={data.imageBase}
+      articleRef={reader.articleRef}
       setArticleRef={reader.setArticleRef}
+      contentKey={reader.contentKey}
       toc={reader.toc}
+      share={share}
     />
   );
 }
@@ -108,13 +126,19 @@ export function PaperReaderView({ reader }: { reader: PaperReaderState }) {
 function ReaderArticle({
   markdown,
   imageBase,
+  articleRef,
   setArticleRef,
+  contentKey,
   toc,
+  share,
 }: {
   markdown: string;
   imageBase: string;
+  articleRef: RefObject<HTMLElement | null>;
   setArticleRef: (node: HTMLElement | null) => void;
+  contentKey: string;
   toc: PaperReaderState["toc"];
+  share: QuoteShareContext;
 }) {
   const { settings, update, reset } = useReaderSettings();
   // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
@@ -169,6 +193,12 @@ function ReaderArticle({
         items={toc.items}
         activeId={toc.activeId}
         onJump={toc.jumpTo}
+      />
+
+      <QuoteShareOverlay
+        articleRef={articleRef}
+        share={share}
+        contentKey={contentKey}
       />
     </div>
   );

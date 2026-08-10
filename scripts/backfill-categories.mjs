@@ -119,10 +119,23 @@ Rules:
       ],
       temperature: 0.2,
       max_tokens: 400, // 200 偏紧:分类+3-5 tag 的 JSON 偶尔被截断成无法解析
+      // 推理模型(如 DeepSeek)在 OpenRouter 上默认思考,思考 token 计入
+      // max_tokens 会静默截断输出。显式关闭 — 与 src/lib/ai.ts 的
+      // reasoningParam() 保持一致(仅对 OpenRouter 端点发送,OpenAI 官方 API
+      // 会拒绝未知参数)。
+      ...(/openrouter/i.test(OPENAI_BASE_URL)
+        ? { reasoning: { enabled: false } }
+        : {}),
     }),
   });
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
   const data = await res.json();
+  // finish_reason=length 说明输出被 max_tokens 掐断,静默收下会解析出残缺
+  // JSON;抛错进入 classifyWithRetry 的重试路径 — 与 src/lib/ai.ts 的
+  // assertNotTruncated() 保持一致。
+  if (data.choices?.[0]?.finish_reason === "length") {
+    throw new Error("OpenAI response truncated (finish_reason=length)");
+  }
   const content = data.choices?.[0]?.message?.content ?? "";
   return parseClassification(content);
 }

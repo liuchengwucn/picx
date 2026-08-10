@@ -19,9 +19,10 @@ async function handler({ request }: { request: Request }) {
     }
 
     // paper-content/（原文 markdown+图片）与 paper-text/（chatbot 用全文纯文本）
-    // 都是「仅登录可见」的登录墙内内容：前者受鉴权端点 /api/paper-content/ 保护，
-    // 后者只应被服务端（chatbot readPaper / queue-consumer）经 R2 binding 直读，
-    // 均不可经本路由（无鉴权）匿名读取。用 404 而非 403，避免泄露前缀是否存在。
+    // 都含私有论文的正文：前者受鉴权端点 /api/paper-content/ 保护（那里按 isPublic
+    // 逐篇判定），后者只应被服务端（chatbot readPaper / queue-consumer）经 R2
+    // binding 直读。本路由无从判定归属，一律不放行——公开论文的正文请走
+    // /api/paper-content/。用 404 而非 403，避免泄露前缀是否存在。
     if (r2Key.startsWith("paper-content/") || r2Key.startsWith("paper-text/")) {
       return new Response("File not found", { status: 404 });
     }

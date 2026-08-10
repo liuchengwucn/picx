@@ -23,6 +23,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
 } from "react";
 import ReactMarkdown from "react-markdown";
@@ -32,6 +33,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
 import { type TocItem, TocList } from "#/components/markdown-reader/reader-toc";
+import { useReadingAnchor } from "#/components/markdown-reader/use-reading-anchor";
 import {
   CHAT_COLLAPSED_STORAGE_KEY,
   CHAT_PANEL_WIDTH,
@@ -43,6 +45,7 @@ import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badg
 import {
   type PaperReaderState,
   PaperReaderView,
+  type QuoteShareContext,
   usePaperReader,
 } from "#/components/papers/paper-reader-view";
 import { PaperStateCard } from "#/components/papers/paper-state-card";
@@ -585,11 +588,43 @@ function PaperDetailPage() {
     data?.paper?.status === "completed" && !!data?.hasContent;
   const activeView: "summary" | "reader" =
     view === "reader" && isReaderAvailable ? "reader" : "summary";
-  // 与 ReaderPane 的三态分诊完全一致：session 未定/未登录时 ReaderPane 根本不会渲染
-  // <PaperReaderView>，这里的查询也绝不能发出去。
+  // 与 ReaderPane 的分诊完全一致：公开论文不看登录态直接取；私有论文在 session
+  // 未定/未登录时 ReaderPane 根本不会渲染 <PaperReaderView>，查询也绝不能发出去
+  // （否则是一个注定 401 的请求）。
   const isReaderViewReady =
-    activeView === "reader" && !isSessionPending && !!effectiveSession;
+    activeView === "reader" &&
+    (!!data?.paper?.isPublic || (!isSessionPending && !!effectiveSession));
   const paperReader = usePaperReader(paperId, isReaderViewReady);
+
+  // 中栏是 minmax(0,1fr)：收起聊天栏后它直接吃掉第三列的宽度，正文行宽从「被容器
+  // 压住」跳到「由 --reader-measure 决定」（实测 762→963px），整篇长文重新断行、高度
+  // 缩掉两成，而 scrollY 不变——读者眼前那一段会被顶走近二十屏。拖宽把手是同一回事，
+  // 只是每帧几 px 所以不刺眼。两者都在改宽度之前捕获锚点，由 layout effect 在绘制前补偿。
+  const summaryProseRef = useRef<HTMLDivElement | null>(null);
+  // 两个视图各有各的正文容器，且互斥渲染，所以按当前视图现取：原文视图取 <article>，
+  // 总结视图取那块 markdown 的 prose 容器（accordion 收起时它不挂载，取到 null 就不补偿）。
+  const getAnchorRoot = useCallback(
+    () =>
+      activeView === "reader"
+        ? paperReader.articleRef.current
+        : summaryProseRef.current,
+    [activeView, paperReader.articleRef],
+  );
+  const { capture: captureReadingAnchor, release: releaseReadingAnchor } =
+    useReadingAnchor(getAnchorRoot, `${chatCollapsed}:${chatPanelWidth}`);
+
+  const handleChatCollapsedChange = useCallback(
+    (next: boolean) => {
+      captureReadingAnchor();
+      setChatCollapsed(next);
+    },
+    [captureReadingAnchor],
+  );
+
+  // 拖拽是连续变化：按下时捕获一次并 hold 住，之后每一帧都对齐同一个锚点，松手才释放
+  const handleChatResizeStart = useCallback(() => {
+    captureReadingAnchor({ hold: true });
+  }, [captureReadingAnchor]);
 
   const { data: whiteboardsData } = useQuery({
     ...trpc.paper.listWhiteboards.queryOptions(paperId),
@@ -1088,6 +1123,13 @@ function PaperDetailPage() {
             {activeView === "reader" ? (
               <ReaderPane
                 reader={paperReader}
+                share={{
+                  paperId,
+                  shortId: paper.shortId ?? shortId,
+                  title: paper.title,
+                  isPublic: paper.isPublic,
+                  canPublish: isOwner,
+                }}
                 isSessionPending={isSessionPending}
                 isSignedIn={!!effectiveSession}
                 onSignIn={startReaderSignIn}
@@ -1210,7 +1252,11 @@ function PaperDetailPage() {
                     </div>
                   </div>
                   <AccordionContent>
-                    <div className="prose prose-sm max-w-none text-[var(--ink)] break-words overflow-hidden">
+                    {/* ref 供 useReadingAnchor 取锚点：总结正文同样会随中栏宽度重排 */}
+                    <div
+                      ref={summaryProseRef}
+                      className="prose prose-sm max-w-none text-[var(--ink)] break-words overflow-hidden"
+                    >
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm, remarkMath]}
                         rehypePlugins={[rehypeKatex, rehypeHighlight]}
@@ -1261,8 +1307,10 @@ function PaperDetailPage() {
               onSignIn={startGitHubSignIn}
               panelWidth={chatPanelWidth}
               onPanelWidthChange={setChatPanelWidth}
+              onPanelResizeStart={handleChatResizeStart}
+              onPanelResizeEnd={releaseReadingAnchor}
               collapsed={chatCollapsed}
-              onCollapsedChange={setChatCollapsed}
+              onCollapsedChange={handleChatCollapsedChange}
             />
           )}
         </div>
@@ -1382,20 +1430,28 @@ function PaperDetailPage() {
 }
 
 /**
- * 原文视图的三态分诊：session 未定 → 占位；未登录 → 登录墙；已登录 → 原文。
- * （原文由服务端强制登录可见，这里的登录墙只是体验层。）
+ * 原文视图的分诊：公开论文直接出原文（不看登录态）；私有论文 session 未定 → 占位，
+ * 未登录 → 登录墙，已登录 → 原文。（服务端才是权限的真实边界，这里只是体验层。）
  */
 function ReaderPane({
   reader,
+  share,
   isSessionPending,
   isSignedIn,
   onSignIn,
 }: {
   reader: PaperReaderState;
+  share: QuoteShareContext;
   isSessionPending: boolean;
   isSignedIn: boolean;
   onSignIn: () => void;
 }) {
+  // 公开论文谁都能读，没必要等 session 解析完——段落深链的访客多半没登录过，
+  // 让他们先等一轮 session 往返再出正文纯属白等。
+  if (share.isPublic) {
+    return <PaperReaderView reader={reader} share={share} />;
+  }
+
   // SSR / 首帧 session 还没解析出来，先占位，别把已登录用户闪一下登录墙
   if (isSessionPending) {
     return <PaperStateCard icon={Loader2} spinning />;
@@ -1415,7 +1471,7 @@ function ReaderPane({
     );
   }
 
-  return <PaperReaderView reader={reader} />;
+  return <PaperReaderView reader={reader} share={share} />;
 }
 
 /**

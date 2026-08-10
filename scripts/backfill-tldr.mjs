@@ -25,8 +25,15 @@
  * Usage (run via the host so npm/node + .dev.vars are available):
  *   node scripts/backfill-tldr.mjs [--remote|--local] [--dry-run]
  *                                  [--limit N] [--batch N] [--concurrency N]
+ *                                  [--ids file.json]
  *
  * Defaults: --remote, batch 10, concurrency 3, no limit.
+ *
+ * --ids <file.json>: forced-regeneration mode. The file is a JSON array of
+ * paper short_ids; their paper_results rows become the target set and the
+ * `tldr IS NULL` filter is SKIPPED (existing tldr values get overwritten).
+ * Used to re-generate tldrs that were silently truncated by reasoning tokens
+ * before the reasoning/finish_reason fix. Without --ids behavior is unchanged.
  */
 
 import { readFileSync } from "node:fs";
@@ -48,6 +55,12 @@ const DRY_RUN = hasFlag("--dry-run");
 const LIMIT = Number(getOpt("--limit", "0")); // 0 = no limit
 const BATCH = Math.max(1, Number(getOpt("--batch", "10")));
 const CONCURRENCY = Math.max(1, Number(getOpt("--concurrency", "3")));
+const IDS_FILE = getOpt("--ids", ""); // JSON array of short_ids → forced mode
+if (hasFlag("--ids") && !IDS_FILE) {
+  // Never silently fall back to the default NULL-backfill mode on a typo.
+  console.error("[backfill] --ids requires a JSON file path");
+  process.exit(1);
+}
 
 // ---------- env (.dev.vars) ----------
 function loadDevVars() {
@@ -150,12 +163,25 @@ async function openai(systemPrompt, userContent, { temperature, maxTokens }) {
       ],
       temperature,
       max_tokens: maxTokens,
+      // Reasoning models (e.g. DeepSeek) think by default on OpenRouter and the
+      // thinking tokens eat into max_tokens, silently truncating the content.
+      // Disable explicitly — mirrors reasoningParam() in src/lib/ai.ts (only
+      // sent to OpenRouter endpoints; the official OpenAI API rejects it).
+      ...(/openrouter/i.test(OPENAI_BASE_URL)
+        ? { reasoning: { enabled: false } }
+        : {}),
     }),
   });
   if (!res.ok) {
     throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
   }
   const data = await res.json();
+  // finish_reason=length means the output was cut off by max_tokens — throwing
+  // here routes the paper into the per-paper failure path instead of storing a
+  // half-written result. Mirrors assertNotTruncated() in src/lib/ai.ts.
+  if (data.choices?.[0]?.finish_reason === "length") {
+    throw new Error("OpenAI response truncated (finish_reason=length)");
+  }
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error("Empty OpenAI response");
   return text;
@@ -252,6 +278,95 @@ async function main() {
     );
   }
 
+  let processed = 0;
+  let updated = 0;
+  let failed = 0;
+
+  // Per-row worker shared by both modes. Rows from --ids mode carry a
+  // `shortId` for friendlier logs; default-mode rows fall back to `id`.
+  const processRow = async (row) => {
+    const label = row.shortId ?? row.id;
+    processed++;
+    let summaries;
+    try {
+      summaries =
+        typeof row.summaries === "string"
+          ? JSON.parse(row.summaries)
+          : row.summaries;
+    } catch (e) {
+      failed++;
+      console.warn(`  ✗ ${label}: bad summaries JSON (${e.message})`);
+      return;
+    }
+    try {
+      const tldr = await buildTldr(summaries, row.summaryLanguage);
+      if (!tldr) {
+        console.warn(`  - ${label}: no usable summary, skipped`);
+        return;
+      }
+      if (DRY_RUN) {
+        const preview = tldr[Object.keys(tldr)[0]];
+        console.log(
+          `  • ${label}: [${Object.keys(tldr).join(",")}] ${preview}`,
+        );
+        updated++;
+        return;
+      }
+      await d1Remote("UPDATE paper_results SET tldr = ? WHERE id = ?", [
+        JSON.stringify(tldr),
+        row.id,
+      ]);
+      updated++;
+      console.log(`  ✓ ${label}: tldr set [${Object.keys(tldr).join(",")}]`);
+    } catch (e) {
+      failed++;
+      console.warn(`  ✗ ${label}: ${e.message}`);
+    }
+  };
+
+  if (IDS_FILE) {
+    // Forced mode: regenerate tldr for an explicit short_id list, overwriting
+    // whatever is stored (used for truncated tldrs — see header).
+    const parsed = JSON.parse(readFileSync(IDS_FILE, "utf8"));
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error("--ids file must be a non-empty JSON array of short_ids");
+    }
+    // Dedupe before chunking: a short_id repeated across IN() chunks would be
+    // processed by two workers concurrently, wasting LLM calls.
+    const shortIds = [...new Set(parsed)];
+    console.log(
+      `[backfill] --ids mode: ${shortIds.length} short_id(s) from ${IDS_FILE}, tldr will be OVERWRITTEN.${DRY_RUN ? " (DRY RUN)" : ""}`,
+    );
+    console.log(
+      `[backfill] mode=remote concurrency=${CONCURRENCY}${LIMIT ? ` limit=${LIMIT}` : ""}`,
+    );
+    // Chunked IN() lookups: D1 caps bound params at 100 per query.
+    const rows = [];
+    for (let i = 0; i < shortIds.length; i += 50) {
+      const chunk = shortIds.slice(i, i + 50);
+      rows.push(
+        ...(await d1Remote(
+          `SELECT pr.id, pr.summaries, pr.summary_language AS summaryLanguage, p.short_id AS shortId
+             FROM paper_results pr JOIN papers p ON p.id = pr.paper_id
+            WHERE p.short_id IN (${chunk.map(() => "?").join(",")})`,
+          chunk,
+        )),
+      );
+    }
+    const found = new Set(rows.map((r) => r.shortId));
+    for (const sid of shortIds) {
+      if (!found.has(sid)) {
+        console.warn(`  - ${sid}: no paper_results row found`);
+      }
+    }
+    const targets = LIMIT ? rows.slice(0, LIMIT) : rows;
+    await pool(targets, processRow, CONCURRENCY);
+    console.log(
+      `[backfill] done. processed=${processed} updated=${updated} failed=${failed}`,
+    );
+    return;
+  }
+
   const [{ total }] = await d1Remote(
     "SELECT count(*) AS total FROM paper_results WHERE tldr IS NULL",
   );
@@ -262,60 +377,13 @@ async function main() {
     `[backfill] mode=remote batch=${BATCH} concurrency=${CONCURRENCY}${LIMIT ? ` limit=${LIMIT}` : ""}`,
   );
 
-  let processed = 0;
-  let updated = 0;
-  let failed = 0;
-
   while (true) {
     if (LIMIT && processed >= LIMIT) break;
     const take = LIMIT ? Math.min(BATCH, LIMIT - processed) : BATCH;
     const rows = await fetchBatchRemote(take);
     if (rows.length === 0) break;
 
-    await pool(
-      rows,
-      async (row) => {
-        processed++;
-        let summaries;
-        try {
-          summaries =
-            typeof row.summaries === "string"
-              ? JSON.parse(row.summaries)
-              : row.summaries;
-        } catch (e) {
-          failed++;
-          console.warn(`  ✗ ${row.id}: bad summaries JSON (${e.message})`);
-          return;
-        }
-        try {
-          const tldr = await buildTldr(summaries, row.summaryLanguage);
-          if (!tldr) {
-            console.warn(`  - ${row.id}: no usable summary, skipped`);
-            return;
-          }
-          if (DRY_RUN) {
-            const preview = tldr[Object.keys(tldr)[0]];
-            console.log(
-              `  • ${row.id}: [${Object.keys(tldr).join(",")}] ${preview}`,
-            );
-            updated++;
-            return;
-          }
-          await d1Remote("UPDATE paper_results SET tldr = ? WHERE id = ?", [
-            JSON.stringify(tldr),
-            row.id,
-          ]);
-          updated++;
-          console.log(
-            `  ✓ ${row.id}: tldr set [${Object.keys(tldr).join(",")}]`,
-          );
-        } catch (e) {
-          failed++;
-          console.warn(`  ✗ ${row.id}: ${e.message}`);
-        }
-      },
-      CONCURRENCY,
-    );
+    await pool(rows, processRow, CONCURRENCY);
 
     // In dry-run we never clear the NULLs, so stop after one batch/limit to
     // avoid looping forever on the same rows.
