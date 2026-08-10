@@ -2,6 +2,7 @@ import { FileText, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { m } from "#/paraglide/messages";
+import { PdfOutlineDrawer } from "./pdf-outline-drawer";
 import { PdfToolbar } from "./pdf-toolbar";
 import { usePdfViewer } from "./use-pdf-viewer";
 // 官方 viewer 的样式表。它是非 Tailwind 的全局样式，但全部以 .pdfViewer / .textLayer
@@ -38,12 +39,9 @@ export default function PdfReaderView({
     onPageChange(pdf.pageNumber);
   }, [pdf.pageNumber, onPageChange]);
 
-  // 大纲抽屉与搜索条的开关。实体组件分别在 Task 5 / Task 6 接进来，这里先只管
-  // 工具栏按钮的开关语义。
+  // 大纲抽屉与搜索条的开关。搜索条的实体组件在 Task 6 接进来，这里先只立接口。
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
-  void outlineOpen;
-  void findOpen;
 
   return (
     <div className="paper-card relative flex h-[70dvh] flex-col overflow-hidden p-0 xl:sticky xl:top-24 xl:h-[calc(100dvh-8rem)]">
@@ -56,8 +54,10 @@ export default function PdfReaderView({
         pageCount={pdf.pageCount}
         scale={pdf.scale}
         hasOutline={pdf.outline.length > 0}
-        onOpenOutline={() => setOutlineOpen(true)}
-        onToggleFind={() => setFindOpen((open) => !open)}
+        outlineOpen={outlineOpen}
+        onOutlineOpenChange={setOutlineOpen}
+        findOpen={findOpen}
+        onFindOpenChange={setFindOpen}
         onGoToPage={pdf.goToPage}
         onZoomIn={pdf.zoomIn}
         onZoomOut={pdf.zoomOut}
@@ -140,6 +140,15 @@ export default function PdfReaderView({
           </output>
         )}
       </div>
+
+      {/* 抽屉自己 portal 到 body，挂在这里只是为了跟工具栏共用同一处开关状态；
+          它不参与本面板的布局，也不受 overflow-hidden 影响。 */}
+      <PdfOutlineDrawer
+        open={outlineOpen}
+        onOpenChange={setOutlineOpen}
+        items={pdf.outline}
+        onJump={pdf.goToDest}
+      />
     </div>
   );
 }

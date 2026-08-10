@@ -23,8 +23,12 @@ export interface PdfToolbarProps {
   pageCount: number;
   scale: number;
   hasOutline: boolean;
-  onOpenOutline: () => void;
-  onToggleFind: () => void;
+  /** 大纲抽屉 / 搜索条都做成受控对，而不是 onOpen/onToggle 那种单向命令：
+      按钮控制的是一块可见浮层，得能把开合状态如实写进 aria-expanded */
+  outlineOpen: boolean;
+  onOutlineOpenChange: (open: boolean) => void;
+  findOpen: boolean;
+  onFindOpenChange: (open: boolean) => void;
   onGoToPage: (page: number) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -54,8 +58,10 @@ export function PdfToolbar({
   pageCount,
   scale,
   hasOutline,
-  onOpenOutline,
-  onToggleFind,
+  outlineOpen,
+  onOutlineOpenChange,
+  findOpen,
+  onFindOpenChange,
   onGoToPage,
   onZoomIn,
   onZoomOut,
@@ -127,7 +133,8 @@ export function PdfToolbar({
             type="button"
             className={cn(TOOL_BTN, ICON_BTN, DISABLED_BTN)}
             disabled={!ready}
-            onClick={onOpenOutline}
+            onClick={() => onOutlineOpenChange(!outlineOpen)}
+            aria-expanded={outlineOpen}
             aria-label={m.pdf_outline()}
             title={m.pdf_outline()}
           >
@@ -138,7 +145,8 @@ export function PdfToolbar({
           type="button"
           className={cn(TOOL_BTN, ICON_BTN, DISABLED_BTN)}
           disabled={!ready}
-          onClick={onToggleFind}
+          onClick={() => onFindOpenChange(!findOpen)}
+          aria-expanded={findOpen}
           aria-label={m.pdf_search()}
           title={m.pdf_search()}
         >
@@ -171,8 +179,14 @@ export function PdfToolbar({
               if (event.key === "Enter") {
                 event.preventDefault();
                 commit();
-                // onBlur 会走 release()；此时 touched 仍是 true，但 commit 幂等，
-                // 重复一次不会有额外效果
+                // 必须在 blur() 之前 release()：blur 是同步派发的，而它那边的
+                // 「敲过键就提交」判据 touchedRef 此刻还是 true，commit() 里防重复
+                // 的守卫又比的是 React 的 pageNumber prop——setPageNumber 要等下一次
+                // render 才生效，同步跑的 onBlur 读到的仍是旧值，守卫不命中，于是
+                // 同一次跳页被提交两次。release() 写的是 ref，立即生效，onBlur 直接
+                // 走「没敲过 = 取消」分支。（今天两次提交碰巧无害，只因 pdfjs 的
+                // setCurrentPageNumber 会自己 early-return；大纲跳转那条路没这个运气。）
+                release();
                 event.currentTarget.blur();
                 return;
               }

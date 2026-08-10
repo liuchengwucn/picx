@@ -177,6 +177,7 @@
   "pdf_fit_width": "适应宽度",
   "pdf_page_input_label": "页码",
   "pdf_outline": "大纲",
+  "pdf_outline_close": "关闭大纲",
   "pdf_search": "在文档中搜索",
   "pdf_page_total": "共 {total} 页",
   "paper_share_title": "公开分享论文",

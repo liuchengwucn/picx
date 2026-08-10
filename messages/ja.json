@@ -177,6 +177,7 @@
   "pdf_fit_width": "幅に合わせる",
   "pdf_page_input_label": "ページ番号",
   "pdf_outline": "アウトライン",
+  "pdf_outline_close": "アウトラインを閉じる",
   "pdf_search": "文書内を検索",
   "pdf_page_total": "全 {total} ページ",
   "paper_share_description": "ほかの人もアクセスできるようにします。",
