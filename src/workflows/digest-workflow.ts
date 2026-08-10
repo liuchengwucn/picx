@@ -378,9 +378,15 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       const passedPapers = verdicts.filter((v) => v.outcome === "pass");
 
       // ── 8. 定稿（强模型）──
+      // 重试上限高于其他 LLM step：实跑网关会间歇吐空白 body（约 40s 截断，
+      // 重试可穿过），叠加模型偶发 JSON 转义错，3 次尝试不够、曾整期失败
       const synthesis: SynthesisResult = await step.do(
         "synthesize",
-        { ...LLM_RETRIES, timeout: "10 minutes" },
+        {
+          ...LLM_RETRIES,
+          retries: { ...LLM_RETRIES.retries, limit: 5 },
+          timeout: "10 minutes",
+        },
         () =>
           synthesizeDigest(env, strongModel(env).model, {
             directionName: ctx.direction.name["zh-cn"] ?? ctx.direction.slug,

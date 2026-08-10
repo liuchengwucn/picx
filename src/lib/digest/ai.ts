@@ -340,7 +340,14 @@ export async function synthesizeDigest(
     });
     const json = extractFirstJsonObject(text);
     if (!json) throw new DigestAiError("synthesize: no JSON in response");
-    return JSON.parse(json) as SynthesisResult;
+    try {
+      return JSON.parse(json) as SynthesisResult;
+    } catch (e) {
+      // 模型偶发转义错（如 title 内裸引号）；带片段抛出便于定位，由 step 重试
+      throw new DigestAiError(
+        `synthesize: malformed JSON (${e instanceof Error ? e.message : e}): ${json.slice(0, 160)}`,
+      );
+    }
   };
   const INTERNAL_REF_RE = /\b[IP]\d{1,2}\b/;
   let r = await runAgent();
