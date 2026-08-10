@@ -173,7 +173,7 @@ async function translate(summaryText, targetLanguage) {
         { role: "user", content: summaryText },
       ],
       temperature: 0.3, // 较低的温度以保持翻译准确性 (same as translateSummary)
-      max_tokens: 8000,
+      max_tokens: Number(process.env.REPAIR_MAX_TOKENS || 8000),
       // Reasoning models (e.g. DeepSeek) think by default on OpenRouter and the
       // thinking tokens eat into max_tokens, silently truncating the content —
       // the very bug this script repairs. Disable explicitly — mirrors
@@ -200,7 +200,42 @@ async function translate(summaryText, targetLanguage) {
   }
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error(`Empty translation (${targetLanguage})`);
+  assertLanguage(text, targetLanguage, "Translation");
   return text;
+}
+
+// Wrong-language guard: with reasoning disabled, DeepSeek occasionally answers
+// a ja / zh-tw translation request in (Simplified) Chinese. Charset heuristics:
+// real Japanese prose always contains kana; real Traditional text uses
+// traditional-only variants of common characters. Marked retryable — the
+// failure is stochastic, so a re-generation usually fixes it.
+const SIMP_ONLY =
+  "们与学训练过这为后华语说证观询议记读见问题动态发经将应对样师权术处别构马网络图书区队伤听欢乐东传边远运连迟错优标准确释单纯变现实获难备";
+const TRAD_ONLY =
+  "們與學訓練過這為後華語說證觀詢議記讀見問題動態發經將應對樣師權術處別構馬網絡圖書區隊傷聽歡樂東傳邊遠運連遲錯優標準確釋單純變現實獲難備";
+function countChars(text, set) {
+  let n = 0;
+  for (const c of text) if (set.includes(c)) n++;
+  return n;
+}
+function assertLanguage(text, lang, label) {
+  let msg;
+  if (lang === "ja") {
+    const kana = (text.match(/[぀-ヿ]/g) || []).length;
+    if (kana < Math.max(2, text.length / 500))
+      msg = `${label} (ja): no kana in output — model answered in the wrong language`;
+  } else if (lang === "zh-tw") {
+    if (countChars(text, SIMP_ONLY) > countChars(text, TRAD_ONLY))
+      msg = `${label} (zh-tw): output looks Simplified, not Traditional`;
+  } else if (lang === "zh-cn") {
+    if (countChars(text, TRAD_ONLY) > countChars(text, SIMP_ONLY))
+      msg = `${label} (zh-cn): output looks Traditional, not Simplified`;
+  }
+  if (msg) {
+    const err = new Error(msg);
+    err.retryable = true;
+    throw err;
+  }
 }
 
 // Translation with exponential-backoff retry on 429/5xx only (mirrors the
