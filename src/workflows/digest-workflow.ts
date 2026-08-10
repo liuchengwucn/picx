@@ -189,7 +189,8 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       // step 名带全局序号：LLM 可能产出重复 label，裸 label 会撞 step 名导致重放错乱
       const indexedAngles = scope.angles.map((angle, i) => ({ angle, i }));
       const angleGroups: CandidateItem[][] = [];
-      for (const batch of chunk(indexedAngles, 3)) {
+      // 批 2 并发：每角度 12 轮搜索 + 打分，3 并发实跑触发过网关 429
+      for (const batch of chunk(indexedAngles, 2)) {
         const results = await Promise.all(
           batch.map(({ angle, i }) =>
             step.do(
@@ -207,14 +208,26 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                   const items = found
                     .map((it) => canonicalizeCandidate(it, periodEnd))
                     .filter((it): it is CandidateItem => it !== null);
-                  const scores = await scoreSourceItems(
-                    cheapModel(env),
-                    ctx.direction.focusBrief,
-                    items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
-                  );
-                  return items
-                    .map((it, i) => ({ ...it, prescore: scores[i] }))
-                    .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
+                  try {
+                    const scores = await scoreSourceItems(
+                      cheapModel(env),
+                      ctx.direction.focusBrief,
+                      items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
+                    );
+                    return items
+                      .map((it, i) => ({ ...it, prescore: scores[i] }))
+                      .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
+                  } catch (e) {
+                    // 初筛被限流（429）等瞬时失败时不能丢弃整个角度——昂贵的搜索
+                    // 已经成功，打分只是省精读钱的优化。降级为不打分放行（prescore
+                    // 留空），由精读把关；实跑教训：本 catch 在 step 内，外层的
+                    // step 重试对这里永远不生效。
+                    console.warn(
+                      `[Digest] angle ${angle.label} prescore failed, passing unscored:`,
+                      e,
+                    );
+                    return items;
+                  }
                 } catch (e) {
                   console.error(`[Digest] angle ${angle.label} failed:`, e);
                   return [] as CandidateItem[];
