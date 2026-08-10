@@ -53,4 +53,7 @@ export interface Env {
   CRON_TRIGGER_KEY?: string;
   // news 摄入/活跃窗口小时数覆盖（可选；仅用于历史回填等运维场景，默认 72）
   NEWS_INGEST_WINDOW_HOURS?: string;
+  // Jina Reader API key（可选）：news enrich 正文补抓走 r.jina.ai。
+  // 不配置时用免费匿名档（20 RPM，按出口 IP 计）；被共享出口 IP 挤占限流时再配置提额
+  JINA_API_KEY?: string;
 }

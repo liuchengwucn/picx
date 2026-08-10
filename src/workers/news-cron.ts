@@ -26,6 +26,7 @@ import {
   normalizeKeyFacts,
   scoreRelevance,
 } from "#/lib/news/ai";
+import { EnrichRateLimitError, fetchReadable } from "#/lib/news/enrich";
 import { mergeRelated, pickRelated } from "#/lib/news/related";
 import { buildSignalsSummary } from "#/lib/news/signals";
 import {
@@ -49,6 +50,9 @@ const SIM_CANDIDATE_THRESHOLD = 0.6;
 const TOP_K = 5;
 const FILTER_BATCH_SIZE = 25;
 // 每轮各阶段上限：控制单次调用成本与时长；积压由后续轮次消化（有 log）
+const MAX_ENRICH_PER_ROUND = 20;
+// 正文补抓最多试 2 轮；耗尽后条目放行给 filter 走无正文老路（标题打分），不阻塞管线
+const ENRICH_MAX_ATTEMPTS = 2;
 const MAX_FILTER_PER_ROUND = 150;
 const MAX_EMBED_PER_ROUND = 100;
 const MAX_CLUSTER_PER_ROUND = 60;
@@ -261,7 +265,74 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
   }
 }
 
-// ---- Stage 2: filter ----
+// ---- Stage 2: enrich（正文补抓） ----
+
+/** 尚可重试正文补抓的条目谓词（excerpt 为空且失败次数未耗尽）。filter 对这类条目让路。 */
+function enrichEligible() {
+  return and(
+    isNull(newsItems.excerpt),
+    sql`coalesce(json_extract(${newsItems.extra}, '$.enrichAttempts'), 0) < ${ENRICH_MAX_ATTEMPTS}`,
+  );
+}
+
+async function enrichStage(db: Db, env: Env, deadline: number): Promise<void> {
+  const targets = await db
+    .select({
+      id: newsItems.id,
+      url: newsItems.url,
+      extra: newsItems.extra,
+    })
+    .from(newsItems)
+    .where(
+      and(
+        eq(newsItems.status, "pending"),
+        isNull(newsItems.relevanceScore),
+        enrichEligible(),
+      ),
+    )
+    // 新条目优先：同轮紧跟的 filter 就能用上正文；老条目多半已在耗尽重试的路上
+    .orderBy(desc(newsItems.fetchedAt))
+    .limit(MAX_ENRICH_PER_ROUND);
+  if (targets.length === 0) return;
+
+  let enriched = 0;
+  for (const item of targets) {
+    if (pastDeadline(deadline, "enrich")) break;
+    try {
+      const content = await fetchReadable(item.url, env.JINA_API_KEY);
+      if (content) {
+        await db
+          .update(newsItems)
+          .set({ excerpt: content })
+          .where(eq(newsItems.id, item.id));
+        enriched++;
+        continue;
+      }
+    } catch (error) {
+      if (error instanceof EnrichRateLimitError) {
+        // 限流是出口 IP 级别的，继续打只会加重；本轮收手，不计条目失败次数
+        log("enrich", "rate limited, deferring rest to next round");
+        break;
+      }
+      console.error(
+        `[NewsCron][enrich] ${item.url.slice(0, 120)} failed:`,
+        error,
+      );
+    }
+    // 抓取失败/内容过短：失败计数 +1（json_patch 保住 extra 里已有的键，如 hnId）
+    const attempts =
+      typeof item.extra?.enrichAttempts === "number"
+        ? item.extra.enrichAttempts
+        : 0;
+    const patch: Pick<SQLiteUpdateSetSource<typeof newsItems>, "extra"> = {
+      extra: sql`json_patch(coalesce(${newsItems.extra}, '{}'), ${JSON.stringify({ enrichAttempts: attempts + 1 })})`,
+    };
+    await db.update(newsItems).set(patch).where(eq(newsItems.id, item.id));
+  }
+  log("enrich", `enriched ${enriched}/${targets.length} items`);
+}
+
+// ---- Stage 3: filter ----
 
 async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
   const pending = await db
@@ -272,7 +343,14 @@ async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
     })
     .from(newsItems)
     .where(
-      and(eq(newsItems.status, "pending"), isNull(newsItems.relevanceScore)),
+      and(
+        eq(newsItems.status, "pending"),
+        isNull(newsItems.relevanceScore),
+        // 给 enrich 让路：excerpt 还空着且重试未耗尽的条目先不打分，
+        // 否则首轮补抓失败的条目会立刻被标题打分「消费」（score 非 NULL 即退出
+        // enrich 选取集），重试机制形同虚设。最长延迟 = 2 轮 cron（2 小时）。
+        sql`not (${enrichEligible()})`,
+      ),
     )
     .limit(MAX_FILTER_PER_ROUND);
   if (pending.length === 0) return;
@@ -304,7 +382,7 @@ async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
   log("filter", `scored ${scored}/${pending.length} items`);
 }
 
-// ---- Stage 3: embed ----
+// ---- Stage 4: embed ----
 
 // 配置了 REST 凭据时 embed 走 Workers AI REST API（本地 dev 关闭 remote bindings
 // 后 AI binding 不可用的回退路径）；未配置时走 binding（生产默认）
@@ -364,7 +442,7 @@ async function embedStage(db: Db, env: Env, deadline: number): Promise<void> {
   log("embed", `embedded ${embedded}/${items.length} items`);
 }
 
-// ---- Stage 4: cluster ----
+// ---- Stage 5: cluster ----
 
 async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
   // 显式投影：media/extra 可达数 KB，聚类用不到，别白拉过来
@@ -515,7 +593,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
   );
 }
 
-// ---- Stage 5: summarize ----
+// ---- Stage 6: summarize ----
 
 async function summarizeStage(
   db: Db,
@@ -606,6 +684,7 @@ async function summarizeStage(
           title: m.title,
           excerpt: m.excerpt,
           sourceName: m.sourceName,
+          publishedAt: m.publishedAt,
         })),
         config,
       );
@@ -685,7 +764,7 @@ async function summarizeStage(
     log("summarize", `processed ${done}/${targets.length} dirty stories`);
 }
 
-// ---- Stage 6: refresh HN signals ----
+// ---- Stage 7: refresh HN signals ----
 
 async function refreshStage(db: Db, env: Env, deadline: number): Promise<void> {
   // 按 extra.hnId 取活，而不是 join sourceType='hn'：HN 帖与原文 RSS 共享 canonical URL 时，
@@ -754,7 +833,7 @@ async function refreshStage(db: Db, env: Env, deadline: number): Promise<void> {
     );
 }
 
-// ---- Stage 7: archive + 清理 ----
+// ---- Stage 8: archive + 清理 ----
 
 async function archiveStage(db: Db, env: Env): Promise<void> {
   await db
@@ -798,6 +877,7 @@ export default {
     // 阶段串行、独立容错：单阶段失败不阻塞后续（所有阶段幂等，下轮 cron 续跑）
     const stages: Array<[string, () => Promise<void>]> = [
       ["fetch", () => fetchStage(db, env, deadline)],
+      ["enrich", () => enrichStage(db, env, deadline)],
       ["filter", () => filterStage(db, env, deadline)],
       ["embed", () => embedStage(db, env, deadline)],
       ["cluster", () => clusterStage(db, env, deadline)],
