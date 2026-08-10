@@ -80,6 +80,7 @@ const AI_CONFIG = {
   openaiApiKey: E.OPENAI_API_KEY,
   openaiBaseUrl: E.OPENAI_BASE_URL,
   openaiModel: E.NEWS_OPENAI_MODEL || E.OPENAI_MODEL,
+  geminiApiKey: E.GEMINI_API_KEY ?? "",
   cfApiToken: E.CF_API_TOKEN,
 };
 if (!AI_CONFIG.openaiApiKey) {
@@ -121,7 +122,7 @@ if (DRY_RUN) {
 
 let ok = 0;
 let failed = 0;
-const dirtyStoryIds = new Set();
+let dirtied = 0;
 const BATCH = 25; // 与 filterStage 的 FILTER_BATCH_SIZE 一致
 for (let i = 0; i < rows.length; i += BATCH) {
   const batch = rows.slice(i, i + BATCH);
@@ -130,6 +131,26 @@ for (let i = 0; i < rows.length; i += BATCH) {
       batch.map((row) => ({ title: row.title, excerpt: row.excerpt })),
       AI_CONFIG,
     );
+    // dirty 标记先于 gist 写入（每批 ≤25 个 id，低于 D1 100 参数上限）：
+    // 中途崩溃的最坏情况是 story 被多重摘要一次（幂等无害）。反过来（先写 gist
+    // 后标 dirty）崩溃时，重跑因 gist IS NULL 幂等选取跳过已写条目，story 永不重摘要
+    const storyIds = [
+      ...new Set(
+        batch
+          .filter(
+            (row, j) =>
+              results[j].gist && row.status === "clustered" && row.story_id,
+          )
+          .map((row) => row.story_id),
+      ),
+    ];
+    if (storyIds.length > 0) {
+      await d1(
+        `UPDATE news_stories SET dirty = 1 WHERE id IN (${storyIds.map(() => "?").join(",")})`,
+        storyIds,
+      );
+      dirtied += storyIds.length;
+    }
     for (let j = 0; j < batch.length; j++) {
       const gist = results[j].gist;
       if (!gist) {
@@ -144,9 +165,6 @@ for (let i = 0; i < rows.length; i += BATCH) {
         batch[j].id,
       ]);
       console.log(`  ${batch[j].title.slice(0, 40)} → ${gist.slice(0, 80)}`);
-      if (batch[j].status === "clustered" && batch[j].story_id) {
-        dirtyStoryIds.add(batch[j].story_id);
-      }
       ok++;
     }
   } catch (error) {
@@ -158,14 +176,6 @@ for (let i = 0; i < rows.length; i += BATCH) {
   }
 }
 
-const storyIds = [...dirtyStoryIds];
-for (let i = 0; i < storyIds.length; i += 20) {
-  const batch = storyIds.slice(i, i + 20);
-  await d1(
-    `UPDATE news_stories SET dirty = 1 WHERE id IN (${batch.map(() => "?").join(",")})`,
-    batch,
-  );
-}
 console.log(
-  `[backfill] done: ${ok} gists written, ${failed} failed, ${storyIds.length} stories marked dirty (re-summarized by next cron round)`,
+  `[backfill] done: ${ok} gists written, ${failed} failed, ${dirtied} story marks (re-summarized by next cron round)`,
 );
