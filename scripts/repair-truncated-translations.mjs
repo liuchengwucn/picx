@@ -184,7 +184,11 @@ async function translate(summaryText, targetLanguage) {
     }),
   });
   if (!res.ok) {
-    throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
+    const err = new Error(`OpenAI ${res.status}: ${await res.text()}`);
+    // Rate limits / upstream hiccups are worth retrying; anything else
+    // (auth, bad request, ...) should fail the paper immediately.
+    err.retryable = res.status === 429 || res.status >= 500;
+    throw err;
   }
   const data = await res.json();
   // finish_reason=length means the output was cut off by max_tokens — never
@@ -197,6 +201,25 @@ async function translate(summaryText, targetLanguage) {
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error(`Empty translation (${targetLanguage})`);
   return text;
+}
+
+// Translation with exponential-backoff retry on 429/5xx only (mirrors the
+// classifyWithRetry convention in backfill-categories.mjs); other errors
+// (truncation, empty result, auth, ...) propagate immediately.
+async function translateWithRetry(summaryText, targetLanguage, retries = 3) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await translate(summaryText, targetLanguage);
+    } catch (e) {
+      if (!e.retryable) throw e;
+      lastErr = e;
+      if (i < retries) {
+        await new Promise((res) => setTimeout(res, 1000 * 2 ** i));
+      }
+    }
+  }
+  throw lastErr;
 }
 
 // ---------- progress file ----------
@@ -340,7 +363,7 @@ async function main() {
         // Translate ALL listed languages first; any failure throws and the
         // whole paper is skipped (nothing written, retried next run).
         const translations = await Promise.all(
-          langs.map((l) => translate(en, l)),
+          langs.map((l) => translateWithRetry(en, l)),
         );
 
         // Merge into the freshest copy of the row and write once. Single-row

@@ -56,6 +56,11 @@ const LIMIT = Number(getOpt("--limit", "0")); // 0 = no limit
 const BATCH = Math.max(1, Number(getOpt("--batch", "10")));
 const CONCURRENCY = Math.max(1, Number(getOpt("--concurrency", "3")));
 const IDS_FILE = getOpt("--ids", ""); // JSON array of short_ids → forced mode
+if (hasFlag("--ids") && !IDS_FILE) {
+  // Never silently fall back to the default NULL-backfill mode on a typo.
+  console.error("[backfill] --ids requires a JSON file path");
+  process.exit(1);
+}
 
 // ---------- env (.dev.vars) ----------
 function loadDevVars() {
@@ -322,10 +327,13 @@ async function main() {
   if (IDS_FILE) {
     // Forced mode: regenerate tldr for an explicit short_id list, overwriting
     // whatever is stored (used for truncated tldrs — see header).
-    const shortIds = JSON.parse(readFileSync(IDS_FILE, "utf8"));
-    if (!Array.isArray(shortIds) || shortIds.length === 0) {
+    const parsed = JSON.parse(readFileSync(IDS_FILE, "utf8"));
+    if (!Array.isArray(parsed) || parsed.length === 0) {
       throw new Error("--ids file must be a non-empty JSON array of short_ids");
     }
+    // Dedupe before chunking: a short_id repeated across IN() chunks would be
+    // processed by two workers concurrently, wasting LLM calls.
+    const shortIds = [...new Set(parsed)];
     console.log(
       `[backfill] --ids mode: ${shortIds.length} short_id(s) from ${IDS_FILE}, tldr will be OVERWRITTEN.${DRY_RUN ? " (DRY RUN)" : ""}`,
     );
