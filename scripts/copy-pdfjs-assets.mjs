@@ -24,6 +24,10 @@ import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// build 传 --strict：那条路径上「拷贝失败」必须是红灯，不能是一行 warn。
+// postinstall 保持宽容——依赖装不装得上不该被这几个资源目录绑架。
+const strict = process.argv.includes("--strict");
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = join(root, "node_modules", "pdfjs-dist");
 const target = join(root, "public", "pdfjs");
@@ -58,6 +62,21 @@ try {
   if (fresh) {
     console.log(`pdfjs assets already up to date (${version})`);
   } else {
+    // 动手之前先把四个源目录都验一遍。下面是「先 rm 再 cp」，第 N 个目录失败时
+    // 前面已经删掉的那些就回不来了——失败比单纯没拷更糟。而最可预期的失败恰恰
+    // 是升级 pdfjs 时上游改名/删目录，那种情况在这里就能拦住，一个字节都不动。
+    const missing = (
+      await Promise.all(
+        DIRS.map(async (dir) => ((await exists(join(source, dir))) ? null : dir)),
+      )
+    ).filter(Boolean);
+    if (missing.length > 0) {
+      throw new Error(
+        `pdfjs-dist ${version} 里找不到这些目录: ${missing.join(", ")}。` +
+          `多半是升级后上游改了名——请同步更新本脚本的 DIRS 和 use-pdf-viewer.ts 里对应的基址。`,
+      );
+    }
+
     await mkdir(target, { recursive: true });
     // 先删再拷：升级 pdfjs 后旧版本多出来的文件不该留在 public/ 里被一起部署。
     for (const dir of DIRS) {
@@ -68,9 +87,19 @@ try {
     console.log(`pdfjs assets copied to public/pdfjs/ (${version})`);
   }
 } catch (error) {
-  // 绝不能让这里的失败挂掉整个 npm install：拿不到资源只是某类 PDF 渲染不出来，
-  // 不值得把依赖安装一起拖下水（典型场景是 --ignore-scripts 之外的裁剪安装）。
-  console.warn(
-    `pdfjs assets not copied; PDFs needing CMaps/standard fonts/wasm may render blank. ${error}`,
-  );
+  // 后果 + 该干什么，两样都要写：这条消息很可能是 CI 日志里唯一的线索。
+  const message =
+    `pdfjs assets not copied (${source} -> ${target}). ` +
+    `没有这些资源，中日文 / 未嵌字体 / 扫描件 PDF 会渲染成空白，` +
+    `且 hook 的 status 仍是 "ready"，运行时不会报任何错。` +
+    `请检查 pdfjs-dist 是否已安装、${target} 是否可写、磁盘是否已满，` +
+    `然后重跑 npm run build。原因: ${error}`;
+  if (strict) {
+    // 上面是「先 rm 再 cp」，所以中途失败还会顺手毁掉原本可用的那份副本，
+    // 比单纯没拷更糟。绿灯放行等于部署一套残缺资源集，绝不能让它过去。
+    console.error(message);
+    process.exit(1);
+  }
+  // postinstall 路径：只警告。裁剪安装拿不到资源不该把 npm install 一起拖下水。
+  console.warn(message);
 }
