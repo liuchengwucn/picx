@@ -530,5 +530,7 @@
   "feedback_reason_placeholder": "補充說明（可選）",
   "feedback_submit": "提交",
   "feedback_login_required": "登入後即可反饋",
-  "feedback_readonly": "演示帳號不可投票"
+  "feedback_readonly": "演示帳號不可投票",
+  "digest_directions_nav": "研究方向",
+  "digest_direction_all": "全部"
 }

@@ -530,5 +530,7 @@
   "feedback_reason_placeholder": "補足（任意）",
   "feedback_submit": "送信",
   "feedback_login_required": "ログインして投票",
-  "feedback_readonly": "デモでは投票不可"
+  "feedback_readonly": "デモでは投票不可",
+  "digest_directions_nav": "研究の方向性",
+  "digest_direction_all": "すべて"
 }

@@ -530,5 +530,7 @@
   "feedback_reason_placeholder": "Add a note (optional)",
   "feedback_submit": "Submit",
   "feedback_login_required": "Sign in to vote",
-  "feedback_readonly": "Voting unavailable in demo"
+  "feedback_readonly": "Voting unavailable in demo",
+  "digest_directions_nav": "Research directions",
+  "digest_direction_all": "All"
 }

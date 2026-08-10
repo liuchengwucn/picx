@@ -1,5 +1,9 @@
-import { Link } from "@tanstack/react-router";
-import { Globe, Sparkles } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { Globe, Sparkles, ThumbsUp } from "lucide-react";
+import {
+  type FeedbackAuthState,
+  FeedbackButtons,
+} from "#/components/papers/feedback-buttons";
 import { Skeleton } from "#/components/ui/skeleton";
 import { m } from "#/paraglide/messages";
 
@@ -11,6 +15,9 @@ export interface GalleryCardPaper {
   whiteboardImageR2Key: string;
   publishedAt: Date | null;
   tags?: string[];
+  /** 所属跟踪方向; 非方向论文为 null */
+  directionSlug?: string | null;
+  likeCount?: number;
 }
 
 /**
@@ -30,12 +37,30 @@ interface GalleryCardProps {
   paper: GalleryCardPaper;
   delay: string;
   onTagClick?: (tag: string) => void;
+  /** 已解析成当前语言的方向名(页面用 digest.listDirections 把 slug 映射出来) */
+  directionLabel?: string;
+  myVote?: 1 | -1;
+  /** 不传(或 pending) = 不渲染反馈按钮; 没有登录态上下文的复用点就别传 */
+  feedbackAuth?: FeedbackAuthState;
+  /** 未登录点反馈时登录后要回到的地址; 与 feedbackAuth 同时传才渲染按钮 */
+  signInCallbackURL?: string;
 }
 
-export function GalleryCard({ paper, delay, onTagClick }: GalleryCardProps) {
+export function GalleryCard({
+  paper,
+  delay,
+  onTagClick,
+  directionLabel,
+  myVote,
+  feedbackAuth,
+  signInCallbackURL,
+}: GalleryCardProps) {
+  const navigate = useNavigate();
   const imageUrl = `/api/r2/${paper.whiteboardImageR2Key}`;
   const timeAgo = getTimeAgo(paper.publishedAt);
   const visibleTags = paper.tags?.slice(0, 2) ?? [];
+  const likeCount = paper.likeCount ?? 0;
+  const directionSlug = paper.directionSlug;
 
   return (
     <Link
@@ -44,7 +69,26 @@ export function GalleryCard({ paper, delay, onTagClick }: GalleryCardProps) {
       className="rise-in group block no-underline"
       style={{ animationDelay: delay }}
     >
-      <article className="flex h-full overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(139,111,71,0.16)]">
+      <article className="relative flex h-full overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(139,111,71,0.16)]">
+        {/* 反馈按钮悬浮在右上角: 常驻会跟标题抢注意力, 所以只在 hover / 键盘聚焦时
+            浮现。has-[[data-feedback-open]] 是踩票 popover 打开期间的保命锁——浮层
+            portal 到了 body, 指针一移进去卡片就 un-hover, 只写 group-hover 的话
+            按钮会连着浮层的锚点一起淡出。(group-focus-within 救不了, 焦点被 Radix
+            移进了卡片 DOM 之外。) 移动端没有 hover, 投票走详情页。
+            自带一层浅底 + 阴影: 卡片这一角下面压着标题, 没有底会糊在字上。 */}
+        {feedbackAuth && feedbackAuth !== "pending" && signInCallbackURL ? (
+          <div className="absolute top-3 right-3 z-10 rounded-full bg-[var(--surface-strong)]/95 p-1 opacity-0 shadow-[0_2px_10px_rgba(45,42,36,0.12)] transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[data-feedback-open]]:opacity-100">
+            <FeedbackButtons
+              paperId={paper.id}
+              likeCount={likeCount}
+              myVote={myVote}
+              auth={feedbackAuth}
+              signInCallbackURL={signInCallbackURL}
+              variant="card"
+            />
+          </div>
+        ) : null}
+
         {/* Whiteboard thumbnail: anchored to top so the paper's title/headline
             (top-left of the whiteboard) stays visible at small sizes. */}
         <div className="relative w-32 shrink-0 overflow-hidden bg-[var(--parchment-warm)] sm:w-44">
@@ -60,6 +104,24 @@ export function GalleryCard({ paper, delay, onTagClick }: GalleryCardProps) {
 
         {/* Paper info */}
         <div className="flex min-w-0 flex-1 flex-col gap-2 p-4 sm:p-5">
+          {/* 方向徽标。整卡已经是 <Link>, 嵌套 <a> 是无效 HTML, 所以跟下面的 tag
+              chips 一样用 button + 逃逸点击自己跳。 */}
+          {directionSlug && directionLabel ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                navigate({
+                  to: "/gallery/d/$slug",
+                  params: { slug: directionSlug },
+                });
+              }}
+              className="w-fit max-w-full truncate rounded-full bg-[var(--parchment-warm)] px-2 py-0.5 text-[11px] font-medium text-[var(--academic-brown)] transition-colors hover:bg-[var(--academic-brown)] hover:text-white"
+            >
+              {directionLabel}
+            </button>
+          ) : null}
           <h3 className="line-clamp-3 font-serif text-lg font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)] sm:text-xl">
             {paper.title}
           </h3>
@@ -71,6 +133,16 @@ export function GalleryCard({ paper, delay, onTagClick }: GalleryCardProps) {
           {/* 底部右对齐两行: 上行时间(最右)+白板图字样, 下行 tag(右下角) */}
           <div className="mt-auto flex flex-col items-end gap-1.5 pt-1">
             <div className="flex items-center gap-3 text-xs text-[var(--ink-soft)]">
+              {/* 赞数常驻(0 不显示): 放在最左, 时间戳仍锚在最右, hover 时中间那句
+                  「白板图」淡入不会把数字推来推去 */}
+              {likeCount > 0 && (
+                <span className="inline-flex items-center gap-1">
+                  <ThumbsUp className="h-3 w-3" />
+                  <span className="tabular-nums">{likeCount}</span>
+                  {/* 光一个数字读屏念不出是什么 */}
+                  <span className="sr-only">{m.feedback_like()}</span>
+                </span>
+              )}
               <span className="inline-flex items-center gap-1.5 text-[var(--academic-brown)] opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                 <Sparkles className="h-3 w-3" />
                 <span>{m.paper_whiteboard()}</span>

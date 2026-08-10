@@ -13,6 +13,7 @@ import {
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
 import { startGitHubSignIn } from "#/lib/auth-client";
+import { GALLERY_LIST_QUERY_KEY } from "#/lib/gallery-search";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -97,6 +98,8 @@ export function FeedbackButtons({
       trpc.paper.getByShortId.pathKey(),
       trpc.paper.listPublic.pathKey(),
       trpc.digest.getIssue.pathKey(),
+      // /gallery 的无限滚动是手写 queryKey 的, 上面那个 listPublic pathKey 盖不到它
+      [GALLERY_LIST_QUERY_KEY],
     ]) {
       queryClient.invalidateQueries({ queryKey });
     }

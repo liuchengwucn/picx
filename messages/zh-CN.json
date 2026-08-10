@@ -530,5 +530,7 @@
   "feedback_reason_placeholder": "补充说明（可选）",
   "feedback_submit": "提交",
   "feedback_login_required": "登录后即可反馈",
-  "feedback_readonly": "演示账号不可投票"
+  "feedback_readonly": "演示账号不可投票",
+  "digest_directions_nav": "研究方向",
+  "digest_direction_all": "全部"
 }
