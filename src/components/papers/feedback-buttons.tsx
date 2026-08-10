@@ -138,12 +138,14 @@ export function FeedbackButtons({
    *    就落地。(是竞态而非必然: 网络慢时客户端首帧也可能仍是 pending。) 同构之后
    *    无论竞态往哪边倒都不 mismatch, 顺带让控件与赞数进 SSR HTML、消掉布局跳动。
    *
-   * 2. 首帧强行按 pending 渲染, 挂载后才翻牌 —— 因为 **React 的 hydration 不 diff
-   *    属性**: 它只对结构/文本不一致报错(并丢弃子树重渲), 属性不一致既不报错也不
-   *    修补。只做第 1 件事的话不一致会从「结构」降级成「属性」, 于是 aria-disabled
-   *    这类差异静默留在 DOM 上: 客户端两次渲染的值相同 → 没有 update 要提交 →
-   *    服务端那帧的 aria-disabled="true" 永久钉死, 按钮再也点不动(实测 5/5)。
-   *    所以首帧必须逐属性等于服务端那帧, 之后由 useHydrated 触发的那次 update 翻牌。
+   * 2. 本组件 hydration 那一次渲染强行按 pending 渲染, 之后才翻牌 —— 因为
+   *    **React 的 hydration 不 diff 属性**: 它只对结构/文本不一致报错(并丢弃子树
+   *    重渲), 属性不一致既不报错也不修补。只做第 1 件事的话, 不一致会从「结构」
+   *    降级成「属性」, 而后者是静默的: session 落在本子树 hydrate 之前时, 本组件
+   *    **第一次**渲染拿到的就已经是解析后的登录态, 它去 hydrate 一批写着
+   *    aria-disabled="true" 的服务端节点, 那个属性就永久钉死, 按钮再也点不动
+   *    (实测 5/5, 控制台一行都不报)。所以 hydration 那次渲染必须逐属性等于服务端
+   *    那帧, 由 useHydrated 之后补的那次 update 翻牌。
    *
    * 别把 hydrated 这道门当多余代码删掉: 删了 mismatch 不会回来(结构仍同构), 坏掉的
    * 是按钮永久 inert —— 一个不报错、只有开浏览器点一下才看得见的故障。
