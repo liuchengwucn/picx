@@ -1,0 +1,356 @@
+/**
+ * paper 路由的方向筛选 / 赞数 / 反馈三件套。
+ *
+ * 跑在真 SQLite 上(见 test/helpers/sqlite-d1)而非 mock 链: 改票要验的是 upsert
+ * 真走了 onConflictDoUpdate(表里只剩一行), 方向筛选要验的是 WHERE 子查询,
+ * likeCount 要验的是关联子查询只数 vote = 1 —— 这些都只有 SQL 真跑一遍才看得见。
+ */
+
+import { and, eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  directions,
+  paperFeedback,
+  paperResults,
+  papers,
+  user,
+  whiteboardImages,
+} from "#/db/schema";
+import { createTestDb } from "../../../../test/helpers/sqlite-d1";
+import { paperRouter } from "./paper";
+
+type Db = ReturnType<typeof createTestDb>["db"];
+
+const REVIEW_GUEST_USER_ID = "review-guest-user";
+
+function four(prefix: string): Record<string, string> {
+  return {
+    en: `${prefix} en`,
+    "zh-cn": `${prefix} zh-cn`,
+    "zh-tw": `${prefix} zh-tw`,
+    ja: `${prefix} ja`,
+  };
+}
+
+async function seed(db: Db) {
+  const now = new Date();
+  await db.insert(user).values(
+    ["u1", "u2", REVIEW_GUEST_USER_ID].map((id) => ({
+      id,
+      name: id,
+      email: `${id}@example.com`,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
+
+  await db.insert(directions).values([
+    {
+      id: "dir-a",
+      slug: "ai4formath",
+      name: four("AI4Math"),
+      focusBrief: "自动定理证明",
+      isActive: true,
+      sortOrder: 0,
+    },
+    {
+      id: "dir-b",
+      slug: "agents",
+      name: four("Agents"),
+      focusBrief: "智能体",
+      isActive: true,
+      sortOrder: 1,
+    },
+  ]);
+
+  const paperRows: Array<{
+    id: string;
+    directionId: string | null;
+    isPublic: boolean;
+    day: number;
+  }> = [
+    { id: "p-a1", directionId: "dir-a", isPublic: true, day: 1 },
+    { id: "p-a2", directionId: "dir-a", isPublic: true, day: 2 },
+    { id: "p-b1", directionId: "dir-b", isPublic: true, day: 3 },
+    // 无方向(HF 爆款兜底 / 历史论文): directionSlug 应为 null, 且不被任何方向筛出
+    { id: "p-none", directionId: null, isPublic: true, day: 4 },
+    // 未公开: 不能被投票(否则可用 NOT_FOUND/成功 探测他人私有论文)
+    { id: "p-private", directionId: "dir-a", isPublic: false, day: 5 },
+  ];
+
+  for (const row of paperRows) {
+    await db.insert(papers).values({
+      id: row.id,
+      shortId: `sid-${row.id}`,
+      userId: "u1",
+      title: `Paper ${row.id}`,
+      sourceType: "arxiv",
+      pdfR2Key: `papers/${row.id}.pdf`,
+      fileSize: 1,
+      status: "completed",
+      isPublic: row.isPublic,
+      isListedInGallery: true,
+      directionId: row.directionId,
+      publishedAt: new Date(Date.UTC(2026, 7, row.day)),
+    });
+    await db.insert(whiteboardImages).values({
+      id: `wb-${row.id}`,
+      paperId: row.id,
+      imageR2Key: `wb/${row.id}.png`,
+      isDefault: true,
+    });
+  }
+
+  await db.insert(paperResults).values({
+    id: "pr-a1",
+    paperId: "p-a1",
+    summaries: four("summary"),
+    tldr: four("tldr a1"),
+  });
+
+  // p-a1: 一个赞(u2) + 一个踩(guest) => likeCount 必须是 1, 不是 2
+  await db.insert(paperFeedback).values([
+    { id: "fb-1", paperId: "p-a1", userId: "u2", vote: 1 },
+    { id: "fb-2", paperId: "p-a1", userId: REVIEW_GUEST_USER_ID, vote: -1 },
+  ]);
+}
+
+let db: Db;
+
+/** 传 null 模拟未登录 */
+function createCaller(userId: string | null) {
+  return paperRouter.createCaller({
+    db,
+    headers: new Headers(),
+    env: {},
+    auth: {
+      api: {
+        getSession: vi
+          .fn()
+          .mockResolvedValue(userId ? { user: { id: userId } } : null),
+      },
+    },
+  } as never);
+}
+
+function myFeedbackRows(paperId: string, userId: string) {
+  return db
+    .select()
+    .from(paperFeedback)
+    .where(
+      and(eq(paperFeedback.paperId, paperId), eq(paperFeedback.userId, userId)),
+    );
+}
+
+beforeEach(async () => {
+  db = createTestDb().db;
+  await seed(db);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("paper.setFeedback", () => {
+  it("rejects anonymous callers", async () => {
+    await expect(
+      createCaller(null).setFeedback({ paperId: "p-a1", vote: 1 }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    // 未登录不该在库里留下任何痕迹
+    await expect(db.select().from(paperFeedback)).resolves.toHaveLength(2);
+  });
+
+  it("rejects papers that are not publicly listed", async () => {
+    await expect(
+      createCaller("u1").setFeedback({ paperId: "p-private", vote: 1 }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      createCaller("u1").setFeedback({ paperId: "does-not-exist", vote: 1 }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(myFeedbackRows("p-private", "u1")).resolves.toHaveLength(0);
+  });
+
+  it("upserts instead of inserting when the same user votes again", async () => {
+    const caller = createCaller("u1");
+    await caller.setFeedback({ paperId: "p-a1", vote: 1 });
+    await caller.setFeedback({
+      paperId: "p-a1",
+      vote: -1,
+      reasonPreset: "incremental",
+      reasonText: "只是把 baseline 换了个数据集",
+    });
+
+    const rows = await myFeedbackRows("p-a1", "u1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      vote: -1,
+      reasonPreset: "incremental",
+      reasonText: "只是把 baseline 换了个数据集",
+    });
+    // 别人的反馈没被 upsert 顺手覆盖
+    await expect(myFeedbackRows("p-a1", "u2")).resolves.toMatchObject([
+      { vote: 1 },
+    ]);
+  });
+
+  it("clears a stale reason when the new vote carries none", async () => {
+    const caller = createCaller("u1");
+    await caller.setFeedback({
+      paperId: "p-a1",
+      vote: -1,
+      reasonPreset: "hype",
+      reasonText: "标题党",
+    });
+    await caller.setFeedback({ paperId: "p-a1", vote: 1 });
+
+    await expect(myFeedbackRows("p-a1", "u1")).resolves.toMatchObject([
+      { vote: 1, reasonPreset: null, reasonText: null },
+    ]);
+  });
+
+  it("rejects a reason longer than 500 characters", async () => {
+    await expect(
+      createCaller("u1").setFeedback({
+        paperId: "p-a1",
+        vote: -1,
+        reasonText: "x".repeat(501),
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(myFeedbackRows("p-a1", "u1")).resolves.toHaveLength(0);
+  });
+
+  it("rejects the read-only review guest", async () => {
+    vi.stubEnv("VITE_ENABLE_REVIEW_GUEST", "1");
+    await expect(
+      createCaller(REVIEW_GUEST_USER_ID).setFeedback({
+        paperId: "p-a2",
+        vote: 1,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      myFeedbackRows("p-a2", REVIEW_GUEST_USER_ID),
+    ).resolves.toHaveLength(0);
+  });
+});
+
+describe("paper.clearFeedback", () => {
+  it("removes only the caller's own vote", async () => {
+    const caller = createCaller("u1");
+    await caller.setFeedback({ paperId: "p-a1", vote: 1 });
+    await caller.setFeedback({ paperId: "p-a2", vote: 1 });
+
+    await expect(caller.clearFeedback({ paperId: "p-a1" })).resolves.toEqual({
+      ok: true,
+    });
+
+    await expect(
+      caller.getMyFeedback({ paperIds: ["p-a1", "p-a2"] }),
+    ).resolves.toEqual({ "p-a2": { vote: 1, reasonPreset: null } });
+    // 同一篇论文上别人的赞不受影响
+    await expect(myFeedbackRows("p-a1", "u2")).resolves.toHaveLength(1);
+  });
+
+  it("is idempotent when there is nothing to clear", async () => {
+    await expect(
+      createCaller("u1").clearFeedback({ paperId: "p-a1" }),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it("rejects the read-only review guest", async () => {
+    vi.stubEnv("VITE_ENABLE_REVIEW_GUEST", "1");
+    await expect(
+      createCaller(REVIEW_GUEST_USER_ID).clearFeedback({ paperId: "p-a1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    // guest 原有的踩票还在
+    await expect(
+      myFeedbackRows("p-a1", REVIEW_GUEST_USER_ID),
+    ).resolves.toHaveLength(1);
+  });
+});
+
+describe("paper.getMyFeedback", () => {
+  it("returns a map keyed by paper id for the caller only", async () => {
+    const caller = createCaller("u1");
+    await caller.setFeedback({
+      paperId: "p-a1",
+      vote: -1,
+      reasonPreset: "seen",
+    });
+
+    await expect(
+      caller.getMyFeedback({ paperIds: ["p-a1", "p-a2", "p-b1"] }),
+    ).resolves.toEqual({ "p-a1": { vote: -1, reasonPreset: "seen" } });
+    // u2 的赞不会串到 u1 的结果里, 反之亦然
+    await expect(
+      createCaller("u2").getMyFeedback({ paperIds: ["p-a1"] }),
+    ).resolves.toEqual({ "p-a1": { vote: 1, reasonPreset: null } });
+  });
+
+  it("rejects anonymous callers and oversized batches", async () => {
+    await expect(
+      createCaller(null).getMyFeedback({ paperIds: ["p-a1"] }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    // D1 单查询绑定参数上限 100, 批量上限必须挡在 90
+    await expect(
+      createCaller("u1").getMyFeedback({
+        paperIds: Array.from({ length: 91 }, (_, i) => `p-${i}`),
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("paper.listPublic direction filter", () => {
+  it("returns only papers of the requested direction", async () => {
+    const caller = createCaller(null);
+    const result = await caller.listPublic({ direction: "ai4formath" });
+
+    // p-private 不公开, p-b1/p-none 不属于该方向
+    expect(result.papers.map((p) => p.id)).toEqual(["p-a2", "p-a1"]);
+    expect(result.total).toBe(2);
+    expect(result.papers.every((p) => p.directionSlug === "ai4formath")).toBe(
+      true,
+    );
+  });
+
+  it("returns an empty page for an unknown direction slug", async () => {
+    const result = await createCaller(null).listPublic({ direction: "nope" });
+    expect(result.papers).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  it("keeps unfiltered listing intact, with likeCount and directionSlug", async () => {
+    const result = await createCaller(null).listPublic({ locale: "zh-CN" });
+
+    expect(result.total).toBe(4);
+    expect(result.papers.map((p) => p.id)).toEqual([
+      "p-none",
+      "p-b1",
+      "p-a2",
+      "p-a1",
+    ]);
+    // 一个赞 + 一个踩 => likeCount 只数 vote = 1
+    expect(result.papers.at(-1)).toMatchObject({
+      id: "p-a1",
+      directionSlug: "ai4formath",
+      likeCount: 1,
+      tldr: "tldr a1 zh-cn",
+    });
+    // 无方向论文走 leftJoin 保留, slug 为 null
+    expect(result.papers[0]).toMatchObject({
+      id: "p-none",
+      directionSlug: null,
+      likeCount: 0,
+    });
+  });
+
+  it("still honours the other filters alongside direction", async () => {
+    const caller = createCaller(null);
+    await expect(
+      caller.listPublic({ direction: "ai4formath", q: "p-a2" }),
+    ).resolves.toMatchObject({ total: 1, papers: [{ id: "p-a2" }] });
+    // q 命中的论文属于别的方向时, 两个条件是 AND
+    await expect(
+      caller.listPublic({ direction: "ai4formath", q: "p-b1" }),
+    ).resolves.toMatchObject({ total: 0, papers: [] });
+  });
+});

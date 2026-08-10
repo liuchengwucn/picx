@@ -15,7 +15,9 @@ import {
 import { z } from "zod";
 import {
   creditTransactions,
+  directions,
   paperContents,
+  paperFeedback,
   paperResults,
   papers,
   user,
@@ -1095,6 +1097,7 @@ export const paperRouter = router({
         categories: z.array(z.string()).optional(),
         tags: z.array(z.string()).optional(),
         sort: z.enum(["recent", "popular"]).optional(),
+        direction: z.string().max(100).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -1110,6 +1113,20 @@ export const paperRouter = router({
         eq(papers.status, "completed"),
         isNull(papers.deletedAt),
       ];
+
+      // 方向过滤: slug 用子查询解析成 direction id。子查询不占绑定参数上限,
+      // 也绕开 Drizzle 单表插值剥表限定符的坑, 且与下面两处 join 相互独立。
+      if (input.direction) {
+        baseConditions.push(
+          inArray(
+            papers.directionId,
+            ctx.db
+              .select({ id: directions.id })
+              .from(directions)
+              .where(eq(directions.slug, input.direction)),
+          ),
+        );
+      }
 
       // 「最热」只看最近一个月(滚动 30 天): upvotes 仅对近期 HF 论文有意义,
       // 限定时间窗让「最热」= 当月热门, 而非被历史高赞长期霸榜。
@@ -1165,6 +1182,9 @@ export const paperRouter = router({
           tldr: paperResults.tldr,
           summaries: paperResults.summaries,
           tags: paperResults.tags,
+          directionSlug: directions.slug,
+          // 多表查询里插值 Column 保留表限定符(单表才会被剥), 关联子查询成立
+          likeCount: sql<number>`(select count(*) from paper_feedback pf where pf.paper_id = ${papers.id} and pf.vote = 1)`,
         })
         .from(papers)
         .innerJoin(
@@ -1175,6 +1195,7 @@ export const paperRouter = router({
           ),
         )
         .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
+        .leftJoin(directions, eq(papers.directionId, directions.id))
         .where(and(...baseConditions))
         // 一篇论文可能对应多张默认白板 / 多行 paper_results(历史脏数据或重复处理),
         // 按 papers.id 聚合, 保证每篇论文只返回一行, 避免卡片重复(笛卡尔积扇出)。
@@ -1195,6 +1216,8 @@ export const paperRouter = router({
         whiteboardImageR2Key: row.whiteboardImageR2Key,
         tldr: resolveTldr(row.tldr, row.summaries, localeKey),
         tags: row.tags ?? [],
+        directionSlug: row.directionSlug,
+        likeCount: row.likeCount,
       }));
 
       const [totalResult] = await ctx.db
@@ -1215,6 +1238,116 @@ export const paperRouter = router({
         papers: publicPapers,
         total: totalResult.count,
       };
+    }),
+
+  /**
+   * 给一篇公开论文投票(赞/踩), 可带否决理由。
+   * 反馈会被每周简报的 Scope 步骤当作口味 few-shot 读取。
+   * 同一 (paper, user) 只保留一行, 再次调用即改票。
+   */
+  setFeedback: protectedProcedure
+    .input(
+      z.object({
+        paperId: z.string(),
+        vote: z.union([z.literal(1), z.literal(-1)]),
+        reasonPreset: z
+          .enum(["off-topic", "incremental", "hype", "seen", "other"])
+          .optional(),
+        reasonText: z.string().trim().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
+
+      // 只允许对画廊里可见的论文投票(否则可探测他人私有论文是否存在)
+      const [target] = await ctx.db
+        .select({ id: papers.id })
+        .from(papers)
+        .where(
+          and(
+            eq(papers.id, input.paperId),
+            eq(papers.isPublic, true),
+            eq(papers.isListedInGallery, true),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!target) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Paper not found",
+        });
+      }
+
+      // D1 无事务; 单行 upsert 天然原子, 改票不需要先删后插
+      await ctx.db
+        .insert(paperFeedback)
+        .values({
+          paperId: input.paperId,
+          userId: ctx.session.user.id,
+          vote: input.vote,
+          reasonPreset: input.reasonPreset ?? null,
+          reasonText: input.reasonText || null,
+        })
+        .onConflictDoUpdate({
+          target: [paperFeedback.paperId, paperFeedback.userId],
+          set: {
+            vote: input.vote,
+            reasonPreset: input.reasonPreset ?? null,
+            reasonText: input.reasonText || null,
+            updatedAt: new Date(),
+          },
+        });
+
+      return { ok: true };
+    }),
+
+  /** 撤销自己对某篇论文的投票(幂等: 没投过也返回 ok) */
+  clearFeedback: protectedProcedure
+    .input(z.object({ paperId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      assertGuestWriteAllowed(ctx.session);
+
+      await ctx.db
+        .delete(paperFeedback)
+        .where(
+          and(
+            eq(paperFeedback.paperId, input.paperId),
+            eq(paperFeedback.userId, ctx.session.user.id),
+          ),
+        );
+
+      return { ok: true };
+    }),
+
+  /**
+   * 批量查当前用户对一组论文的投票, 供列表页一次点亮所有反馈按钮。
+   * 上限 90: inArray 每个 id 占一个绑定参数, 给 D1 单查询 100 个的上限留余量。
+   */
+  getMyFeedback: protectedProcedure
+    .input(z.object({ paperIds: z.array(z.string()).min(1).max(90) }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          paperId: paperFeedback.paperId,
+          vote: paperFeedback.vote,
+          reasonPreset: paperFeedback.reasonPreset,
+        })
+        .from(paperFeedback)
+        .where(
+          and(
+            eq(paperFeedback.userId, ctx.session.user.id),
+            inArray(paperFeedback.paperId, input.paperIds),
+          ),
+        );
+
+      return Object.fromEntries(
+        rows.map((row) => [
+          row.paperId,
+          { vote: row.vote, reasonPreset: row.reasonPreset },
+        ]),
+      ) as Record<string, { vote: number; reasonPreset: string | null }>;
     }),
 
   /**
