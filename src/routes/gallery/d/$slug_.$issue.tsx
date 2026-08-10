@@ -1,24 +1,380 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import {
+  createFileRoute,
+  isNotFound,
+  Link,
+  notFound,
+} from "@tanstack/react-router";
+import type { inferRouterOutputs } from "@trpc/server";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { type ReactNode, useMemo } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { DigestPaperCard } from "#/components/digest/digest-paper-card";
+import { Skeleton } from "#/components/ui/skeleton";
+import { usePaperFeedback } from "#/hooks/use-paper-feedback";
+import { useTRPC } from "#/integrations/trpc/react";
+import type { TRPCRouter } from "#/integrations/trpc/router";
+import { excerptFromMarkdown, mapIssueToLocale } from "#/lib/digest/present";
+import { SITE_URL } from "#/lib/site-url";
+import { normalizeLocaleKey } from "#/lib/tldr";
+import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
 
-// 占位路由: 只为让方向主页/往期列表的 <Link to="/gallery/d/$slug/$issue"> 在
-// routeTree 里有落点。Task 6 会替换为完整实现(简报正文 SSR + DigestPaperCard +
-// 上下期导航 + SEO meta), 这里刻意不做。
-//
-// 文件名的 `$slug_` 尾下划线是 TanStack Router 的「解除嵌套」语法: 简报页是独立
-// 整页, 不渲染进方向主页的 Outlet。
+interface AppEnvBindings {
+  DB: D1Database;
+}
+
+/** SSR 直读 D1 那份必须与 digest.getIssue 的输出同构, 才能当 react-query 的 initialData */
+type IssueOutput = NonNullable<
+  inferRouterOutputs<TRPCRouter>["digest"]["getIssue"]
+>;
+
 export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
-  component: DigestIssuePagePlaceholder,
+  component: DigestIssuePage,
+  // 两者刻意分开: 「这期不存在」与「这次没读出来」对读者是两件事, 用同一个组件糊过去
+  // 就等于把故障说成 404。
+  notFoundComponent: IssueNotFound,
+  errorComponent: IssueLoadFailed,
+  loader: async ({ context, params }) => {
+    // 路由段是任意字符串, 先收窄成正整数期号: 别拿 NaN / "1e3" 去查库, 也别让
+    // /gallery/d/x/abc 这种地址进到渲染层。
+    const issueNumber = Number(params.issue);
+    if (!Number.isInteger(issueNumber) || issueNumber < 1) throw notFound();
+
+    if (import.meta.env.SSR) {
+      // 简报正文就是本页的全部内容, 必须进首个 HTML 响应(爬虫 / 分享卡片都只看它)。
+      // 服务端不能走 queryClient.ensureQueryData: tRPC client 在 SSR 侧指向
+      // localhost, 部署到 Workers 里发不出去; 而且那个 queryClient 是模块级单例,
+      // 在 isolate 内跨请求共享, 服务端往里写缓存有串号风险。与 /p /news 一致 —— 直读 D1。
+      const localeKey = normalizeLocaleKey(getLocale());
+      try {
+        const { env } = await import("cloudflare:workers");
+        const { drizzle } = await import("drizzle-orm/d1");
+        const { getPublishedIssueDetail } = await import("#/lib/digest/store");
+        const db = drizzle((env as typeof env & AppEnvBindings).DB);
+        const issue = await getPublishedIssueDetail(
+          db,
+          params.slug,
+          issueNumber,
+        );
+        // 查不到(方向下线 / 期未发布 / 期号越界)→ 真 404 状态码, 不是 200 空壳
+        if (!issue) throw notFound();
+        // 显式标注类型 = 编译期钉住「与 getIssue 输出同构」这条契约
+        const ssrData: IssueOutput = mapIssueToLocale(issue, localeKey);
+        return { ssrData, ssrLocaleKey: localeKey, ssrFailed: false };
+      } catch (error) {
+        // notFound 必须穿透
+        if (isNotFound(error)) throw error;
+        // D1 不可用等: 降级为纯 CSR(客户端那次查询能把正文补回来), 但不能悄悄降级 ——
+        // 故障要留日志, 页面也要照实说「没读出来」, 既不能装成 404, 也不能装成
+        // 「简报还没生成」。
+        console.error("[digest issue loader] SSR D1 read failed", error);
+        return { ssrData: null, ssrLocaleKey: localeKey, ssrFailed: true };
+      }
+    }
+
+    const ssrData = await context.queryClient.ensureQueryData(
+      context.trpc.digest.getIssue.queryOptions({
+        slug: params.slug,
+        issueNumber,
+        locale: getLocale(),
+      }),
+    );
+    if (!ssrData) throw notFound();
+    return {
+      ssrData,
+      ssrLocaleKey: normalizeLocaleKey(getLocale()),
+      ssrFailed: false,
+    };
+  },
+  head: ({ loaderData, params }) => {
+    const issue = loaderData?.ssrData;
+    if (!issue) {
+      // 走到这里只有两种情况: SSR 读失败(页面是「加载失败」文案)与 404(loaderData
+      // 为空)。两种都不该进索引, 也都不发 canonical —— 期号可能压根不是数字。
+      return {
+        meta: [{ title: "PicX" }, { name: "robots", content: "noindex" }],
+      };
+    }
+
+    // canonical 用解析后的期号: /007 与 /7 是同一期, 只让一个进索引
+    const url = `${SITE_URL}/gallery/d/${params.slug}/${issue.issueNumber}`;
+    const title = `${issue.title} | ${issue.directionName} | PicX`;
+    // 正文首段纯文本当描述; 抽不出来(正文只有标题行)就整组略过, 不发空 description
+    const description = excerptFromMarkdown(issue.content);
+    const meta: Array<
+      | { title: string }
+      | { name: string; content: string }
+      | {
+          property: string;
+          content: string;
+        }
+    > = [
+      { title },
+      { property: "og:title", content: title },
+      { property: "og:type", content: "article" },
+      { property: "og:url", content: url },
+      { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: title },
+    ];
+    if (description) {
+      meta.push(
+        { name: "description", content: description },
+        { property: "og:description", content: description },
+        { name: "twitter:description", content: description },
+      );
+    }
+    return { meta, links: [{ rel: "canonical", href: url }] };
+  },
 });
 
-function DigestIssuePagePlaceholder() {
+// 模块级常量: 每次渲染新建数组/对象会让 react-markdown 认为插件变了, 白重跑一遍解析。
+// 不挂 remark-math / rehype-katex 是有意的 —— 简报正文是散文, 里面「$120M 融资」这类
+// 金额会被单 $ 定界符吃成公式; 真要上公式得先在生成侧约定写法。
+const REMARK_PLUGINS = [remarkGfm];
+const MARKDOWN_COMPONENTS: Components = {
+  // 正文里的链接一律指向站外原始出处(生成时就要求每个论断挂 [标题](URL)),
+  // 新标签页打开, 并断掉 window.opener。
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
+};
+
+function DigestIssuePage() {
   const { slug, issue } = Route.useParams();
+  const loaderData = Route.useLoaderData();
+  const trpc = useTRPC();
+  const locale = getLocale();
+  const localeKey = normalizeLocaleKey(locale);
+  const issueNumber = Number(issue);
+
+  const ssrData = loaderData.ssrData ?? undefined;
+  // SSR 那份永远是 baseLocale 渲染的(全站 locale 都在客户端解析)。语言对不上时必须
+  // 立刻重取, 否则默认 staleTime(60s) 会把英文正文按住一分钟; 对得上就别白发请求。
+  const staleSsrLocale =
+    ssrData !== undefined && loaderData.ssrLocaleKey !== localeKey;
+  const query = useQuery({
+    ...trpc.digest.getIssue.queryOptions({ slug, issueNumber, locale }),
+    initialData: ssrData,
+    staleTime: staleSsrLocale ? 0 : undefined,
+  });
+  /**
+   * 服务端刻意不看 react-query 的缓存, 只认 loader 刚从 D1 读出来的那份。
+   *
+   * 那个 queryClient 是 root-provider 里的模块级单例, 在 Worker isolate 内跨请求共享;
+   * 而服务端渲染既不会触发 refetch(没有 effect)也不会 gc(observer 永不卸载), 于是
+   * 第一次 SSR 用 initialData 写进去的那一版正文会一直被后续所有请求读到 —— 实测改库
+   * 后必须重启进程才变。读缓存等于把「本进程第一次见到的内容」当永久答案。
+   *
+   * 客户端第一帧走的是同一份数据(initialData 就是 loader 那份, 且这个查询没有被
+   * dehydrate 到 HTML 里), 所以两侧结构一致, 不会 hydration 不匹配。
+   */
+  const data = import.meta.env.SSR ? loaderData.ssrData : query.data;
+
+  const papers = data?.papers ?? [];
+  // 登录态口径 / 登录回跳 / 「我的投票」批量取都在 hook 里, 三个页面共用
+  const { feedbackAuth, signInCallbackURL, myVoteByPaperId } = usePaperFeedback(
+    papers.map((p) => p.id),
+  );
+  const dateFormat = useMemo(
+    () => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }),
+    [locale],
+  );
+
+  // 这三条的顺序有讲究(都放在所有 hook 之后, 免得抛出那次渲染的 hook 数量对不上):
+  //
+  // 1. SSR 读失败 → 照实说「没读出来」。必须排在 data === null 之前: 此时 ssrData
+  //    也是 null, 落到下面那条就会把一次故障说成「这期不存在」, 还顺手回 404 状态码。
+  //    服务端与客户端首帧都走这里(ssrFailed 是 loader 数据, 两侧一致), 客户端那次
+  //    查询回来后正文会自己补上。
+  if (loaderData.ssrFailed && !data) return <IssueLoadFailed />;
+  if (query.isError) return <IssueLoadFailed />;
+  // 2. 查询明确返回 null = 这期不存在或未发布。loader 已经拦过一次, 这里兜的是
+  //    loader 之后这期刚被撤下。
+  if (data === null) throw notFound();
+  if (!data) return <IssueSkeleton />;
+
+  const period = dateFormat.formatRange(
+    new Date(data.periodStart),
+    new Date(data.periodEnd),
+  );
+
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
-      <div className="page-wrap">
-        <h1 className="font-serif text-3xl font-bold text-[var(--ink)]">
-          {slug} #{issue}
-        </h1>
-        <p className="mt-2 text-[var(--ink-soft)]">Coming soon</p>
+      <div className="page-wrap max-w-3xl">
+        <article className="rise-in">
+          {/* 刊头一行, 与方向页那张简报卡同一套语法: 栏目(可点回方向页) → 期号 →
+              细线 → 覆盖周期。期号和周期是读者真正要扫的两个数, 给它们一条独立的线。 */}
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <Link
+              to="/gallery/d/$slug"
+              params={{ slug }}
+              // exact 是必须的: 默认前缀匹配会把方向页这条链接在本页判成 active,
+              // Link 于是给一个指向别处的链接挂上 aria-current="page"。
+              activeOptions={{ exact: true }}
+              className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--academic-brown)] no-underline transition-colors hover:text-[var(--academic-brown-deep)]"
+            >
+              {data.directionName}
+            </Link>
+            <span className="shrink-0 rounded-full border border-[var(--gold)]/60 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--academic-brown-deep)]">
+              {m.digest_issue_n({ n: String(data.issueNumber) })}
+            </span>
+            <span
+              aria-hidden
+              className="h-px min-w-2 flex-1 bg-[var(--academic-brown)]/20"
+            />
+            <span className="shrink-0 text-xs text-[var(--ink-soft)]">
+              {period}
+            </span>
+          </div>
+
+          <h1 className="mt-3 font-serif text-3xl font-bold leading-tight text-[var(--ink)] sm:text-4xl">
+            {data.title}
+          </h1>
+
+          {data.content ? (
+            // 正文里的小标题跟着刊头/大标题一起用衬线: .prose 默认继承正文无衬线,
+            // 否则同一页上「本期看点」是无衬线、下面「本期论文」是衬线, 像两套系统。
+            // typography 插件的 `.prose :where(h2)` 是零特异性, 这里的后代选择器盖得住。
+            <div className="prose prose-sm mt-6 max-w-none break-words text-[var(--ink)] [&_h1]:font-serif [&_h2]:font-serif [&_h3]:font-serif">
+              <ReactMarkdown
+                remarkPlugins={REMARK_PLUGINS}
+                components={MARKDOWN_COMPONENTS}
+              >
+                {data.content}
+              </ReactMarkdown>
+            </div>
+          ) : null}
+
+          {papers.length > 0 ? (
+            <section className="mt-12">
+              <h2 className="font-serif text-xl font-semibold text-[var(--ink)]">
+                {m.digest_papers_heading()}
+              </h2>
+              {/* <ol> 而不是 <ul>: rank 是编辑排序, 顺序本身带信息 */}
+              <ol className="mt-5 space-y-5">
+                {papers.map((paper) => (
+                  <DigestPaperCard
+                    key={paper.id}
+                    paper={paper}
+                    myVote={myVoteByPaperId.get(paper.id)}
+                    auth={feedbackAuth}
+                    signInCallbackURL={signInCallbackURL}
+                  />
+                ))}
+              </ol>
+            </section>
+          ) : null}
+
+          <nav className="mt-14 flex items-center justify-between gap-4 border-t border-[var(--line)] pt-6 text-sm">
+            <div className="min-w-0 flex-1">
+              {data.prevIssue !== null ? (
+                <Link
+                  to="/gallery/d/$slug/$issue"
+                  params={{ slug, issue: String(data.prevIssue) }}
+                  className="group inline-flex items-center gap-1.5 text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+                  {m.digest_prev_issue()}
+                </Link>
+              ) : null}
+            </div>
+            <Link
+              to="/gallery/d/$slug"
+              params={{ slug }}
+              activeOptions={{ exact: true }}
+              className="shrink-0 text-[var(--academic-brown)] no-underline hover:underline"
+            >
+              {m.digest_back_to_direction()}
+            </Link>
+            <div className="flex min-w-0 flex-1 justify-end">
+              {data.nextIssue !== null ? (
+                <Link
+                  to="/gallery/d/$slug/$issue"
+                  params={{ slug, issue: String(data.nextIssue) }}
+                  className="group inline-flex items-center gap-1.5 text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+                >
+                  {m.digest_next_issue()}
+                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              ) : null}
+            </div>
+          </nav>
+        </article>
+      </div>
+    </main>
+  );
+}
+
+/**
+ * 「这次没读出来」。实线边 + 常规底色, 与方向页空态卡的虚线边区分开: 虚线 = 内容还
+ * 没生成, 实线 = 内容应该在但这次没取到。文案也不与 404 共用。
+ */
+function IssueLoadFailed() {
+  const { slug } = Route.useParams();
+  return (
+    <IssuePanel slug={slug}>
+      <p className="text-sm text-[var(--ink-soft)]">
+        {m.digest_issue_load_failed()}
+      </p>
+    </IssuePanel>
+  );
+}
+
+/** 期号不存在 / 这期还没发布(或已撤下)。 */
+function IssueNotFound() {
+  const { slug } = Route.useParams();
+  return (
+    <IssuePanel slug={slug}>
+      <h1 className="font-serif text-2xl font-bold text-[var(--ink)]">404</h1>
+      <p className="mt-2 text-sm text-[var(--ink-soft)]">
+        {m.digest_issue_not_found()}
+      </p>
+    </IssuePanel>
+  );
+}
+
+function IssuePanel({ slug, children }: { slug: string; children: ReactNode }) {
+  return (
+    <main className="min-h-screen bg-[var(--bg)] py-8">
+      <div className="page-wrap max-w-3xl">
+        <div className="rise-in rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-6 text-center">
+          {children}
+          <Link
+            to="/gallery/d/$slug"
+            params={{ slug }}
+            activeOptions={{ exact: true }}
+            className="mt-5 inline-flex items-center gap-1.5 text-sm text-[var(--academic-brown)] no-underline hover:underline"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {m.digest_back_to_direction()}
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function IssueSkeleton() {
+  return (
+    <main className="min-h-screen bg-[var(--bg)] py-8">
+      <div className="page-wrap max-w-3xl">
+        <Skeleton className="h-3 w-56" />
+        <Skeleton className="mt-4 h-10 w-4/5" />
+        <div className="mt-6 space-y-2.5">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-11/12" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+        <Skeleton className="mt-12 h-6 w-40" />
+        <div className="mt-5 space-y-5">
+          <Skeleton className="h-36 w-full rounded-2xl" />
+          <Skeleton className="h-36 w-full rounded-2xl" />
+        </div>
       </div>
     </main>
   );

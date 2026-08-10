@@ -541,5 +541,12 @@
   "digest_read_full": "阅读全文",
   "digest_empty_issue": "首期简报生成中",
   "digest_current_focus": "当前关注",
-  "digest_load_failed": "方向内容加载失败，请重试。"
+  "digest_load_failed": "方向内容加载失败，请重试。",
+  "digest_papers_heading": "本期论文",
+  "digest_prev_issue": "上一期",
+  "digest_next_issue": "下一期",
+  "digest_editor_note": "本期推荐语",
+  "digest_issue_load_failed": "简报正文加载失败，请重试。",
+  "digest_issue_not_found": "这期简报不存在，或还没有发布。",
+  "digest_back_to_direction": "全部期次"
 }

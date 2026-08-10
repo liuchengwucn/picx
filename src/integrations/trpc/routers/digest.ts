@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { excerptFromMarkdown, mapIssueToLocale } from "#/lib/digest/present";
 import {
   getDirectionDetailBySlug,
   getPublishedIssueDetail,
@@ -8,22 +9,6 @@ import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 import { publicProcedure, router } from "../init";
 
 const localeInput = z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional();
-
-/** 从简报 markdown 正文抽首段纯文本做摘要（跳过标题行/空行，截 160 字符） */
-export function excerptFromMarkdown(md: string | null | undefined): string {
-  if (!md) return "";
-  for (const line of md.split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    // 剥完标记（引用号/强调符）可能留下首尾空白，再 trim 一次
-    const plain = t
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .replace(/[*_`>]/g, "")
-      .trim();
-    if (plain) return plain.length > 160 ? `${plain.slice(0, 160)}…` : plain;
-  }
-  return "";
-}
 
 export const digestRouter = router({
   listDirections: publicProcedure
@@ -83,28 +68,7 @@ export const digestRouter = router({
         input.issueNumber,
       );
       if (!issue) return null;
-      return {
-        directionSlug: issue.directionSlug,
-        directionName:
-          pickTldr(issue.directionName, localeKey) ?? issue.directionSlug,
-        issueNumber: issue.issueNumber,
-        title: pickTldr(issue.title, localeKey) ?? "",
-        content: pickTldr(issue.content, localeKey) ?? "",
-        periodStart: issue.periodStart,
-        periodEnd: issue.periodEnd,
-        publishedAt: issue.publishedAt,
-        papers: issue.papers.map((p) => ({
-          id: p.id,
-          shortId: p.shortId,
-          title: p.title,
-          tldr: pickTldr(p.tldr, localeKey) ?? "",
-          whiteboardImageR2Key: p.whiteboardImageR2Key,
-          recommendationNote: pickTldr(p.recommendationNote, localeKey) ?? "",
-          rank: p.rank,
-          likeCount: p.likeCount,
-        })),
-        prevIssue: issue.prevIssue,
-        nextIssue: issue.nextIssue,
-      };
+      // 期页 SSR loader 直读 D1 后走同一个映射, 保证两条路径下发的形状一致
+      return mapIssueToLocale(issue, localeKey);
     }),
 });

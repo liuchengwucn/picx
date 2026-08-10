@@ -9,8 +9,9 @@ import {
   user,
   whiteboardImages,
 } from "#/db/schema";
+import { excerptFromMarkdown } from "#/lib/digest/present";
 import { createTestDb } from "../../../../test/helpers/sqlite-d1";
-import { digestRouter, excerptFromMarkdown } from "./digest";
+import { digestRouter } from "./digest";
 
 type Db = ReturnType<typeof createTestDb>["db"];
 

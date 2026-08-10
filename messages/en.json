@@ -541,5 +541,12 @@
   "digest_read_full": "Read the full digest",
   "digest_empty_issue": "The first digest is being generated",
   "digest_current_focus": "Current focus",
-  "digest_load_failed": "Couldn't load this direction. Please try again."
+  "digest_load_failed": "Couldn't load this direction. Please try again.",
+  "digest_papers_heading": "Papers in this issue",
+  "digest_prev_issue": "Previous issue",
+  "digest_next_issue": "Next issue",
+  "digest_editor_note": "Editor's note",
+  "digest_issue_load_failed": "Couldn't load this digest. Please try again.",
+  "digest_issue_not_found": "This digest doesn't exist, or hasn't been published yet.",
+  "digest_back_to_direction": "All issues"
 }

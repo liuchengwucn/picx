@@ -541,5 +541,12 @@
   "digest_read_full": "閱讀全文",
   "digest_empty_issue": "首期簡報生成中",
   "digest_current_focus": "當前關注",
-  "digest_load_failed": "方向內容載入失敗，請重試。"
+  "digest_load_failed": "方向內容載入失敗，請重試。",
+  "digest_papers_heading": "本期論文",
+  "digest_prev_issue": "上一期",
+  "digest_next_issue": "下一期",
+  "digest_editor_note": "本期推薦語",
+  "digest_issue_load_failed": "簡報正文載入失敗，請重試。",
+  "digest_issue_not_found": "這期簡報不存在，或還沒有發布。",
+  "digest_back_to_direction": "全部期次"
 }
