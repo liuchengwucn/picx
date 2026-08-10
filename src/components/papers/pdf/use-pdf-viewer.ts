@@ -12,11 +12,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * 引擎经 await import() 加载：pdf.mjs 约 350KB(gz)，绝不能进主 chunk。本文件只被
  * pdf-reader-view.tsx 引用，而后者只经 React.lazy 加载，所以它进不了客户端主 chunk。
  *
- * 但 React.lazy 挡不住它进 SSR 图：Fizz 在服务端会直接解析 lazy 的 payload 并渲染
- * 组件，本文件在 SSR 侧确实被求值，下面这几个 await import() 会被 vite 一并扫进
- * SSR 依赖图（运行时无害——它们在 effect 里，服务端永不执行——但产物会白白进
- * Worker 包，一度 +604 KiB gzip）。真正把它拦在 SSR 外面的是 vite.config.ts 里的
- * stub-pdfjs-ssr 插件，改动这里的 import 形式前先去看那段注释。
+ * 但 import() 只决定「什么时候执行」，不决定「打不打包」：下面几个 import() 的
+ * 说明符都是字面量，rollup 在构建期就会跟进去，把 pdfjs 整条子树同时纳入客户端图
+ * 和 SSR 图。服务端从不执行它们（都在 effect 里），可字节照样进 Worker 包——
+ * 一度 +604 KiB gzip。真正把它拦在 SSR 外面的是 vite.config.ts 里的 stub-pdfjs-ssr
+ * 插件，改动这里的 import 形式前先去看那段注释。
  */
 
 export type PdfStatus = "loading" | "ready" | "error";
@@ -216,16 +216,22 @@ export function usePdfViewer(url: string, initialPage: number): PdfViewerApi {
       bundle = { viewer, linkService, eventBus };
       bundleRef.current = bundle;
 
-      // 这四个基址一个都不能省。pdfjs 不把这些资源打进 bundle，运行时按
-      // `${基址}${文件名}` 拼 URL 去 fetch；基址为 null 时直接抛
-      // "Ensure that the `cMapUrl` API parameter is provided."——而这条异常发生在
-      // 渲染单页的过程中，loadingTask 早就 resolve 了，status 会一直停在 "ready"，
-      // 用户只看到一片空白正文，得不到任何解释。中日文 PDF（非嵌入 CID 字体）走
-      // cmaps，未嵌字体的文档走 standard_fonts，扫描件里的 JBIG2/JPEG2000 走 wasm，
-      // CMYK 图走 iccs——对一个接受任意上传、面向中日文读者的站点都不是边缘情况。
-      // 资源由 postinstall 拷进 public/pdfjs/（见 scripts/copy-pdfjs-assets.mjs），
-      // 在 Cloudflare 上作为 Static Assets 提供，不占 Worker 脚本体积。
+      // pdfjs 不把这些资源打进 bundle，运行时按 `${基址}${文件名}` 拼 URL 去 fetch。
+      // 前三个基址少一个就抛 "Ensure that the `cMapUrl` API parameter is provided."，
+      // 而这条异常发生在渲染单页的过程中，loadingTask 早就 resolve 了，status 会一直
+      // 停在 "ready"，用户只看到一片空白正文，得不到任何解释。中日文 PDF（非嵌入 CID
+      // 字体）走 cmaps，未嵌字体的文档走 standard_fonts，扫描件里的 JBIG2/JPEG2000
+      // 走 wasm——对一个接受任意上传、面向中日文读者的站点都不是边缘情况。
+      // iccUrl 是唯一的例外：缺了只 warn("No CMYK ICC profile support due to missing
+      // `iccUrl` API option") 并优雅降级，排查 CMYK 显色问题时别往 throw 的方向找。
+      // 资源由 postinstall 与 build 两处拷进 public/pdfjs/（见
+      // scripts/copy-pdfjs-assets.mjs），在 Cloudflare 上作为 Static Assets 提供，
+      // 不占 Worker 脚本体积。
       // 尾斜杠是硬性要求：getFactoryUrlProp() 对不以 "/" 结尾的值直接 throw。
+      // 这四个是根相对路径，今天成立是因为站点部署在域名根、没有配 vite base。
+      // 一旦改成子路径部署，它们必须跟着 BASE_URL 走——pdfjs 内部会拿
+      // isValidFetchUrl(cMapUrl, document.baseURI) 判定，届时这些路径会解析到
+      // 域名根然后全部 404。
       loadingTask = pdfjs.getDocument({
         url,
         cMapUrl: "/pdfjs/cmaps/",
