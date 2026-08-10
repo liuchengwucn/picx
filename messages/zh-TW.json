@@ -548,5 +548,7 @@
   "digest_editor_note": "本期推薦語",
   "digest_issue_load_failed": "簡報正文載入失敗，請重試。",
   "digest_issue_not_found": "這期簡報不存在，或還沒有發布。",
+  "digest_issue_not_found_title": "簡報未找到",
+  "digest_issue_error_title": "簡報暫時打不開",
   "digest_back_to_direction": "全部期次"
 }

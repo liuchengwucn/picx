@@ -51,8 +51,14 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
       {/* -mb-px 挂在滚动容器自己身上(不是挂在 tab 上): 让当前项那道 2px 下划线盖住
           上面这条 hairline, 又不会让横向滚动容器凭空多出 1px 纵向溢出 */}
       <div className="-mb-px flex items-center gap-5 overflow-x-auto px-1 text-sm">
+        {/* activeOptions exact 不是可选项: Link 默认按前缀判 active, 于是在
+            /gallery/d/ai4formath 上「全部」(/gallery)也算 active、在期页上方向 tab
+            也算 active, Link 会自己挂 aria-current="page" —— 显式传 undefined 挡不住它,
+            读屏会一次念出两三个「当前页」。高亮由下面的 activeSlug 自己算, 本来就不靠
+            Link 的 active 态。 */}
         <Link
           to="/gallery"
+          activeOptions={{ exact: true }}
           aria-current={activeSlug ? undefined : "page"}
           className={tabClassName(!activeSlug)}
         >
@@ -65,6 +71,7 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
               key={direction.slug}
               to="/gallery/d/$slug"
               params={{ slug: direction.slug }}
+              activeOptions={{ exact: true }}
               aria-current={active ? "page" : undefined}
               className={tabClassName(active)}
             >

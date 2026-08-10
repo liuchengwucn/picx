@@ -548,5 +548,7 @@
   "digest_editor_note": "本期推荐语",
   "digest_issue_load_failed": "简报正文加载失败，请重试。",
   "digest_issue_not_found": "这期简报不存在，或还没有发布。",
+  "digest_issue_not_found_title": "简报未找到",
+  "digest_issue_error_title": "简报暂时打不开",
   "digest_back_to_direction": "全部期次"
 }

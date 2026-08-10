@@ -89,8 +89,10 @@ export function DigestPaperCard({
             </h3>
           </div>
 
+          {/* tldr 只留一行: 这张卡的主角是下面的推荐语, tldr 在这里只是「这篇讲什么」
+              的一句提示, 展开成两三行会跟推荐语抢注意力。要读全的去详情页。 */}
           {paper.tldr ? (
-            <p className="line-clamp-2 text-sm leading-relaxed text-[var(--ink-soft)]">
+            <p className="line-clamp-1 text-sm leading-relaxed text-[var(--ink-soft)]">
               {paper.tldr}
             </p>
           ) : null}

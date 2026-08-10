@@ -1,6 +1,5 @@
 import { useQueries } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 import type { FeedbackAuthState } from "#/components/papers/feedback-buttons";
 import { useTRPC } from "#/integrations/trpc/react";
 import { authClient } from "#/lib/auth-client";
@@ -30,14 +29,6 @@ export interface PaperFeedbackState {
 export function usePaperFeedback(paperIds: string[]): PaperFeedbackState {
   const trpc = useTRPC();
 
-  // 服务端与「客户端第一帧」都必须是 pending。better-auth 的 useSession 在首帧就给
-  // isPending=false / data=null(没有 in-flight 请求), 于是 SSR 渲染出空的操作位、
-  // 客户端首帧却直接渲染出登录墙按钮 —— 结构性 hydration mismatch, React 会整棵子树
-  // 丢掉重渲染(简报期页把论文卡 SSR 进 HTML, 一眼就撞上了; /gallery 与方向页的卡片
-  // 本来就不在 SSR HTML 里, 所以之前没露出来)。挂载后再翻牌, 代价是按钮晚一帧出现。
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
-
   // 登录态与详情页同一口径: pending 不渲染按钮(否则已登录用户先看到一下登录墙),
   // review-guest 只读账号禁用。
   const { data: session, isPending: isSessionPending } =
@@ -45,14 +36,13 @@ export function usePaperFeedback(paperIds: string[]): PaperFeedbackState {
   const effectiveSession =
     session ??
     (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
-  const feedbackAuth: FeedbackAuthState =
-    !hydrated || isSessionPending
-      ? "pending"
-      : !effectiveSession
-        ? "signed-out"
-        : isReviewGuestReadOnlySession(effectiveSession)
-          ? "readonly-guest"
-          : "signed-in";
+  const feedbackAuth: FeedbackAuthState = isSessionPending
+    ? "pending"
+    : !effectiveSession
+      ? "signed-out"
+      : isReviewGuestReadOnlySession(effectiveSession)
+        ? "readonly-guest"
+        : "signed-in";
 
   // 登录后回到当前地址(含筛选与已展开到第几页), 而不是甩回首页
   const signInCallbackURL = useRouterState({

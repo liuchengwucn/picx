@@ -548,5 +548,7 @@
   "digest_editor_note": "編集メモ",
   "digest_issue_load_failed": "本文の読み込みに失敗しました。もう一度お試しください。",
   "digest_issue_not_found": "この号は存在しないか、まだ公開されていません。",
+  "digest_issue_not_found_title": "号が見つかりません",
+  "digest_issue_error_title": "本文を表示できません",
   "digest_back_to_direction": "すべての号"
 }

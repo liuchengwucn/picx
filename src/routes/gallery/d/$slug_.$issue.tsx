@@ -37,10 +37,12 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
   notFoundComponent: IssueNotFound,
   errorComponent: IssueLoadFailed,
   loader: async ({ context, params }) => {
-    // 路由段是任意字符串, 先收窄成正整数期号: 别拿 NaN / "1e3" 去查库, 也别让
-    // /gallery/d/x/abc 这种地址进到渲染层。
+    // 路由段是任意字符串, 期号只认「无前导零的正整数字面量」。校验原始字符串而不是
+    // Number() 的结果: Number 会把 "001" / "1.0" / "+1" / "0x1" / " 1" / "1e3" 全部
+    // 收成合法整数, 于是同一期能从无数个 URL 打开(canonical 只能收敛索引, 挡不住
+    // 这些地址各自渲染一遍)。非法期号一律 404。
+    if (!/^[1-9]\d*$/.test(params.issue)) throw notFound();
     const issueNumber = Number(params.issue);
-    if (!Number.isInteger(issueNumber) || issueNumber < 1) throw notFound();
 
     if (import.meta.env.SSR) {
       // 简报正文就是本页的全部内容, 必须进首个 HTML 响应(爬虫 / 分享卡片都只看它)。
@@ -91,14 +93,20 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
   head: ({ loaderData, params }) => {
     const issue = loaderData?.ssrData;
     if (!issue) {
-      // 走到这里只有两种情况: SSR 读失败(页面是「加载失败」文案)与 404(loaderData
-      // 为空)。两种都不该进索引, 也都不发 canonical —— 期号可能压根不是数字。
+      // 两种情况, 标签页标题要能分辨(这是读者唯一能看到状态的地方之一):
+      // loaderData 为空 = loader 抛了 notFound; ssrFailed = D1 读失败。
+      // 两种都不该进索引, 也都不发 canonical —— 期号可能压根不是数字。
+      const title = loaderData?.ssrFailed
+        ? m.digest_issue_error_title()
+        : m.digest_issue_not_found_title();
       return {
-        meta: [{ title: "PicX" }, { name: "robots", content: "noindex" }],
+        meta: [
+          { title: `${title} | PicX` },
+          { name: "robots", content: "noindex" },
+        ],
       };
     }
 
-    // canonical 用解析后的期号: /007 与 /7 是同一期, 只让一个进索引
     const url = `${SITE_URL}/gallery/d/${params.slug}/${issue.issueNumber}`;
     const title = `${issue.title} | ${issue.directionName} | PicX`;
     // 正文首段纯文本当描述; 抽不出来(正文只有标题行)就整组略过, 不发空 description
@@ -130,8 +138,11 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
 });
 
 // 模块级常量: 每次渲染新建数组/对象会让 react-markdown 认为插件变了, 白重跑一遍解析。
-// 不挂 remark-math / rehype-katex 是有意的 —— 简报正文是散文, 里面「$120M 融资」这类
-// 金额会被单 $ 定界符吃成公式; 真要上公式得先在生成侧约定写法。
+//
+// 不挂 remark-math / rehype-katex 是有意的: 生成侧(src/lib/digest/ai.ts 的定稿提示词)
+// 只约定了「行内 markdown 链接」, 没有任何数学写法约定, 正文是散文。引进来是净风险 ——
+// 换来的是把正文里出现的每个 $ 都变成公式定界符, 外加一份 katex CSS。哪天生成侧开始
+// 产公式, 再照 p/$shortId 的配置补上。
 const REMARK_PLUGINS = [remarkGfm];
 const MARKDOWN_COMPONENTS: Components = {
   // 正文里的链接一律指向站外原始出处(生成时就要求每个论断挂 [标题](URL)),
@@ -184,15 +195,20 @@ function DigestIssuePage() {
     [locale],
   );
 
-  // 这三条的顺序有讲究(都放在所有 hook 之后, 免得抛出那次渲染的 hook 数量对不上):
+  // 这几条的顺序有讲究(都放在所有 hook 之后, 免得抛出那次渲染的 hook 数量对不上):
   //
   // 1. SSR 读失败 → 照实说「没读出来」。必须排在 data === null 之前: 此时 ssrData
   //    也是 null, 落到下面那条就会把一次故障说成「这期不存在」, 还顺手回 404 状态码。
   //    服务端与客户端首帧都走这里(ssrFailed 是 loader 数据, 两侧一致), 客户端那次
   //    查询回来后正文会自己补上。
   if (loaderData.ssrFailed && !data) return <IssueLoadFailed />;
-  if (query.isError) return <IssueLoadFailed />;
-  // 2. 查询明确返回 null = 这期不存在或未发布。loader 已经拦过一次, 这里兜的是
+  // 2. 查询出错但手里还有正文(refetch 失败 —— react-query 保留上一次的 data, 只把
+  //    status 翻成 error)时, 必须继续渲染正文, 不能拿失败面板把好内容盖掉。这条最容易
+  //    踩: 非英文读者每次首屏都会因为 staleSsrLocale 被强制重取一次, 那一次网络抖动
+  //    就会让整篇文章消失, 而 retry 用尽 + refetchOnWindowFocus:false 意味着不刷新
+  //    就再也回不来。只有「一个字都没有」时才是真的加载失败。
+  if (query.isError && !data) return <IssueLoadFailed />;
+  // 3. 查询明确返回 null = 这期不存在或未发布。loader 已经拦过一次, 这里兜的是
   //    loader 之后这期刚被撤下。
   if (data === null) throw notFound();
   if (!data) return <IssueSkeleton />;
