@@ -16,12 +16,11 @@ import {
   user,
   whiteboardImages,
 } from "#/db/schema";
+import { REVIEW_GUEST_USER_ID } from "#/lib/review-guest";
 import { createTestDb } from "../../../../test/helpers/sqlite-d1";
 import { paperRouter } from "./paper";
 
 type Db = ReturnType<typeof createTestDb>["db"];
-
-const REVIEW_GUEST_USER_ID = "review-guest-user";
 
 function four(prefix: string): Record<string, string> {
   return {
@@ -63,19 +62,31 @@ async function seed(db: Db) {
     },
   ]);
 
+  // 三个可见性开关各有一篇反例: setFeedback 的守卫三条都要挡, listPublic 同理
   const paperRows: Array<{
     id: string;
     directionId: string | null;
-    isPublic: boolean;
+    isPublic?: boolean;
+    isListed?: boolean;
+    deletedAt?: Date;
     day: number;
   }> = [
-    { id: "p-a1", directionId: "dir-a", isPublic: true, day: 1 },
-    { id: "p-a2", directionId: "dir-a", isPublic: true, day: 2 },
-    { id: "p-b1", directionId: "dir-b", isPublic: true, day: 3 },
+    { id: "p-a1", directionId: "dir-a", day: 1 },
+    { id: "p-a2", directionId: "dir-a", day: 2 },
+    { id: "p-b1", directionId: "dir-b", day: 3 },
     // 无方向(HF 爆款兜底 / 历史论文): directionSlug 应为 null, 且不被任何方向筛出
-    { id: "p-none", directionId: null, isPublic: true, day: 4 },
+    { id: "p-none", directionId: null, day: 4 },
     // 未公开: 不能被投票(否则可用 NOT_FOUND/成功 探测他人私有论文)
     { id: "p-private", directionId: "dir-a", isPublic: false, day: 5 },
+    // 已下架(仍 isPublic, 但不在画廊里): 卡片都看不到, 更不该能投票
+    { id: "p-unlisted", directionId: "dir-a", isListed: false, day: 6 },
+    // 已软删: /p/$shortId 已 404
+    {
+      id: "p-deleted",
+      directionId: "dir-a",
+      deletedAt: new Date("2026-08-09T00:00:00Z"),
+      day: 7,
+    },
   ];
 
   for (const row of paperRows) {
@@ -88,8 +99,9 @@ async function seed(db: Db) {
       pdfR2Key: `papers/${row.id}.pdf`,
       fileSize: 1,
       status: "completed",
-      isPublic: row.isPublic,
-      isListedInGallery: true,
+      isPublic: row.isPublic ?? true,
+      isListedInGallery: row.isListed ?? true,
+      deletedAt: row.deletedAt ?? null,
       directionId: row.directionId,
       publishedAt: new Date(Date.UTC(2026, 7, row.day)),
     });
@@ -168,6 +180,21 @@ describe("paper.setFeedback", () => {
       createCaller("u1").setFeedback({ paperId: "does-not-exist", vote: 1 }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(myFeedbackRows("p-private", "u1")).resolves.toHaveLength(0);
+  });
+
+  it("rejects papers that are no longer listed in the gallery", async () => {
+    // 下架的论文在画廊里已无卡片, 陈旧页面/直接调 API 都不该还能投票
+    await expect(
+      createCaller("u1").setFeedback({ paperId: "p-unlisted", vote: 1 }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(myFeedbackRows("p-unlisted", "u1")).resolves.toHaveLength(0);
+  });
+
+  it("rejects soft-deleted papers", async () => {
+    await expect(
+      createCaller("u1").setFeedback({ paperId: "p-deleted", vote: 1 }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(myFeedbackRows("p-deleted", "u1")).resolves.toHaveLength(0);
   });
 
   it("upserts instead of inserting when the same user votes again", async () => {
@@ -304,7 +331,7 @@ describe("paper.listPublic direction filter", () => {
     const caller = createCaller(null);
     const result = await caller.listPublic({ direction: "ai4formath" });
 
-    // p-private 不公开, p-b1/p-none 不属于该方向
+    // p-private 不公开, p-unlisted 已下架, p-deleted 已软删, p-b1/p-none 不在该方向
     expect(result.papers.map((p) => p.id)).toEqual(["p-a2", "p-a1"]);
     expect(result.total).toBe(2);
     expect(result.papers.every((p) => p.directionSlug === "ai4formath")).toBe(

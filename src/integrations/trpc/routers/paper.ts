@@ -31,6 +31,7 @@ import { canonicalArxivUrl } from "#/lib/arxiv";
 import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { submitIndexNow } from "#/lib/indexnow";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
+import { likeCountSql } from "#/lib/paper-feedback";
 import { selectRelatedPapers } from "#/lib/related-papers";
 import {
   getReviewGuestServerSession,
@@ -1183,8 +1184,8 @@ export const paperRouter = router({
           summaries: paperResults.summaries,
           tags: paperResults.tags,
           directionSlug: directions.slug,
-          // 多表查询里插值 Column 保留表限定符(单表才会被剥), 关联子查询成立
-          likeCount: sql<number>`(select count(*) from paper_feedback pf where pf.paper_id = ${papers.id} and pf.vote = 1)`,
+          // 多表查询, 满足 likeCountSql 的前提(单表会被剥表限定符)
+          likeCount: likeCountSql(papers.id),
         })
         .from(papers)
         .innerJoin(
@@ -1324,10 +1325,22 @@ export const paperRouter = router({
   /**
    * 批量查当前用户对一组论文的投票, 供列表页一次点亮所有反馈按钮。
    * 上限 90: inArray 每个 id 占一个绑定参数, 给 D1 单查询 100 个的上限留余量。
+   * 单项 64 字符: papers.id 是 uuid(36), 挡住用超长串把 SQL 文本撑大。
    */
   getMyFeedback: protectedProcedure
-    .input(z.object({ paperIds: z.array(z.string()).min(1).max(90) }))
+    .input(
+      z.object({
+        paperIds: z.array(z.string().max(64)).min(1).max(90),
+      }),
+    )
     .query(async ({ ctx, input }) => {
+      // 从 schema 推导, 保住 reasonPreset 的枚举联合(前端按它映射 i18n 消息键,
+      // 放宽成 string 会丢掉穷尽性检查)
+      type FeedbackEntry = Pick<
+        typeof paperFeedback.$inferSelect,
+        "vote" | "reasonPreset"
+      >;
+
       const rows = await ctx.db
         .select({
           paperId: paperFeedback.paperId,
@@ -1343,11 +1356,11 @@ export const paperRouter = router({
         );
 
       return Object.fromEntries(
-        rows.map((row) => [
+        rows.map((row): [string, FeedbackEntry] => [
           row.paperId,
           { vote: row.vote, reasonPreset: row.reasonPreset },
         ]),
-      ) as Record<string, { vote: number; reasonPreset: string | null }>;
+      );
     }),
 
   /**

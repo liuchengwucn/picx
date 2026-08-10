@@ -29,6 +29,7 @@ import {
 import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
 import { createGalleryPaper, ensureGuestUser } from "#/lib/gallery-paper";
 import { MAX_SOURCE_FAILURES } from "#/lib/news/source-health";
+import { likeCountSql } from "#/lib/paper-feedback";
 import type { Env } from "#/types/env";
 import type { PoolEntry } from "./candidates";
 import type {
@@ -604,8 +605,8 @@ export async function getPublishedIssueDetail(
       whiteboardImageR2Key: whiteboardImages.imageR2Key,
       recommendationNote: digestPapers.recommendationNote,
       rank: digestPapers.rank,
-      // 多表查询里插值 Column 保留表限定符（单表才会被剥）
-      likeCount: sql<number>`(select count(*) from paper_feedback pf where pf.paper_id = ${papers.id} and pf.vote = 1)`,
+      // 多表查询, 满足 likeCountSql 的前提（单表会被剥表限定符）
+      likeCount: likeCountSql(papers.id),
     })
     .from(digestPapers)
     .innerJoin(papers, eq(digestPapers.paperId, papers.id))
