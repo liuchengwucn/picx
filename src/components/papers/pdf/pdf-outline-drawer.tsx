@@ -20,6 +20,13 @@ interface PdfOutlineDrawerProps {
 }
 
 /**
+ * pdf.js 的大纲节点：dest 为 null 时会带上 url/unsafeUrl（PDF 规范允许书签是 URI
+ * action，见 core/catalog.js 的 #readDocumentOutline）。PdfOutlineNode 只声明了跳转
+ * 需要的字段，这里把外链那一支单独取出来——仍不 import pdfjs。
+ */
+type OutlineItemWithUrl = PdfOutlineNode & { url?: string | null };
+
+/**
  * PDF 内嵌大纲的抽屉。形态与 ReaderTocDrawer 一致（左滑面板 + 遮罩 + Esc 关闭），
  * 但有两处刻意的差别：
  *
@@ -60,14 +67,16 @@ export function PdfOutlineDrawer({
       }
       // 焦点陷阱。面板 portal 在 body 末尾，什么都不做的话 Shift+Tab 一下就退到
       // 遮罩背后的页面里去了（而且焦点环被遮罩盖住，用户看不出焦点跑哪了）。
-      // 面板内只有 <button>，所以可聚焦集合就是这一个选择器；遮罩那个按钮刻意带
-      // tabIndex={-1}，不进循环。
+      // 面板内可聚焦的只有 <button> 与外链书签的 <a href>；遮罩那个按钮刻意带
+      // tabIndex={-1}，且不在 panelRef 里，不进循环。
+      // a[href] 这一支不能漏：querySelectorAll 按文档序返回，漏掉它会让「最后一个
+      // 按钮」算错——落在尾部外链上的焦点一按 Tab 就直接跑出面板了。
       const panel = panelRef.current;
       if (!panel) {
         return;
       }
       const focusable = panel.querySelectorAll<HTMLElement>(
-        "button:not([disabled])",
+        "button:not([disabled]), a[href]",
       );
       if (focusable.length === 0) {
         return;
@@ -125,7 +134,12 @@ export function PdfOutlineDrawer({
         type="button"
         tabIndex={-1}
         aria-hidden="true"
-        className="absolute inset-0 bg-[rgba(20,18,15,0.42)] backdrop-blur-[2px] animate-in fade-in duration-200"
+        // touch-none：上面那层的 overflow-hidden+overscroll-contain 只挡得住滚轮与
+        // 键盘。iOS Safari 的 rubber-band 会从「没有可滚溢出的滚动容器」里穿出去，
+        // 而 portal 根正是这个形状；把遮罩上的触摸手势整个交给我们自己（它本来也
+        // 只需要点击）是最省事的拦法。面板内的列表不受影响，自己能滚。
+        // 注：本地无 iOS 设备，这条未经真机验证。
+        className="absolute inset-0 touch-none bg-[rgba(20,18,15,0.42)] backdrop-blur-[2px] animate-in fade-in duration-200"
         onClick={() => onOpenChange(false)}
       />
       <div
@@ -182,10 +196,14 @@ function OutlineLevel({
         // 节点都建了 items: []（core/catalog.js），但一次 render 里抛 TypeError 会
         // 把整个详情页炸成白屏，这个兜底比它防的风险便宜得多。
         const children = item.items ?? [];
-        // 大纲条目也可以只带外链而没有 dest（PDF 规范里书签可以是 URI action），
-        // 那种节点点了只会在控制台留一条 "not a valid destination array" 然后把
-        // 抽屉关掉——看着像坏了。这里干脆不给它交互外观。
+        // 大纲条目也可以只带外链而没有 dest（PDF 规范里书签可以是 URI action）。
+        // 那种节点交给 goToDest 只会在控制台留一条 "not a valid destination array"
+        // 然后把抽屉关掉——看着像坏了；但它并非无处可去，pdf.js 会给它填 url。
+        // 新标签页打开，与 use-pdf-viewer 里注解层的 externalLinkTarget: BLANK 一致：
+        // 同标签页跳转会把整个 SPA 连同 chat 会话一起卸载掉。
+        // url 也可能没有（既无 dest 又无 url 的坏书签），那种才真的只能渲染成死文本。
         const jumpable = item.dest != null;
+        const url = (item as OutlineItemWithUrl).url;
         // 缺 /Title 时 pdf.js 给的是空串。空按钮既没有无障碍名称、又只有一条细缝
         // 可点，用占位符顶上。
         const label = item.title.trim() || "—";
@@ -205,6 +223,19 @@ function OutlineLevel({
               >
                 {label}
               </button>
+            ) : url ? (
+              // TOOL_BTN 那条注释同款问题：styles.css 里裸的 `a { color: … }` 没进
+              // @layer，压过工具类，不加 ! 这行会变成学术棕。
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={indent}
+                className="block rounded-md py-1.5 pr-2 text-sm leading-snug break-words text-[var(--ink-soft)]! no-underline transition-colors hover:bg-[var(--parchment-warm)] hover:text-[var(--ink)]!"
+                title={label}
+              >
+                {label}
+              </a>
             ) : (
               <span
                 style={indent}
