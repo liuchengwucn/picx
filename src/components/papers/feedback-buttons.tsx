@@ -10,6 +10,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "#/components/ui/popover";
+import { useHydrated } from "#/hooks/use-hydrated";
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
 import { startGitHubSignIn } from "#/lib/auth-client";
@@ -37,8 +38,8 @@ const REASON_CHIPS = Object.keys(REASON_CHIP_LABELS) as ChipReasonPreset[];
 
 /**
  * 登录态四态。pending 与 signed-out 必须分开: 已登录用户在 session 解析完成前
- * 会被当成未登录, 按钮闪一下登录墙。pending 渲染的是不可投票的占位骨架, 见下面
- * 组件里关于 hydration 的注释。
+ * 会被当成未登录, 按钮闪一下登录墙。pending 渲染的是不可投票的占位骨架, 且首帧
+ * 一律按 pending 渲染 —— 原因见组件里那段 hydration 注释。
  */
 export type FeedbackAuthState =
   | "pending"
@@ -125,24 +126,42 @@ export function FeedbackButtons({
     setReasonText("");
   };
 
+  /**
+   * 登录态与「我的投票」都是只有客户端才知道的量, 服务端那帧必然是 pending/未投票。
+   * 这里做两件必须同时做的事, 少任何一件都会坏:
+   *
+   * 1. 不 return null —— pending 渲染与其它三态**结构同构**的骨架。结构不一致时
+   *    React 会报 #418 并丢弃整棵 SSR 子树客户端重渲(实测这条竞态在简报期页
+   *    baseline 命中 11/12): SSR 那帧渲染 null, 而客户端首帧未必也是 pending ——
+   *    session fetch 是模块初始化时排的一个 setTimeout(0) + 一次本地往返, React 19
+   *    的 hydration 可中断、会让出主线程, 所以它有可能在 hydration 走到本组件之前
+   *    就落地。(是竞态而非必然: 网络慢时客户端首帧也可能仍是 pending。) 同构之后
+   *    无论竞态往哪边倒都不 mismatch, 顺带让控件与赞数进 SSR HTML、消掉布局跳动。
+   *
+   * 2. 首帧强行按 pending 渲染, 挂载后才翻牌 —— 因为 **React 的 hydration 不 diff
+   *    属性**: 它只对结构/文本不一致报错(并丢弃子树重渲), 属性不一致既不报错也不
+   *    修补。只做第 1 件事的话不一致会从「结构」降级成「属性」, 于是 aria-disabled
+   *    这类差异静默留在 DOM 上: 客户端两次渲染的值相同 → 没有 update 要提交 →
+   *    服务端那帧的 aria-disabled="true" 永久钉死, 按钮再也点不动(实测 5/5)。
+   *    所以首帧必须逐属性等于服务端那帧, 之后由 useHydrated 触发的那次 update 翻牌。
+   *
+   * 别把 hydrated 这道门当多余代码删掉: 删了 mismatch 不会回来(结构仍同构), 坏掉的
+   * 是按钮永久 inert —— 一个不报错、只有开浏览器点一下才看得见的故障。
+   */
+  const hydrated = useHydrated();
+  const effectiveAuth: FeedbackAuthState = hydrated ? auth : "pending";
+  const effectiveMyVote = hydrated ? myVote : undefined;
+
   // 真 disabled 只用来防连点: 只读演示账号走 aria-disabled——原生 disabled 的按钮
   // 在 Chrome 里既不显示 title 也拿不到焦点, 那条「演示账号不可投票」的提示就没人看得到
   const isMutating = setFeedback.isPending || clearFeedback.isPending;
-  const isReadOnly = auth === "readonly-guest";
-  // session 还没解析出来。这里刻意不 return null: SSR 时 better-auth 的 session
-  // fetch 根本不跑(客户端才发), 服务端那帧必然是 pending; 而客户端 fetch 是
-  // 模块初始化时排的一个 setTimeout(0) + 本地往返, React 19 的 hydration 可中断、
-  // 会让出主线程, 所以这个 fetch 有可能在 hydration 走到本组件之前就落地。一旦落地,
-  // 服务端渲染的 null 就与客户端首帧的按钮结构对不上, React 丢弃整棵 SSR 子树重渲。
-  // (是竞态而非必然: 网络慢时客户端首帧也可能仍是 pending。) 让 pending 渲染与其它
-  // 三态结构同构的骨架, 无论竞态往哪边倒都不会 mismatch; 顺带让赞数进 SSR HTML,
-  // 也消掉按钮迟到造成的布局跳动。
-  const isSessionPending = auth === "pending";
+  const isReadOnly = effectiveAuth === "readonly-guest";
+  const isSessionPending = effectiveAuth === "pending";
   // pending 只需要「点不动」, 不挂提示: m.feedback_readonly() 说的是「只读账号」,
   // 语义不对; 而 session 解析通常几毫秒, 也没什么值得说的
   const hint = isReadOnly
     ? m.feedback_readonly()
-    : auth === "signed-out"
+    : effectiveAuth === "signed-out"
       ? m.feedback_login_required()
       : undefined;
   const isInert = isReadOnly || isSessionPending;
@@ -154,18 +173,18 @@ export function FeedbackButtons({
    */
   const canVote = () => {
     if (isSessionPending) return false;
-    if (auth === "signed-out") {
+    if (effectiveAuth === "signed-out") {
       void startGitHubSignIn(signInCallbackURL);
       return false;
     }
-    return auth !== "readonly-guest";
+    return effectiveAuth !== "readonly-guest";
   };
 
   const handleLike = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
     if (!canVote()) return;
-    if (myVote === 1) clearFeedback.mutate({ paperId });
+    if (effectiveMyVote === 1) clearFeedback.mutate({ paperId });
     else setFeedback.mutate({ paperId, vote: 1 });
   };
 
@@ -182,7 +201,7 @@ export function FeedbackButtons({
       return;
     }
     if (!canVote()) return;
-    if (myVote === -1) {
+    if (effectiveMyVote === -1) {
       clearFeedback.mutate({ paperId });
       return;
     }
@@ -229,7 +248,7 @@ export function FeedbackButtons({
         onClick={handleLike}
         disabled={isMutating}
         aria-disabled={isInert || undefined}
-        aria-pressed={myVote === 1}
+        aria-pressed={effectiveMyVote === 1}
         // detail 形态自带文案(还带赞数), 再加 aria-label 反而把赞数从读屏里抹掉;
         // card 形态没文案, 赞数得拼进 label, 否则读屏用户听不到。
         // showCount=false 时不拼: 那种调用点自己在别处播报赞数, 拼进来会念两遍。
@@ -241,11 +260,11 @@ export function FeedbackButtons({
             : undefined
         }
         title={hint}
-        className={cn(pillClassName, myVote === 1 && votedClassName)}
+        className={cn(pillClassName, effectiveMyVote === 1 && votedClassName)}
       >
         <ThumbsUp
           className={iconClassName}
-          fill={myVote === 1 ? "currentColor" : "none"}
+          fill={effectiveMyVote === 1 ? "currentColor" : "none"}
         />
         {!isCard && <span>{m.feedback_like()}</span>}
         {showCount && likeCount > 0 && (
@@ -266,14 +285,17 @@ export function FeedbackButtons({
             onClick={handleDislike}
             disabled={isMutating}
             aria-disabled={isInert || undefined}
-            aria-pressed={myVote === -1}
+            aria-pressed={effectiveMyVote === -1}
             aria-label={isCard ? m.feedback_dislike() : undefined}
             title={hint}
-            className={cn(pillClassName, myVote === -1 && votedClassName)}
+            className={cn(
+              pillClassName,
+              effectiveMyVote === -1 && votedClassName,
+            )}
           >
             <ThumbsDown
               className={iconClassName}
-              fill={myVote === -1 ? "currentColor" : "none"}
+              fill={effectiveMyVote === -1 ? "currentColor" : "none"}
             />
             {!isCard && <span>{m.feedback_dislike()}</span>}
           </button>

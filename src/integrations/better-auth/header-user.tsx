@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
+import { useHydrated } from "#/hooks/use-hydrated";
 import { authClient, startGitHubSignIn } from "#/lib/auth-client";
 import {
   getReviewGuestClientSession,
@@ -17,7 +18,18 @@ import * as m from "#/paraglide/messages";
 
 export default function BetterAuthHeader() {
   const queryClient = useQueryClient();
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const hydrated = useHydrated();
+  /**
+   * 首帧一律按 pending 渲染: 服务端渲染时 session fetch 根本不跑(客户端才发),
+   * 所以 SSR 那帧永远是下面那个骨架。而 session fetch 有可能在 hydration 走到这里
+   * 之前就落地(竞态), 那时客户端首帧会渲染 <button> 或头像 —— 与服务端的 <div>
+   * 骨架**结构**不一致, React 报 #418 并丢弃整棵 SSR 子树重渲。这一条在全站每个
+   * 页面都活着, 而且它在树里位置靠前, 会先触发、把下游别的 mismatch 一起掩盖掉。
+   *
+   * 翻牌不会给已登录用户闪一下登录按钮: 是从骨架翻到真实状态, 不经过 signed-out 分支。
+   */
+  const isPending = !hydrated || sessionPending;
   const guestSession =
     !session && isReviewGuestModeEnabled()
       ? getReviewGuestClientSession()
