@@ -78,9 +78,13 @@ export default function PdfReaderView({
         onZoomOut={pdf.zoomOut}
         onFitWidth={pdf.fitWidth}
       />
-      {/* 搜索条钉在工具栏下方、参与 flex 布局：它只压矮滚动区不改宽度，
-          usePdfViewer 的 ResizeObserver 只认宽度变化，因此开合它既不会重算「适宽」
-          倍率，也不会清掉用户的选区。 */}
+      {/* 搜索条钉在工具栏下方、参与 flex 布局：它只压矮滚动区不改宽度，而 usePdfViewer
+          的 ResizeObserver 有宽度守卫，纯高度变化会被它 early-return 掉，因此开合搜索条
+          不会重算「适宽」倍率（重新赋 currentScaleValue 哪怕倍率没变也会先跑一次
+          clearSelection()，见那边的注释）。
+          但选区照样保不住：搜索条一挂载就要聚焦自己的输入框，而 Chromium 里聚焦任何
+          input 都会清空文档选区（单点一下工具栏的页码框同样会清）。也就是说这里清选区
+          的是焦点、不是 resize——Task 7 的选中气泡排查「选区莫名消失」时别找错方向。 */}
       {findOpen && (
         <PdfFindBar
           matchIndex={pdf.findMatchIndex}

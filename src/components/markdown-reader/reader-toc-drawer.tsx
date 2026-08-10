@@ -17,7 +17,8 @@ interface ReaderTocDrawerProps {
 /**
  * 窄屏（<lg）目录抽屉：左滑面板 + 遮罩，样式与交互对齐 /reader 页的移动端目录抽屉
  * （src/components/reader/reader-view.tsx）——面板宽度、动画、配色全部照搬，额外补了
- * Esc 关闭（/reader 那份原本没有）；/reader 也没做 body 滚动锁定，这里保持一致不加。
+ * 两处 /reader 那份没有的东西：Esc 关闭，以及遮罩层的滚动锁（不是 body overflow:hidden
+ * 那种做法，见下面 portal 根的注释）。
  *
  * 必须 portal 到 document.body：论文详情页外层 `.stagger-in > *` 的进场动画用
  * `animation-fill-mode: both`，动画结束后仍把 `transform` 留在容器上，而带 transform
