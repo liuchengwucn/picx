@@ -13,6 +13,10 @@ __unconfig*
 todos.json
 src/routeTree.gen.ts
 
+# pdfjs 运行时资源（cmaps/字体/wasm/icc），由 postinstall 从 node_modules 拷入，
+# 约 4MB 且随 pdfjs-dist 版本走，不进版本库
+public/pdfjs/
+
 # Claude Code
 .claude/
 .agents/

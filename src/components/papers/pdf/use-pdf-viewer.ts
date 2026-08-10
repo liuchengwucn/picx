@@ -211,7 +211,26 @@ export function usePdfViewer(url: string, initialPage: number): PdfViewerApi {
       bundle = { viewer, linkService, eventBus };
       bundleRef.current = bundle;
 
-      loadingTask = pdfjs.getDocument({ url });
+      // 这四个基址一个都不能省。pdfjs 不把这些资源打进 bundle，运行时按
+      // `${基址}${文件名}` 拼 URL 去 fetch；基址为 null 时直接抛
+      // "Ensure that the `cMapUrl` API parameter is provided."——而这条异常发生在
+      // 渲染单页的过程中，loadingTask 早就 resolve 了，status 会一直停在 "ready"，
+      // 用户只看到一片空白正文，得不到任何解释。中日文 PDF（非嵌入 CID 字体）走
+      // cmaps，未嵌字体的文档走 standard_fonts，扫描件里的 JBIG2/JPEG2000 走 wasm，
+      // CMYK 图走 iccs——对一个接受任意上传、面向中日文读者的站点都不是边缘情况。
+      // 资源由 postinstall 拷进 public/pdfjs/（见 scripts/copy-pdfjs-assets.mjs），
+      // 在 Cloudflare 上作为 Static Assets 提供，不占 Worker 脚本体积。
+      // 尾斜杠是硬性要求：getFactoryUrlProp() 对不以 "/" 结尾的值直接 throw。
+      loadingTask = pdfjs.getDocument({
+        url,
+        cMapUrl: "/pdfjs/cmaps/",
+        // 发布的 cmaps 是 .bcmap 二进制格式。当前版本这已是默认值，写出来是因为
+        // 一旦它为 false，worker 会去请求不带扩展名的路径，全部 404。
+        cMapPacked: true,
+        standardFontDataUrl: "/pdfjs/standard_fonts/",
+        wasmUrl: "/pdfjs/wasm/",
+        iccUrl: "/pdfjs/iccs/",
+      });
       let pdf: PDFDocumentProxy;
       try {
         pdf = await loadingTask.promise;
