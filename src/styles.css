@@ -584,3 +584,67 @@ a:hover { color: var(--academic-brown-deep); }
   color: var(--ink-soft);
   opacity: 0.62;
 }
+
+/* pdf.js 官方 viewer 的主题对齐。
+   能走变量的就走变量（--page-margin / --page-border / --highlight-*-bg-color），
+   但下面有三处**依赖 pdfjs 内部 DOM 结构**、无法只靠变量表达，它们是升级时的脆弱点：
+     - `.pdfViewer .page` 的圆角/阴影（页面元素本身没有暴露这两项的变量）
+     - `.pdfViewer .page .canvasWrapper .selection`（选中色；这条管线 v5→v6 才挪到
+       canvasWrapper 下，是三处里最容易在升级后静默失效的）
+     - `.pdfViewer .textLayer .highlight`（搜索命中色；变量声明在元素自己身上）
+   本段针对 **pdfjs-dist 6.2.108** 验证过。升 pdfjs 时请逐条复查这三个选择器——
+   它们不会报错，只会安静地不再生效。
+
+   两个必须留意的层叠事实（改这段之前先读）：
+   1. pdf_viewer.css 跟着 PDF 面板的 lazy chunk 在运行时注入，永远排在本文件之后。
+      同权重同特异性的规则它赢，所以下面凡是覆盖它已有声明的地方都要特异性更高。
+   2. 页边距/页边框走 :root 上的 --page-margin / --page-border。自定义属性按「最近
+      的有声明的祖先」解析，所以写在 .pdfViewer 上就一定盖过 :root，与加载顺序无关。
+      正因如此本视图不传 removePageBorders：那个开关会引来
+      `.pdfViewer.removePageBorders .page` 这条更高特异性的规则，直接把这两个变量废掉。 */
+
+/* 强制颜色模式下 pdfjs 自己会把这两个变量换成 CanvasText 的高对比边框，
+   无条件覆盖会把高对比用户的页面边界抹掉，所以这里让开。 */
+@media not (forced-colors: active) {
+  .pdfViewer {
+    --page-margin: 0.75rem auto;
+    --page-border: 1px solid var(--line);
+  }
+}
+
+/* 圆角要写两处，缺一不可：
+   .page 上这份负责把边框、底色和阴影切成圆角；但它裁不住里面的 canvas——裁剪要
+   overflow:hidden，而 .page 上加不了：pdf_viewer.css 的
+   `.pdfViewer .page{overflow:visible}` 与我们同为 (0,2,0)，它在 lazy chunk 里
+   后加载，平局它赢。所以真正的裁剪交给本来就带 overflow:hidden 的 .canvasWrapper。
+   （别再往 .page 上补 overflow:hidden 了，加了也不会生效。） */
+.pdfViewer .page {
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(45, 42, 36, 0.1);
+}
+
+.pdfViewer .page .canvasWrapper {
+  border-radius: 6px;
+}
+
+/* 搜索命中色。这两个变量声明在 .textLayer .highlight 自己身上（不是祖先），
+   所以只能用更高特异性的规则盖，挂到 .pdfViewer 上是无效的。 */
+.pdfViewer .textLayer .highlight {
+  --highlight-bg-color: color-mix(in srgb, var(--gold) 45%, transparent);
+  --highlight-selected-bg-color: color-mix(
+    in srgb,
+    var(--academic-brown) 45%,
+    transparent
+  );
+}
+
+/* 选中色。默认开启的 enableSelectionRendering 把选区画在 canvas 上的 .selection
+   浮层里，原生 ::selection 被官方置成透明——所以主路径是下面这条。 */
+.pdfViewer .page .canvasWrapper .selection {
+  background: color-mix(in srgb, var(--academic-brown) 30%, transparent);
+}
+
+/* 不支持 backdrop-filter 的浏览器拿不到上面那条路径，会退回原生选中。 */
+.pdfViewer .textLayer ::selection {
+  background: color-mix(in srgb, var(--academic-brown) 32%, transparent);
+}

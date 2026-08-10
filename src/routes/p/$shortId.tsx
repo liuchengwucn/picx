@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import {
   type CSSProperties,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -104,6 +106,15 @@ import { getLocale } from "#/paraglide/runtime";
 interface AppEnvBindings {
   DB: D1Database;
 }
+
+// lazy 在这里只为客户端分包：pdfjs 引擎约 350KB(gz) + 官方 viewer 样式表，
+// 不能跟详情页主 chunk 绑在一起。它并不能把组件排除在 SSR 之外——Fizz 在服务端
+// 会照常解析 lazy 组件并渲染它，产出的就是 PDF 面板骨架加那层 loading 遮罩。
+// 真正没进服务端的是 pdfjs 本身：引擎的 import() 写在 use-pdf-viewer 的 effect
+// 里，服务端不跑 effect。（引擎 chunk 仍会被打进 worker 产物，另有任务在处理。）
+const PdfReaderView = lazy(
+  () => import("#/components/papers/pdf/pdf-reader-view"),
+);
 
 // SSR 预取数据必须与 paper.getByShortId 的输出形状完全一致，才能作为 react-query 的
 // initialData 注入（判别联合：有 result / 无 result 两种分支）。
@@ -467,6 +478,9 @@ function PaperDetailPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  // 切 tab 往返时记住 PDF 读到第几页。刻意不进 URL：页码是阅读进度不是分享意图，
+  // 塞进 search param 会让每翻一页都推一条历史记录。
+  const [pdfPage, setPdfPage] = useState(1);
   const [isWhiteboardPreviewOpen, setIsWhiteboardPreviewOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(true);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -1158,10 +1172,22 @@ function PaperDetailPage() {
             )}
 
             {activeView === "pdf" ? (
-              <PaperStateCard
-                icon={FileText}
-                message="PDF viewer placeholder"
-              />
+              <Suspense
+                fallback={
+                  <PaperStateCard
+                    icon={Loader2}
+                    spinning
+                    message={m.pdf_loading()}
+                  />
+                }
+              >
+                <PdfReaderView
+                  url={`/api/r2/${paper.pdfR2Key}`}
+                  title={paper.title}
+                  initialPage={pdfPage}
+                  onPageChange={setPdfPage}
+                />
+              </Suspense>
             ) : activeView === "reader" ? (
               <ReaderPane
                 reader={paperReader}
