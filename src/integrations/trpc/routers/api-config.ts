@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { userApiConfigs } from "#/db/schema";
+import { reasoningParam } from "#/lib/ai";
 import { decrypt, encrypt, maskApiKey } from "#/lib/crypto";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { protectedProcedure, router } from "../init";
@@ -571,6 +572,7 @@ async function testOpenAI(config: {
         model: config.model,
         messages: [{ role: "user", content: "test" }],
         max_tokens: 5,
+        ...reasoningParam(config.baseUrl),
       }),
     });
 

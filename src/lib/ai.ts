@@ -35,6 +35,24 @@ export interface PaperTailReviewResult {
   confidence: number;
 }
 
+// OpenRouter 统一 reasoning 参数：推理型模型（如 DeepSeek V4 Flash）默认开启思考，
+// 思考 token 计入 max_tokens，偶发长思考会吃光整个预算，导致 content 为空或截断。
+// 显式关闭；非推理模型会忽略该参数（同 lib/news/ai.ts chatJson 惯例）。
+// 仅对 OpenRouter 端点发送：OpenAI 官方 API 会拒绝未知参数，用户自配 baseUrl 不能盲发。
+export function reasoningParam(baseUrl: string): Record<string, unknown> {
+  return /openrouter/i.test(baseUrl) ? { reasoning: { enabled: false } } : {};
+}
+
+// finish_reason=length 说明输出被 max_tokens 掐断，静默收下会落库半截结果，必须抛错交给上层重试
+function assertNotTruncated(
+  finishReason: string | undefined,
+  what: string,
+): void {
+  if (finishReason === "length") {
+    throw new Error(`${what} truncated (finish_reason=length)`);
+  }
+}
+
 /**
  * 调用 OpenAI API 生成论文总结
  *
@@ -136,7 +154,8 @@ Guidelines:
           },
         ],
         temperature: 0.7,
-        max_tokens: 4000,
+        max_tokens: 8000,
+        ...reasoningParam(baseUrl),
       }),
     });
 
@@ -152,12 +171,15 @@ Guidelines:
         message?: {
           content?: string;
         };
+        finish_reason?: string;
       }>;
     };
 
     if (!data.choices || data.choices.length === 0) {
       throw new Error("No response from OpenAI API");
     }
+
+    assertNotTruncated(data.choices[0].finish_reason, "Summary");
 
     const summary = data.choices[0].message?.content?.trim();
 
@@ -243,7 +265,8 @@ ${paperText}`,
           },
         ],
         temperature: 0.7,
-        max_tokens: 2000,
+        max_tokens: 4000,
+        ...reasoningParam(baseUrl),
       }),
     });
 
@@ -259,12 +282,15 @@ ${paperText}`,
         message?: {
           content?: string;
         };
+        finish_reason?: string;
       }>;
     };
 
     if (!data.choices || data.choices.length === 0) {
       throw new Error("No response from OpenAI API");
     }
+
+    assertNotTruncated(data.choices[0].finish_reason, "Whiteboard insights");
 
     const content = data.choices[0].message?.content?.trim();
 
@@ -391,6 +417,7 @@ async function generateWhiteboardImageWithOpenRouter(
         ],
         modalities: ["image", "text"], // 关键：告诉 OpenRouter 需要生成图片
         temperature: 0.4,
+        ...reasoningParam(baseUrl),
       }),
     });
 
@@ -647,7 +674,8 @@ Guidelines:
           },
         ],
         temperature: 0.3, // 较低的温度以保持翻译准确性
-        max_tokens: 4000,
+        max_tokens: 8000,
+        ...reasoningParam(baseUrl),
       }),
     });
 
@@ -663,12 +691,15 @@ Guidelines:
         message?: {
           content?: string;
         };
+        finish_reason?: string;
       }>;
     };
 
     if (!data.choices || data.choices.length === 0) {
       throw new Error("No response from OpenAI API");
     }
+
+    assertNotTruncated(data.choices[0].finish_reason, "Translation");
 
     const translatedText = data.choices[0].message?.content?.trim();
 
@@ -761,7 +792,8 @@ STRICT OUTPUT RULES:
           },
         ],
         temperature: 0.5,
-        max_tokens: 200,
+        max_tokens: 400,
+        ...reasoningParam(baseUrl),
       }),
     });
 
@@ -773,8 +805,13 @@ STRICT OUTPUT RULES:
     }
 
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{
+        message?: { content?: string };
+        finish_reason?: string;
+      }>;
     };
+
+    assertNotTruncated(data.choices?.[0]?.finish_reason, "TLDR");
 
     const tldr = data.choices?.[0]?.message?.content?.trim();
 
@@ -844,7 +881,8 @@ STRICT OUTPUT RULES:
           },
         ],
         temperature: 0.3,
-        max_tokens: 200,
+        max_tokens: 400,
+        ...reasoningParam(baseUrl),
       }),
     });
 
@@ -856,8 +894,13 @@ STRICT OUTPUT RULES:
     }
 
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{
+        message?: { content?: string };
+        finish_reason?: string;
+      }>;
     };
+
+    assertNotTruncated(data.choices?.[0]?.finish_reason, "TLDR translation");
 
     const translated = data.choices?.[0]?.message?.content?.trim();
 
@@ -928,6 +971,7 @@ If you cannot find a clear title, return "Untitled Paper".`;
         ],
         temperature: 0.1,
         max_tokens: 200,
+        ...reasoningParam(baseUrl),
       }),
     });
 
@@ -943,12 +987,15 @@ If you cannot find a clear title, return "Untitled Paper".`;
         message?: {
           content?: string;
         };
+        finish_reason?: string;
       }>;
     };
 
     if (!data.choices || data.choices.length === 0) {
       throw new Error("No response from OpenAI API");
     }
+
+    assertNotTruncated(data.choices[0].finish_reason, "Title extraction");
 
     const title = data.choices[0].message?.content?.trim();
 
@@ -1037,6 +1084,7 @@ Rules:
         ],
         temperature: 0.1,
         max_tokens: 300,
+        ...reasoningParam(baseUrl),
       }),
     });
 
@@ -1052,12 +1100,15 @@ Rules:
         message?: {
           content?: string;
         };
+        finish_reason?: string;
       }>;
     };
 
     if (!data.choices || data.choices.length === 0) {
       throw new Error("No response from OpenAI API");
     }
+
+    assertNotTruncated(data.choices[0].finish_reason, "Tail review");
 
     const content = data.choices[0].message?.content?.trim();
 
@@ -1175,6 +1226,7 @@ Rules:
       // 200 太紧:分类 + 3-5 个 tag 的 JSON 偶尔会被截断成无法解析,
       // 进而落到 ["other"] 兜底。留足余量避免截断。
       max_tokens: 400,
+      ...reasoningParam(baseUrl),
     }),
   });
   if (!response.ok) {
@@ -1183,8 +1235,12 @@ Rules:
     );
   }
   const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{
+      message?: { content?: string };
+      finish_reason?: string;
+    }>;
   };
+  assertNotTruncated(data.choices?.[0]?.finish_reason, "Classification");
   const content = data.choices?.[0]?.message?.content ?? "";
   const result = parseClassification(content);
   // parseClassification 永不抛错:解析失败/截断/无合法分类都返回
