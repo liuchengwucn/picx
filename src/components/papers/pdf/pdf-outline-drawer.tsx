@@ -9,6 +9,9 @@ import type { PdfOutlineNode } from "./use-pdf-viewer";
 /** 缩进最多加到这一层：见 OutlineLevel 注释 */
 const MAX_INDENT_DEPTH = 5;
 
+/** 工具栏目录按钮的 aria-controls 指向这里。一页只有一个 PDF 面板，静态 id 够用。 */
+export const PDF_OUTLINE_PANEL_ID = "pdf-outline-panel";
+
 interface PdfOutlineDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -127,6 +130,7 @@ export function PdfOutlineDrawer({
       />
       <div
         ref={panelRef}
+        id={PDF_OUTLINE_PANEL_ID}
         role="dialog"
         aria-modal="true"
         aria-label={m.pdf_outline()}

@@ -32,6 +32,14 @@ export const TOOL_BTN =
 export const ICON_BTN = "px-[0.45rem] py-[0.45rem]";
 
 /**
+ * 禁用态:连 hover 位移与描边一起关掉,否则点不动的按钮还在跟着鼠标动。
+ * 只对 TOOL_BTN/GHOST_BTN 这类带 hover:-translate-y 的按钮有意义。
+ */
+export const DISABLED_BTN =
+  "disabled:cursor-not-allowed disabled:opacity-40 " +
+  "disabled:hover:translate-y-0 disabled:hover:border-[var(--line)]";
+
+/**
  * 居中状态卡片(分析 / 转换进度 / 错误 / 裁剪预览共用)。
  * 用法:cn(STATUS_CARD, "rise-in text-center")。图标色由各处自行追加。
  */

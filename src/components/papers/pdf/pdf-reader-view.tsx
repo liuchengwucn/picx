@@ -1,7 +1,8 @@
 import { FileText, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { m } from "#/paraglide/messages";
+import { PdfFindBar } from "./pdf-find-bar";
 import { PdfOutlineDrawer } from "./pdf-outline-drawer";
 import { PdfToolbar } from "./pdf-toolbar";
 import { usePdfViewer } from "./use-pdf-viewer";
@@ -39,9 +40,23 @@ export default function PdfReaderView({
     onPageChange(pdf.pageNumber);
   }, [pdf.pageNumber, onPageChange]);
 
-  // 大纲抽屉与搜索条的开关。搜索条的实体组件在 Task 6 接进来，这里先只立接口。
+  // 大纲抽屉与搜索条的开关。
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+
+  // 收起搜索条必须连高亮一起清掉，否则满屏的黄底会一直留在正文上，而此时已经没有
+  // 任何入口能取消它了。收起有三条路——搜索条的关闭按钮、Esc、以及再点一次工具栏的
+  // 搜索按钮——所以清理挂在开关本身上，而不是挂在搜索条的 onClose 上。
+  // clearFind 是 useCallback 稳定引用，这里跟着稳定，搜索条那边的 debounce effect
+  // 才不会每渲染一次就重排一次。
+  const { clearFind } = pdf;
+  const handleFindOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) clearFind();
+      setFindOpen(open);
+    },
+    [clearFind],
+  );
 
   return (
     <div className="paper-card relative flex h-[70dvh] flex-col overflow-hidden p-0 xl:sticky xl:top-24 xl:h-[calc(100dvh-8rem)]">
@@ -57,12 +72,25 @@ export default function PdfReaderView({
         outlineOpen={outlineOpen}
         onOutlineOpenChange={setOutlineOpen}
         findOpen={findOpen}
-        onFindOpenChange={setFindOpen}
+        onFindOpenChange={handleFindOpenChange}
         onGoToPage={pdf.goToPage}
         onZoomIn={pdf.zoomIn}
         onZoomOut={pdf.zoomOut}
         onFitWidth={pdf.fitWidth}
       />
+      {/* 搜索条钉在工具栏下方、参与 flex 布局：它只压矮滚动区不改宽度，
+          usePdfViewer 的 ResizeObserver 只认宽度变化，因此开合它既不会重算「适宽」
+          倍率，也不会清掉用户的选区。 */}
+      {findOpen && (
+        <PdfFindBar
+          matchIndex={pdf.findMatchIndex}
+          matchCount={pdf.findMatchCount}
+          notFound={pdf.findNotFound}
+          onSearch={pdf.find}
+          onAgain={pdf.findAgain}
+          onClose={() => handleFindOpenChange(false)}
+        />
+      )}
       {/* 这层只负责给下面那个绝对定位的滚动容器撑出可用区域并做定位参照。
           PDFViewer 构造时会直接读 getComputedStyle(container).position，不是
           "absolute" 就抛 "The `container` must be absolutely positioned."——

@@ -1,13 +1,14 @@
 import { Download, List, Minus, Plus, Search } from "lucide-react";
 import { useRef, useState } from "react";
-import { ICON_BTN, TOOL_BTN } from "#/components/reader/reader-ui";
+import {
+  DISABLED_BTN,
+  ICON_BTN,
+  TOOL_BTN,
+} from "#/components/reader/reader-ui";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
-
-/** 禁用态：连 hover 位移一起关掉，否则点不动的按钮还在跟着鼠标动。 */
-const DISABLED_BTN =
-  "disabled:cursor-not-allowed disabled:opacity-40 " +
-  "disabled:hover:translate-y-0 disabled:hover:border-[var(--line)]";
+import { PDF_FIND_BAR_ID } from "./pdf-find-bar";
+import { PDF_OUTLINE_PANEL_ID } from "./pdf-outline-drawer";
 
 /** 总页数的无障碍描述节点 id。一页只会有一个 PDF 工具栏，静态 id 够用。 */
 const PAGE_TOTAL_ID = "pdf-page-total";
@@ -135,6 +136,10 @@ export function PdfToolbar({
             disabled={!ready}
             onClick={() => onOutlineOpenChange(!outlineOpen)}
             aria-expanded={outlineOpen}
+            // 抽屉/搜索条都是关闭即卸载，收起状态下这个 IDREF 是悬空的。读屏对解析
+            // 不到的 aria-controls 一律忽略，而把它们改成常驻隐藏节点要多养一套
+            // inert/aria-hidden 状态，不值当——展开时指向正确即可。
+            aria-controls={PDF_OUTLINE_PANEL_ID}
             aria-label={m.pdf_outline()}
             title={m.pdf_outline()}
           >
@@ -147,6 +152,7 @@ export function PdfToolbar({
           disabled={!ready}
           onClick={() => onFindOpenChange(!findOpen)}
           aria-expanded={findOpen}
+          aria-controls={PDF_FIND_BAR_ID}
           aria-label={m.pdf_search()}
           title={m.pdf_search()}
         >
