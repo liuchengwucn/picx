@@ -1,5 +1,17 @@
 // src/lib/digest/store.ts
-import { and, asc, desc, eq, gt, gte, inArray, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import {
   type DirectionSourceConfig,
@@ -579,6 +591,10 @@ export async function getPublishedIssueDetail(
 
   // 白板图 leftJoin（与 gallery 流的 innerJoin 刻意不同）：期内论文清单必须完整，
   // 无图论文由前端降级为纯文字卡。groupBy 防重复默认白板/重复 paper_results 扇出。
+  // 可见性守卫只挡软删（软删论文的 /p/$shortId 已 404，链过去是死链）：
+  // status="completed" 恰恰是 leftJoin 要兜住的降级场景（兜底发布的期会有白板管线
+  // 未完成的论文，仍须出现在清单里）；isPublic / isListedInGallery 的下架语义留给
+  // Phase 3 管理页决策，此处加会与「期内论文清单必须完整」冲突。
   const paperRows = await db
     .select({
       id: papers.id,
@@ -601,7 +617,9 @@ export async function getPublishedIssueDetail(
       ),
     )
     .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
-    .where(eq(digestPapers.digestId, row.digestId))
+    .where(
+      and(eq(digestPapers.digestId, row.digestId), isNull(papers.deletedAt)),
+    )
     .groupBy(papers.id)
     .orderBy(asc(digestPapers.rank));
 

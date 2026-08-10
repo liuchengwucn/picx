@@ -4,6 +4,9 @@
  *
  * 为什么不用 mock 链：WHERE / JOIN / GROUP BY / 相关子查询这些语义只有让 SQL
  * 真跑一遍才能验证（例如「只暴露 published」是 WHERE 里的事，mock 链看不见）。
+ *
+ * node:sqlite 自 Node 23.4 起免 --experimental-sqlite；23.x 已 EOL，故 package.json
+ * 的 engines.node 记为 >=24（Node 22 LTS 上本文件会直接抛 ERR_UNKNOWN_BUILTIN_MODULE）。
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -11,9 +14,14 @@ import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "#/db/schema";
 
-const MIGRATIONS_DIR = fileURLToPath(new URL("../../drizzle/", import.meta.url));
+const MIGRATIONS_DIR = fileURLToPath(
+  new URL("../../drizzle/", import.meta.url),
+);
 
 function applyMigrations(sqlite: DatabaseSync): void {
+  // 假设文件名字典序 == 应用顺序（drizzle 的 0000_ 前缀保证；0000-0029 已核对与
+  // meta/_journal.json 一致）。若将来迁移被改名或补插序号，这里会静默错序，
+  // 届时应改为读 drizzle/meta/_journal.json 的 entries。
   const files = readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith(".sql"))
     .sort();
@@ -37,7 +45,9 @@ function createD1Client(sqlite: DatabaseSync) {
       const orderedColumns = () => {
         const columns = stmt.columns().map((c) => c.name);
         if (new Set(columns).size !== columns.length) {
-          throw new Error(`duplicate column names in select: ${columns.join()}`);
+          throw new Error(
+            `duplicate column names in select: ${columns.join()}`,
+          );
         }
         return columns;
       };
@@ -51,7 +61,6 @@ function createD1Client(sqlite: DatabaseSync) {
               columns.map((c) => (row as Record<string, unknown>)[c]),
             );
         },
-        first: async () => stmt.get(...(params as never[])) ?? null,
         run: async () => stmt.run(...(params as never[])),
       });
       return { bind, ...bind() };
@@ -64,7 +73,6 @@ function createD1Client(sqlite: DatabaseSync) {
 
 export interface TestDb {
   db: ReturnType<typeof drizzle<typeof schema>>;
-  sqlite: DatabaseSync;
 }
 
 /** 新建一个跑完全部迁移的内存库 + drizzle 实例 */
@@ -74,5 +82,5 @@ export function createTestDb(): TestDb {
   const db = drizzle(createD1Client(sqlite) as unknown as D1Database, {
     schema,
   });
-  return { db, sqlite };
+  return { db };
 }

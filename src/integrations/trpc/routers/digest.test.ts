@@ -36,22 +36,16 @@ function four(prefix: string): Record<string, string> {
 
 async function seed(db: Db) {
   const now = new Date();
-  await db.insert(user).values([
-    {
-      id: "u1",
-      name: "u1",
-      email: "u1@example.com",
+  // 三个用户：paper_feedback 的 (paperId, userId) 唯一，一篇论文上凑赞+踩需要三个人
+  await db.insert(user).values(
+    ["u1", "u2", "u3"].map((id) => ({
+      id,
+      name: id,
+      email: `${id}@example.com`,
       createdAt: now,
       updatedAt: now,
-    },
-    {
-      id: "u2",
-      name: "u2",
-      email: "u2@example.com",
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]);
+    })),
+  );
 
   await db.insert(directions).values([
     {
@@ -146,6 +140,7 @@ async function seed(db: Db) {
   for (const [id, shortId, title] of [
     ["p1", "sid1", "Paper One"],
     ["p2", "sid2", "Paper Two"],
+    ["p3", "sid3", "Deleted Paper"],
   ]) {
     await db.insert(papers).values({
       id,
@@ -158,6 +153,8 @@ async function seed(db: Db) {
       status: "completed",
       isPublic: true,
       isListedInGallery: true,
+      // p3 已软删：/p/sid3 已 404，简报页不该再渲染它
+      deletedAt: id === "p3" ? new Date("2026-08-09T00:00:00Z") : null,
     });
   }
 
@@ -166,6 +163,8 @@ async function seed(db: Db) {
     { id: "wb-1", paperId: "p1", imageR2Key: "wb/p1-a.png", isDefault: true },
     { id: "wb-2", paperId: "p1", imageR2Key: "wb/p1-b.png", isDefault: true },
     { id: "wb-3", paperId: "p1", imageR2Key: "wb/p1-c.png", isDefault: false },
+    // 软删论文也有白板：守卫缺失时会连 R2 key 一起泄漏出去
+    { id: "wb-4", paperId: "p3", imageR2Key: "wb/p3.png", isDefault: true },
   ]);
   await db.insert(paperResults).values([
     {
@@ -195,13 +194,20 @@ async function seed(db: Db) {
       rank: 1,
       recommendationNote: four("note p1"),
     },
+    {
+      digestId: "dg-2",
+      paperId: "p3",
+      rank: 3,
+      recommendationNote: four("note p3"),
+    },
   ]);
 
   // p1: 两个赞 + 一个踩；p2: 一个踩。likeCount 只数 vote = 1
   await db.insert(paperFeedback).values([
     { id: "fb-1", paperId: "p1", userId: "u1", vote: 1 },
     { id: "fb-2", paperId: "p1", userId: "u2", vote: 1 },
-    { id: "fb-3", paperId: "p2", userId: "u1", vote: -1 },
+    { id: "fb-3", paperId: "p1", userId: "u3", vote: -1 },
+    { id: "fb-4", paperId: "p2", userId: "u1", vote: -1 },
   ]);
 }
 
@@ -261,6 +267,17 @@ describe("digest.getIssue", () => {
     });
     expect(issue1?.prevIssue).toBeNull();
     expect(issue1?.nextIssue).toBe(2);
+  });
+
+  it("omits soft-deleted papers from the issue's paper list", async () => {
+    // p3 是 dg-2 的 rank 3 入选论文但已软删：标题与白板 R2 key 都不该再对外渲染
+    const issue = await caller.getIssue({
+      slug: "ai4formath",
+      issueNumber: 2,
+    });
+    expect(issue?.papers.map((p) => p.id)).not.toContain("p3");
+    expect(JSON.stringify(issue)).not.toContain("Deleted Paper");
+    expect(JSON.stringify(issue)).not.toContain("wb/p3.png");
   });
 
   it("hides issues that are not published", async () => {
