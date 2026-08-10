@@ -41,6 +41,10 @@ import {
   clampChatPanelWidth,
   PaperChat,
 } from "#/components/paper-chat";
+import {
+  type FeedbackAuthState,
+  FeedbackButtons,
+} from "#/components/papers/feedback-buttons";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
 import {
   type PaperReaderState,
@@ -180,9 +184,10 @@ export const Route = createFileRoute("/p/$shortId")({
       try {
         const { env } = await import("cloudflare:workers");
         const { drizzle } = await import("drizzle-orm/d1");
-        const { and, desc, eq, isNull } = await import("drizzle-orm");
+        const { and, count, desc, eq, isNull } = await import("drizzle-orm");
         const {
           paperContents,
+          paperFeedback,
           paperResults,
           papers,
           whiteboardImages,
@@ -246,6 +251,21 @@ export const Route = createFileRoute("/p/$shortId")({
           .limit(1);
         const hasContent = !!content;
 
+        // 赞数首帧就要准（ssrData 当 initialData 且 staleTime 30s，先给 0 会让
+        // 已有的赞数消失半分钟）。口径与 paper.getByShortId 那边完全一致。
+        const [likeRow] = paper.isListedInGallery
+          ? await db
+              .select({ value: count() })
+              .from(paperFeedback)
+              .where(
+                and(
+                  eq(paperFeedback.paperId, paper.id),
+                  eq(paperFeedback.vote, 1),
+                ),
+              )
+          : [];
+        const likeCount = likeRow?.value ?? 0;
+
         const summaries = (result?.summaries as Record<string, string>) ?? null;
         const currentLanguage = result?.summaryLanguage ?? "en";
         const summary = summaries
@@ -264,6 +284,7 @@ export const Route = createFileRoute("/p/$shortId")({
                 defaultWhiteboard,
                 whiteboards,
                 hasContent,
+                likeCount,
               }
             : {
                 paper,
@@ -271,6 +292,7 @@ export const Route = createFileRoute("/p/$shortId")({
                 defaultWhiteboard: null,
                 whiteboards: [],
                 hasContent,
+                likeCount,
               };
 
         // Related papers (same category first, then recent) so the SSR HTML
@@ -631,6 +653,24 @@ function PaperDetailPage() {
     enabled: !!data?.paper && data.paper.status === "completed",
   });
 
+  // 反馈按钮的登录态：pending 不渲染（否则已登录用户会先看到一下登录墙），
+  // review-guest 只读账号禁用（后端 assertGuestWriteAllowed 是第二道防线）
+  const feedbackAuth: FeedbackAuthState = isSessionPending
+    ? "pending"
+    : !effectiveSession
+      ? "signed-out"
+      : isReviewGuestReadOnlySession(effectiveSession)
+        ? "readonly-guest"
+        : "signed-in";
+  const myFeedback = useQuery({
+    ...trpc.paper.getMyFeedback.queryOptions({ paperIds: [paperId] }),
+    // protected procedure：未登录发出去注定 401
+    enabled: !!paperId && feedbackAuth === "signed-in",
+  });
+  const myVoteRaw = myFeedback.data?.[paperId]?.vote;
+  // vote 在 schema 里是 integer，收窄回 1 | -1
+  const myVote = myVoteRaw === 1 || myVoteRaw === -1 ? myVoteRaw : undefined;
+
   const deleteMutation = useMutation(
     trpc.paper.delete.mutationOptions({
       onSuccess: () => {
@@ -701,7 +741,7 @@ function PaperDetailPage() {
 
   if (!data) return null;
 
-  const { paper, result, defaultWhiteboard, hasContent } = data;
+  const { paper, result, defaultWhiteboard, hasContent, likeCount } = data;
   const progress = statusProgress[paper.status] ?? 0;
   const whiteboardImageUrl = defaultWhiteboard?.imageR2Key
     ? `/api/r2/${defaultWhiteboard.imageR2Key}`
@@ -844,6 +884,21 @@ function PaperDetailPage() {
                       </p>
                     </div>
                   </div>
+
+                  {/* 赞/踩：只对上架画廊的公开论文开放，与 paper.setFeedback 的
+                      放行条件一致（私有论文投票必定 NOT_FOUND） */}
+                  {paper.isPublic && paper.isListedInGallery && (
+                    <div className="mt-4 border-t border-[var(--line)] pt-3">
+                      <FeedbackButtons
+                        paperId={paper.id}
+                        likeCount={likeCount}
+                        myVote={myVote}
+                        auth={feedbackAuth}
+                        signInCallbackURL={`/p/${paper.shortId ?? shortId}`}
+                        variant="detail"
+                      />
+                    </div>
+                  )}
 
                   <div className="mt-4 space-y-3">
                     <div className="flex items-center justify-between text-sm">

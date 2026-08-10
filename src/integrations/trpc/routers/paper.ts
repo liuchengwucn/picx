@@ -642,6 +642,24 @@ export const paperRouter = router({
         .limit(1);
       const hasContent = !!content;
 
+      // 赞数只对上架画廊的公开论文有意义（setFeedback 同样只放行这类论文），其余
+      // 情况省掉这次 D1 往返。口径与 likeCountSql 一致（vote = 1）；没复用那个
+      // helper 是因为它插值 Column、只在多表 join 里成立，而上面取 paper 是单表
+      // 查询——单表里 Drizzle 会剥掉表限定符，子查询会静默退化成自引用。
+      const [likeRow] =
+        paper.isPublic && paper.isListedInGallery
+          ? await ctx.db
+              .select({ value: count() })
+              .from(paperFeedback)
+              .where(
+                and(
+                  eq(paperFeedback.paperId, paper.id),
+                  eq(paperFeedback.vote, 1),
+                ),
+              )
+          : [];
+      const likeCount = likeRow?.value ?? 0;
+
       if (result) {
         const summaries = result.summaries as Record<string, string>;
         const currentLanguage = result.summaryLanguage;
@@ -658,6 +676,7 @@ export const paperRouter = router({
           defaultWhiteboard,
           whiteboards,
           hasContent,
+          likeCount,
         };
       }
 
@@ -667,6 +686,7 @@ export const paperRouter = router({
         defaultWhiteboard: null,
         whiteboards: [],
         hasContent,
+        likeCount,
       };
     }),
 

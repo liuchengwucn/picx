@@ -519,5 +519,16 @@
   "assistant_profile_placeholder": "例：マルチモーダル推論を研究中。効率的な推論とエージェント評価に関心。",
   "assistant_profile_save": "保存",
   "assistant_profile_saved": "プロフィールを保存しました",
-  "assistant_profile_updated_at": "{date} 更新"
+  "assistant_profile_updated_at": "{date} 更新",
+  "feedback_like": "いいね",
+  "feedback_dislike": "イマイチ",
+  "feedback_reason_title": "理由（任意）",
+  "feedback_reason_off_topic": "方向と無関係",
+  "feedback_reason_incremental": "新規性が乏しい",
+  "feedback_reason_hype": "誇大宣伝",
+  "feedback_reason_seen": "既に見た",
+  "feedback_reason_placeholder": "補足（任意）",
+  "feedback_submit": "送信",
+  "feedback_login_required": "ログインして投票",
+  "feedback_readonly": "デモでは投票不可"
 }

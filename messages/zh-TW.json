@@ -519,5 +519,16 @@
   "assistant_profile_placeholder": "例：我在做多模態推理方向；關注高效推理與 agent 評測。",
   "assistant_profile_save": "儲存",
   "assistant_profile_saved": "已儲存個人檔案",
-  "assistant_profile_updated_at": "更新於 {date}"
+  "assistant_profile_updated_at": "更新於 {date}",
+  "feedback_like": "點讚",
+  "feedback_dislike": "點踩",
+  "feedback_reason_title": "為什麼不推薦？（可選）",
+  "feedback_reason_off_topic": "與方向無關",
+  "feedback_reason_incremental": "增量太小",
+  "feedback_reason_hype": "炒作營銷",
+  "feedback_reason_seen": "已經看過",
+  "feedback_reason_placeholder": "補充說明（可選）",
+  "feedback_submit": "提交",
+  "feedback_login_required": "登入後即可反饋",
+  "feedback_readonly": "演示帳號不可投票"
 }

@@ -519,5 +519,16 @@
   "assistant_profile_placeholder": "e.g. I work on multimodal reasoning; interested in efficient inference and agent evaluation.",
   "assistant_profile_save": "Save",
   "assistant_profile_saved": "Profile saved",
-  "assistant_profile_updated_at": "Updated {date}"
+  "assistant_profile_updated_at": "Updated {date}",
+  "feedback_like": "Like",
+  "feedback_dislike": "Not for me",
+  "feedback_reason_title": "Why not? (optional)",
+  "feedback_reason_off_topic": "Off topic",
+  "feedback_reason_incremental": "Too incremental",
+  "feedback_reason_hype": "Hype / marketing",
+  "feedback_reason_seen": "Already seen",
+  "feedback_reason_placeholder": "Add a note (optional)",
+  "feedback_submit": "Submit",
+  "feedback_login_required": "Sign in to vote",
+  "feedback_readonly": "Voting unavailable in demo"
 }
