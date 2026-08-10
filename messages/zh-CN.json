@@ -534,5 +534,11 @@
   "feedback_like_count": "{count} 人点赞",
   "digest_directions_nav": "研究方向",
   "digest_direction_all": "全部",
-  "digest_direction_view": "查看方向：{name}"
+  "digest_direction_view": "查看方向：{name}",
+  "digest_latest_issue": "最新一期",
+  "digest_past_issues": "往期简报",
+  "digest_issue_n": "第 {n} 期",
+  "digest_read_full": "阅读全文",
+  "digest_empty_issue": "首期简报生成中",
+  "digest_current_focus": "当前关注"
 }
