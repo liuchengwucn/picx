@@ -120,13 +120,13 @@ export async function searchAngle(
   const { text } = await generateText({
     model: provider.chat(modelId),
     tools: { web_search: provider.tools.webSearch({ maxResults: 10 }) },
-    stopWhen: isStepCount(6),
+    stopWhen: isStepCount(12),
     prompt: [
       `You research one angle of a weekly AI-research digest. Time window: ${windowDescription}.`,
       `Research focus:\n${focusBrief}`,
       `Your angle: ${angle.label} — ${angle.rationale ?? ""}`,
       `Start from this query (refine as needed, multiple searches allowed): ${angle.query}`,
-      "Find up to 8 items from the time window relevant to the focus. Prefer primary sources (papers, official posts, repos) over SEO farms and reposts.",
+      "Find up to 15 items from the time window relevant to the focus. Prefer primary sources (papers, official posts, repos) over SEO farms and reposts.",
       UNTRUSTED_NOTE,
       "When done, output JSON only (no prose):",
       '{"items":[{"url":"...","title":"...","kind":"paper"|"intel","excerpt":"one-sentence why relevant","publishedAt":"YYYY-MM-DD or empty"}]}',
@@ -151,7 +151,7 @@ export async function searchAngle(
   }
   return (parsed.items ?? [])
     .filter((i) => i.url && i.title)
-    .slice(0, 8)
+    .slice(0, 15)
     .map((i) => ({
       canonicalUrl: i.url as string,
       title: i.title as string,

@@ -57,6 +57,18 @@ describe("mergeCandidates", () => {
     expect(labels).toContain("atp-verify");
     expect(labels).toContain("atp");
   });
+
+  it("keeps the higher prescore when the same url appears in two groups", () => {
+    const merged = mergeCandidates(
+      [
+        [paper("https://arxiv.org/abs/2508.00004", { prescore: 60 })],
+        [paper("https://arxiv.org/abs/2508.00004", { prescore: 85 })],
+      ],
+      new Map(),
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].prescore).toBe(85);
+  });
 });
 
 describe("partitionCandidates", () => {
@@ -93,6 +105,16 @@ describe("partitionCandidates", () => {
     expect(result.overBudget).toHaveLength(3);
     // 热度最低的 3 个被挤出
     expect(result.overBudget.map((i) => i.hfUpvotes)).toEqual([2, 1, 0]);
+  });
+
+  it("budget cuts the lowest-prescore item when no hf upvotes", () => {
+    const items = Array.from({ length: PAPER_REVIEW_BUDGET + 1 }, (_, i) =>
+      paper(`u-${i}`, { prescore: 100 - i }),
+    );
+    const result = partitionCandidates(items, []);
+    expect(result.toReview).toHaveLength(PAPER_REVIEW_BUDGET);
+    expect(result.overBudget).toHaveLength(1);
+    expect(result.overBudget[0].prescore).toBe(100 - PAPER_REVIEW_BUDGET);
   });
 });
 

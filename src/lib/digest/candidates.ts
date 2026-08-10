@@ -3,8 +3,8 @@ import { canonicalArxivId } from "#/lib/arxiv";
 import type { CandidateItem, VerifyVerdict } from "./types";
 
 /** 本期精读预算：论文与 intel 分开计（intel 便宜但也要有上限） */
-export const PAPER_REVIEW_BUDGET = 20;
-export const INTEL_REVIEW_BUDGET = 15;
+export const PAPER_REVIEW_BUDGET = 40;
+export const INTEL_REVIEW_BUDGET = 30;
 /** 已 rejected 的候选，HF 热度达到该值时允许重新浮出（迟到爆款） */
 export const LATE_BLOOMER_UPVOTES = 30;
 
@@ -31,6 +31,9 @@ export function mergeCandidates(
       if (existing) {
         if (!existing.sourceLabel.split(",").includes(item.sourceLabel)) {
           existing.sourceLabel = `${existing.sourceLabel},${item.sourceLabel}`;
+        }
+        if ((item.prescore ?? -1) > (existing.prescore ?? -1)) {
+          existing.prescore = item.prescore;
         }
         continue;
       }
@@ -77,10 +80,11 @@ export function partitionCandidates(
     // status === "seen"（上期预算外或未评审）：本期重新参评
     eligible.push(item);
   }
-  // 热度优先、新发布优先
+  // 预算裁剪砍尾：热度优先、初筛分次之、新发布再次——被砍的永远是最不可惜的
   eligible.sort(
     (a, b) =>
       (b.hfUpvotes ?? 0) - (a.hfUpvotes ?? 0) ||
+      (b.prescore ?? 0) - (a.prescore ?? 0) ||
       (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""),
   );
   const papers = eligible.filter((i) => i.kind === "paper");

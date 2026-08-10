@@ -28,6 +28,8 @@ export interface CandidateItem {
   sourceLabel: string;
   /** HF daily papers 热度（有则加权），来自 hf_signals */
   hfUpvotes?: number;
+  /** 初筛相关性分 0-100（scoreSourceItems 产出）；预算裁剪按此排序，砍最低分 */
+  prescore?: number;
 }
 
 export interface CandidateReview {

@@ -163,7 +163,9 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                   source.consecutiveFailures,
                   { ok: true },
                 );
-                return items.filter((_, i) => scores[i] >= RELEVANCE_THRESHOLD);
+                return items
+                  .map((it, i) => ({ ...it, prescore: scores[i] }))
+                  .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
               } catch (e) {
                 // 源失败不失败整期：记熔断，返回空
                 await recordSourceResult(
@@ -195,14 +197,22 @@ export class DigestWorkflow extends WorkflowEntrypoint<
               LLM_RETRIES,
               async () => {
                 try {
-                  const items = await searchAngle(
+                  const found = await searchAngle(
                     env,
                     cheapModel(env).model,
                     ctx.direction.focusBrief,
                     angle,
                     periodLabel,
                   );
-                  return items.map(canonicalizeCandidate);
+                  const items = found.map(canonicalizeCandidate);
+                  const scores = await scoreSourceItems(
+                    cheapModel(env),
+                    ctx.direction.focusBrief,
+                    items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
+                  );
+                  return items
+                    .map((it, i) => ({ ...it, prescore: scores[i] }))
+                    .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
                 } catch (e) {
                   console.error(`[Digest] angle ${angle.label} failed:`, e);
                   return [] as CandidateItem[];
