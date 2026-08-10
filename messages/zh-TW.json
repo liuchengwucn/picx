@@ -531,6 +531,8 @@
   "feedback_submit": "提交",
   "feedback_login_required": "登入後即可反饋",
   "feedback_readonly": "演示帳號不可投票",
+  "feedback_like_count": "{count} 人點讚",
   "digest_directions_nav": "研究方向",
-  "digest_direction_all": "全部"
+  "digest_direction_all": "全部",
+  "digest_direction_view": "查看方向：{name}"
 }

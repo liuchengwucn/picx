@@ -75,9 +75,16 @@ export function GalleryCard({
             portal 到了 body, 指针一移进去卡片就 un-hover, 只写 group-hover 的话
             按钮会连着浮层的锚点一起淡出。(group-focus-within 救不了, 焦点被 Radix
             移进了卡片 DOM 之外。) 移动端没有 hover, 投票走详情页。
-            自带一层浅底 + 阴影: 卡片这一角下面压着标题, 没有底会糊在字上。 */}
+            自带一层浅底 + 阴影: 卡片这一角下面压着标题, 没有底会糊在字上。
+
+            pointer-events-none 不是装饰: opacity-0 照样能点, 触屏上点到卡片右上角
+            就会命中隐形的赞/踩(未登录直接被弹去 GitHub OAuth, 已登录静默投一票),
+            而 handler 里的 preventDefault 还顺手吃掉了整卡跳转。三个显示变体各配一个
+            pointer-events-auto: group-hover 那个由卡片(.group)的 hover 驱动, 不依赖
+            pill 自己可命中, 所以桌面端不会自锁; pointer-events:none 也不阻止聚焦,
+            键盘那条 focus-within 路径照旧。 */}
         {feedbackAuth && feedbackAuth !== "pending" && signInCallbackURL ? (
-          <div className="absolute top-3 right-3 z-10 rounded-full bg-[var(--surface-strong)]/95 p-1 opacity-0 shadow-[0_2px_10px_rgba(45,42,36,0.12)] transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[data-feedback-open]]:opacity-100">
+          <div className="pointer-events-none absolute top-3 right-3 z-10 rounded-full bg-[var(--surface-strong)]/95 p-1 opacity-0 shadow-[0_2px_10px_rgba(45,42,36,0.12)] transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 has-[[data-feedback-open]]:pointer-events-auto has-[[data-feedback-open]]:opacity-100">
             <FeedbackButtons
               paperId={paper.id}
               likeCount={likeCount}
@@ -85,6 +92,9 @@ export function GalleryCard({
               auth={feedbackAuth}
               signInCallbackURL={signInCallbackURL}
               variant="card"
+              // 赞数由底行那个常驻的负责, pill 只承担操作, 免得 hover 时同一个数字
+              // 在卡片上出现两遍
+              showCount={false}
             />
           </div>
         ) : null}
@@ -117,6 +127,8 @@ export function GalleryCard({
                   params: { slug: directionSlug },
                 });
               }}
+              // 只念方向名听不出点了会怎样, 补一句「查看方向」
+              aria-label={m.digest_direction_view({ name: directionLabel })}
               className="w-fit max-w-full truncate rounded-full bg-[var(--parchment-warm)] px-2 py-0.5 text-[11px] font-medium text-[var(--academic-brown)] transition-colors hover:bg-[var(--academic-brown)] hover:text-white"
             >
               {directionLabel}
@@ -137,10 +149,15 @@ export function GalleryCard({
                   「白板图」淡入不会把数字推来推去 */}
               {likeCount > 0 && (
                 <span className="inline-flex items-center gap-1">
-                  <ThumbsUp className="h-3 w-3" />
-                  <span className="tabular-nums">{likeCount}</span>
-                  {/* 光一个数字读屏念不出是什么 */}
-                  <span className="sr-only">{m.feedback_like()}</span>
+                  {/* 图标 + 数字整组藏起来, 单独给读屏一句完整的话: 否则念出来是
+                      「5 赞」这种拼接腔 */}
+                  <ThumbsUp className="h-3 w-3" aria-hidden="true" />
+                  <span aria-hidden="true" className="tabular-nums">
+                    {likeCount}
+                  </span>
+                  <span className="sr-only">
+                    {m.feedback_like_count({ count: String(likeCount) })}
+                  </span>
                 </span>
               )}
               <span className="inline-flex items-center gap-1.5 text-[var(--academic-brown)] opacity-0 transition-opacity duration-300 group-hover:opacity-100">

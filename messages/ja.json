@@ -531,6 +531,8 @@
   "feedback_submit": "送信",
   "feedback_login_required": "ログインして投票",
   "feedback_readonly": "デモでは投票不可",
+  "feedback_like_count": "{count} 人がいいね",
   "digest_directions_nav": "研究の方向性",
-  "digest_direction_all": "すべて"
+  "digest_direction_all": "すべて",
+  "digest_direction_view": "方向を見る：{name}"
 }

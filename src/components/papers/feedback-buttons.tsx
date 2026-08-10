@@ -56,6 +56,11 @@ interface FeedbackButtonsProps {
   signInCallbackURL: string;
   /** card = 卡片上的紧凑图标形态; detail = 详情页带文案形态 */
   variant: "card" | "detail";
+  /**
+   * 赞按钮里是否带上赞数, 默认 true。调用点自己已经常驻显示赞数时(gallery 卡片
+   * 底行)传 false, 否则同一个数字在一张卡上出现两遍。
+   */
+  showCount?: boolean;
   className?: string;
 }
 
@@ -76,6 +81,7 @@ export function FeedbackButtons({
   auth,
   signInCallbackURL,
   variant,
+  showCount = true,
   className,
 }: FeedbackButtonsProps) {
   const trpc = useTRPC();
@@ -209,10 +215,11 @@ export function FeedbackButtons({
         aria-disabled={isReadOnly || undefined}
         aria-pressed={myVote === 1}
         // detail 形态自带文案(还带赞数), 再加 aria-label 反而把赞数从读屏里抹掉;
-        // card 形态没文案, 赞数得拼进 label, 否则读屏用户听不到
+        // card 形态没文案, 赞数得拼进 label, 否则读屏用户听不到。
+        // showCount=false 时不拼: 那种调用点自己在别处播报赞数, 拼进来会念两遍。
         aria-label={
           isCard
-            ? likeCount > 0
+            ? showCount && likeCount > 0
               ? `${m.feedback_like()} (${likeCount})`
               : m.feedback_like()
             : undefined
@@ -225,7 +232,9 @@ export function FeedbackButtons({
           fill={myVote === 1 ? "currentColor" : "none"}
         />
         {!isCard && <span>{m.feedback_like()}</span>}
-        {likeCount > 0 && <span className="tabular-nums">{likeCount}</span>}
+        {showCount && likeCount > 0 && (
+          <span className="tabular-nums">{likeCount}</span>
+        )}
       </button>
 
       <Popover
