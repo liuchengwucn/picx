@@ -1,5 +1,5 @@
 // src/lib/digest/store.ts
-import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt, or, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import {
   type DirectionSourceConfig,
@@ -10,7 +10,9 @@ import {
   directions,
   hfSignals,
   paperFeedback,
+  paperResults,
   papers,
+  whiteboardImages,
 } from "#/db/schema";
 import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
 import { createGalleryPaper, ensureGuestUser } from "#/lib/gallery-paper";
@@ -408,4 +410,237 @@ export function canonicalizeCandidate(
     (periodEnd.getUTCMonth() + 1 - paperMonth);
   if (monthsDiff > MAX_PAPER_AGE_MONTHS) return null;
   return { ...item, canonicalUrl: canonicalArxivUrl(id), kind: "paper" };
+}
+
+// ==================== Phase 2 读查询（公开页面用） ====================
+// 只暴露 published 内容；proposedFocusUpdate / workflowInstanceId 等内部字段
+// 一律不 select，泄漏防护从 store 层就位。
+
+export interface DirectionSummary {
+  slug: string;
+  name: Record<string, string>;
+  latestIssue: {
+    issueNumber: number;
+    title: Record<string, string> | null;
+    publishedAt: Date | null;
+  } | null;
+}
+
+export async function listActiveDirections(
+  db: Db,
+): Promise<DirectionSummary[]> {
+  const dirs = await db
+    .select({ id: directions.id, slug: directions.slug, name: directions.name })
+    .from(directions)
+    .where(eq(directions.isActive, true))
+    .orderBy(asc(directions.sortOrder), asc(directions.slug));
+  // N+1 可接受：方向数量是个位数
+  const result: DirectionSummary[] = [];
+  for (const d of dirs) {
+    const [latest] = await db
+      .select({
+        issueNumber: digests.issueNumber,
+        title: digests.title,
+        publishedAt: digests.publishedAt,
+      })
+      .from(digests)
+      .where(
+        and(eq(digests.directionId, d.id), eq(digests.status, "published")),
+      )
+      .orderBy(desc(digests.issueNumber))
+      .limit(1);
+    result.push({ slug: d.slug, name: d.name, latestIssue: latest ?? null });
+  }
+  return result;
+}
+
+export interface DirectionDetail {
+  slug: string;
+  name: Record<string, string>;
+  focusBrief: string;
+  issues: Array<{
+    issueNumber: number;
+    title: Record<string, string> | null;
+    publishedAt: Date | null;
+    periodStart: Date;
+    periodEnd: Date;
+  }>;
+  /** 最新一期正文（大卡摘要用；无 published 期为 null） */
+  latestContent: Record<string, string> | null;
+}
+
+export async function getDirectionDetailBySlug(
+  db: Db,
+  slug: string,
+): Promise<DirectionDetail | null> {
+  const [dir] = await db
+    .select({
+      id: directions.id,
+      slug: directions.slug,
+      name: directions.name,
+      focusBrief: directions.focusBrief,
+    })
+    .from(directions)
+    .where(and(eq(directions.slug, slug), eq(directions.isActive, true)))
+    .limit(1);
+  if (!dir) return null;
+  const issues = await db
+    .select({
+      issueNumber: digests.issueNumber,
+      title: digests.title,
+      publishedAt: digests.publishedAt,
+      periodStart: digests.periodStart,
+      periodEnd: digests.periodEnd,
+    })
+    .from(digests)
+    .where(
+      and(eq(digests.directionId, dir.id), eq(digests.status, "published")),
+    )
+    .orderBy(desc(digests.issueNumber));
+  // 正文只取最新一期（列表页不需要历史期的 4 倍 markdown）
+  let latestContent: Record<string, string> | null = null;
+  if (issues.length > 0) {
+    const [latest] = await db
+      .select({ content: digests.content })
+      .from(digests)
+      .where(
+        and(
+          eq(digests.directionId, dir.id),
+          eq(digests.issueNumber, issues[0].issueNumber),
+          eq(digests.status, "published"),
+        ),
+      )
+      .limit(1);
+    latestContent = latest?.content ?? null;
+  }
+  return {
+    slug: dir.slug,
+    name: dir.name,
+    focusBrief: dir.focusBrief,
+    issues,
+    latestContent,
+  };
+}
+
+export interface IssueDetail {
+  directionSlug: string;
+  directionName: Record<string, string>;
+  issueNumber: number;
+  title: Record<string, string> | null;
+  content: Record<string, string> | null;
+  periodStart: Date;
+  periodEnd: Date;
+  publishedAt: Date | null;
+  papers: Array<{
+    /** getMyFeedback 批量查询与反馈按钮用；papers.id 在 listPublic 公开响应里本就存在 */
+    id: string;
+    shortId: string | null;
+    title: string;
+    tldr: Record<string, string> | null;
+    /** 超时兜底发布的期可能有未完成白板管线的论文 —— leftJoin，可为 null */
+    whiteboardImageR2Key: string | null;
+    recommendationNote: Record<string, string> | null;
+    rank: number;
+    likeCount: number;
+  }>;
+  prevIssue: number | null;
+  nextIssue: number | null;
+}
+
+export async function getPublishedIssueDetail(
+  db: Db,
+  slug: string,
+  issueNumber: number,
+): Promise<IssueDetail | null> {
+  const [row] = await db
+    .select({
+      digestId: digests.id,
+      directionId: digests.directionId,
+      directionSlug: directions.slug,
+      directionName: directions.name,
+      issueNumber: digests.issueNumber,
+      title: digests.title,
+      content: digests.content,
+      periodStart: digests.periodStart,
+      periodEnd: digests.periodEnd,
+      publishedAt: digests.publishedAt,
+    })
+    .from(digests)
+    .innerJoin(directions, eq(digests.directionId, directions.id))
+    .where(
+      and(
+        eq(directions.slug, slug),
+        eq(digests.issueNumber, issueNumber),
+        eq(digests.status, "published"),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+
+  // 白板图 leftJoin（与 gallery 流的 innerJoin 刻意不同）：期内论文清单必须完整，
+  // 无图论文由前端降级为纯文字卡。groupBy 防重复默认白板/重复 paper_results 扇出。
+  const paperRows = await db
+    .select({
+      id: papers.id,
+      shortId: papers.shortId,
+      title: papers.title,
+      tldr: paperResults.tldr,
+      whiteboardImageR2Key: whiteboardImages.imageR2Key,
+      recommendationNote: digestPapers.recommendationNote,
+      rank: digestPapers.rank,
+      // 多表查询里插值 Column 保留表限定符（单表才会被剥）
+      likeCount: sql<number>`(select count(*) from paper_feedback pf where pf.paper_id = ${papers.id} and pf.vote = 1)`,
+    })
+    .from(digestPapers)
+    .innerJoin(papers, eq(digestPapers.paperId, papers.id))
+    .leftJoin(
+      whiteboardImages,
+      and(
+        eq(whiteboardImages.paperId, papers.id),
+        eq(whiteboardImages.isDefault, true),
+      ),
+    )
+    .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
+    .where(eq(digestPapers.digestId, row.digestId))
+    .groupBy(papers.id)
+    .orderBy(asc(digestPapers.rank));
+
+  const [prev] = await db
+    .select({ issueNumber: digests.issueNumber })
+    .from(digests)
+    .where(
+      and(
+        eq(digests.directionId, row.directionId),
+        eq(digests.status, "published"),
+        lt(digests.issueNumber, issueNumber),
+      ),
+    )
+    .orderBy(desc(digests.issueNumber))
+    .limit(1);
+  const [next] = await db
+    .select({ issueNumber: digests.issueNumber })
+    .from(digests)
+    .where(
+      and(
+        eq(digests.directionId, row.directionId),
+        eq(digests.status, "published"),
+        gt(digests.issueNumber, issueNumber),
+      ),
+    )
+    .orderBy(asc(digests.issueNumber))
+    .limit(1);
+
+  return {
+    directionSlug: row.directionSlug,
+    directionName: row.directionName,
+    issueNumber: row.issueNumber,
+    title: row.title,
+    content: row.content,
+    periodStart: row.periodStart,
+    periodEnd: row.periodEnd,
+    publishedAt: row.publishedAt,
+    papers: paperRows,
+    prevIssue: prev?.issueNumber ?? null,
+    nextIssue: next?.issueNumber ?? null,
+  };
 }
