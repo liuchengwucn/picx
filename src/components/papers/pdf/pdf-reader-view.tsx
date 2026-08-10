@@ -1,9 +1,12 @@
 import { FileText, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "#/components/ui/button";
+import { useSelectionRect } from "#/hooks/use-selection-rect";
 import { m } from "#/paraglide/messages";
 import { PdfFindBar } from "./pdf-find-bar";
 import { PdfOutlineDrawer } from "./pdf-outline-drawer";
+import { PdfSelectionBubble } from "./pdf-selection-bubble";
 import { PdfToolbar } from "./pdf-toolbar";
 import { usePdfViewer } from "./use-pdf-viewer";
 // 官方 viewer 的样式表。它是非 Tailwind 的全局样式，但全部以 .pdfViewer / .textLayer
@@ -21,6 +24,8 @@ export interface PdfReaderViewProps {
   /** 切 tab 回来时恢复到的页码 */
   initialPage: number;
   onPageChange: (page: number) => void;
+  /** 用户点「问这段」时把选中文本交出去；页面层负责送进 chat */
+  onAskSelection: (text: string) => void;
 }
 
 export default function PdfReaderView({
@@ -28,8 +33,13 @@ export default function PdfReaderView({
   title,
   initialPage,
   onPageChange,
+  onAskSelection,
 }: PdfReaderViewProps) {
   const pdf = usePdfViewer(url, initialPage);
+  // 根节点取滚动容器而不是里面那个 .pdfViewer：两者嵌套，对 intersectsNode 判定
+  // 等价，但容器是唯一一个「一定存在、且生命周期与本组件一致」的节点——.pdfViewer
+  // 里的每个 textLayer 都会随虚拟化反复增删。
+  const selection = useSelectionRect(pdf.containerRef);
   // 下载文件名要显式给：url 是 /api/r2/<key>，不给的话浏览器会拿那串 R2 key 当
   // 文件名。工具栏与出错遮罩两处入口共用同一份。
   const downloadName = `${title}.pdf`;
@@ -181,6 +191,33 @@ export default function PdfReaderView({
         items={pdf.outline}
         onJump={pdf.goToDest}
       />
+
+      {/* 必须 portal 到 body：气泡是 position:fixed + 视口坐标，而外面这层
+          .paper-card 上有无条件的 backdrop-filter（见 styles.css），按 CSS 规范会
+          成为 fixed 后代的包含块，气泡的视口坐标会被解析进面板的盒子里。
+          SSR 安全：selection.state 初始为 null，只在 useSelectionRect 的 effect 里
+          挂上的监听器中才会变成非 null，服务端与客户端首帧都走不到这里。 */}
+      {selection.state &&
+        createPortal(
+          <PdfSelectionBubble
+            rect={selection.state.rect}
+            // 渲染期读一次滚动区的视口位置：它只随 window 滚动/尺寸变化而变，而这两件事
+            // 都会让 useSelectionRect 重算 rect 并把本组件重渲染一遍，取值不会陈旧。
+            boundaryTop={
+              pdf.containerRef.current?.getBoundingClientRect().top ?? 0
+            }
+            onAsk={() => {
+              // state 在下一句就被清掉，先取出文本
+              const text = selection.state?.text ?? "";
+              selection.dismiss();
+              // 只 dismiss 不清 DOM 选区的话，紧接着任何一次滚动都会重新 evaluate
+              // 出同一个选区，气泡自己又冒回来。
+              document.getSelection()?.removeAllRanges();
+              if (text) onAskSelection(text);
+            }}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

@@ -186,6 +186,7 @@
   "pdf_search_no_results": "無相符結果",
   "pdf_search_count": "第 {current} / {total} 筆",
   "pdf_page_total": "共 {total} 頁",
+  "pdf_ask_selection": "問這段",
   "paper_share_description": "讓其他人也可以存取",
   "paper_share_button": "公開論文",
   "paper_share_requirement": "需要完成處理後才能公開分享",

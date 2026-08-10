@@ -186,6 +186,7 @@
   "pdf_search_no_results": "一致なし",
   "pdf_search_count": "{total} 件中 {current} 件目",
   "pdf_page_total": "全 {total} ページ",
+  "pdf_ask_selection": "この部分について聞く",
   "paper_share_description": "ほかの人もアクセスできるようにします。",
   "paper_share_button": "公開する",
   "paper_share_requirement": "公開共有するには処理が完了している必要があります",

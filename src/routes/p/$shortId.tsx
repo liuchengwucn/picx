@@ -1196,6 +1196,8 @@ function PaperDetailPage() {
                   title={paper.title}
                   initialPage={pdfPageRef.current}
                   onPageChange={handlePdfPageChange}
+                  // Task 8 才接真链路（把引文送进 chat 输入框）
+                  onAskSelection={() => {}}
                 />
               </Suspense>
             ) : activeView === "reader" ? (

@@ -186,6 +186,7 @@
   "pdf_search_no_results": "无匹配结果",
   "pdf_search_count": "第 {current} / {total} 条",
   "pdf_page_total": "共 {total} 页",
+  "pdf_ask_selection": "问这段",
   "paper_share_title": "公开分享论文",
   "paper_share_description": "让其他人也可以访问",
   "paper_share_button": "公开论文",
