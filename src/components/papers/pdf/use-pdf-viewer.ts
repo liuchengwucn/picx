@@ -9,9 +9,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * 手动 destroy 的命令式 API，散在组件里会很难维护。对外只暴露不可变状态与命令，
  * 调用方不需要知道 pdfjs 的存在。
  *
- * 引擎经 await import() 加载：pdf.mjs 约 350KB(gz)，绝不能进主 chunk，更绝不能进
- * SSR 图（Cloudflare 的 vite 插件一旦在 SSR 侧解析到 worker 资源就会失败）。
- * 本文件只被 pdf-reader-view.tsx 引用，而后者只经 React.lazy 加载。
+ * 引擎经 await import() 加载：pdf.mjs 约 350KB(gz)，绝不能进主 chunk。本文件只被
+ * pdf-reader-view.tsx 引用，而后者只经 React.lazy 加载，所以它进不了客户端主 chunk。
+ *
+ * 但 React.lazy 挡不住它进 SSR 图：Fizz 在服务端会直接解析 lazy 的 payload 并渲染
+ * 组件，本文件在 SSR 侧确实被求值，下面这几个 await import() 会被 vite 一并扫进
+ * SSR 依赖图（运行时无害——它们在 effect 里，服务端永不执行——但产物会白白进
+ * Worker 包，一度 +604 KiB gzip）。真正把它拦在 SSR 外面的是 vite.config.ts 里的
+ * stub-pdfjs-ssr 插件，改动这里的 import 形式前先去看那段注释。
  */
 
 export type PdfStatus = "loading" | "ready" | "error";

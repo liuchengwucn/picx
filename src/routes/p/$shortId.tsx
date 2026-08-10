@@ -111,7 +111,8 @@ interface AppEnvBindings {
 // 不能跟详情页主 chunk 绑在一起。它并不能把组件排除在 SSR 之外——Fizz 在服务端
 // 会照常解析 lazy 组件并渲染它，产出的就是 PDF 面板骨架加那层 loading 遮罩。
 // 真正没进服务端的是 pdfjs 本身：引擎的 import() 写在 use-pdf-viewer 的 effect
-// 里，服务端不跑 effect。（引擎 chunk 仍会被打进 worker 产物，另有任务在处理。）
+// 里，服务端不跑 effect。（引擎 chunk 曾照样被打进 worker 产物，现由 vite.config.ts
+// 的 stub-pdfjs-ssr 插件在 SSR 侧换成空模块拦掉。）
 const PdfReaderView = lazy(
   () => import("#/components/papers/pdf/pdf-reader-view"),
 );

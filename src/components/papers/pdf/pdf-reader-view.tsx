@@ -4,7 +4,10 @@ import { m } from "#/paraglide/messages";
 import { usePdfViewer } from "./use-pdf-viewer";
 // 官方 viewer 的样式表。它是非 Tailwind 的全局样式，但全部以 .pdfViewer / .textLayer
 // 前缀自限作用域；主题对齐只覆盖它的 CSS 变量（见 styles.css），不重写规则。
-// 静态 import 放在这里而不是路由里，是为了让它跟着本组件的 lazy chunk 一起走。
+// 静态 import 放在这里而不是路由里，是为了让它跟着本组件的 lazy chunk 一起走：
+// 客户端构建把它单独产出成 pdf-reader-view-*.css，由 __vitePreload 在动态 import
+// 本组件时才插 <link>。SSR 侧这条 import 被 stub-pdfjs-ssr 换成空模块（见
+// vite.config.ts）——客户端构建是另一张依赖图，样式不受影响。
 import "pdfjs-dist/web/pdf_viewer.css";
 
 export interface PdfReaderViewProps {
