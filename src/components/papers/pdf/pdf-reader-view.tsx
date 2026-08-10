@@ -201,11 +201,9 @@ export default function PdfReaderView({
         createPortal(
           <PdfSelectionBubble
             rect={selection.state.rect}
-            // 渲染期读一次滚动区的视口位置：它只随 window 滚动/尺寸变化而变，而这两件事
-            // 都会让 useSelectionRect 重算 rect 并把本组件重渲染一遍，取值不会陈旧。
-            boundaryTop={
-              pdf.containerRef.current?.getBoundingClientRect().top ?? 0
-            }
+            // 交 ref 而不是算好的坐标：气泡要在 layout 阶段跟自身尺寸一起量，
+            // 在这里读就成了 render 期读 ref + 每 rAF 一次多余的强制布局。
+            boundaryRef={pdf.containerRef}
             onAsk={() => {
               // state 在下一句就被清掉，先取出文本
               const text = selection.state?.text ?? "";

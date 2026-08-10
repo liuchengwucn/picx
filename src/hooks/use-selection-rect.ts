@@ -10,13 +10,44 @@ export interface SelectionRect {
 
 export interface SelectionRectState {
   rect: SelectionRect;
+  /**
+   * **已裁剪到 root 之内**的选中文本。原生选区可以横跨整页：Ctrl+A、以及从正文里
+   * 往外拖到面板边缘触发浏览器自动滚动，都会让 Range 顺着 DOM 顺序一路吃进导航栏、
+   * 右侧 chat 面板、页脚，甚至气泡自己的按钮文案。直接 range.toString() 交给下游
+   * （PDF 的「问这段」要把它塞进 chat 输入框）就是把整页 chrome 当引文发出去。
+   *
+   * 注意与下面的 range 不是同一个语义：text 是「用户在 root 里选中的东西」，
+   * range 是「用户选中的东西」原样。
+   */
   text: string;
   /**
-   * 选区的静态快照（cloneRange）。document.getSelection() 拿到的 Range 是活的，
-   * 会随后续选择变化而改变；存进 state 前必须克隆，否则消费者读到的是「当前」选区
-   * 而不是产生这个 state 时的选区。
+   * 选区的静态快照（cloneRange），**不裁剪**。document.getSelection() 拿到的 Range
+   * 是活的，会随后续选择变化而改变；存进 state 前必须克隆，否则消费者读到的是
+   * 「当前」选区而不是产生这个 state 时的选区。
+   *
+   * 刻意保留未裁剪的边界：quote-share 的 rangeToAnchor 自己就承诺「选区跨出 article
+   * 时裁剪到 article 内的部分」，并且要靠原始端点去解析块内偏移；替它先裁一刀会把
+   * 端点挪到块边界上，锚点偏移随之改变。要纯文本的用 text，要选区语义的用 range。
    */
   range: Range;
+}
+
+/**
+ * 把 range 收拢到 root 之内。端点落在 root 外面时收到 root 的首/尾，端点本来就在
+ * 里面则原样保留。调用前必须已确认 range 与 root 相交，否则会得到一个空区间。
+ *
+ * 顺序无关紧要：相交前提下，跑出 root 的端点只可能跑在 root 的外侧那一头，
+ * setStart/setEnd 都不会把区间折叠掉。
+ */
+function clipRangeTo(range: Range, root: Node): Range {
+  const clipped = range.cloneRange();
+  if (!root.contains(clipped.startContainer)) {
+    clipped.setStart(root, 0);
+  }
+  if (!root.contains(clipped.endContainer)) {
+    clipped.setEnd(root, root.childNodes.length);
+  }
+  return clipped;
 }
 
 /**
@@ -42,7 +73,7 @@ export function useSelectionRect(rootRef: RefObject<HTMLElement | null>): {
    * 收起气泡不清 DOM 选区（Esc 之后用户往往还想复制那段文字），可选区还在，下一次
    * scroll/resize 重算就会把气泡原样送回来——PDF 面板里滚动是家常便饭，实测按完 Esc
    * 只要往下滚 30px 气泡就自己回来了，Esc 等于没按。闩住之后要等用户下一次动作
-   * （改选区或在别处按下指针）才解除。
+   * （改选区或在别处按下指针）才解除，所以不存在「永久关掉」的死路。
    */
   const dismissedRef = useRef(false);
 
@@ -67,7 +98,10 @@ export function useSelectionRect(rootRef: RefObject<HTMLElement | null>): {
       setState(null);
       return;
     }
-    const text = range.toString();
+    // 相交只说明「碰到了 root」，选区照样可以一路吃到 root 外面去。文本与坐标都以
+    // 裁剪后的区间为准，原始 range 只作为快照原样交出去（见 SelectionRectState）。
+    const clipped = clipRangeTo(range, root);
+    const text = clipped.toString();
     if (!text.trim()) {
       setState(null);
       return;
@@ -82,11 +116,12 @@ export function useSelectionRect(rootRef: RefObject<HTMLElement | null>): {
     const viewBottom = Math.min(window.innerHeight, rootBox.bottom);
     const viewLeft = Math.max(0, rootBox.left);
     const viewRight = Math.min(window.innerWidth, rootBox.right);
-    // width 与 height 必须同时为正（不是 ||）：跨行选区的 getClientRects 末尾常常
-    // 挂着一个「零宽但有行高」的退化矩形——选区尾部落在换行符之后时，最后一个 rect
-    // 就是下一行行首那个宽度为 0 的插入点。放它过关气泡就会被锚到页面左边距上
-    // （PDF 跨栏选中实测复现：最后一个 rect 是 left=right=134 的竖条）。
-    const rects = Array.from(range.getClientRects()).filter(
+    // width 与 height 必须同时为正（不是 ||）：跨行选区的 getClientRects 里散布着
+    // 「零宽但有行高」的退化矩形——选区端点落在换行符之后时，那一项就是下一行行首
+    // 宽度为 0 的插入点（curILQ 第 11 页整页选区实测有 9 个，全是 left=right=134
+    // 的竖条，正好压在页面左边距上）。它们的 centerX 没有意义：真让某一个成了
+    // 「最后一个可见的」，气泡就会被锚到页边距上，所以一律排除。
+    const rects = Array.from(clipped.getClientRects()).filter(
       (r) =>
         r.width > 0 &&
         r.height > 0 &&
@@ -103,12 +138,16 @@ export function useSelectionRect(rootRef: RefObject<HTMLElement | null>): {
       setState(null);
       return;
     }
+    // 再与可见带求一次交：相交只保证「有一部分能看见」，rect 本身可以大得离谱。
+    // 选区整段包住一个 .page 时 getClientRects 会产出整页的块盒（实测 height=1163，
+    // bottom 落在视口下方 500 多像素），直接拿它的 bottom 当锚点，气泡会被放到
+    // 屏幕外面去。锚点只能是这个矩形**看得见的那一块**。
+    const top = Math.max(last.top, viewTop);
+    const bottom = Math.min(last.bottom, viewBottom);
+    const left = Math.max(last.left, viewLeft);
+    const right = Math.min(last.right, viewRight);
     setState({
-      rect: {
-        top: last.top,
-        bottom: last.bottom,
-        centerX: last.left + last.width / 2,
-      },
+      rect: { top, bottom, centerX: (left + right) / 2 },
       text,
       range: range.cloneRange(),
     });
@@ -186,8 +225,9 @@ export function useSelectionRect(rootRef: RefObject<HTMLElement | null>): {
     };
   }, [schedule]);
 
-  // dismiss 同样上闩：调用方（分享弹窗、「问这段」）收下这段选中之后，选区可能还在，
-  // 不上闩的话一次滚动就把气泡送回来。
+  // dismiss 同样上闩，为的是「收下选中之后选区仍然留着」的调用方：quote-share 点完
+  // 「分享这段」会开弹窗但不动选区，不上闩的话弹窗一关、随便滚一下气泡就回来了。
+  // （PDF 的「问这段」不靠这个闩——它紧接着就 removeAllRanges()，选区本身没了。）
   const dismiss = useCallback(() => {
     dismissedRef.current = true;
     setState(null);
