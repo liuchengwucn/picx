@@ -118,8 +118,8 @@ export function DigestPaperCard({
               auth={auth}
               signInCallbackURL={signInCallbackURL}
               variant="card"
-              // 赞数由右边那句常驻文本负责: 放进按钮里会在 session 解析完成前(auth
-              // 为 pending, 按钮整个不渲染)连数字一起消失
+              // 赞数由右边那句常驻文本负责: 同一个数字在一张卡上出现两遍没意义,
+              // 而右边那句还能给读屏一句完整的话(与 gallery 卡片一致)
               showCount={false}
             />
             {paper.likeCount > 0 ? (

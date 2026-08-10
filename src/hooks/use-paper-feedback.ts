@@ -29,8 +29,9 @@ export interface PaperFeedbackState {
 export function usePaperFeedback(paperIds: string[]): PaperFeedbackState {
   const trpc = useTRPC();
 
-  // 登录态与详情页同一口径: pending 不渲染按钮(否则已登录用户先看到一下登录墙),
-  // review-guest 只读账号禁用。
+  // 登录态与详情页同一口径: pending 单独一档(否则已登录用户先看到一下登录墙),
+  // review-guest 只读账号禁用。pending 怎么渲染由 FeedbackButtons 决定 —— 它渲染
+  // 同构的不可投票骨架而不是 null, 见那边关于 hydration 竞态的注释。
   const { data: session, isPending: isSessionPending } =
     authClient.useSession();
   const effectiveSession =

@@ -40,7 +40,7 @@ interface GalleryCardProps {
   /** 已解析成当前语言的方向名(页面用 digest.listDirections 把 slug 映射出来) */
   directionLabel?: string;
   myVote?: 1 | -1;
-  /** 不传(或 pending) = 不渲染反馈按钮; 没有登录态上下文的复用点就别传 */
+  /** 不传 = 不渲染反馈按钮; 没有登录态上下文的复用点就别传 */
   feedbackAuth?: FeedbackAuthState;
   /** 未登录点反馈时登录后要回到的地址; 与 feedbackAuth 同时传才渲染按钮 */
   signInCallbackURL?: string;
@@ -82,8 +82,12 @@ export function GalleryCard({
             而 handler 里的 preventDefault 还顺手吃掉了整卡跳转。三个显示变体各配一个
             pointer-events-auto: group-hover 那个由卡片(.group)的 hover 驱动, 不依赖
             pill 自己可命中, 所以桌面端不会自锁; pointer-events:none 也不阻止聚焦,
-            键盘那条 focus-within 路径照旧。 */}
-        {feedbackAuth && feedbackAuth !== "pending" && signInCallbackURL ? (
+            键盘那条 focus-within 路径照旧。
+
+            这里不再把 pending 排除掉: 排除会让服务端渲染的这一格与客户端首帧不一致
+            (session fetch 可能在 hydration 走到本卡之前就落地), 整棵 SSR 子树被丢弃
+            重渲。pending 交给 FeedbackButtons 渲染同构的不可投票骨架。 */}
+        {feedbackAuth && signInCallbackURL ? (
           <div className="pointer-events-none absolute top-3 right-3 z-10 rounded-full bg-[var(--surface-strong)]/95 p-1 opacity-0 shadow-[0_2px_10px_rgba(45,42,36,0.12)] transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 has-[[data-feedback-open]]:pointer-events-auto has-[[data-feedback-open]]:opacity-100">
             <FeedbackButtons
               paperId={paper.id}

@@ -655,8 +655,10 @@ function PaperDetailPage() {
     enabled: !!data?.paper && data.paper.status === "completed",
   });
 
-  // 反馈按钮的登录态：pending 不渲染（否则已登录用户会先看到一下登录墙），
-  // review-guest 只读账号禁用（后端 assertGuestWriteAllowed 是第二道防线）
+  // 反馈按钮的登录态：pending 单独一档（否则已登录用户会先看到一下登录墙），
+  // review-guest 只读账号禁用（后端 assertGuestWriteAllowed 是第二道防线）。
+  // 这里刻意不在页面级把 pending 拦掉：那样服务端渲染的按钮区与客户端首帧会对不上，
+  // 详见 FeedbackButtons 里的 hydration 竞态注释。
   const feedbackAuth: FeedbackAuthState = isSessionPending
     ? "pending"
     : !effectiveSession
