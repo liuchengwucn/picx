@@ -54,6 +54,9 @@ const FILTER_BATCH_SIZE = 25;
 const MAX_ENRICH_PER_ROUND = 20;
 // 正文补抓最多试 2 轮；耗尽后条目放行给 filter 走无正文老路（标题打分），不阻塞管线
 const ENRICH_MAX_ATTEMPTS = 2;
+// excerpt 短于该值视为「薄」（标题重复/一句话 dek），也走补抓。实测分布：
+// anthropic-news≈55、techcrunch≈145、openai-blog≈150；techmeme 自带摘要 ≈312 不误伤
+const ENRICH_MIN_EXCERPT = 200;
 // 补抓等待的年龄上限（对 fetchedAt）：超龄条目无条件放行给 filter。这是失败计数
 // 之外的兜底逃生门——持续 429 时计数不增长（见 enrichStage），入库洪峰时每轮
 // 20 条的名额也可能轮不到老条目，没有它们 filter 的让路谓词会把条目无限期挂起
@@ -280,7 +283,16 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
  */
 function enrichEligible() {
   return and(
-    isNull(newsItems.excerpt),
+    // 无 excerpt，或 excerpt 过薄（anthropic-news 是标题重复、techcrunch 是一句话 dek，
+    // 实质等于无正文）且尚未成功补抓过。enriched 标记必须有：Jina 抓回的正文只要
+    // ≥ MIN_CONTENT_LENGTH 就会写入，若其本身仍短于阈值，无标记会被无限重选
+    or(
+      isNull(newsItems.excerpt),
+      and(
+        sql`length(${newsItems.excerpt}) < ${ENRICH_MIN_EXCERPT}`,
+        sql`coalesce(json_extract(${newsItems.extra}, '$.enriched'), 0) = 0`,
+      ),
+    ),
     sql`coalesce(json_extract(${newsItems.extra}, '$.enrichAttempts'), 0) < ${ENRICH_MAX_ATTEMPTS}`,
     gt(
       newsItems.fetchedAt,
@@ -315,9 +327,14 @@ async function enrichStage(db: Db, env: Env, deadline: number): Promise<void> {
     try {
       const content = await fetchReadable(item.url, env.JINA_API_KEY);
       if (content) {
+        // enriched 标记让「薄 excerpt」谓词分支退出选取集（抓回的正文可能仍短于
+        // ENRICH_MIN_EXCERPT，无标记会无限重选）；json_set 只动本键，保住 hnId 等
         await db
           .update(newsItems)
-          .set({ excerpt: content })
+          .set({
+            excerpt: content,
+            extra: sql`json_set(coalesce(${newsItems.extra}, '{}'), '$.enriched', 1)`,
+          })
           .where(eq(newsItems.id, item.id));
         enriched++;
         continue;
@@ -375,15 +392,18 @@ async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
     const batch = pending.slice(i, i + FILTER_BATCH_SIZE);
     // 单批失败（模型返回长度不符/限流）不牵连其他批；未打分的条目下轮重取
     try {
-      const scores = await scoreRelevance(batch, config);
+      const results = await scoreRelevance(batch, config);
       // 逐条 UPDATE：相对 LLM 调用耗时可忽略。真正的约束是 cron 15 分钟 wall-clock，
       // 已由 deadline 守卫在批边界兜住。
       for (let j = 0; j < batch.length; j++) {
         await db
           .update(newsItems)
           .set({
-            relevanceScore: scores[j],
-            status: scores[j] < RELEVANCE_THRESHOLD ? "rejected" : "pending",
+            relevanceScore: results[j].score,
+            // gist 与 score 同批产出；被拒条目的也照存（审计打分质量用）
+            gist: results[j].gist,
+            status:
+              results[j].score < RELEVANCE_THRESHOLD ? "rejected" : "pending",
           })
           .where(eq(newsItems.id, batch[j].id));
       }
@@ -416,6 +436,7 @@ async function embedStage(db: Db, env: Env, deadline: number): Promise<void> {
       id: newsItems.id,
       title: newsItems.title,
       excerpt: newsItems.excerpt,
+      gist: newsItems.gist,
     })
     .from(newsItems)
     .where(
@@ -437,8 +458,11 @@ async function embedStage(db: Db, env: Env, deadline: number): Promise<void> {
     try {
       const vectors = await embedTexts(
         embedProvider(env),
+        // gist 优先：excerpt 前 512 字对长导语文章全是背景，向量会被带偏
+        // （英文 gist 也缓解中文条目 vs 英文 story centroid 的跨语言相似度压低）
         chunk.map(
-          (item) => `${item.title}\n${(item.excerpt ?? "").slice(0, 512)}`,
+          (item) =>
+            `${item.title}\n${item.gist ?? (item.excerpt ?? "").slice(0, 512)}`,
         ),
       );
       for (let j = 0; j < chunk.length; j++) {
@@ -464,6 +488,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
       id: newsItems.id,
       title: newsItems.title,
       excerpt: newsItems.excerpt,
+      gist: newsItems.gist,
       embedding: newsItems.embedding,
       publishedAt: newsItems.publishedAt,
     })
@@ -518,7 +543,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
       let target: (typeof active)[number] | null = null;
       if (scored.length > 0) {
         const idx = await judgeAssignment(
-          { title: item.title, excerpt: item.excerpt },
+          { title: item.title, excerpt: item.excerpt, gist: item.gist },
           scored.map((entry) => ({
             // Record<string, string> 上 en 可能缺失（旧数据/异常），?? 兜底
             title: entry.story.title.en ?? "",
@@ -671,6 +696,7 @@ async function summarizeStage(
         .select({
           title: newsItems.title,
           excerpt: newsItems.excerpt,
+          gist: newsItems.gist,
           url: newsItems.url,
           author: newsItems.author,
           signals: newsItems.signals,
@@ -703,6 +729,7 @@ async function summarizeStage(
         members.map((m) => ({
           title: m.title,
           excerpt: m.excerpt,
+          gist: m.gist,
           sourceName: m.sourceName,
           publishedAt: m.publishedAt,
         })),

@@ -25,6 +25,7 @@
     "db:backfill-clean-garble": "tsx scripts/backfill-clean-garble.mjs",
     "db:backfill-fffd-repair": "tsx scripts/backfill-fffd-repair.mjs",
     "db:backfill-news-excerpts": "tsx scripts/backfill-news-excerpts.mjs",
+    "db:backfill-latepost-gists": "tsx scripts/backfill-latepost-gists.mjs",
     "format": "biome format",
     "lint": "biome lint",
     "typecheck": "tsc --noEmit",

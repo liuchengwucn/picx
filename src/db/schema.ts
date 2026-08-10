@@ -547,6 +547,9 @@ export const newsItems = sqliteTable(
     url: text("url").notNull(),
     title: text("title").notNull(),
     excerpt: text("excerpt"),
+    // filter 打分时顺带产出的英文主题句（条目自身的事件是什么）。下游 embedding/
+    // 聚类精判/摘要以它为语义锚点；NULL = 未产出（存量/单批失败），消费方回退 excerpt
+    gist: text("gist"),
     author: text("author"),
     publishedAt: integer("published_at", { mode: "timestamp" }).notNull(),
     fetchedAt: integer("fetched_at", { mode: "timestamp" })
