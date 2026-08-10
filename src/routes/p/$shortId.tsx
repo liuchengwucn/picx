@@ -483,9 +483,14 @@ function PaperDetailPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
-  // 切 tab 往返时记住 PDF 读到第几页。刻意不进 URL：页码是阅读进度不是分享意图，
-  // 塞进 search param 会让每翻一页都推一条历史记录。
-  const [pdfPage, setPdfPage] = useState(1);
+  // 切 tab 往返时记住 PDF 读到第几页。用 ref 而不是 state：这个值每翻一页都会更新，
+  // 但只在 PdfReaderView 挂载时被读一次当种子——放进 state 会让整个详情页（含 chat
+  // 面板与白板画廊）跟着每一次翻页重渲染，纯属浪费。刻意不进 URL：页码是阅读进度
+  // 不是分享意图，塞进 search param 会让每翻一页都推一条历史记录。
+  const pdfPageRef = useRef(1);
+  const handlePdfPageChange = useCallback((page: number) => {
+    pdfPageRef.current = page;
+  }, []);
   const [isWhiteboardPreviewOpen, setIsWhiteboardPreviewOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(true);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -1189,8 +1194,8 @@ function PaperDetailPage() {
                 <PdfReaderView
                   url={`/api/r2/${paper.pdfR2Key}`}
                   title={paper.title}
-                  initialPage={pdfPage}
-                  onPageChange={setPdfPage}
+                  initialPage={pdfPageRef.current}
+                  onPageChange={handlePdfPageChange}
                 />
               </Suspense>
             ) : activeView === "reader" ? (

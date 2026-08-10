@@ -1,6 +1,8 @@
 import { FileText, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { m } from "#/paraglide/messages";
+import { PdfToolbar } from "./pdf-toolbar";
 import { usePdfViewer } from "./use-pdf-viewer";
 // 官方 viewer 的样式表。它是非 Tailwind 的全局样式，但全部以 .pdfViewer / .textLayer
 // 前缀自限作用域；主题对齐只覆盖它的 CSS 变量（见 styles.css），不重写规则。
@@ -26,11 +28,37 @@ export default function PdfReaderView({
   onPageChange,
 }: PdfReaderViewProps) {
   const pdf = usePdfViewer(url, initialPage);
-  // 页码上报在 Task 4 随工具栏接入；先消费掉参数避免 lint 报未使用
-  void onPageChange;
+
+  // 页码上报给页面层，切 tab 回来能恢复。onPageChange 必须是稳定引用，否则每次
+  // 渲染都会重跑这个 effect（页面层用 useCallback 保证）。
+  useEffect(() => {
+    onPageChange(pdf.pageNumber);
+  }, [pdf.pageNumber, onPageChange]);
+
+  // 大纲抽屉与搜索条的开关。实体组件分别在 Task 5 / Task 6 接进来，这里先只管
+  // 工具栏按钮的开关语义。
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  void outlineOpen;
+  void findOpen;
 
   return (
     <div className="paper-card relative flex h-[70dvh] flex-col overflow-hidden p-0 xl:sticky xl:top-24 xl:h-[calc(100dvh-8rem)]">
+      <PdfToolbar
+        title={title}
+        downloadUrl={url}
+        downloadName={`${title}.pdf`}
+        pageNumber={pdf.pageNumber}
+        pageCount={pdf.pageCount}
+        scale={pdf.scale}
+        hasOutline={pdf.outline.length > 0}
+        onOpenOutline={() => setOutlineOpen(true)}
+        onToggleFind={() => setFindOpen((open) => !open)}
+        onGoToPage={pdf.goToPage}
+        onZoomIn={pdf.zoomIn}
+        onZoomOut={pdf.zoomOut}
+        onFitWidth={pdf.fitWidth}
+      />
       {/* 这层只负责给下面那个绝对定位的滚动容器撑出可用区域并做定位参照。
           PDFViewer 构造时会直接读 getComputedStyle(container).position，不是
           "absolute" 就抛 "The `container` must be absolutely positioned."——
