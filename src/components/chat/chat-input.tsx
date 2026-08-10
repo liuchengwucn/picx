@@ -1,4 +1,6 @@
 import { Brain, Globe, Loader2, SendHorizontal, X } from "lucide-react";
+import type { RefObject } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { REASONING_EFFORTS } from "#/components/chat/use-chat-settings";
 import { Button } from "#/components/ui/button";
 import {
@@ -60,6 +62,8 @@ export interface ChatInputAreaProps {
   onToggleWebSearch: () => void;
   reasoningEffort: ChatReasoningEffort;
   onReasoningEffortChange: (value: string) => void;
+  /** 外部需要聚焦输入框时透传（如把 PDF 引用插进来之后） */
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 /**
@@ -83,11 +87,40 @@ export function ChatInputArea({
   onToggleWebSearch,
   reasoningEffort,
   onReasoningEffortChange,
+  inputRef,
 }: ChatInputAreaProps) {
+  // 自己也要拿到 textarea（外部不一定传 inputRef），下面的自动增高要用
+  const localRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachRef = useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      localRef.current = node;
+      if (inputRef) inputRef.current = node;
+    },
+    [inputRef],
+  );
+
+  /**
+   * 随内容增高，上限交给 className 的 max-h-40（超过就内部滚动）。
+   *
+   * 没有这段的话 rows=2 是死高度：写第三行起就只剩一个 2 行的窗口在滚，而 PDF 的
+   * 「问这段」会一次性塞进一段最长 2000 字的引用——实测注入后用户看到的是一个**看
+   * 起来完全空白**的输入框（滚到了引用末尾那个空行），除了滚动条什么反馈都没有。
+   * 用 useEffect 而不是 useLayoutEffect：这块要 SSR，且它必须早于 PaperChat 里那个
+   * 「注入后把光标滚进视野」的 effect 跑——子组件的 effect 本来就排在父组件前面。
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 高度只跟内容走，input 就是那个内容；node 从 ref 读
+  useEffect(() => {
+    const el = localRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
+
   return (
     <>
       <div className="flex items-end gap-2 rounded-lg border border-transparent px-2 py-1.5 transition-colors focus-within:border-[var(--academic-brown)]/60 focus-within:bg-[var(--parchment-warm)]/60">
         <textarea
+          ref={attachRef}
           value={input}
           onChange={(event) => onInputChange(event.target.value)}
           onKeyDown={(event) => {

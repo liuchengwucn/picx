@@ -93,6 +93,7 @@ import {
   authClient,
   startGitHubSignIn as beginGitHubSignIn,
 } from "#/lib/auth-client";
+import { buildQuoteBlock, normalizePdfSelection } from "#/lib/pdf-quote";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -491,6 +492,14 @@ function PaperDetailPage() {
   const handlePdfPageChange = useCallback((page: number) => {
     pdfPageRef.current = page;
   }, []);
+  // PDF 里选中文字点「问这段」后待送进 chat 输入框的引用块。一次性事件而不是持久
+  // 状态：PaperChat 消费后立刻清回 null，否则用户手动删掉引用后任何一次重渲染都会
+  // 把它塞回来。
+  const [pendingQuote, setPendingQuote] = useState<string | null>(null);
+  const handleAskSelection = useCallback((text: string) => {
+    setPendingQuote(buildQuoteBlock(normalizePdfSelection(text)));
+  }, []);
+  const handleQuoteConsumed = useCallback(() => setPendingQuote(null), []);
   const [isWhiteboardPreviewOpen, setIsWhiteboardPreviewOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(true);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -1196,8 +1205,7 @@ function PaperDetailPage() {
                   title={paper.title}
                   initialPage={pdfPageRef.current}
                   onPageChange={handlePdfPageChange}
-                  // Task 8 才接真链路（把引文送进 chat 输入框）
-                  onAskSelection={() => {}}
+                  onAskSelection={handleAskSelection}
                 />
               </Suspense>
             ) : activeView === "reader" ? (
@@ -1391,6 +1399,8 @@ function PaperDetailPage() {
               onPanelResizeEnd={releaseReadingAnchor}
               collapsed={chatCollapsed}
               onCollapsedChange={handleChatCollapsedChange}
+              pendingQuote={pendingQuote}
+              onPendingQuoteConsumed={handleQuoteConsumed}
             />
           )}
         </div>
