@@ -534,6 +534,7 @@
   "feedback_login_required": "Sign in to vote",
   "feedback_readonly": "Voting unavailable in demo",
   "feedback_like_count": "Liked by {count}",
+  "feedback_failed": "Couldn't save your feedback. Please try again.",
   "digest_directions_nav": "Research directions",
   "digest_direction_all": "All",
   "digest_direction_view": "View direction: {name}",

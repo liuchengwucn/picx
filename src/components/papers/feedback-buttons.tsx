@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { inferRouterInputs } from "@trpc/server";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { type MouseEvent, useId, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import {
@@ -113,11 +114,21 @@ export function FeedbackButtons({
       queryClient.invalidateQueries({ queryKey });
     }
   };
+  // 投票没有乐观更新, 界面要等失效重取才动: 失败时如果连提示都不给, 用户看到的就是
+  // 「点了赞, 什么也没发生」, 与「点成功了但赞数还没刷回来」完全无法区分, 于是只会
+  // 反复点。mutation 默认 retry: 0, 一次网络抖动就是终局, 更得说出来。
+  const toastError = () => toast.error(m.feedback_failed());
   const setFeedback = useMutation(
-    trpc.paper.setFeedback.mutationOptions({ onSuccess: invalidate }),
+    trpc.paper.setFeedback.mutationOptions({
+      onSuccess: invalidate,
+      onError: toastError,
+    }),
   );
   const clearFeedback = useMutation(
-    trpc.paper.clearFeedback.mutationOptions({ onSuccess: invalidate }),
+    trpc.paper.clearFeedback.mutationOptions({
+      onSuccess: invalidate,
+      onError: toastError,
+    }),
   );
 
   const closePopover = () => {
@@ -212,14 +223,25 @@ export function FeedbackButtons({
     setPopoverOpen(true);
   };
 
+  /**
+   * 提交成功才关 popover。改动前是无条件先关: 请求还没落地就把 preset 与自由文本
+   * 一起 reset 掉了, 失败时用户刚敲的理由直接没了, 连重试都得重打一遍。
+   *
+   * 收在 mutate 的 per-call onSuccess 里而不是把 reset 从 closePopover 里挪出来 ——
+   * closePopover 的「关闭 + 清空」是一体的语义, 另一个调用点(handleDislike 里再点一次
+   * 收起)正需要它清空, 不然下次点踩会残留上次选的 chip。失败路径什么都不做: popover
+   * 保持打开、输入原样留着, 错误由 mutation 的 onError 弹提示。
+   */
   const submitDislike = () => {
-    setFeedback.mutate({
-      paperId,
-      vote: -1,
-      reasonPreset: reasonPreset ?? undefined,
-      reasonText: reasonText.trim() || undefined,
-    });
-    closePopover();
+    setFeedback.mutate(
+      {
+        paperId,
+        vote: -1,
+        reasonPreset: reasonPreset ?? undefined,
+        reasonText: reasonText.trim() || undefined,
+      },
+      { onSuccess: closePopover },
+    );
   };
 
   const isCard = variant === "card";

@@ -534,6 +534,7 @@
   "feedback_login_required": "登入後即可回饋",
   "feedback_readonly": "示範帳號不可投票",
   "feedback_like_count": "{count} 人按讚",
+  "feedback_failed": "回饋提交失敗，請重試。",
   "digest_directions_nav": "研究方向",
   "digest_direction_all": "全部",
   "digest_direction_view": "查看方向：{name}",
