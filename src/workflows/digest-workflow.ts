@@ -204,7 +204,9 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     angle,
                     periodLabel,
                   );
-                  const items = found.map(canonicalizeCandidate);
+                  const items = found
+                    .map((it) => canonicalizeCandidate(it, periodEnd))
+                    .filter((it): it is CandidateItem => it !== null);
                   const scores = await scoreSourceItems(
                     cheapModel(env),
                     ctx.direction.focusBrief,

@@ -126,7 +126,7 @@ export async function searchAngle(
       `Research focus:\n${focusBrief}`,
       `Your angle: ${angle.label} — ${angle.rationale ?? ""}`,
       `Start from this query (refine as needed, multiple searches allowed): ${angle.query}`,
-      "Find up to 15 items from the time window relevant to the focus. Prefer primary sources (papers, official posts, repos) over SEO farms and reposts.",
+      "Find up to 15 items relevant to the focus. News/community items should be from the time window; papers up to 6 months old are acceptable when they are only now gaining attention. Prefer primary sources (papers, official posts, repos) over SEO farms and reposts.",
       UNTRUSTED_NOTE,
       "When done, output JSON only (no prose):",
       '{"items":[{"url":"...","title":"...","kind":"paper"|"intel","excerpt":"one-sentence why relevant","publishedAt":"YYYY-MM-DD or empty"}]}',

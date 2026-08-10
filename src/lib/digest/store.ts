@@ -379,17 +379,32 @@ export async function saveDigestContent(
     .where(eq(digests.id, digestId));
 }
 
+/** 论文候选允许的最大月龄：只报近 6 个月的工作（老论文可晚受关注，但两年前的旧闻不报） */
+export const MAX_PAPER_AGE_MONTHS = 6;
+
 /**
  * 供 workflow 里把角度搜索产出的候选按 URL 权威定性 kind：gallery 入库路径
  * （createGalleryPaper / 队列 PDF 下载）只认 arXiv，"paper" 必须是代码能兑现的
  * 承诺，而不是模型的主观判断——命中 arXiv 才规范化 URL 并置 kind:"paper"；
  * 否则无论模型标了什么，强制降级为 "intel"，避免 OpenReview/exa.ai 等无法
  * 处理的来源被当作论文建卡后永远处理失败。
+ * 同时做新鲜度硬裁定（prompt 约束模型不可靠）：arXiv ID 自带 yymm，超过
+ * MAX_PAPER_AGE_MONTHS 直接返回 null 丢弃——旧论文降级成 intel 报出来也还是旧闻。
+ * 旧式 ID（math/0601001）全部早于 2008 年，一律丢弃。
  */
-export function canonicalizeCandidate(item: CandidateItem): CandidateItem {
+export function canonicalizeCandidate(
+  item: CandidateItem,
+  periodEnd: Date,
+): CandidateItem | null {
   const id = canonicalArxivId(item.canonicalUrl);
-  if (id) {
-    return { ...item, canonicalUrl: canonicalArxivUrl(id), kind: "paper" };
-  }
-  return { ...item, kind: "intel" };
+  if (!id) return { ...item, kind: "intel" };
+  const m = id.match(/^(\d{2})(\d{2})\./);
+  if (!m) return null; // 旧式 arXiv ID，必然超龄
+  const paperYear = 2000 + Number(m[1]);
+  const paperMonth = Number(m[2]);
+  const monthsDiff =
+    (periodEnd.getUTCFullYear() - paperYear) * 12 +
+    (periodEnd.getUTCMonth() + 1 - paperMonth);
+  if (monthsDiff > MAX_PAPER_AGE_MONTHS) return null;
+  return { ...item, canonicalUrl: canonicalArxivUrl(id), kind: "paper" };
 }
