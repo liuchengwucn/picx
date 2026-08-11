@@ -39,6 +39,9 @@ export function usePaperSSE(userId: string | undefined) {
             queryKey: trpc.paper.list.queryKey(),
           });
           queryClient.invalidateQueries({
+            queryKey: trpc.paper.statusCounts.queryKey(),
+          });
+          queryClient.invalidateQueries({
             queryKey: trpc.paper.getById.queryKey(data.paperId),
           });
           // 详情页读的是 getByShortId，事件里只有 paperId；按 path 前缀整体失效

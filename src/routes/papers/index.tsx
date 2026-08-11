@@ -52,7 +52,7 @@ function PapersPage() {
 
   const papersQuery = useQuery(
     trpc.paper.list.queryOptions({
-      page,
+      cursor: 0,
       limit: 20,
       status: statusFilter === "all" ? undefined : statusFilter,
       search: searchQuery || undefined,

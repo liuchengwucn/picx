@@ -421,9 +421,13 @@ export const paperRouter = router({
   list: protectedProcedure
     .input(
       z.object({
-        page: z.number().int().min(1).default(1),
-        limit: z.number().int().min(1).max(100).default(20),
-        // "processing" 是列表页「处理中」标签的聚合值，展开成所有在途状态；
+        // 游标即 offset。之所以叫 cursor 而不是 page，是为了让前端能用
+        // trpc.paper.list.infiniteQueryOptions —— 那样 queryKey 仍在 paper.list
+        // 路径下，use-paper-sse / share-banner / 删除论文那三处按 tRPC key 做的
+        // invalidate 才不会失配。换成自定义 queryKey 会让列表在处理完成后不刷新。
+        cursor: z.number().int().min(0).nullish(),
+        limit: z.number().int().min(1).max(100).default(50),
+        // "processing" 是列表页「处理中」筛选的聚合值，展开成所有在途状态；
         // 其余是具体状态，逐个精确匹配。
         status: z
           .enum([
@@ -436,11 +440,17 @@ export const paperRouter = router({
             "failed",
           ])
           .optional(),
-        search: z.string().optional(),
+        search: z.string().trim().max(100).optional(),
+        locale: z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional(),
+        // 上限 20：categories/tags 各自展开成一个 LIKE 条件，D1 单查询绑定参数
+        // 上限是 100，留足余量。
+        categories: z.array(z.string()).max(20).optional(),
+        tags: z.array(z.string()).max(20).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
-      const offset = (input.page - 1) * input.limit;
+      const offset = input.cursor ?? 0;
+      const localeKey = normalizeLocaleKey(input.locale);
 
       const conditions = [
         eq(papers.userId, ctx.session.user.id),
@@ -459,28 +469,126 @@ export const paperRouter = router({
         conditions.push(eq(papers.status, input.status));
       }
 
+      // 搜索: 标题 + 当前语言 tldr/summary + tags(LIKE, CJK 子串友好)。
+      // 写法与 listPublic 一致。
       if (input.search) {
-        conditions.push(sql`${papers.title} LIKE ${`%${input.search}%`}`);
+        const needle = `%${escapeLike(input.search)}%`;
+        const localePath = `$."${localeKey}"`;
+        const searchCond = or(
+          sql`${papers.title} LIKE ${needle} ESCAPE '\\'`,
+          sql`json_extract(${paperResults.tldr}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+          sql`json_extract(${paperResults.summaries}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+          sql`${paperResults.tags} LIKE ${needle} ESCAPE '\\'`,
+        );
+        if (searchCond) conditions.push(searchCond);
       }
 
-      const paperList = await ctx.db
-        .select()
+      const cats = normalizeCategorySlugs(input.categories ?? []);
+      if (cats.length > 0) {
+        const catCond = or(
+          ...cats.map(
+            (slug) => sql`${paperResults.categories} LIKE ${`%"${slug}"%`}`,
+          ),
+        );
+        if (catCond) conditions.push(catCond);
+      }
+
+      const tagList = (input.tags ?? [])
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
+      if (tagList.length > 0) {
+        const tagCond = or(
+          ...tagList.map((t) => sql`${paperResults.tags} LIKE ${`%"${t}"%`}`),
+        );
+        if (tagCond) conditions.push(tagCond);
+      }
+
+      // 一篇论文可能对应多行 paper_results(历史脏数据或重复处理),
+      // 不 groupBy 会因笛卡尔积扇出让同一篇在列表里出现两次。
+      const rows = await ctx.db
+        .select({
+          id: papers.id,
+          shortId: papers.shortId,
+          title: papers.title,
+          status: papers.status,
+          pageCount: papers.pageCount,
+          isPublic: papers.isPublic,
+          errorMessage: papers.errorMessage,
+          createdAt: papers.createdAt,
+          tldr: paperResults.tldr,
+          summaries: paperResults.summaries,
+          tags: paperResults.tags,
+        })
         .from(papers)
+        .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
         .where(and(...conditions))
+        .groupBy(papers.id)
         .orderBy(desc(papers.createdAt))
         .limit(input.limit)
         .offset(offset);
 
-      const [totalResult] = await ctx.db
-        .select({ count: count() })
-        .from(papers)
-        .where(and(...conditions));
+      // total 只在首屏算一次: 无限滚动每翻一页都跑一次 count 是纯浪费,
+      // 前端读 pages[0].total。
+      let total: number | null = null;
+      if (offset === 0) {
+        const [totalResult] = await ctx.db
+          .select({ count: countDistinct(papers.id) })
+          .from(papers)
+          .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
+          .where(and(...conditions));
+        total = totalResult?.count ?? 0;
+      }
 
       return {
-        papers: paperList,
-        total: totalResult.count,
+        // 服务端按语言解析出短文本 tldr, 不把完整 summaries 打到客户端。
+        papers: rows.map((row) => ({
+          id: row.id,
+          shortId: row.shortId,
+          title: row.title,
+          status: row.status,
+          pageCount: row.pageCount,
+          isPublic: row.isPublic,
+          errorMessage: row.errorMessage,
+          createdAt: row.createdAt,
+          tldr: resolveTldr(row.tldr, row.summaries, localeKey),
+          tags: row.tags ?? [],
+        })),
+        total,
+        nextCursor:
+          rows.length === input.limit ? offset + rows.length : undefined,
       };
     }),
+
+  /**
+   * 列表页顶部两枚状态 chip 的计数。
+   * 口径是全库(只按 userId + 未删除过滤),刻意不受搜索/主题筛选影响 ——
+   * 它的语义是「你有 1 篇失败了」这样的提醒,不是筛选结果统计;
+   * 跟着搜索走会让 chip 在用户打字时闪来闪去。
+   */
+  statusCounts: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db
+      .select({ status: papers.status, c: count() })
+      .from(papers)
+      .where(
+        and(eq(papers.userId, ctx.session.user.id), isNull(papers.deletedAt)),
+      )
+      .groupBy(papers.status);
+
+    let processing = 0;
+    let failed = 0;
+    for (const row of rows) {
+      if (
+        row.status === "parsing" ||
+        row.status === "processing_text" ||
+        row.status === "processing_image"
+      ) {
+        processing += row.c;
+      } else if (row.status === "failed") {
+        failed += row.c;
+      }
+    }
+    return { processing, failed };
+  }),
 
   /**
    * Get paper by ID with results
