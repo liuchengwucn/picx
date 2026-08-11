@@ -35,7 +35,7 @@ function firstElement(root: Root): Element | undefined {
 }
 
 describe("SANITIZE_SCHEMA", () => {
-  it("keeps inline base64 images (defense-in-depth; no live producer)", () => {
+  it("keeps inline base64 images (allowance retained; no live producer)", () => {
     const out = sanitize([
       el("img", {
         src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",

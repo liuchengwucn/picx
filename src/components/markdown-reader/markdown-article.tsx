@@ -51,10 +51,11 @@ export function createRelativeImageUrlTransform(
  *   `<code class="language-math math-inline|math-display">`，类名被剥掉 katex 就认不出。
  *   只放行这几个具体值，不放行任意 className —— 免得 PDF 里的 HTML 借用站点样式做视觉欺骗。
  * - img 的 src/alt/title/width/height（alt/title/width/height 已在 `*` 里，显式写出便于阅读）。
- * - src 协议加 data:：纵深防御的历史遗留，当前没有活的生产方——papers 侧图片是
- *   `images/` 相对路径，且 urlTransform 会把非该前缀的 URL 交回 defaultUrlTransform
- *   剥掉 data:。之所以留着：img 是白名单里唯一带 src 的标签，data:image 不构成脚本
- *   执行面。若要收紧成行为变更，需另行评估。
+ * - src 协议加 data:：这是对白名单的一次放宽（不是防护措施），历史遗留，当前没有
+ *   活的生产方——papers 侧图片是 `images/` 相对路径。真正兜底的是下游的
+ *   urlTransform：它会把非该前缀的 URL 交回 defaultUrlTransform，data: 在那里被剥掉。
+ *   留着的代价可控：img 是白名单里唯一带 src 的标签，data:image 不构成脚本执行面。
+ *   若要收紧，属行为变更，需另行评估。
  */
 const MATH_CLASS_NAMES = ["math", "math-inline", "math-display"] as const;
 
