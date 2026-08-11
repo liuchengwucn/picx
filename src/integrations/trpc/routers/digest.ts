@@ -38,7 +38,7 @@ export const digestRouter = router({
       return {
         slug: detail.slug,
         name: pickTldr(detail.name, localeKey) ?? detail.slug,
-        focusBrief: detail.focusBrief,
+        intro: pickTldr(detail.intro, localeKey) ?? "",
         latestExcerpt: excerptFromMarkdown(
           pickTldr(detail.latestContent, localeKey),
         ),

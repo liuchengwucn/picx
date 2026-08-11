@@ -486,7 +486,8 @@ export async function listActiveDirections(
 export interface DirectionDetail {
   slug: string;
   name: Record<string, string>;
-  focusBrief: string;
+  /** 四语公开简介。focusBrief 是喂 LLM 的内部中文口味描述，不出现在这个形状里。 */
+  intro: Record<string, string>;
   issues: Array<{
     issueNumber: number;
     title: Record<string, string> | null;
@@ -507,6 +508,8 @@ export async function getDirectionDetailBySlug(
       id: directions.id,
       slug: directions.slug,
       name: directions.name,
+      intro: directions.intro,
+      // 只为 intro 未生成时的回退取用，不进返回值
       focusBrief: directions.focusBrief,
     })
     .from(directions)
@@ -545,7 +548,9 @@ export async function getDirectionDetailBySlug(
   return {
     slug: dir.slug,
     name: dir.name,
-    focusBrief: dir.focusBrief,
+    // intro 未生成时回退单语中文 focusBrief（伪装成只有 zh-cn 的四语对象，
+    // pickTldr 会取到它）；一旦 intro 生成，中文内部原文就不再离开 store 层
+    intro: dir.intro ?? { "zh-cn": dir.focusBrief },
     issues,
     latestContent,
   };

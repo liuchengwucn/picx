@@ -31,7 +31,7 @@ export const Route = createFileRoute("/gallery/d/$slug")({
   /**
    * 方向 slug 是动态数据, 没法像 /gallery/c/$slug 那样静态白名单校验, 只能查库。
    * 页面本身仍是客户端渲染, loader 只做两件小事: 校验 slug 存在, 并给 <head> 一份
-   * 方向名 + focusBrief 做标题和描述。简报/论文内容一概不在这里预取。
+   * 方向名 + 公开简介 intro 做标题和描述。简报/论文内容一概不在这里预取。
    */
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR) {
@@ -44,7 +44,12 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         const { directions } = await import("#/db/schema");
         const db = drizzle((env as typeof env & AppEnvBindings).DB);
         const [row] = await db
-          .select({ name: directions.name, focusBrief: directions.focusBrief })
+          .select({
+            name: directions.name,
+            intro: directions.intro,
+            // 仅用于 intro 未生成时的回退，不进 loaderData
+            focusBrief: directions.focusBrief,
+          })
           .from(directions)
           .where(
             and(
@@ -57,7 +62,8 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         if (!row) throw notFound();
         return {
           directionName: pickTldr(row.name, normalizeLocaleKey(getLocale())),
-          focusBrief: row.focusBrief,
+          // SSR 侧 locale 恒为 baseLocale en; intro 未生成时回退中文 focusBrief
+          intro: pickTldr(row.intro ?? { "zh-cn": row.focusBrief }, "en"),
           ssrFailed: false,
         };
       } catch (error) {
@@ -68,7 +74,7 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         console.error("[direction loader] SSR D1 read failed", error);
         // ssrFailed 是给 head() 用的: 这一帧既证明不了 slug 存在、也拿不到方向名,
         // 必须 noindex 且不发 canonical(见 head 里的注释)。
-        return { directionName: null, focusBrief: null, ssrFailed: true };
+        return { directionName: null, intro: null, ssrFailed: true };
       }
     }
 
@@ -79,11 +85,11 @@ export const Route = createFileRoute("/gallery/d/$slug")({
     );
     const direction = directions.find((d) => d.slug === params.slug);
     if (!direction) throw notFound();
-    // listDirections 不含 focusBrief, 客户端导航时描述留空: meta 只对爬虫有意义,
+    // listDirections 不含 intro, 客户端导航时描述留空: meta 只对爬虫有意义,
     // 而爬虫拿的永远是 SSR 那份。为一句 description 再发一次 getDirection 不值。
     return {
       directionName: direction.name,
-      focusBrief: null,
+      intro: null,
       ssrFailed: false,
     };
   },
@@ -105,8 +111,8 @@ export const Route = createFileRoute("/gallery/d/$slug")({
     const name = loaderData?.directionName ?? params.slug;
     const title = `${name} | PicX`;
     const url = `${SITE_URL}/gallery/d/${params.slug}`;
-    // focusBrief 就是边栏「当前关注」那段公开文本, 截断做描述
-    const description = loaderData?.focusBrief?.slice(0, 160);
+    // intro 就是边栏「当前关注」那段公开文本, 截断做描述
+    const description = loaderData?.intro?.slice(0, 160);
     const meta: Array<
       | { title: string }
       | { name: string; content: string }
@@ -251,10 +257,10 @@ function DirectionPage() {
                     <Skeleton className="h-3 w-full" />
                     <Skeleton className="h-3 w-2/3" />
                   </div>
-                ) : direction?.focusBrief ? (
-                  // 纯文本, 不渲染 markdown(这段是喂 LLM 的方向说明, 不含标记)
+                ) : direction?.intro ? (
+                  // 纯文本, 不渲染 markdown(这段是生成的方向简介, 不含标记)
                   <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-[var(--ink-soft)]">
-                    {direction.focusBrief}
+                    {direction.intro}
                   </p>
                 ) : null}
               </section>

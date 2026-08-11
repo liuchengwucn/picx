@@ -54,10 +54,12 @@ async function seed(db: Db) {
       slug: "ai4formath",
       name: four("AI4Math"),
       focusBrief: "自动定理证明与形式化数学",
+      intro: four("Intro"),
       isActive: true,
       sortOrder: 0,
     },
     {
+      // intro 有意留空：公开页在四语简介生成前要能回退到 focusBrief
       id: "dir-b",
       slug: "no-issues-yet",
       name: four("Fresh"),
@@ -72,6 +74,16 @@ async function seed(db: Db) {
       focusBrief: "已下线方向",
       isActive: false,
       sortOrder: 2,
+    },
+    {
+      // 只生成了英文的 intro：请求日文时应走 pickTldr 的英文回退
+      id: "dir-c",
+      slug: "en-only-intro",
+      name: four("EnOnly"),
+      focusBrief: "只有英文简介",
+      intro: { en: "English only intro" },
+      isActive: true,
+      sortOrder: 3,
     },
   ]);
 
@@ -352,7 +364,11 @@ describe("digest.getIssue", () => {
 describe("digest.listDirections", () => {
   it("lists active directions with their latest published issue", async () => {
     const dirs = await caller.listDirections({ locale: "ja" });
-    expect(dirs.map((d) => d.slug)).toEqual(["ai4formath", "no-issues-yet"]);
+    expect(dirs.map((d) => d.slug)).toEqual([
+      "ai4formath",
+      "no-issues-yet",
+      "en-only-intro",
+    ]);
     expect(dirs[0]).toEqual({
       slug: "ai4formath",
       name: "AI4Math ja",
@@ -379,18 +395,45 @@ describe("digest.getDirection", () => {
       locale: "zh-CN",
     });
     expect(detail?.name).toBe("AI4Math zh-cn");
-    expect(detail?.focusBrief).toBe("自动定理证明与形式化数学");
+    expect(detail?.intro).toBe("Intro zh-cn");
     expect(detail?.issues.map((i) => i.issueNumber)).toEqual([2, 1]);
     expect(detail?.latestExcerpt).toBe("本期看点：形式化数学 有实质进展");
     // 只下发摘要，不把整期四语 markdown 打给客户端
     expect(Object.keys(detail ?? {}).sort()).toEqual([
-      "focusBrief",
+      "intro",
       "issues",
       "latestExcerpt",
       "name",
       "slug",
     ]);
     expect(JSON.stringify(detail)).not.toContain("更多内容");
+  });
+
+  // focusBrief 是喂 LLM 的内部中文口味描述：公开端点下发的是四语 intro，
+  // 内部原文一个字都不该出现在响应里（存量 NULL intro 的回退除外，见下一条）
+  it("serves the requested locale's intro and never the internal focusBrief", async () => {
+    const detail = await caller.getDirection({
+      slug: "ai4formath",
+      locale: "ja",
+    });
+    expect(detail?.intro).toBe("Intro ja");
+    expect(detail).not.toHaveProperty("focusBrief");
+    expect(JSON.stringify(detail)).not.toContain("自动定理证明与形式化数学");
+  });
+
+  // 迁移过渡期：intro 还没生成的方向不能让「当前关注」开天窗
+  it("falls back to the Chinese focusBrief while intro is still NULL", async () => {
+    const detail = await caller.getDirection({ slug: "no-issues-yet" });
+    expect(detail?.intro).toBe("还没出过期");
+  });
+
+  // 只有英文 intro 时请求日文，走 pickTldr 的英文回退而不是空串
+  it("falls back to English when the requested locale's intro is missing", async () => {
+    const detail = await caller.getDirection({
+      slug: "en-only-intro",
+      locale: "ja",
+    });
+    expect(detail?.intro).toBe("English only intro");
   });
 
   it("returns null for inactive or unknown directions", async () => {
