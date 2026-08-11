@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
+import type { DrizzleD1Database } from "drizzle-orm/d1";
+import type * as schema from "#/db/schema";
 import {
   type NewsMedia,
   newsStories,
@@ -11,12 +12,20 @@ import {
 // 首页「今日精选」数据。SSR loader 与 tRPC home.today 共用本查询,
 // 两侧形状必须一致(loader 数据作为路由数据直出, 全部字段可序列化)。
 
+// 与 lib/chat.ts、lib/agent.ts 同款：接收已建好的 drizzle 实例而非裸 D1Database,
+// router 侧直传 ctx.db, SSR loader 侧自行 drizzle(env.DB)。
+type Db = DrizzleD1Database<typeof schema>;
+
 export interface HomeStory {
   shortId: string;
   title: Record<string, string>;
   summary: Record<string, string>;
   leadImage: NewsMedia | null;
-  /** earliestPublishedAt ?? firstSeenAt, epoch ms */
+  /**
+   * earliestPublishedAt ?? firstSeenAt, epoch ms。
+   * 排序只看 earliestPublishedAt(0025 迁移已消灭存量 NULL, 写入路径始终赋值);
+   * firstSeenAt 兜底仅为类型安全, 不影响实际排序结果。
+   */
   publishedAt: number;
 }
 
@@ -36,8 +45,7 @@ export interface HomeToday {
   papers: HomePaper[];
 }
 
-export async function getHomeToday(d1: D1Database): Promise<HomeToday> {
-  const db = drizzle(d1);
+export async function getHomeToday(db: Db): Promise<HomeToday> {
   const [storyRows, paperRows] = await Promise.all([
     db
       .select({
@@ -54,11 +62,11 @@ export async function getHomeToday(d1: D1Database): Promise<HomeToday> {
       .where(
         sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
       )
-      .orderBy(desc(newsStories.earliestPublishedAt))
+      // 次级键防同秒并列漂移, 与 news.list 的 keyset 排序同款
+      .orderBy(desc(newsStories.earliestPublishedAt), desc(newsStories.shortId))
       .limit(3),
     db
       .select({
-        id: papers.id,
         shortId: papers.shortId,
         title: papers.title,
         tldr: paperResults.tldr,
@@ -81,19 +89,14 @@ export async function getHomeToday(d1: D1Database): Promise<HomeToday> {
           isNull(papers.deletedAt),
         ),
       )
+      // paper_results.paper_id / whiteboard_images 的默认图都不是唯一约束(历史脏
+      // 数据或重复处理可能有多行), 按 papers.id 聚合去重, 与 paper.listPublic 同款。
+      // SQL 级去重必须在 limit 之前做, 否则 join 放大行数会让 limit 先吃掉重复行,
+      // 静默把返回条数缩水到 < 4。
+      .groupBy(papers.id)
       .orderBy(desc(papers.publishedAt))
-      .limit(6),
+      .limit(4),
   ]);
-
-  // 防御性去重(与 sitemap 同理): 默认白板应唯一, 但约束破坏时 join 会重复行
-  const seen = new Set<string>();
-  const dedupedPapers = paperRows
-    .filter((r) => {
-      if (seen.has(r.id)) return false;
-      seen.add(r.id);
-      return true;
-    })
-    .slice(0, 4);
 
   return {
     now: Date.now(),
@@ -104,7 +107,7 @@ export async function getHomeToday(d1: D1Database): Promise<HomeToday> {
       leadImage: s.leadImage ?? null,
       publishedAt: (s.earliestPublishedAt ?? s.firstSeenAt).getTime(),
     })),
-    papers: dedupedPapers.map((p) => ({
+    papers: paperRows.map((p) => ({
       shortId: p.shortId,
       title: p.title,
       tldr: p.tldr ?? null,
