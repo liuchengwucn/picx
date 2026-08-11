@@ -58,6 +58,8 @@
   "papers_loading": "加载中…",
   "papers_no_more": "没有更多了",
   "papers_clear_search": "清除搜索",
+  "papers_load_error": "论文列表加载失败",
+  "papers_retry": "重试",
   "paper_status": "状态",
   "paper_visibility": "可见性",
   "paper_source": "来源",

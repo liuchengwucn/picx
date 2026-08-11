@@ -58,6 +58,8 @@
   "papers_loading": "Loading…",
   "papers_no_more": "No more papers",
   "papers_clear_search": "Clear search",
+  "papers_load_error": "Couldn't load your papers",
+  "papers_retry": "Retry",
   "paper_status": "Status",
   "paper_visibility": "Visibility",
   "paper_source": "Source",

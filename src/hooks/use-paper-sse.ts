@@ -35,8 +35,11 @@ export function usePaperSSE(userId: string | undefined) {
       es.addEventListener("paper-update", (event) => {
         try {
           const data: PaperStatusEvent = JSON.parse(event.data);
+          // paper.list 页用 infiniteQueryOptions，其 key 带 type:"infinite"，
+          // 与 queryKey() 产出的 type:"query" 互不匹配（都算局部匹配失败），
+          // 必须走 pathKey() 才能同时命中 infinite 与任何遗留的 query 形态。
           queryClient.invalidateQueries({
-            queryKey: trpc.paper.list.queryKey(),
+            queryKey: trpc.paper.list.pathKey(),
           });
           queryClient.invalidateQueries({
             queryKey: trpc.paper.statusCounts.queryKey(),

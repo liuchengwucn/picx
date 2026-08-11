@@ -58,6 +58,8 @@
   "papers_loading": "読み込み中…",
   "papers_no_more": "これ以上ありません",
   "papers_clear_search": "検索をクリア",
+  "papers_load_error": "論文リストの読み込みに失敗しました",
+  "papers_retry": "再試行",
   "paper_status": "ステータス",
   "paper_visibility": "可視性",
   "paper_source": "ソース",

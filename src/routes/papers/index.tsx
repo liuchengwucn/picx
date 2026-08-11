@@ -5,8 +5,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2, Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Loader2, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { PaperEmptyState } from "#/components/papers/paper-empty-state";
 import { PaperRow, PaperRowSkeleton } from "#/components/papers/paper-row";
@@ -79,15 +79,22 @@ function PapersPage() {
     return () => clearTimeout(timer);
   }, [inputValue, urlQ, navigate]);
 
-  // 必须用 trpc.paper.list.infiniteQueryOptions：queryKey 留在 paper.list 路径下，
-  // use-paper-sse / share-banner / 删除论文那三处 invalidate 才能匹配上。
-  // 换成 gallery 那种自定义 queryKey 会让处理完成后列表不刷新，且无任何报错。
+  // 用 trpc.paper.list.infiniteQueryOptions 是为了类型安全,并与 news.list 的
+  // 写法保持一致(而不是像 gallery 那样手写 queryKey)。
+  // 但这个 key 本身带 type:"infinite",与 queryKey() 产出的 type:"query"
+  // 不构成前缀关系——react-query 的 partialMatchKey 会在这一层就判负。
+  // 所以 use-paper-sse / share-banner / 删除论文 / 助手「加入库」那几处
+  // invalidate 必须用 trpc.paper.list.pathKey()(或 pathFilter()),
+  // 不能用 queryKey():用了会静默失配、列表处理完不刷新，且没有任何报错。
   const papersQuery = useInfiniteQuery({
     ...trpc.paper.list.infiniteQueryOptions(
       { limit: PAGE_SIZE, status, search: q, locale, categories, tags },
       { getNextPageParam: (last) => last.nextCursor },
     ),
     placeholderData: keepPreviousData,
+    // 无限查询的 refetch 是逐页串行的:滚了 5 页再切回标签页就是 5 次
+    // 全表 LIKE 扫描。挂载期间的新鲜度由 SSE 失效保证,不需要焦点重取。
+    refetchOnWindowFocus: false,
   });
 
   const counts = useQuery(trpc.paper.statusCounts.queryOptions());
@@ -136,21 +143,25 @@ function PapersPage() {
     });
   };
 
-  // 无限滚动：哨兵进入视口（提前 800px 预取）时自动加载下一页
+  // 无限滚动：哨兵进入视口（提前 800px 预取）时自动加载下一页。
+  // 用回调 ref 而非 useRef + effect deps 不含 DOM 节点：session 请求与列表
+  // 请求会竞速，若列表先返回，hasNextPage 在哨兵尚未挂载(仍在骨架屏)时就已
+  // 翻真，此时 effect 若只依赖 hasNextPage 等值型 deps 便会永久错过挂载时机
+  // (fetchNextPage 是稳定引用，之后也不会再触发)。回调 ref 让节点挂载本身
+  // 成为触发点。
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = papersQuery;
-  const loadMoreRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const el = loadMoreRef.current;
-    if (!el || !hasNextPage) return;
+    if (!sentinel || !hasNextPage) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting && !isFetchingNextPage) fetchNextPage();
       },
       { rootMargin: "800px 0px" },
     );
-    observer.observe(el);
+    observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [sentinel, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (isSessionPending) {
     return (
@@ -175,7 +186,11 @@ function PapersPage() {
           <h1 className="font-serif text-2xl font-bold text-[var(--ink)]">
             {m.papers_title()}
             {total > 0 && (
-              <span className="ml-2 text-sm font-normal text-[var(--ink-soft)]">
+              <span
+                className={`ml-2 text-sm font-normal text-[var(--ink-soft)] transition-opacity ${
+                  papersQuery.isPlaceholderData ? "opacity-60" : ""
+                }`}
+              >
                 · {total}
               </span>
             )}
@@ -210,7 +225,10 @@ function PapersPage() {
               </button>
             )}
           </div>
-          {(counts.data?.processing ?? 0) > 0 && (
+          {/* count===0 时仍保留已激活的 chip：否则最后一篇处理中论文完成的瞬间，
+              chip 随 statusCounts 归零而卸载，但 URL 仍带着 ?status=processing，
+              留下一个打不开、也清不掉筛选的空列表。 */}
+          {((counts.data?.processing ?? 0) > 0 || status === "processing") && (
             <button
               type="button"
               onClick={() => toggleStatus("processing")}
@@ -223,7 +241,7 @@ function PapersPage() {
               {m.papers_filter_processing()} {counts.data?.processing}
             </button>
           )}
-          {(counts.data?.failed ?? 0) > 0 && (
+          {((counts.data?.failed ?? 0) > 0 || status === "failed") && (
             <button
               type="button"
               onClick={() => toggleStatus("failed")}
@@ -249,6 +267,23 @@ function PapersPage() {
         >
           {papersQuery.isLoading ? (
             paperSkeletonKeys.map((key) => <PaperRowSkeleton key={key} />)
+          ) : papersQuery.isError ? (
+            // isError 时 data 是 undefined，papers 会算出空数组——不挡在这前面
+            // 的话，一次网络抖动就会把"你还没上传过论文"这句话说给一个论文库
+            // 满满当当的用户听。
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <AlertTriangle className="size-8 text-[var(--sienna)]" />
+              <p className="text-sm text-[var(--ink-soft)]">
+                {m.papers_load_error()}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => papersQuery.refetch()}
+              >
+                {m.papers_retry()}
+              </Button>
+            </div>
           ) : papers.length === 0 ? (
             <PaperEmptyState kind={emptyKind} />
           ) : flatList ? (
@@ -274,8 +309,15 @@ function PapersPage() {
           )}
         </div>
 
-        {/* 哨兵：滚动接近时自动加载；按钮作为无障碍 / 兜底入口 */}
-        <div ref={loadMoreRef} className="mt-8 flex justify-center">
+        {/* 哨兵：滚动接近时自动加载；按钮作为无障碍 / 兜底入口。
+            无内容可显示时(既没有下一页也没有已加载论文)不留 mt-8 空白——
+            ref 始终挂着，一旦 hasNextPage 变真，effect 会立刻重新观察。 */}
+        <div
+          ref={setSentinel}
+          className={
+            hasNextPage || papers.length > 0 ? "mt-8 flex justify-center" : ""
+          }
+        >
           {hasNextPage ? (
             isFetchingNextPage ? (
               <div className="flex items-center gap-2 text-sm text-[var(--ink-soft)]">

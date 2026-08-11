@@ -425,10 +425,13 @@ export const paperRouter = router({
   list: protectedProcedure
     .input(
       z.object({
-        // 游标即 offset。之所以叫 cursor 而不是 page，是为了让前端能用
-        // trpc.paper.list.infiniteQueryOptions —— 那样 queryKey 仍在 paper.list
-        // 路径下，use-paper-sse / share-banner / 删除论文那三处按 tRPC key 做的
-        // invalidate 才不会失配。换成自定义 queryKey 会让列表在处理完成后不刷新。
+        // 游标即 offset。之所以叫 cursor 而不是 page，是为了让前端能用 tRPC
+        // 自带的 trpc.paper.list.infiniteQueryOptions，而不是像 gallery 那样
+        // 手写 queryKey。但这本身不足以让 use-paper-sse / share-banner /
+        // 删除论文 / 助手「加入库」那几处 invalidate 命中——infiniteQueryOptions
+        // 产出的 key 带 type:"infinite"，queryKey() 产出的是 type:"query"，
+        // 二者互不为前缀。那几处必须改用 trpc.paper.list.pathKey()
+        // (或 pathFilter())，才能同时匹配 infinite 与任意 legacy query 形态。
         cursor: z.number().int().min(0).nullish(),
         limit: z.number().int().min(1).max(100).default(50),
         // "processing" 是列表页「处理中」筛选的聚合值，展开成所有在途状态；

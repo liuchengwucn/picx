@@ -58,6 +58,8 @@
   "papers_loading": "載入中…",
   "papers_no_more": "沒有更多了",
   "papers_clear_search": "清除搜尋",
+  "papers_load_error": "論文清單載入失敗",
+  "papers_retry": "重試",
   "paper_status": "狀態",
   "paper_visibility": "可見性",
   "paper_source": "來源",
