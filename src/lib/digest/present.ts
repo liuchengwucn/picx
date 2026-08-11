@@ -28,6 +28,14 @@ export function excerptFromMarkdown(md: string | null | undefined): string {
   return "";
 }
 
+/** intro 未生成时把单语中文 focusBrief 伪装成四语对象；intro 全量回填后整个函数删掉即可 */
+export function directionIntroSource(row: {
+  intro: Record<string, string> | null;
+  focusBrief: string;
+}): Record<string, string> {
+  return row.intro ?? { "zh-cn": row.focusBrief };
+}
+
 /**
  * 一期简报的公开单语视图。字段集就是对外契约 —— digest.getIssue 的输出与期页
  * SSR loader 注入 react-query 的 initialData 必须逐字同构, 增删字段前先看

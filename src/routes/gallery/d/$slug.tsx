@@ -16,6 +16,7 @@ import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { useTRPC, useTRPCClient } from "#/integrations/trpc/react";
+import { directionIntroSource } from "#/lib/digest/present";
 import { GALLERY_LIST_QUERY_KEY } from "#/lib/gallery-search";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
@@ -47,7 +48,7 @@ export const Route = createFileRoute("/gallery/d/$slug")({
           .select({
             name: directions.name,
             intro: directions.intro,
-            // 仅用于 intro 未生成时的回退，不进 loaderData
+            // 只为 intro 未生成时包装成回退对象用（见下方 directionIntroSource）
             focusBrief: directions.focusBrief,
           })
           .from(directions)
@@ -60,10 +61,12 @@ export const Route = createFileRoute("/gallery/d/$slug")({
           .limit(1);
         // 查不到 → 真 404 状态码, 而不是 200 的空壳页
         if (!row) throw notFound();
+        // 今天这里恒为 baseLocale en(paraglide 的策略全在客户端解析), 但两个字段必须
+        // 用同一个 key: 哪天 SSR 真拿到 locale, 别变成日文标题配英文描述。
+        const localeKey = normalizeLocaleKey(getLocale());
         return {
-          directionName: pickTldr(row.name, normalizeLocaleKey(getLocale())),
-          // SSR 侧 locale 恒为 baseLocale en; intro 未生成时回退中文 focusBrief
-          intro: pickTldr(row.intro ?? { "zh-cn": row.focusBrief }, "en"),
+          directionName: pickTldr(row.name, localeKey),
+          intro: pickTldr(directionIntroSource(row), localeKey),
           ssrFailed: false,
         };
       } catch (error) {

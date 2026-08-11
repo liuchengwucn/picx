@@ -32,6 +32,7 @@ import { MAX_SOURCE_FAILURES } from "#/lib/news/source-health";
 import { likeCountSql } from "#/lib/paper-feedback";
 import type { Env } from "#/types/env";
 import type { PoolEntry } from "./candidates";
+import { directionIntroSource } from "./present";
 import type {
   CandidateItem,
   FeedbackSample,
@@ -486,7 +487,10 @@ export async function listActiveDirections(
 export interface DirectionDetail {
   slug: string;
   name: Record<string, string>;
-  /** 四语公开简介。focusBrief 是喂 LLM 的内部中文口味描述，不出现在这个形状里。 */
+  /**
+   * 四语公开简介。intro 未生成时是伪装成 {zh-cn} 的 focusBrief 回退
+   * （见 getDirectionDetailBySlug），intro 全量生成后这里只会是真 intro。
+   */
   intro: Record<string, string>;
   issues: Array<{
     issueNumber: number;
@@ -509,7 +513,7 @@ export async function getDirectionDetailBySlug(
       slug: directions.slug,
       name: directions.name,
       intro: directions.intro,
-      // 只为 intro 未生成时的回退取用，不进返回值
+      // 只为 intro 未生成时包装成回退对象用（见下方 return）
       focusBrief: directions.focusBrief,
     })
     .from(directions)
@@ -548,9 +552,8 @@ export async function getDirectionDetailBySlug(
   return {
     slug: dir.slug,
     name: dir.name,
-    // intro 未生成时回退单语中文 focusBrief（伪装成只有 zh-cn 的四语对象，
-    // pickTldr 会取到它）；一旦 intro 生成，中文内部原文就不再离开 store 层
-    intro: dir.intro ?? { "zh-cn": dir.focusBrief },
+    // 回退与 SSR loader 那侧共用一个实现，回填完成后两处一起删（见 directionIntroSource）
+    intro: directionIntroSource(dir),
     issues,
     latestContent,
   };
