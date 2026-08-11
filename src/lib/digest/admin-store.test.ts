@@ -3,7 +3,7 @@
  * COUNT、slug 唯一冲突、每方向 limit 10 的窗口，以及「内部字段确实暴露给管理面」
  * ——这些都只有让 SQL 真跑一遍才看得见。
  */
-import { eq } from "drizzle-orm";
+import { eq, getTableName } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   digests,
@@ -15,19 +15,26 @@ import {
 } from "#/db/schema";
 import { createTestDb } from "../../../test/helpers/sqlite-d1";
 import {
+  adoptFocusUpdateStore,
   deleteDirectionGuarded,
+  dismissFocusUpdateStore,
   listDirectionsAdmin,
+  listPendingProposals,
   listRecentDigestsAdmin,
   listRecentFeedbackAdmin,
   reviveSource,
+  setDirectionIntro,
   upsertDirection,
   upsertSource,
 } from "./admin-store";
+import { saveDigestContent } from "./store";
 
 type Db = ReturnType<typeof createTestDb>["db"];
 
 const PERIOD_START = new Date("2026-07-27T00:00:00Z");
 const PERIOD_END = new Date("2026-08-03T00:00:00Z");
+/** dg-11 上待审的 focusBrief 更新提案（提案是「修订后的全文」，不是 diff） */
+const PROPOSAL = "自动定理证明；本周起把形式化验证的工程落地也纳入重点";
 
 function four(prefix: string): Record<string, string> {
   return {
@@ -114,7 +121,8 @@ async function seed(db: Db) {
     },
   ]);
 
-  // dir-withdigests: 12 期，第 12 期 failed（管理面必须看得见非 published 的期）
+  // dir-withdigests: 12 期，第 12 期 failed（管理面必须看得见非 published 的期）；
+  // 第 11 期带一条待审的 focusBrief 提案
   await db.insert(digests).values(
     Array.from({ length: 12 }, (_, i) => ({
       id: `dg-${i + 1}`,
@@ -126,7 +134,10 @@ async function seed(db: Db) {
       title: four(`Issue ${i + 1}`),
       workflowInstanceId: `wf-${i + 1}`,
       publishedAt: i === 11 ? null : new Date("2026-08-03T01:00:00Z"),
+      proposedFocusUpdate: i === 10 ? PROPOSAL : null,
       proposedFocusUpdateStatus: i === 10 ? ("pending" as const) : null,
+      // 显式错开：listPendingProposals 按 createdAt desc 排序，默认值同毫秒排不出来
+      createdAt: new Date(PERIOD_END.getTime() + (i + 1) * 60_000),
     })),
   );
 
@@ -572,6 +583,243 @@ describe("listRecentDigestsAdmin", () => {
     expect(forDirection[1].proposedFocusUpdateStatus).toBe("pending");
     // 无期数的方向不产生行
     expect(rows.map((r) => r.directionSlug)).not.toContain("brandnew");
+  });
+});
+
+/** 读方向当前的 focusBrief / intro */
+async function readDirection(db: Db, id: string) {
+  const [row] = await db
+    .select({ focusBrief: directions.focusBrief, intro: directions.intro })
+    .from(directions)
+    .where(eq(directions.id, id));
+  return row;
+}
+
+async function readProposal(db: Db, digestId: string) {
+  const [row] = await db
+    .select({
+      proposedFocusUpdate: digests.proposedFocusUpdate,
+      proposedFocusUpdateStatus: digests.proposedFocusUpdateStatus,
+    })
+    .from(digests)
+    .where(eq(digests.id, digestId));
+  return row;
+}
+
+// 提案的入队点：workflow 定稿 step 调 saveDigestContent 落提案，状态机的
+// pending 就是在这里产生的（没有别的入口）
+describe("saveDigestContent proposal status", () => {
+  it("queues a non-empty proposal for review", async () => {
+    await saveDigestContent(db, "dg-1", {
+      proposedFocusUpdate: "改一改口味描述",
+    });
+    expect(await readProposal(db, "dg-1")).toEqual({
+      proposedFocusUpdate: "改一改口味描述",
+      proposedFocusUpdateStatus: "pending",
+    });
+  });
+
+  it("leaves the status NULL when there is no proposal", async () => {
+    await saveDigestContent(db, "dg-1", {
+      title: four("Issue 1 v2"),
+      proposedFocusUpdate: null,
+    });
+    expect(
+      (await readProposal(db, "dg-1")).proposedFocusUpdateStatus,
+    ).toBeNull();
+  });
+
+  // SynthesisResult 是裸 JSON.parse，没有 zod 兜底：模型偶发返回 "" / 纯空白，
+  // 那不该在管理页变成一条点开是空的审阅项（与 0030 迁移的 trim 回填条件一致）
+  it("does not queue a whitespace-only proposal", async () => {
+    await saveDigestContent(db, "dg-1", { proposedFocusUpdate: "   " });
+    expect(
+      (await readProposal(db, "dg-1")).proposedFocusUpdateStatus,
+    ).toBeNull();
+  });
+
+  // 定稿之后还会有 publish 等后续 patch，它们不带 proposedFocusUpdate，
+  // 不能把已入队的提案顺手打回 NULL
+  it("keeps an already queued proposal when a later patch omits the field", async () => {
+    await saveDigestContent(db, "dg-11", {
+      status: "published",
+      publishedAt: new Date("2026-08-04T00:00:00Z"),
+    });
+    expect(await readProposal(db, "dg-11")).toEqual({
+      proposedFocusUpdate: PROPOSAL,
+      proposedFocusUpdateStatus: "pending",
+    });
+  });
+});
+
+describe("adoptFocusUpdateStore", () => {
+  it("overwrites focusBrief with the full proposal and marks the issue adopted", async () => {
+    await expect(adoptFocusUpdateStore(db, "dg-11")).resolves.toEqual({
+      directionId: "dir-withdigests",
+      focusBrief: PROPOSAL,
+    });
+    expect((await readDirection(db, "dir-withdigests")).focusBrief).toBe(
+      PROPOSAL,
+    );
+    expect((await readProposal(db, "dg-11")).proposedFocusUpdateStatus).toBe(
+      "adopted",
+    );
+  });
+
+  // D1 无事务：先写 focusBrief 再改 status，中断的最坏情形是「已覆盖但仍 pending」，
+  // 重复采纳写入同一文本、幂等无害；反过来崩在中间就永久丢掉这次演化
+  it("writes focusBrief before flipping the status", async () => {
+    const update = vi.spyOn(db, "update");
+    await adoptFocusUpdateStore(db, "dg-11");
+    expect(update.mock.calls.map((c) => getTableName(c[0] as never))).toEqual([
+      "directions",
+      "digests",
+    ]);
+    update.mockRestore();
+  });
+
+  it("refuses a second adoption instead of overwriting an edited focusBrief", async () => {
+    await adoptFocusUpdateStore(db, "dg-11");
+    // 管理员采纳后又手工改了一版
+    await db
+      .update(directions)
+      .set({ focusBrief: "人工又改过一次" })
+      .where(eq(directions.id, "dir-withdigests"));
+
+    await expect(adoptFocusUpdateStore(db, "dg-11")).resolves.toBeNull();
+    expect((await readDirection(db, "dir-withdigests")).focusBrief).toBe(
+      "人工又改过一次",
+    );
+  });
+
+  it("returns null for an issue that never produced a proposal", async () => {
+    await expect(adoptFocusUpdateStore(db, "dg-1")).resolves.toBeNull();
+    expect((await readDirection(db, "dir-withdigests")).focusBrief).toBe(
+      "自动定理证明",
+    );
+  });
+
+  it("returns null for an unknown digest id", async () => {
+    await expect(adoptFocusUpdateStore(db, "dg-nope")).resolves.toBeNull();
+  });
+});
+
+describe("dismissFocusUpdateStore", () => {
+  it("marks the issue dismissed without touching focusBrief", async () => {
+    await expect(dismissFocusUpdateStore(db, "dg-11")).resolves.toBe(true);
+    expect((await readProposal(db, "dg-11")).proposedFocusUpdateStatus).toBe(
+      "dismissed",
+    );
+    expect((await readDirection(db, "dir-withdigests")).focusBrief).toBe(
+      "自动定理证明",
+    );
+  });
+
+  it("refuses to dismiss an already adopted proposal", async () => {
+    await adoptFocusUpdateStore(db, "dg-11");
+    await expect(dismissFocusUpdateStore(db, "dg-11")).resolves.toBe(false);
+    expect((await readProposal(db, "dg-11")).proposedFocusUpdateStatus).toBe(
+      "adopted",
+    );
+  });
+
+  it("refuses to dismiss twice", async () => {
+    await dismissFocusUpdateStore(db, "dg-11");
+    await expect(dismissFocusUpdateStore(db, "dg-11")).resolves.toBe(false);
+  });
+});
+
+describe("listPendingProposals", () => {
+  /** 给 dir-withpapers 造几期各种审阅状态的对照 */
+  async function seedOtherStatuses(db: Db) {
+    await db.insert(digests).values([
+      {
+        id: "dg-adopted",
+        directionId: "dir-withpapers",
+        issueNumber: 1,
+        periodStart: PERIOD_START,
+        periodEnd: PERIOD_END,
+        status: "published" as const,
+        workflowInstanceId: "wf-adopted",
+        proposedFocusUpdate: "已采纳的提案",
+        proposedFocusUpdateStatus: "adopted" as const,
+        createdAt: new Date("2026-08-05T00:00:00Z"),
+      },
+      {
+        id: "dg-dismissed",
+        directionId: "dir-withpapers",
+        issueNumber: 2,
+        periodStart: PERIOD_START,
+        periodEnd: PERIOD_END,
+        status: "published" as const,
+        workflowInstanceId: "wf-dismissed",
+        proposedFocusUpdate: "已驳回的提案",
+        proposedFocusUpdateStatus: "dismissed" as const,
+        createdAt: new Date("2026-08-06T00:00:00Z"),
+      },
+      {
+        id: "dg-noproposal",
+        directionId: "dir-withpapers",
+        issueNumber: 3,
+        periodStart: PERIOD_START,
+        periodEnd: PERIOD_END,
+        status: "published" as const,
+        workflowInstanceId: "wf-noproposal",
+        createdAt: new Date("2026-08-07T00:00:00Z"),
+      },
+    ]);
+  }
+
+  it("returns only pending proposals, newest first, with the direction's current focusBrief", async () => {
+    await seedOtherStatuses(db);
+    // 另一个方向也有一条待审，且比 dg-11 新
+    await db.insert(digests).values({
+      id: "dg-pending-2",
+      directionId: "dir-withpapers",
+      issueNumber: 4,
+      periodStart: PERIOD_START,
+      periodEnd: PERIOD_END,
+      status: "published" as const,
+      workflowInstanceId: "wf-pending-2",
+      proposedFocusUpdate: "智能体：补上评测基准",
+      proposedFocusUpdateStatus: "pending" as const,
+      createdAt: new Date("2026-08-09T00:00:00Z"),
+    });
+
+    const rows = await listPendingProposals(db);
+    expect(rows.map((r) => r.digestId)).toEqual(["dg-pending-2", "dg-11"]);
+    expect(rows[1]).toMatchObject({
+      issueNumber: 11,
+      proposal: PROPOSAL,
+      directionId: "dir-withdigests",
+      directionSlug: "ai4formath",
+      // currentFocusBrief 是方向当前的值，不是提案值——管理页要拿这两者上下对照
+      currentFocusBrief: "自动定理证明",
+    });
+    expect(rows[1].directionName.ja).toBe("AI4Math ja");
+  });
+
+  it("drops out of the queue once the proposal is acted on", async () => {
+    await dismissFocusUpdateStore(db, "dg-11");
+    await expect(listPendingProposals(db)).resolves.toEqual([]);
+  });
+
+  // 只可能来自 0030 之前的存量数据：saveDigestContent 不会给空提案置 pending
+  it("skips a pending row whose proposal text is empty", async () => {
+    await db
+      .update(digests)
+      .set({ proposedFocusUpdate: "" })
+      .where(eq(digests.id, "dg-11"));
+    await expect(listPendingProposals(db)).resolves.toEqual([]);
+  });
+});
+
+describe("setDirectionIntro", () => {
+  it("writes the four-locale intro without touching focusBrief", async () => {
+    await setDirectionIntro(db, "dir-clean", four("公开简介"));
+    const row = await readDirection(db, "dir-clean");
+    expect(row.intro).toEqual(four("公开简介"));
+    expect(row.focusBrief).toBe("刚建的方向");
   });
 });
 

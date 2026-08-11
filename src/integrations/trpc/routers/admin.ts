@@ -3,15 +3,21 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { directions } from "#/db/schema";
 import {
+  adoptFocusUpdateStore,
   deleteDirectionGuarded,
   deleteSource,
+  dismissFocusUpdateStore,
   listDirectionsAdmin,
+  listPendingProposals,
   listRecentDigestsAdmin,
   listRecentFeedbackAdmin,
   reviveSource,
+  setDirectionIntro,
   upsertDirection,
   upsertSource,
 } from "#/lib/digest/admin-store";
+import { generateDirectionIntro } from "#/lib/digest/ai";
+import { strongModel } from "#/lib/digest/llm";
 import { adminProcedure, router } from "../init";
 
 const localeRecord = z.record(
@@ -101,6 +107,66 @@ export const adminRouter = router({
   listRecentFeedback: adminProcedure.query(({ ctx }) =>
     listRecentFeedbackAdmin(ctx.db),
   ),
+
+  /** 待审的 focusBrief 演化提案（定稿时由强模型顺带产出，人工采纳/驳回） */
+  listProposals: adminProcedure.query(({ ctx }) =>
+    listPendingProposals(ctx.db),
+  ),
+
+  adoptFocusUpdate: adminProcedure
+    .input(z.object({ digestId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const adopted = await adoptFocusUpdateStore(ctx.db, input.digestId);
+      if (!adopted)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "proposal not pending",
+        });
+      // 简介刷新是 best-effort：focusBrief 已经生效，翻译失败不回滚采纳（回滚等于
+      // 丢掉这次演化），只把 introUpdated=false 交给前端，管理员可用「生成简介」重试
+      let introUpdated = false;
+      try {
+        const intro = await generateDirectionIntro(
+          strongModel(ctx.env),
+          adopted.focusBrief,
+        );
+        await setDirectionIntro(ctx.db, adopted.directionId, intro);
+        introUpdated = true;
+      } catch (e) {
+        console.error("[admin] intro regeneration after adopt failed:", e);
+      }
+      return { introUpdated };
+    }),
+
+  dismissFocusUpdate: adminProcedure
+    .input(z.object({ digestId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const ok = await dismissFocusUpdateStore(ctx.db, input.digestId);
+      if (!ok)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "proposal not pending",
+        });
+      return { ok };
+    }),
+
+  /** 手动重生成四语公开简介（采纳时的自动刷新失败后的补救入口） */
+  generateIntro: adminProcedure
+    .input(z.object({ directionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const [dir] = await ctx.db
+        .select({ focusBrief: directions.focusBrief })
+        .from(directions)
+        .where(eq(directions.id, input.directionId))
+        .limit(1);
+      if (!dir) throw new TRPCError({ code: "NOT_FOUND" });
+      const intro = await generateDirectionIntro(
+        strongModel(ctx.env),
+        dir.focusBrief,
+      );
+      await setDirectionIntro(ctx.db, input.directionId, intro);
+      return { intro };
+    }),
 
   triggerDigest: adminProcedure
     .input(z.object({ directionId: z.string() }))

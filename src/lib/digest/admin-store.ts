@@ -349,6 +349,112 @@ export async function listRecentDigestsAdmin(
   return result;
 }
 
+export interface PendingProposal {
+  digestId: string;
+  issueNumber: number;
+  proposal: string;
+  createdAt: Date;
+  directionId: string;
+  directionSlug: string;
+  directionName: Record<string, string>;
+  /** 方向**当前**的 focusBrief，供管理页与提案上下对照 */
+  currentFocusBrief: string;
+}
+
+/**
+ * 待审的 focusBrief 更新提案。listRecentDigestsAdmin 只带 status 不带正文
+ * （它是期状态总览，不该为每期拖一段长文），审阅需要全文，故单独一条查询。
+ */
+export async function listPendingProposals(db: Db): Promise<PendingProposal[]> {
+  const rows = await db
+    .select({
+      digestId: digests.id,
+      issueNumber: digests.issueNumber,
+      proposal: digests.proposedFocusUpdate,
+      createdAt: digests.createdAt,
+      // 取 digests 侧的外键而不是 directions.id：innerJoin 下两者恒等，但同名的
+      // "id" 列会在结果集里撞名（drizzle 不给 select 里的列自动加别名）
+      directionId: digests.directionId,
+      directionSlug: directions.slug,
+      directionName: directions.name,
+      currentFocusBrief: directions.focusBrief,
+    })
+    .from(digests)
+    .innerJoin(directions, eq(digests.directionId, directions.id))
+    .where(eq(digests.proposedFocusUpdateStatus, "pending"))
+    .orderBy(desc(digests.createdAt));
+  // proposal 列类型是 string | null，status='pending' 已蕴含非空（saveDigestContent
+  // 只在 trim 后非空时置 pending），这里过滤纯粹是为了把类型收窄成 string
+  return rows.flatMap((r) =>
+    r.proposal ? [{ ...r, proposal: r.proposal }] : [],
+  );
+}
+
+/**
+ * 采纳提案：提案全文覆盖方向的 focusBrief，并把该期标记为 adopted。
+ *
+ * D1 无事务，**先覆盖 focusBrief 再改 status**：中断的最坏情形是「已覆盖但仍
+ * pending」，管理员再点一次采纳会写入同一段文本，幂等无害；反过来（先改 status）
+ * 崩在中间就永久丢掉这次演化，而且再也没有入口能找回。
+ *
+ * 返回 null = 这条提案不在 pending（已被采纳/驳回，或压根没有提案），由 router
+ * 翻成 BAD_REQUEST；重复点击不会二次覆盖 focusBrief。
+ */
+export async function adoptFocusUpdateStore(
+  db: Db,
+  digestId: string,
+): Promise<{ directionId: string; focusBrief: string } | null> {
+  const [row] = await db
+    .select({
+      directionId: digests.directionId,
+      proposal: digests.proposedFocusUpdate,
+      status: digests.proposedFocusUpdateStatus,
+    })
+    .from(digests)
+    .where(eq(digests.id, digestId))
+    .limit(1);
+  if (!row || row.status !== "pending" || !row.proposal) return null;
+  await db
+    .update(directions)
+    .set({ focusBrief: row.proposal, updatedAt: new Date() })
+    .where(eq(directions.id, row.directionId));
+  await db
+    .update(digests)
+    .set({ proposedFocusUpdateStatus: "adopted", updatedAt: new Date() })
+    .where(eq(digests.id, digestId));
+  return { directionId: row.directionId, focusBrief: row.proposal };
+}
+
+/** 驳回提案：只改 status，focusBrief 一个字不动 */
+export async function dismissFocusUpdateStore(
+  db: Db,
+  digestId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ status: digests.proposedFocusUpdateStatus })
+    .from(digests)
+    .where(eq(digests.id, digestId))
+    .limit(1);
+  if (!row || row.status !== "pending") return false;
+  await db
+    .update(digests)
+    .set({ proposedFocusUpdateStatus: "dismissed", updatedAt: new Date() })
+    .where(eq(digests.id, digestId));
+  return true;
+}
+
+/** intro 单独写：upsertDirection 是整体覆盖式的，不能拿来只改一个字段 */
+export async function setDirectionIntro(
+  db: Db,
+  directionId: string,
+  intro: Record<string, string>,
+): Promise<void> {
+  await db
+    .update(directions)
+    .set({ intro, updatedAt: new Date() })
+    .where(eq(directions.id, directionId));
+}
+
 export interface AdminFeedbackRow {
   paperTitle: string;
   paperShortId: string;

@@ -392,3 +392,38 @@ export async function translateDigest(
     throw new DigestAiError(`translate ${target}: malformed`);
   return { title: r.title, content: r.content, notes: r.notes ?? {} };
 }
+
+/** 与 DB 里 directions.intro 的 JSON key 一致（小写），也是 localeRecord 要求的四语 */
+const INTRO_LOCALES = ["en", "zh-cn", "zh-tw", "ja"] as const;
+
+const INTRO_SYSTEM = [
+  "You write the public introduction for a research-direction tracking page.",
+  "Input is the direction's internal focus brief (Chinese). Produce a 1-3 sentence",
+  "public-facing introduction in four languages describing what this direction",
+  "covers and why it matters. Neutral encyclopedic tone; do not copy internal",
+  "taste notes or editorial judgements verbatim. zh-tw must be Taiwan-style",
+  "Traditional Chinese, not a mechanical conversion of zh-cn.",
+  'Return ONLY a JSON object: {"en":"...","zh-cn":"...","zh-tw":"...","ja":"..."}',
+].join(" ");
+
+/**
+ * 由内部中文 focusBrief 生成四语公开简介（管理页「生成简介」按钮 + 采纳提案后自动调用）。
+ * 四语齐全是硬校验：下游写库要过 localeRecord（zod 的 z.record(z.enum) 在 zod 4 下
+ * 是穷尽的），少一语会在离这里很远的地方炸成 BAD_REQUEST，不如就地失败。
+ */
+export async function generateDirectionIntro(
+  cfg: DigestModelConfig,
+  focusBrief: string,
+): Promise<Record<string, string>> {
+  const out = await chatJson<Record<string, string>>(
+    cfg,
+    INTRO_SYSTEM,
+    `Internal focus brief:\n${clean(focusBrief)}`,
+    2000,
+  );
+  for (const k of INTRO_LOCALES) {
+    if (!out[k]?.trim())
+      throw new DigestAiError(`intro generation missing locale: ${k}`);
+  }
+  return Object.fromEntries(INTRO_LOCALES.map((k) => [k, out[k].trim()]));
+}

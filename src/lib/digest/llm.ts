@@ -12,7 +12,22 @@ export interface DigestModelConfig {
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-5.2-instant";
 
-export function cheapModel(env: Env): DigestModelConfig {
+/**
+ * 只取模型配置真正用到的那几个绑定。写成窄接口而不是 Env，是为了让 tRPC 的
+ * ctx.env（AppEnvBindings，没有 AI / GEMINI_* 等 workflow 侧绑定）也能直接传进来，
+ * 不必在调用点写 `as unknown as Env` 这种会掩盖真实缺失的双重断言。
+ */
+export type DigestModelEnv = Pick<
+  Env,
+  | "OPENAI_API_KEY"
+  | "OPENAI_BASE_URL"
+  | "OPENAI_MODEL"
+  | "DIGEST_CHEAP_MODEL"
+  | "DIGEST_STRONG_MODEL"
+  | "CF_API_TOKEN"
+>;
+
+export function cheapModel(env: DigestModelEnv): DigestModelConfig {
   return {
     apiKey: env.OPENAI_API_KEY,
     baseUrl: env.OPENAI_BASE_URL || DEFAULT_BASE_URL,
@@ -21,7 +36,7 @@ export function cheapModel(env: Env): DigestModelConfig {
   };
 }
 
-export function strongModel(env: Env): DigestModelConfig {
+export function strongModel(env: DigestModelEnv): DigestModelConfig {
   return {
     apiKey: env.OPENAI_API_KEY,
     baseUrl: env.OPENAI_BASE_URL || DEFAULT_BASE_URL,
