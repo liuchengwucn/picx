@@ -58,8 +58,31 @@ export interface PdfViewerApi {
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 5;
 const SCALE_STEP = 1.1;
-/** 「适宽」这类关键字缩放要跟着容器宽度走，数字倍率则由用户说了算 */
+/**
+ * 「适宽」的哨兵值。它不再被交给 pdfjs（见 applyFitWidth），只作为 scaleValueRef 里
+ * 「这是一个持续意图、容器变宽要重算」的标记；数字倍率则由用户说了算。
+ */
 const FIT_WIDTH = "page-width";
+
+/**
+ * 「适宽」时页面宽度的上限。
+ *
+ * 这个上限**只能加在倍率上，不能加在滚动容器上**。容器限宽是最直觉的写法（一行
+ * max-w 就完事，还自带居中），但它把「舒适阅读宽度」和「可视区域」焊成了一件事：
+ * 面板 1520px 时容器只有 1200px，放大到 200% 后页面 1385px 宽，只能挤在 1185px 的
+ * 窗口里横向滚动，而两侧各 159px 的面板是空的——用户放大是为了看清，结果可视面积
+ * 反而比面板小了一圈。
+ *
+ * 所以容器铺满面板，改由这里限制适宽倍率：适宽时页面仍是 1200px 的舒适宽度并居中
+ * （.page 的 margin:auto 负责），一旦放大超过容器就把整个面板宽度都用上。
+ */
+const FIT_WIDTH_MAX_PAGE_WIDTH = 1200;
+/**
+ * pdfjs 在 #setScale 里算「适宽」时从 container.clientWidth 扣掉的横向留白，
+ * 为纵向滚动条预留。这里自己算倍率，就得原样照抄这个常量，否则适宽会比官方宽 40px
+ * 并稳定地压出一条横向滚动条。数值取自 pdf_viewer.mjs 的 SCROLLBAR_PADDING。
+ */
+const SCROLLBAR_PADDING = 40;
 
 type ViewerModule = typeof import("pdfjs-dist/web/pdf_viewer.mjs");
 
@@ -74,6 +97,42 @@ interface ViewerBundle {
  * 但生成出来的 .d.ts 把参数标成了非空的 PDFDocumentProxy。这里只补类型不改行为。
  */
 const NO_DOCUMENT = null as unknown as PDFDocumentProxy;
+
+/**
+ * 套用「适宽」。
+ *
+ * 不能直接 `currentScaleValue = "page-width"`：那条路径按 container.clientWidth 铺满
+ * 整个容器，而容器现在铺满整个面板（原因见 FIT_WIDTH_MAX_PAGE_WIDTH）。这里照抄
+ * pdfjs #setScale 里的公式，只把容器宽度先收到上限之内：
+ *
+ *   scale = (min(clientWidth, 上限) - SCROLLBAR_PADDING) / 当前页当前宽度 * 当前页倍率
+ *
+ * 公式里必须用「当前页」而不是第一页：pdfjs 自己就是这么取的（`_pages[currentPageNumber-1]`），
+ * 论文里横向的表格页、跨栏插图页跟正文页尺寸不同，按第一页算会让翻到那些页时宽度突变。
+ *
+ * getPageView 在 pagesinit 之前返回 undefined。那时候交还给 pdfjs 的关键字路径——
+ * 它内部对「拿不到当前页」有 early return，行为是「什么都不做」，等 pagesinit 之后
+ * 我们会被再调一次；而这里若不判空，unscaled 会算出 NaN 并把 currentScale 设成 NaN。
+ */
+function applyFitWidth(
+  viewer: InstanceType<ViewerModule["PDFViewer"]>,
+  container: HTMLElement,
+): void {
+  const page = viewer.getPageView(viewer.currentPageNumber - 1) as
+    | { width: number; scale: number }
+    | undefined;
+  if (!page?.width || !page.scale) {
+    viewer.currentScaleValue = FIT_WIDTH;
+    return;
+  }
+  const usable =
+    Math.min(container.clientWidth, FIT_WIDTH_MAX_PAGE_WIDTH) -
+    SCROLLBAR_PADDING;
+  const next = (usable / page.width) * page.scale;
+  // 极窄容器（窄屏 + 抽屉动画中间态）会把 usable 算成 0 甚至负数，MIN_SCALE 兜住；
+  // 上限跟着手动缩放走，免得适宽能到达一个按钮点不到的倍率。
+  viewer.currentScale = Math.min(Math.max(next, MIN_SCALE), MAX_SCALE);
+}
 
 export function usePdfViewer(url: string, initialPage: number): PdfViewerApi {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -183,7 +242,13 @@ export function usePdfViewer(url: string, initialPage: number): PdfViewerApi {
       linkService.setViewer(viewer);
 
       eventBus.on("pagesinit", () => {
-        viewer.currentScaleValue = scaleValueRef.current;
+        // 首帧同样不能走关键字路径，否则第一眼看到的就是铺满整个面板的页面，
+        // 用户手动点一次「适宽」反而会变窄——两条路径必须给出同一个宽度。
+        if (scaleValueRef.current === FIT_WIDTH) {
+          applyFitWidth(viewer, container);
+        } else {
+          viewer.currentScaleValue = scaleValueRef.current;
+        }
         if (initialPageRef.current > 1) {
           viewer.currentPageNumber = initialPageRef.current;
         }
@@ -315,7 +380,7 @@ export function usePdfViewer(url: string, initialPage: number): PdfViewerApi {
       const viewer = bundleRef.current?.viewer;
       // 只有「适宽」这类关键字缩放需要跟着容器走；用户手动设过倍率就别乱动
       if (viewer && scaleValueRef.current === FIT_WIDTH) {
-        viewer.currentScaleValue = FIT_WIDTH;
+        applyFitWidth(viewer, container);
       }
     });
     observer.observe(container);
@@ -366,9 +431,10 @@ export function usePdfViewer(url: string, initialPage: number): PdfViewerApi {
 
   const fitWidth = useCallback(() => {
     const viewer = bundleRef.current?.viewer;
-    if (!viewer) return;
+    const container = containerRef.current;
+    if (!viewer || !container) return;
     scaleValueRef.current = FIT_WIDTH;
-    viewer.currentScaleValue = FIT_WIDTH;
+    applyFitWidth(viewer, container);
   }, []);
 
   const dispatchFind = useCallback(

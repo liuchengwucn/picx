@@ -110,12 +110,12 @@ export default function PdfReaderView({
           "absolute" 就抛 "The `container` must be absolutely positioned."——
           所以滚动容器没得选，尺寸只能由外面这层的 flex-1 决定。 */}
       <div className="relative min-h-0 flex-1">
-        {/* 滚动容器：PDFViewer 的虚拟化直接监听这个元素的 scroll 事件，并按它的
-            clientWidth 算「适宽」倍率。
-            限宽也必须加在这个元素上：chat 收起时栅格是单列，不限宽的话 PDF 会被
-            拉到整个 1520px 容器宽，约等于两倍舒适阅读宽度。绝不能改成「容器不限宽、
-            内层再套一个 max-w wrapper」——那样倍率仍按未限宽的容器算，页面会比可用
-            宽度还宽然后被裁掉。绝对定位下没有 mx-auto，居中靠 left-1/2 + 位移。 */}
+        {/* 滚动容器：PDFViewer 的虚拟化直接监听这个元素的 scroll 事件。
+            它必须铺满面板，不能限宽。「chat 收起时是单列、PDF 会被拉到 1520px 宽」
+            这个问题是真的，但限宽要加在**倍率**上（见 use-pdf-viewer 的
+            FIT_WIDTH_MAX_PAGE_WIDTH），不能加在这里：容器一限宽，可视区域就跟着
+            被钉死在 1200px，放大到 200% 时页面 1385px 只能在 1185px 的窗口里横向
+            滚动，而两侧各 159px 的面板是空的——放大反而看得更少。 */}
         {/* tabIndex/aria-label 不能省：滚动容器里全是 canvas，没有可聚焦内容，
             纯键盘用户能否用 PageDown 翻页只能仰仗各浏览器「可滚动区域自动可聚焦」
             的启发式，而那个启发式各家不一致。显式声明成有名字的可聚焦区域。 */}
@@ -126,7 +126,7 @@ export default function PdfReaderView({
           tabIndex={0}
           role="region"
           aria-label={title}
-          className="absolute inset-y-0 left-1/2 w-full max-w-[1200px] -translate-x-1/2 overflow-auto bg-[var(--parchment-warm)]"
+          className="absolute inset-0 overflow-auto bg-[var(--parchment-warm)]"
         >
           <div ref={pdf.viewerRef} className="pdfViewer" />
         </div>
