@@ -33,6 +33,7 @@
   "theme_auto_short": "A",
   "auth_sign_in": "ログイン",
   "auth_sign_in_github": "GitHubでログイン",
+  "auth_sign_in_failed": "ログインを開始できませんでした。もう一度お試しください。",
   "auth_sign_out": "ログアウト",
   "auth_sign_out_short": "ログアウト",
   "papers_title": "論文一覧",

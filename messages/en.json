@@ -33,6 +33,7 @@
   "theme_auto_short": "A",
   "auth_sign_in": "Sign in",
   "auth_sign_in_github": "Sign in with GitHub",
+  "auth_sign_in_failed": "Couldn't start sign-in. Please try again.",
   "auth_sign_out": "Sign out",
   "auth_sign_out_short": "Out",
   "papers_title": "Papers",

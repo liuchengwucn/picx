@@ -33,6 +33,7 @@
   "theme_auto_short": "自",
   "auth_sign_in": "登录",
   "auth_sign_in_github": "使用 GitHub 登录",
+  "auth_sign_in_failed": "无法开始登录，请重试。",
   "auth_sign_out": "退出",
   "auth_sign_out_short": "退出",
   "papers_title": "论文列表",

@@ -39,6 +39,17 @@ const REASON_CHIP_LABELS: Record<ChipReasonPreset, () => string> = {
 const REASON_CHIPS = Object.keys(REASON_CHIP_LABELS) as ChipReasonPreset[];
 
 /**
+ * 同一时刻最多开一个浮层, 所以用一个三选一而不是三个 boolean —— 后者能表达
+ * 「赞和踩的浮层同时开着」这种非法态, 而两个浮层各自 portal 到 body, 真开出来
+ * 会在页面上叠成两块。三种用途:
+ * - reason: 踩票的理由表单(原有)
+ * - signin-like / signin-dislike: 未登录点赞/点踩弹的登录提示。分成两个是因为浮层
+ *   要锚在**被点的那个**按钮下面, 而锚点由它挂在哪个 Popover 下决定, 光靠一个
+ *   "signin" 分不出该挂谁。
+ */
+type OpenPopover = "reason" | "signin-like" | "signin-dislike";
+
+/**
  * 登录态四态。pending 与 signed-out 必须分开: 已登录用户在 session 解析完成前
  * 会被当成未登录, 按钮闪一下登录墙。pending 渲染的是不可投票的占位骨架, 且首帧
  * 一律按 pending 渲染 —— 原因见组件里那段 hydration 注释。
@@ -94,7 +105,9 @@ export function FeedbackButtons({
     null,
   );
   const [reasonText, setReasonText] = useState("");
-  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [openPopover, setOpenPopover] = useState<OpenPopover | null>(null);
+  // 三个浮层共用一个 id: 任意时刻只有一个 PopoverContent 挂载(见 OpenPopover 的注释),
+  // 所以 DOM 里永远不会同时出现两个用它的节点, 撞不了。
   const titleId = useId();
 
   // 没有乐观更新, 投完票靠失效重取。只点名真正带「我的投票」或赞数的查询:
@@ -132,7 +145,7 @@ export function FeedbackButtons({
   );
 
   const closePopover = () => {
-    setPopoverOpen(false);
+    setOpenPopover(null);
     // 不重置会残留上次选的理由, 下次点踩看起来像已经选过
     setReasonPreset(null);
     setReasonText("");
@@ -182,28 +195,25 @@ export function FeedbackButtons({
   const isInert = isReadOnly || isSessionPending;
 
   /**
-   * 未登录去登录、只读演示账号与 session 未解析直接吞掉(按钮已 aria-disabled,
+   * 未登录弹登录浮层、只读演示账号与 session 未解析直接吞掉(按钮已 aria-disabled,
    * 这里是第二道)。pending 必须返回 false: 否则已登录用户在这一帧点一下会被当成
-   * 未登录踢去 GitHub OAuth。
+   * 未登录, 平白弹一次登录墙。
+   *
+   * 未登录这一档以前是直接 void startGitHubSignIn(...) —— 整页当场甩去 github.com,
+   * 唯一预告是要悬停一秒才出的原生 title(触屏上根本没有), 而 /gallery 是无限滚动,
+   * 跳走等于把已展开的十几页全丢掉(回跳只还原 URL)。现在改成先弹浮层, 跳转由用户
+   * 在浮层里的第二次点击发起。signInPopover 决定浮层锚在哪个按钮下。
    */
-  const canVote = () => {
+  const canVote = (signInPopover: "signin-like" | "signin-dislike") => {
     if (isSessionPending) return false;
     if (effectiveAuth === "signed-out") {
-      void startGitHubSignIn(signInCallbackURL);
+      setOpenPopover(signInPopover);
       return false;
     }
     return effectiveAuth !== "readonly-guest";
   };
 
   const handleLike = (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!canVote()) return;
-    if (effectiveMyVote === 1) clearFeedback.mutate({ paperId });
-    else setFeedback.mutate({ paperId, vote: 1 });
-  };
-
-  const handleDislike = (event: MouseEvent<HTMLButtonElement>) => {
     // preventDefault 一举两得: 拦住外层 <Link> 的跳转, 同时让 PopoverTrigger
     // 跳过它自己的 open 切换(Radix 的 composeEventHandlers 见 defaultPrevented
     // 就不再调内部 handler), 开合完全由这里决定。
@@ -211,16 +221,32 @@ export function FeedbackButtons({
     event.stopPropagation();
     // 开着时再点 = 收起。Radix 不把落在 trigger 上的 pointerdown 当「点外面」,
     // 而它自己的切换又被上面的 preventDefault 挡掉了, 所以这一步得自己补
-    if (popoverOpen) {
+    if (openPopover === "signin-like") {
       closePopover();
       return;
     }
-    if (!canVote()) return;
+    if (!canVote("signin-like")) return;
+    if (effectiveMyVote === 1) clearFeedback.mutate({ paperId });
+    else setFeedback.mutate({ paperId, vote: 1 });
+  };
+
+  const handleDislike = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    // 同上: 自己接管「再点一次收起」。理由表单和登录提示都挂在这个 trigger 上,
+    // 两种都算「开着」
+    if (openPopover === "reason" || openPopover === "signin-dislike") {
+      closePopover();
+      return;
+    }
+    // 未登录时到不了下面: canVote 已经把浮层切到 signin-dislike 并返回 false。
+    // 这是有意的 —— 还没登录就问「为什么不喜欢」收不到能用的口味样本。
+    if (!canVote("signin-dislike")) return;
     if (effectiveMyVote === -1) {
       clearFeedback.mutate({ paperId });
       return;
     }
-    setPopoverOpen(true);
+    setOpenPopover("reason");
   };
 
   /**
@@ -259,6 +285,38 @@ export function FeedbackButtons({
     "border-[var(--academic-brown)] bg-[var(--parchment-warm)] text-[var(--academic-brown)]";
   const iconClassName = isCard ? "h-3 w-3" : "h-3.5 w-3.5";
 
+  /**
+   * 未登录点赞/点踩弹的登录提示。刻意跟理由浮层长得一样(同样的 PopoverContent 外壳、
+   * 同样 text-xs/ink-soft 的标题), 它是个功能性提示, 不该自成一套视觉。
+   * 赞和踩各挂一份, 但同一时刻只有一份是挂载的。
+   */
+  const signInPopoverContent = (
+    // aria-labelledby 与理由浮层同理: PopoverContent 是 role="dialog", 而仓库的
+    // PopoverTitle 只是个样式化 div, 不接线的话读屏播报的是一个无名对话框。
+    // stopPropagation 挡住卡片场景的外层 Link。
+    <PopoverContent
+      align="start"
+      aria-labelledby={titleId}
+      className="w-56 space-y-2.5 p-3"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <PopoverTitle id={titleId} className="text-xs text-[var(--ink-soft)]">
+        {m.feedback_login_required()}
+      </PopoverTitle>
+      <Button
+        size="sm"
+        className="w-full"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void startGitHubSignIn(signInCallbackURL);
+        }}
+      >
+        {m.auth_sign_in_github()}
+      </Button>
+    </PopoverContent>
+  );
+
   return (
     // data-feedback-open 不是死代码: 卡片形态靠 opacity-0 group-hover:opacity-100
     // 浮现, 而 popover 是 portal 到 body 的, 指针一移进浮层卡片就 un-hover, 按钮
@@ -267,39 +325,53 @@ export function FeedbackButtons({
     // 焦点移进了卡片 DOM 之外的 portal 内容。)
     <div
       className={cn("flex items-center gap-1.5", className)}
-      data-feedback-open={popoverOpen || undefined}
+      data-feedback-open={openPopover ?? undefined}
     >
-      <button
-        type="button"
-        onClick={handleLike}
-        disabled={isMutating}
-        aria-disabled={isInert || undefined}
-        aria-pressed={effectiveMyVote === 1}
-        // detail 形态自带文案(还带赞数), 再加 aria-label 反而把赞数从读屏里抹掉;
-        // card 形态没文案, 赞数得拼进 label, 否则读屏用户听不到。
-        // showCount=false 时不拼: 那种调用点自己在别处播报赞数, 拼进来会念两遍。
-        aria-label={
-          isCard
-            ? showCount && likeCount > 0
-              ? `${m.feedback_like()} (${likeCount})`
-              : m.feedback_like()
-            : undefined
-        }
-        title={hint}
-        className={cn(pillClassName, effectiveMyVote === 1 && votedClassName)}
+      <Popover
+        open={openPopover === "signin-like"}
+        onOpenChange={(next) => {
+          // 打开只由 handleLike 决定; 这里只接 Esc / 点外面带来的关闭
+          if (!next) closePopover();
+        }}
       >
-        <ThumbsUp
-          className={iconClassName}
-          fill={effectiveMyVote === 1 ? "currentColor" : "none"}
-        />
-        {!isCard && <span>{m.feedback_like()}</span>}
-        {showCount && likeCount > 0 && (
-          <span className="tabular-nums">{likeCount}</span>
-        )}
-      </button>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            onClick={handleLike}
+            disabled={isMutating}
+            aria-disabled={isInert || undefined}
+            aria-pressed={effectiveMyVote === 1}
+            // detail 形态自带文案(还带赞数), 再加 aria-label 反而把赞数从读屏里抹掉;
+            // card 形态没文案, 赞数得拼进 label, 否则读屏用户听不到。
+            // showCount=false 时不拼: 那种调用点自己在别处播报赞数, 拼进来会念两遍。
+            aria-label={
+              isCard
+                ? showCount && likeCount > 0
+                  ? `${m.feedback_like()} (${likeCount})`
+                  : m.feedback_like()
+                : undefined
+            }
+            title={hint}
+            className={cn(
+              pillClassName,
+              effectiveMyVote === 1 && votedClassName,
+            )}
+          >
+            <ThumbsUp
+              className={iconClassName}
+              fill={effectiveMyVote === 1 ? "currentColor" : "none"}
+            />
+            {!isCard && <span>{m.feedback_like()}</span>}
+            {showCount && likeCount > 0 && (
+              <span className="tabular-nums">{likeCount}</span>
+            )}
+          </button>
+        </PopoverTrigger>
+        {signInPopoverContent}
+      </Popover>
 
       <Popover
-        open={popoverOpen}
+        open={openPopover === "reason" || openPopover === "signin-dislike"}
         onOpenChange={(next) => {
           // 打开只由 handleDislike 决定; 这里只接 Esc / 点外面带来的关闭
           if (!next) closePopover();
@@ -326,68 +398,78 @@ export function FeedbackButtons({
             {!isCard && <span>{m.feedback_dislike()}</span>}
           </button>
         </PopoverTrigger>
-        {/* Radix portal 到 body, 但 React 事件仍沿组件树冒泡, 卡片场景要挡住外层 Link。
+        {/* 踩按钮下面挂两种内容, 按开态二选一: 未登录是登录提示, 已登录才是理由表单。
+            Radix portal 到 body, 但 React 事件仍沿组件树冒泡, 卡片场景要挡住外层 Link。
             aria-labelledby 是必须的: PopoverContent 是 role="dialog", 而仓库的
             PopoverTitle 只是个样式化的 div, 不会自动接线, 不给名字读屏会播报一个无名对话框。 */}
-        <PopoverContent
-          align="start"
-          aria-labelledby={titleId}
-          className="w-64 space-y-3 p-3"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <PopoverTitle id={titleId} className="text-xs text-[var(--ink-soft)]">
-            {m.feedback_reason_title()}
-          </PopoverTitle>
-          <div className="flex flex-wrap gap-1.5">
-            {REASON_CHIPS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
+        {openPopover === "signin-dislike" ? (
+          signInPopoverContent
+        ) : (
+          <PopoverContent
+            align="start"
+            aria-labelledby={titleId}
+            className="w-64 space-y-3 p-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <PopoverTitle
+              id={titleId}
+              className="text-xs text-[var(--ink-soft)]"
+            >
+              {m.feedback_reason_title()}
+            </PopoverTitle>
+            <div className="flex flex-wrap gap-1.5">
+              {REASON_CHIPS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setReasonPreset((prev) =>
+                      prev === preset ? null : preset,
+                    );
+                  }}
+                  aria-pressed={reasonPreset === preset}
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                    reasonPreset === preset
+                      ? "border-[var(--academic-brown)] bg-[var(--parchment-warm)] text-[var(--academic-brown)]"
+                      : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]",
+                  )}
+                >
+                  {REASON_CHIP_LABELS[preset]()}
+                </button>
+              ))}
+            </div>
+            <Input
+              value={reasonText}
+              onChange={(event) => setReasonText(event.target.value)}
+              onKeyDown={(event) => {
+                // 回车即提交: 理由都是短句, 不必移到提交按钮
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                submitDislike();
+              }}
+              placeholder={m.feedback_reason_placeholder()}
+              // 与后端 setFeedback 的 zod .max() 共用一个常量, 别改回字面量
+              maxLength={FEEDBACK_REASON_TEXT_MAX_LENGTH}
+              className="h-8 text-sm"
+            />
+            <div className="flex justify-end">
+              <Button
+                size="sm"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  setReasonPreset((prev) => (prev === preset ? null : preset));
+                  submitDislike();
                 }}
-                aria-pressed={reasonPreset === preset}
-                className={cn(
-                  "rounded-full border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                  reasonPreset === preset
-                    ? "border-[var(--academic-brown)] bg-[var(--parchment-warm)] text-[var(--academic-brown)]"
-                    : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]",
-                )}
+                disabled={setFeedback.isPending}
               >
-                {REASON_CHIP_LABELS[preset]()}
-              </button>
-            ))}
-          </div>
-          <Input
-            value={reasonText}
-            onChange={(event) => setReasonText(event.target.value)}
-            onKeyDown={(event) => {
-              // 回车即提交: 理由都是短句, 不必移到提交按钮
-              if (event.key !== "Enter") return;
-              event.preventDefault();
-              submitDislike();
-            }}
-            placeholder={m.feedback_reason_placeholder()}
-            // 与后端 setFeedback 的 zod .max() 共用一个常量, 别改回字面量
-            maxLength={FEEDBACK_REASON_TEXT_MAX_LENGTH}
-            className="h-8 text-sm"
-          />
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                submitDislike();
-              }}
-              disabled={setFeedback.isPending}
-            >
-              {m.feedback_submit()}
-            </Button>
-          </div>
-        </PopoverContent>
+                {m.feedback_submit()}
+              </Button>
+            </div>
+          </PopoverContent>
+        )}
       </Popover>
     </div>
   );

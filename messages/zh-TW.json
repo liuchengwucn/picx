@@ -33,6 +33,7 @@
   "theme_auto_short": "自",
   "auth_sign_in": "登入",
   "auth_sign_in_github": "使用 GitHub 登入",
+  "auth_sign_in_failed": "無法開始登入，請重試。",
   "auth_sign_out": "登出",
   "auth_sign_out_short": "登出",
   "papers_title": "論文列表",

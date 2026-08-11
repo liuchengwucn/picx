@@ -80,24 +80,30 @@ export function GalleryCard({
     >
       <article className="relative flex h-full overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] shadow-[0_4px_16px_rgba(45,42,36,0.08)] transition-all hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(139,111,71,0.16)]">
         {/* 反馈按钮悬浮在右上角: 常驻会跟标题抢注意力, 所以只在 hover / 键盘聚焦时
-            浮现。has-[[data-feedback-open]] 是踩票 popover 打开期间的保命锁——浮层
+            浮现。has-[[data-feedback-open]] 是浮层打开期间的保命锁——浮层
             portal 到了 body, 指针一移进去卡片就 un-hover, 只写 group-hover 的话
             按钮会连着浮层的锚点一起淡出。(group-focus-within 救不了, 焦点被 Radix
-            移进了卡片 DOM 之外。) 移动端没有 hover, 投票走详情页。
+            移进了卡片 DOM 之外。) 触屏上没有 hover 可言, 所以那档单独常驻(见下)。
             自带一层浅底 + 阴影: 卡片这一角下面压着标题, 没有底会糊在字上。
 
             pointer-events-none 不是装饰: opacity-0 照样能点, 触屏上点到卡片右上角
-            就会命中隐形的赞/踩(未登录直接被弹去 GitHub OAuth, 已登录静默投一票),
-            而 handler 里的 preventDefault 还顺手吃掉了整卡跳转。三个显示变体各配一个
+            就会命中隐形的赞/踩(未登录弹登录浮层, 已登录静默投一票), 而 handler 里的
+            preventDefault 还顺手吃掉了整卡跳转。四个显示变体各配一个
             pointer-events-auto: group-hover 那个由卡片(.group)的 hover 驱动, 不依赖
             pill 自己可命中, 所以桌面端不会自锁; pointer-events:none 也不阻止聚焦,
             键盘那条 focus-within 路径照旧。
+
+            [@media(hover:none)] 那对是给触屏的常驻显示, 用它而不是 pointer-coarse 或
+            某个断点: Tailwind v4 的 hover: 编译出来就是 @media (hover: hover), 所以
+            hover:none 是它**严格的补集** —— 凡是 group-hover 永远不可能命中的设备,
+            这里就一定命中, 不留缝也不重叠。按断点猜会误伤窄窗口的鼠标用户, 按
+            pointer-coarse 猜会漏掉带触控板+触屏的混合设备。
 
             这里不再把 pending 排除掉: 排除会让服务端渲染的这一格与客户端首帧不一致
             (session fetch 可能在 hydration 走到本卡之前就落地), 整棵 SSR 子树被丢弃
             重渲。pending 交给 FeedbackButtons 渲染同构的不可投票骨架。 */}
         {feedbackAuth && signInCallbackURL ? (
-          <div className="pointer-events-none absolute top-3 right-3 z-10 rounded-full bg-[var(--surface-strong)]/95 p-1 opacity-0 shadow-[0_2px_10px_rgba(45,42,36,0.12)] transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 has-[[data-feedback-open]]:pointer-events-auto has-[[data-feedback-open]]:opacity-100">
+          <div className="pointer-events-none absolute top-3 right-3 z-10 rounded-full bg-[var(--surface-strong)]/95 p-1 opacity-0 shadow-[0_2px_10px_rgba(45,42,36,0.12)] transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 has-[[data-feedback-open]]:pointer-events-auto has-[[data-feedback-open]]:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
             <FeedbackButtons
               paperId={paper.id}
               likeCount={likeCount}
