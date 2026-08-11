@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { FileText, Globe, Info, Newspaper, Sparkles } from "lucide-react";
+import { FileText, Globe, Newspaper, Sparkles } from "lucide-react";
 import { m } from "#/paraglide/messages";
 import BetterAuthHeader from "../integrations/better-auth/header-user.tsx";
 import ParaglideLocaleSwitcher from "./LocaleSwitcher.tsx";
@@ -51,14 +51,6 @@ export default function Header() {
           >
             <Sparkles className="h-4 w-4" />
             <span className="hidden md:inline">{m.nav_assistant()}</span>
-          </Link>
-          <Link
-            to="/about"
-            className="nav-link inline-flex items-center gap-1 sm:gap-1.5 flex-shrink-0 p-2 md:p-0"
-            activeProps={{ className: "nav-link is-active" }}
-          >
-            <Info className="h-4 w-4" />
-            <span className="hidden md:inline">{m.nav_about()}</span>
           </Link>
         </div>
 

@@ -107,6 +107,11 @@ export default {
       });
     }
 
+    // /about 已下线(2026-08 首页重构): 301 保外链权重
+    if (pathname === "/about" || pathname === "/about/") {
+      return Response.redirect(new URL("/", request.url).toString(), 301);
+    }
+
     // 公开论文的 Markdown 视图 (扩展名 / 内容协商), 命中则直接返回。
     if (pathname.startsWith("/p/")) {
       const md = await tryServePaperMarkdown(request, env);
