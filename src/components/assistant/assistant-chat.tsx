@@ -1,20 +1,9 @@
 import { useChat } from "@ai-sdk/react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ToolUIPart, UIMessage } from "ai";
-import {
-  BookOpen,
-  Globe,
-  Library,
-  Newspaper,
-  Sparkles,
-  UserPen,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { UIMessage } from "ai";
+import { BookOpen, Globe, Library, Newspaper, UserPen } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
-import {
-  type DiscoveredPaper,
-  PaperResultCards,
-} from "#/components/assistant/paper-result-cards";
 import { ChatInputArea } from "#/components/chat/chat-input";
 import {
   ChatMessage,
@@ -23,6 +12,10 @@ import {
   type ToolDisplayMap,
 } from "#/components/chat/chat-message";
 import { createTextOnlyChatTransport } from "#/components/chat/chat-transport";
+import {
+  DISCOVERY_TOOL_DISPLAYS,
+  renderDiscoveryToolOutput,
+} from "#/components/chat/discovery-ui";
 import { useChatSettings } from "#/components/chat/use-chat-settings";
 import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
 import { useTRPC } from "#/integrations/trpc/react";
@@ -45,21 +38,7 @@ const ASSISTANT_TOOLS: ToolDisplayMap = {
     running: m.chat_reading_paper,
     done: m.chat_read_paper_done,
   },
-  searchArxiv: {
-    icon: Sparkles,
-    running: m.assistant_tool_search_arxiv,
-    done: m.assistant_tool_search_arxiv_done,
-  },
-  listDailyPapers: {
-    icon: Sparkles,
-    running: m.assistant_tool_daily_papers,
-    done: m.assistant_tool_daily_papers_done,
-  },
-  recommendPapers: {
-    icon: Sparkles,
-    running: m.assistant_tool_recommend_papers,
-    done: m.assistant_tool_recommend_papers_done,
-  },
+  ...DISCOVERY_TOOL_DISPLAYS,
   searchNews: {
     icon: Newspaper,
     running: m.assistant_tool_search_news,
@@ -197,26 +176,6 @@ export function AssistantChat({
 
   const showThinking = status === "submitted";
 
-  /**
-   * recommendPapers（模型精选推荐）的输出在正文流里就地渲染成可入库的卡片；
-   * 搜索工具的结果只有模型自己可见，不再渲染。服务端落库时保留了该工具的
-   * output，历史回显也能重建出同样的卡片。
-   * useCallback：ChatMessage 是 memo 的，每渲染换一个函数身份会让整列消息重渲染。
-   */
-  const renderToolOutput = useCallback(
-    (part: ToolUIPart, _messageId: string) => {
-      if (part.type !== "tool-recommendPapers") return null;
-      if (part.state !== "output-available") return null;
-      // output 来自 D1 里存着的历史 JSON：早期格式或 {error} 分支都可能到这儿，
-      // 形状不对就当没有卡片，别让一条旧消息把整个聊天区渲染崩掉
-      const output = part.output as { results?: unknown } | undefined;
-      if (!Array.isArray(output?.results) || output.results.length === 0)
-        return null;
-      return <PaperResultCards results={output.results as DiscoveredPaper[]} />;
-    },
-    [],
-  );
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 对话区。role=log + polite：新回答播报给读屏，但不打断当前朗读 */}
@@ -252,7 +211,7 @@ export function AssistantChat({
                 message={message}
                 isStreaming={isBusy && message.id === lastMessage?.id}
                 toolDisplays={ASSISTANT_TOOLS}
-                renderToolOutput={renderToolOutput}
+                renderToolOutput={renderDiscoveryToolOutput}
               />
             ))}
             {showThinking && <ChatThinking />}

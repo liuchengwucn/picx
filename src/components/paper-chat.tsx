@@ -32,6 +32,10 @@ import {
   type ToolDisplayMap,
 } from "#/components/chat/chat-message";
 import { createTextOnlyChatTransport } from "#/components/chat/chat-transport";
+import {
+  DISCOVERY_TOOL_DISPLAYS,
+  renderDiscoveryToolOutput,
+} from "#/components/chat/discovery-ui";
 import { useChatSettings } from "#/components/chat/use-chat-settings";
 import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
 import { Button } from "#/components/ui/button";
@@ -71,6 +75,7 @@ const PAPER_CHAT_TOOLS: ToolDisplayMap = {
     running: m.chat_reading_paper,
     done: m.chat_read_paper_done,
   },
+  ...DISCOVERY_TOOL_DISPLAYS,
   web_search: {
     icon: Globe,
     running: m.chat_searching_web,
@@ -465,6 +470,7 @@ function PaperChatConversation({
               message={message}
               isStreaming={isBusy && message.id === lastMessage?.id}
               toolDisplays={PAPER_CHAT_TOOLS}
+              renderToolOutput={renderDiscoveryToolOutput}
             />
           ))
         )}
