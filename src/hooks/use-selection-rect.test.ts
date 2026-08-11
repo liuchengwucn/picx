@@ -129,4 +129,19 @@ describe("pdf 文本层 → 引用块（端到端形状）", () => {
       "attention efficiency critical for both infer- ence speed and serving cost.",
     );
   });
+
+  it("atomicTextOf 返回空串时整棵子树被折算掉、不继续递归", () => {
+    // 这是 `!= null` 而不是真值判断的唯一证据：空串的语义是「原子但无文本」。写成
+    // `if (atomic)` 的话下面这段隐藏文本会被递归收进来——KaTeX 缺 annotation 时
+    // 泄漏 MathML 副本正是这个形状（见 quote-text.ts 注入的那条规则）。
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<p>before <span class="atom">hidden copy</span> after</p>';
+
+    expect(
+      renderedTextOf(root, {
+        atomicTextOf: (el) => (el.classList.contains("atom") ? "" : null),
+      }).replace(/\s+/g, " "),
+    ).toBe(" before after ");
+  });
 });

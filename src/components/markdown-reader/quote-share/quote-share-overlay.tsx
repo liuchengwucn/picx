@@ -18,8 +18,12 @@ import { useSelectionBubble } from "./use-selection-bubble";
  * ReaderArticle 只需要把 articleRef 交出来，气泡状态都归这里管；弹窗本身在页面级
  * （见 useQuoteShare），这里只负责把算好的深链与卡片正文交上去。
  *
- * 深链在这里就拼成成品 url（而不是交出锚点串让页面拼）：每个视图的深链形状不同，
- * 交出成品才不用逼页面按视图分支。paperQuoteUrl 是纯函数，与页面和 tRPC 都无耦合。
+ * 深链在这里就拼成成品 url（而不是交出锚点串让页面拼）：本组件本来就在构造卡片正文，
+ * 多知道一个 paperQuoteUrl 几乎零成本（纯函数，与页面和 tRPC 都无耦合）。
+ *
+ * **PDF 侧刻意不同构**：它只交出 `(text, page)`，由页面层拼 url 与卡片。那不是漏改，
+ * 是因为 PdfReaderView 是个 pdf.js 阅读器，让它 import 分享卡片那套机器
+ * （plainCardContent、embed-code、卡片页码文案）是比「页面层多一个分支」更大的耦合。
  *
  * contentKey 用于驱动 useQuoteAnchorScroll：正文重新挂载/内容变化时重跑一次深链定位。
  */

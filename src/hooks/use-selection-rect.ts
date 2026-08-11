@@ -34,7 +34,10 @@ export interface SelectionRectState {
    *
    * 刻意保留未裁剪的边界：quote-share 的 rangeToAnchor 自己就承诺「选区跨出 article
    * 时裁剪到 article 内的部分」，并且要靠原始端点去解析块内偏移；替它先裁一刀会把
-   * 端点挪到块边界上，锚点偏移随之改变。要纯文本的用 text，要选区语义的用 range。
+   * 端点挪到块边界上，锚点偏移随之改变。
+   *
+   * 三个字段各有各的用途：要拍平后的纯文本用 text，要**未裁剪**的选区语义用 range，
+   * 要「用户到底选了什么」的精确 DOM 形状用 clippedRange。
    */
   range: Range;
   /**
@@ -366,9 +369,11 @@ export function useSelectionRect(rootRef: RefObject<HTMLElement | null>): {
     };
   }, [schedule]);
 
-  // dismiss 同样上闩，为的是「收下选中之后选区仍然留着」的调用方：quote-share 点完
-  // 「分享这段」会开弹窗但不动选区，不上闩的话弹窗一关、随便滚一下气泡就回来了。
-  // （PDF 的「问这段」不靠这个闩——它紧接着就 removeAllRanges()，选区本身没了。）
+  // dismiss 同样上闩，为的是「收下选中之后选区仍然留着」的调用方 —— 现在这是多数：
+  // 两个视图的「分享这段」都会开弹窗但不动选区，reader 的「问这段」也不清选区，
+  // 不上闩的话弹窗一关、随便滚一下气泡就回来了。
+  // （只有 PDF 的「问这段」不靠这个闩——它紧接着就 removeAllRanges()，选区本身没了；
+  // 那条路必须清，因为 pdf.js 虚拟化滚动会拆重建文本层、触发 selectionchange 解闩。）
   const dismiss = useCallback(() => {
     dismissedRef.current = true;
     setState(null);

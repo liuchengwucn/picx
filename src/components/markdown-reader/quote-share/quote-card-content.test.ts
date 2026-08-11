@@ -11,11 +11,7 @@ import {
   MUTED_CLASS,
   plainCardContent,
 } from "./quote-card-content";
-
-function mount(html: string): HTMLElement {
-  document.body.innerHTML = `<article class="reader-prose">${html}</article>`;
-  return document.querySelector("article") as HTMLElement;
-}
+import { mount } from "./quote-test-fixtures";
 
 /** 指纹不参与卡片构建，随便给一个即可 */
 function anchorOf(

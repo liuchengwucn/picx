@@ -26,7 +26,13 @@ export interface PdfReaderViewProps {
   onPageChange: (page: number) => void;
   /** 用户点「问这段」时把选中文本交出去；页面层负责送进 chat */
   onAskSelection: (text: string) => void;
-  /** 用户点「分享这段」时把选中文本与所在页码交出去；页面层负责拼深链与卡片 */
+  /**
+   * 用户点「分享这段」时把选中文本与所在页码交出去；页面层负责拼深链与卡片。
+   *
+   * 与 reader 侧刻意不同构（那边的 overlay 自己拼好 url 与卡片正文再交出来）：本组件
+   * 是个 pdf.js 阅读器，让它 import 分享卡片那套机器（plainCardContent、embed-code、
+   * 卡片页码文案）是比「页面层多一个分支」更大的耦合。
+   */
   onShareSelection: (text: string, page: number) => void;
 }
 

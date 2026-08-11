@@ -511,7 +511,7 @@ function PaperDetailPage() {
   // 输入框的引用块。一次性事件而不是持久状态：PaperChat 消费后立刻清回 null，否则
   // 用户手动删掉引用后任何一次重渲染都会把它塞回来。
   //
-  // markdown 侧送来的文本已经是规范化引文（公式折成 $...$ LaTeX 源，见 askQuoteText），
+  // markdown 侧送来的文本已经是规范化引文（公式折成 $...$ LaTeX 源，见 quoteTextOfSelection），
   // normalizePdfSelection 在这条路上只起「压空白 + 钳 2000 字」的作用。
   const [pendingQuote, setPendingQuote] = useState<string | null>(null);
   const handleAskSelection = useCallback((text: string) => {

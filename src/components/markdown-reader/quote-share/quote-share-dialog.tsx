@@ -21,7 +21,7 @@ import { useQuoteQr } from "./use-quote-qr";
 
 export interface QuoteShareVisibility {
   isPublic: boolean;
-  /** 只有作者能改可见性；非作者根本进不了私有论文的原文视图 */
+  /** 只有作者能改可见性；非作者根本进不了私有论文的原文/PDF 视图 */
   canPublish: boolean;
 }
 
