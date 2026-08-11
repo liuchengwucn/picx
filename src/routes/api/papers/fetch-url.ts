@@ -9,23 +9,25 @@ import {
 } from "#/lib/pdf-url";
 
 /**
- * Server-side PDF download for the Reader "import from URL" flow.
+ * Server-side PDF download for the "import from link" flow in the paper upload
+ * dialog.
  *
  * Why server-side: the browser cannot fetch an arbitrary third-party PDF —
- * cross-origin requests are blocked by CORS (same reason the browser can't PUT
- * to MinerU's OSS). The Worker downloads the bytes and hands them back; the
- * browser then reuses the existing local-upload path (analyze → trim → upload).
+ * cross-origin requests are blocked by CORS. The Worker downloads the bytes and
+ * hands them back; the browser then reuses the existing upload path
+ * (POST /api/papers/upload → paper.create).
  *
- * This route does NOT touch MinerU — it only downloads and validates.
+ * This route does NOT touch MinerU or R2 — it only downloads and validates.
  */
 
-const MAX_PDF_BYTES = 100 * 1024 * 1024; // mirrors /api/reader/upload
+const MAX_PDF_BYTES = 100 * 1024 * 1024; // mirrors /api/papers/upload
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;
 
 /**
  * `error` is a STABLE CODE (not a human string) — the client maps it to a
- * localised message (see ERR_MESSAGES in routes/reader/index.tsx). Codes:
+ * localised message (see URL_IMPORT_ERROR in components/papers/upload-dialog.tsx).
+ * Codes:
  * bad_url | unauthorized | blocked | not_pdf | too_large | timeout | fetch_failed
  */
 class FetchUrlError extends Error {
@@ -162,14 +164,14 @@ async function handler({ request }: { request: Request }) {
     if (error instanceof Error && error.name === "AbortError") {
       return jsonError("timeout", 504);
     }
-    console.error("Reader fetch-url failed:", error);
+    console.error("fetch-url failed:", error);
     return jsonError("fetch_failed", 502);
   } finally {
     clearTimeout(timeout);
   }
 }
 
-export const Route = createFileRoute("/api/reader/fetch-url")({
+export const Route = createFileRoute("/api/papers/fetch-url")({
   server: {
     handlers: {
       POST: handler,

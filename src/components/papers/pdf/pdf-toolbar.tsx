@@ -1,10 +1,6 @@
 import { Download, List, Minus, Plus, Search } from "lucide-react";
 import { useRef, useState } from "react";
-import {
-  DISABLED_BTN,
-  ICON_BTN,
-  TOOL_BTN,
-} from "#/components/reader/reader-ui";
+import { DISABLED_BTN, ICON_BTN, TOOL_BTN } from "#/components/reader-ui";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { PDF_FIND_BAR_ID } from "./pdf-find-bar";
@@ -263,7 +259,7 @@ export function PdfToolbar({
         {/* TOOL_BTN 是给 <button> 写的，套在 <a> 上颜色会跑偏：styles.css 里那条裸的
             `a { color: … }` 没进 @layer，按层叠顺序压过 @layer utilities 里的
             text-[var(--ink)]，图标会变成学术棕。下划线其实已被 Tailwind preflight
-            重置掉，no-underline 只是与 reader-view.tsx 的既有写法保持一致。 */}
+            重置掉，no-underline 只是与站内其它 <a> 的既有写法保持一致。 */}
         <a
           href={downloadUrl}
           download={downloadName}

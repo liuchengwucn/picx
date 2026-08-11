@@ -1,7 +1,7 @@
 /**
  * MinerU 结果 zip 的通用解析层。
  *
- * reader（内联 data URI）与论文管线（图片落 R2、markdown 存相对路径）共用：
+ * 论文管线（图片落 R2、markdown 存相对路径）使用：
  * 解包、定位 markdown、枚举图片、三级兜底的图片引用解析与重写。
  */
 
@@ -127,7 +127,7 @@ export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
 }
 
 /**
- * 三级兜底解析（沿自 reader 实测经验，MinerU 偶尔把内容放子目录而 md 里只写相对名）：
+ * 三级兜底解析（沿自实测经验，MinerU 偶尔把内容放子目录而 md 里只写相对名）：
  * 精确条目路径 → 末尾路径片段 → 唯一 basename。
  *
  * 返回命中的图片本身而非 URL：调用方据此既能生成 URL，也能知道哪些图片真被引用到
@@ -179,7 +179,7 @@ export interface RewrittenMarkdown {
 
 /**
  * 重写 markdown 中所有图片引用（`![](url)` 与内嵌 `<img src>`）。
- * resolve 返回 null 时保留原引用。逻辑整体迁自 reader-render 的 inlineImages。
+ * resolve 返回 null 时保留原引用。逻辑源自早期的内联图片实现。
  */
 export function rewriteImageRefs(
   markdown: string,

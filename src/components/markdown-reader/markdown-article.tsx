@@ -25,15 +25,6 @@ import type { ReaderSettings } from "./use-reader-settings";
 const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath];
 
 /**
- * react-markdown 默认的 urlTransform 把 `data:` 当作不安全协议过滤成空串,内联的 base64
- * 图片 src 因此变空 —— 这正是「图片不显示」的真因(与 zip 路径解析无关,在渲染层下游)。
- * 这里放行 data:image/,其余 URL 仍交回默认实现保证安全。
- */
-function readerUrlTransform(url: string): string {
-  return url.startsWith("data:image/") ? url : defaultUrlTransform(url);
-}
-
-/**
  * papers 原文视图用：markdown 里是 `images/{name}` 相对路径，映射到鉴权图片端点；
  * 其余 URL 走默认安全过滤。返回的函数需由调用方用 useMemo 稳定引用。
  */
@@ -60,8 +51,11 @@ export function createRelativeImageUrlTransform(
  *   `<code class="language-math math-inline|math-display">`，类名被剥掉 katex 就认不出。
  *   只放行这几个具体值，不放行任意 className —— 免得 PDF 里的 HTML 借用站点样式做视觉欺骗。
  * - img 的 src/alt/title/width/height（alt/title/width/height 已在 `*` 里，显式写出便于阅读）。
- * - src 协议加 data:：/reader 的本地文档把图片内联成 base64；papers 侧是相对路径，不受影响。
- *   （data:image 不会执行脚本；img 上的 data: 不构成脚本执行面。）
+ * - src 协议加 data:：这是对白名单的一次放宽（不是防护措施），历史遗留，当前没有
+ *   活的生产方——papers 侧图片是 `images/` 相对路径。真正兜底的是下游的
+ *   urlTransform：它会把非该前缀的 URL 交回 defaultUrlTransform，data: 在那里被剥掉。
+ *   留着的代价可控：img 是白名单里唯一带 src 的标签，data:image 不构成脚本执行面。
+ *   若要收紧，属行为变更，需另行评估。
  */
 const MATH_CLASS_NAMES = ["math", "math-inline", "math-display"] as const;
 
@@ -121,11 +115,13 @@ interface MarkdownArticleProps {
    */
   articleRef: Ref<HTMLElement | null>;
   /**
-   * 自定义 URL 变换；缺省为 reader 的 data:image 放行逻辑。
+   * URL 变换，必填：没有安全的通用缺省值——由调用方按自己的图片寻址方式决定，
+   * 并把其余 URL 交回 react-markdown 的 defaultUrlTransform 做协议过滤
+   * （见 createRelativeImageUrlTransform）。
    * 注意：此值透传给 RenderedMarkdown 的 memo props——调用方必须传稳定引用
    * （如模块级函数，或 useMemo 缓存），否则每次渲染都会打破 memo 并重跑 markdown 解析。
    */
-  urlTransform?: (url: string) => string;
+  urlTransform: (url: string) => string;
 }
 
 /**
@@ -142,7 +138,7 @@ const RenderedMarkdown = memo(function RenderedMarkdown({
 }: {
   markdown: string;
   onZoom: (src: string) => void;
-  urlTransform?: (url: string) => string;
+  urlTransform: (url: string) => string;
 }) {
   const components: Components = {
     a: ({ href, children }) => (
@@ -189,7 +185,7 @@ const RenderedMarkdown = memo(function RenderedMarkdown({
     <Markdown
       remarkPlugins={REMARK_PLUGINS}
       rehypePlugins={REHYPE_PLUGINS}
-      urlTransform={urlTransform ?? readerUrlTransform}
+      urlTransform={urlTransform}
       components={components}
     >
       {markdown}

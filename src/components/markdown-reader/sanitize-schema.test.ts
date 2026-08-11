@@ -35,7 +35,7 @@ function firstElement(root: Root): Element | undefined {
 }
 
 describe("SANITIZE_SCHEMA", () => {
-  it("keeps inline base64 images (/reader 把图片内联成 data: URL)", () => {
+  it("keeps inline base64 images (allowance retained; no live producer)", () => {
     const out = sanitize([
       el("img", {
         src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",

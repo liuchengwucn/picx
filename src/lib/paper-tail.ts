@@ -1,10 +1,8 @@
 /**
- * 论文尾部(参考文献 / 附录 / 致谢 / 补充材料等)标题识别 —— 纯字符串工具,
- * 无 pdfjs / AI 依赖,故服务端与浏览器端均可引用。
+ * 论文尾部(参考文献 / 附录 / 致谢 / 补充材料等)标题识别 —— 纯字符串工具。
  *
- * 单一真源:summary 流水线(src/lib/pdf.ts,服务端,裁剪喂给 LLM 的文本)与阅读器
- * 上传前裁剪(src/lib/pdf-trim.ts,浏览器端,按页 subset 减轻 MinerU 负担)共用同一
- * 套中英日标题模式,避免识别规则分叉。
+ * 唯一消费方是 summary 流水线(src/lib/pdf.ts,服务端,裁剪喂给 LLM 的文本)。
+ * 独立成文件是为了让标题模式可单测(见 paper-tail.test.ts)。
  */
 
 export const MAX_CANDIDATE_LINE_LENGTH = 120;
