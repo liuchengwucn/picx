@@ -56,7 +56,7 @@ describe("selectPapers - 旧逻辑等价（默认 30/3）", () => {
     expect(selectPapers([], 30, 3)).toEqual([]);
   });
 
-  it("不修改入参数组（调用方的 hfPapers 随后还要用）", () => {
+  it("不修改入参数组（导出的函数不该改动调用方传进来的数组）", () => {
     const input = [mk("a", 40), mk("b", 120), mk("c", 5)];
     const snapshot = ids(input);
     selectPapers(input, 30, 3);
