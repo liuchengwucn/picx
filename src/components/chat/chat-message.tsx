@@ -1,6 +1,6 @@
 import "katex/dist/katex.min.css";
 import { isToolUIPart, type ToolUIPart, type UIMessage } from "ai";
-import { ChevronRight, Loader2, type LucideIcon } from "lucide-react";
+import { ChevronRight, Globe, Loader2, type LucideIcon } from "lucide-react";
 import { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
@@ -78,6 +78,22 @@ export interface ToolDisplay {
 
 /** key 是工具名（不含 "tool-" 前缀）。不在 map 里的工具 part 不进活动区块 */
 export type ToolDisplayMap = Record<string, ToolDisplay>;
+
+/**
+ * OpenRouter 的服务端联网搜索，两个聊天入口共用。刻意做成单条目的 map 而不是
+ * 裸 ToolDisplay：工具名 `web_search` 由 OpenRouter 定，跟着展示一起走才不会在
+ * 某一边被抄错。
+ */
+export const WEB_SEARCH_TOOL_DISPLAY: ToolDisplayMap = {
+  web_search: {
+    icon: Globe,
+    running: m.chat_searching_web,
+    done: m.chat_searched_web,
+    // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
+    // 参数一到齐（input-available）就当「已搜索」，结果以 source part 到达
+    isDone: (state) => state !== "input-streaming",
+  },
+};
 
 function toolNameOf(partType: string): string {
   return partType.slice("tool-".length);
@@ -478,7 +494,7 @@ export const ChatMessage = memo(function ChatMessage({
   /** 该消息是否正在流式生成（只有最后一条会是 true），驱动活动区块的自动开合 */
   isStreaming: boolean;
   toolDisplays: ToolDisplayMap;
-  /** 在正文流内渲染某个工具 part 的自定义块（assistant 的论文卡片用）；返回 null 则不渲染 */
+  /** 在正文流内渲染某个工具 part 的自定义块（两个聊天的论文卡片用）；返回 null 则不渲染 */
   renderToolOutput?: (part: ToolUIPart, messageId: string) => React.ReactNode;
 }) {
   if (message.role === "user") {

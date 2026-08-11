@@ -172,8 +172,9 @@ function PaperResultCard({
 }
 
 /**
- * searchArxiv / listDailyPapers 的结果卡片列表：在回答正文里就地入库，
- * 用户不必再复制链接跑一趟上传对话框。
+ * recommendPapers 精选出来的论文卡片列表：在回答正文里就地入库，用户不必再
+ * 复制链接跑一趟上传对话框。只有这一个工具出卡片——搜索类工具的结果只给模型
+ * 自己看（见 discovery-tools.ts 的 CARD_TOOL_TYPES 与 DISCOVERY_PROMPT_RULE）。
  */
 export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
   const trpc = useTRPC();

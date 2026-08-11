@@ -1,7 +1,7 @@
 import { useChat } from "@ai-sdk/react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { UIMessage } from "ai";
-import { BookOpen, Globe, Library, Newspaper, UserPen } from "lucide-react";
+import { BookOpen, Library, Newspaper, UserPen } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { ChatInputArea } from "#/components/chat/chat-input";
@@ -10,6 +10,7 @@ import {
   ChatThinking,
   resolveChatErrorMessage,
   type ToolDisplayMap,
+  WEB_SEARCH_TOOL_DISPLAY,
 } from "#/components/chat/chat-message";
 import { createTextOnlyChatTransport } from "#/components/chat/chat-transport";
 import {
@@ -49,14 +50,7 @@ const ASSISTANT_TOOLS: ToolDisplayMap = {
     running: m.assistant_tool_update_profile,
     done: m.assistant_tool_update_profile_done,
   },
-  web_search: {
-    icon: Globe,
-    running: m.chat_searching_web,
-    done: m.chat_searched_web,
-    // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
-    // 参数一到齐（input-available）就当「已搜索」，结果以 source part 到达
-    isDone: (state) => state !== "input-streaming",
-  },
+  ...WEB_SEARCH_TOOL_DISPLAY,
 };
 
 export interface AssistantChatProps {
