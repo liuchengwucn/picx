@@ -344,7 +344,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
           error?: string;
         } | null;
         // 拿不到码（网关直接吐了一页 HTML）时给个落 generic 的码占位。
-        throw new Error(err?.error ?? UPLOAD_ERROR.READ_FAILED);
+        throw new Error(err?.error ?? UPLOAD_ERROR.BAD_RESPONSE);
       }
       // 200 也可能带非 JSON 体（网关插了一页 HTML）。不兜底的话，原始的
       // "Unexpected token …" SyntaxError 会被调用方的 toast 原样甩给用户。
@@ -353,7 +353,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         fileSize: number;
       } | null;
       if (!ok) {
-        throw new Error(UPLOAD_ERROR.READ_FAILED);
+        throw new Error(UPLOAD_ERROR.BAD_RESPONSE);
       }
       const { r2Key, fileSize } = ok;
       await createPaper.mutateAsync({
@@ -417,7 +417,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
       });
       if (!resp.ok) {
         // 非 JSON 响应（网关插了一页 HTML）时给个落 generic 的码占位。
-        let code: string = UPLOAD_ERROR.READ_FAILED;
+        let code: string = UPLOAD_ERROR.BAD_RESPONSE;
         try {
           const data = (await resp.json()) as { error?: string };
           code = data?.error ?? code;

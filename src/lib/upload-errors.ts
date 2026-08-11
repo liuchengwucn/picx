@@ -35,6 +35,14 @@ export const UPLOAD_ERROR = {
   TIMEOUT: "timeout",
   FETCH_FAILED: "fetch_failed",
 
+  // ---- 客户端自产（没有任何服务端会下发）----
+  /**
+   * 「响应本身解析不了」：网关在 200 或错误响应里插了一页 HTML，拿不到 JSON。
+   * 与服务端的 READ_FAILED（worker 读取**上传体**失败）刻意分开——两者用户可见
+   * 文案都是 generic，但 console.error 里印出哪个码决定了排查方向。
+   */
+  BAD_RESPONSE: "bad_response",
+
   // ---- tRPC paper.create ----
   INVALID_R2_KEY: "invalid_r2_key",
   API_CONFIG_NOT_FOUND: "api_config_not_found",

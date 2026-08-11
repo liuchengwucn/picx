@@ -4,6 +4,8 @@
  * handler and the browser-side input validation.
  */
 
+import { UPLOAD_ERROR, type UploadErrorCode } from "#/lib/upload-errors";
+
 export type UrlCheck =
   | { ok: true; url: URL }
   | { ok: false; reason: "invalid" | "protocol" | "host" };
@@ -33,12 +35,12 @@ export const PDF_FETCH_HEADERS: Record<string, string> = {
  */
 export function pdfFetchErrorCode(
   status: number,
-): "blocked" | "fetch_failed" | null {
+): Extract<UploadErrorCode, "blocked" | "fetch_failed"> | null {
   if (status === 403 || status === 429 || status === 503) {
-    return "blocked";
+    return UPLOAD_ERROR.BLOCKED;
   }
   if (status < 200 || status >= 300) {
-    return "fetch_failed";
+    return UPLOAD_ERROR.FETCH_FAILED;
   }
   return null;
 }
