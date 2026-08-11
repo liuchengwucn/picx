@@ -16,8 +16,20 @@ type Db = DrizzleD1Database<typeof schema>;
 export const DISCOVERY_LIMITS = {
   /** 外部 API（arXiv / HF）单次最多返回条数 */
   externalMaxResults: 15,
-  /** 工具返回的摘要截断长度：控制上下文占用 */
+  /** 搜索类工具返回的摘要截断长度：这份是给模型读的，控制上下文占用 */
   abstractChars: 800,
+  /**
+   * recommendPapers 返回的摘要截断长度，比 abstractChars 短得多。
+   * 不对称是故意的：只有它的 output 会随 CARD_TOOL_TYPES 落进 D1，而唯一的读者是
+   * 卡片（line-clamp-2，肉眼约 120 字），历史重放只喂 text part 所以模型不会再读这份；
+   * chat.getMessages 又是整会话不分页返回，多存的字符每次开会话都要搬一遍。
+   */
+  cardAbstractChars: 240,
+  /**
+   * 单次请求内所有发现类工具加起来最多打几次外部 API。拍的预算，不是推导出来的界：
+   * 只要够一次正常的「多角度搜索 + recommendPapers 取详情」用不到即可。
+   */
+  externalCallBudget: 15,
 } as const;
 
 /**
@@ -119,7 +131,7 @@ export function normalizeArxivIds(ids: string[]): string[] {
   return [...seen];
 }
 
-/** 查用户库，构造 canonical sourceUrl → shortId 映射（urls ≤20，远低于 D1 参数上限） */
+/** 查用户库，构造 canonical sourceUrl → shortId 映射（urls ≤15，远低于 D1 参数上限） */
 async function loadOwnedUrlMap(
   db: Db,
   userId: string,
@@ -153,6 +165,18 @@ export interface DiscoveryToolsDeps {
  * 论文页 chatbot 与 assistant agent 共用；调用方 spread 进自己的工具集。
  */
 export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
+  // stopWhenSteps 只限步数，不限每步并发发出的工具调用数：实测一次回复能发出 10 次
+  // searchArxiv。arXiv 要求 ≤1 req/3s 且会封 IP，而 Workers 出口 IP 是共享的。
+  // 本工厂每个请求只构造一次（chat-stream.ts 的 buildLocalTools），所以闭包计数就是准的。
+  let externalCalls = 0;
+  /** 领一次外部请求配额；超预算返回 false。调用方必须回错误对象而不是抛，让模型还能把回答写完 */
+  const takeExternalCallSlot = () =>
+    ++externalCalls <= DISCOVERY_LIMITS.externalCallBudget;
+  const budgetError = {
+    error:
+      "external search budget exhausted for this reply; answer from what you already have",
+  };
+
   return {
     searchArxiv: tool({
       description:
@@ -187,6 +211,7 @@ export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
           ? `all:"${cleaned}" AND cat:${safeCategory}`
           : `all:"${cleaned}"`;
         const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(q)}&start=0&max_results=${maxResults}&sortBy=${sortBy}&sortOrder=descending`;
+        if (!takeExternalCallSlot()) return budgetError;
         try {
           const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
           if (!res.ok) return { error: `arXiv API returned ${res.status}` };
@@ -220,6 +245,7 @@ export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
         const url = date
           ? `${HF_DAILY_PAPERS_API}?date=${date}`
           : HF_DAILY_PAPERS_API;
+        if (!takeExternalCallSlot()) return budgetError;
         try {
           const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
           if (!res.ok)
@@ -284,10 +310,15 @@ export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
         const ids = normalizeArxivIds(arxivIds);
         if (ids.length === 0) return { error: "no valid arXiv ids" };
         const url = `https://export.arxiv.org/api/query?id_list=${ids.join(",")}&max_results=${ids.length}`;
+        if (!takeExternalCallSlot()) return budgetError;
         try {
           const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
           if (!res.ok) return { error: `arXiv API returned ${res.status}` };
-          const entries = parseArxivAtom(await res.text());
+          // 这份 output 要落库给卡片用，摘要按卡片口径再截一刀（见 cardAbstractChars）
+          const entries = parseArxivAtom(await res.text()).map((e) => ({
+            ...e,
+            abstract: e.abstract.slice(0, DISCOVERY_LIMITS.cardAbstractChars),
+          }));
           // id 格式合法但 arXiv 查无此文时返回空 feed（无错误条目）：必须显式提示，
           // 否则模型会以为卡片已经展示给用户了
           if (entries.length === 0)

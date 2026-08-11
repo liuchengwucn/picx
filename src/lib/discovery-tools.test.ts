@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  buildDiscoveryTools,
   DISCOVERY_LIMITS,
+  type DiscoveryToolsDeps,
   markInLibrary,
   normalizeArxivIds,
   parseArxivAtom,
@@ -99,5 +101,86 @@ describe("markInLibrary", () => {
     });
     expect(marked[1]).toMatchObject({ inLibrary: false });
     expect(marked[1].libraryShortId).toBeUndefined();
+  });
+});
+
+describe("buildDiscoveryTools external call budget", () => {
+  /** minimal ToolExecutionOptions stub — only fields required by the type */
+  const toolOptions = { toolCallId: "test-call", messages: [] } as never;
+  const deps = {
+    db: {} as unknown as DiscoveryToolsDeps["db"],
+    userId: "user-1",
+  };
+
+  function getExecute(tool: { execute?: unknown }) {
+    const { execute } = tool;
+    if (typeof execute !== "function") throw new Error("execute is not set");
+    return execute as (input: unknown, opts: never) => Promise<unknown>;
+  }
+
+  it("stops issuing external requests past the per-request budget", async () => {
+    // 503 让工具在 loadOwnedUrlMap 之前就返回，于是不必 stub db
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async () => {
+      fetchCalls++;
+      return { ok: false, status: 503 } as unknown as Response;
+    });
+    try {
+      const tools = buildDiscoveryTools(deps);
+      const searchArxiv = getExecute(tools.searchArxiv);
+      const input = { query: "retrieval", sortBy: "relevance", maxResults: 8 };
+      const budget = DISCOVERY_LIMITS.externalCallBudget;
+
+      for (let i = 0; i < budget; i++) {
+        await searchArxiv(input, toolOptions);
+      }
+      expect(fetchCalls).toBe(budget);
+
+      const overBudget = await searchArxiv(input, toolOptions);
+      expect(overBudget).toMatchObject({
+        error: expect.stringContaining("budget exhausted"),
+      });
+      expect(fetchCalls).toBe(budget);
+
+      // 预算是三个工具共享的，且耗尽后回错误对象而不是抛
+      const recommend = await getExecute(tools.recommendPapers)(
+        { arxivIds: ["2601.13209"] },
+        toolOptions,
+      );
+      expect(recommend).toMatchObject({
+        error: expect.stringContaining("budget exhausted"),
+      });
+      expect(fetchCalls).toBe(budget);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not fire during a normal search-and-recommend reply", async () => {
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", async () => {
+      fetchCalls++;
+      return { ok: false, status: 503 } as unknown as Response;
+    });
+    try {
+      const tools = buildDiscoveryTools(deps);
+      // 一次典型回复：多角度搜索若干次 + 一次 recommendPapers 取详情
+      for (let i = 0; i < 4; i++) {
+        await getExecute(tools.searchArxiv)(
+          { query: `angle ${i}`, sortBy: "relevance", maxResults: 8 },
+          toolOptions,
+        );
+      }
+      const last = await getExecute(tools.recommendPapers)(
+        { arxivIds: ["2601.13209"] },
+        toolOptions,
+      );
+      expect(last).not.toMatchObject({
+        error: expect.stringContaining("budget exhausted"),
+      });
+      expect(fetchCalls).toBe(5);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
