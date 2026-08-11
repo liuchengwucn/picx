@@ -23,7 +23,9 @@ export interface PaperRowPaper {
   tags: string[];
 }
 
-const MAX_ROW_TAGS = 2;
+// 一行只放一个 tag。118px 里塞两个的实测结果是两个都被截成 4-6 个字符
+// (#diffu… #gener…),等于什么都没说;只放一个则绝大多数能完整显示。
+const MAX_ROW_TAGS = 1;
 
 /**
  * 日期列固定 46px,所以只显示 MM-DD。年份由月份分组标题给出;搜索/筛选时分组
@@ -153,7 +155,7 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
           </span>
         )}
         <span className="flex items-center gap-1.5 overflow-hidden text-[10.5px] text-[var(--ink-soft)]">
-          {tagButtons.slice(0, 1)}
+          {tagButtons}
           <span className="shrink-0 tabular-nums">{pages}</span>
           <span className="ml-auto flex shrink-0 items-center gap-1">
             {paper.isPublic && (

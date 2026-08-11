@@ -93,7 +93,7 @@ export function PaperActiveFilters({
           <button
             type="button"
             onClick={() => onToggleCategory(slug)}
-            className="-my-1 -mr-1 ml-0.5 inline-flex size-5 items-center justify-center hover:opacity-70"
+            className="-my-1.5 -mr-1.5 ml-0.5 inline-flex size-6 items-center justify-center hover:opacity-70"
             aria-label={m.papers_remove_filter({
               label: getCategoryLabel(slug),
             })}
@@ -111,7 +111,7 @@ export function PaperActiveFilters({
           <button
             type="button"
             onClick={() => onRemoveTag(tag)}
-            className="-my-1 -mr-1 ml-0.5 inline-flex size-5 items-center justify-center hover:opacity-70"
+            className="-my-1.5 -mr-1.5 ml-0.5 inline-flex size-6 items-center justify-center hover:opacity-70"
             aria-label={m.papers_remove_filter({ label: `#${tag}` })}
           >
             <X className="size-3" />

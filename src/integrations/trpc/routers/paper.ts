@@ -476,11 +476,21 @@ export const paperRouter = router({
       // 查询会重复同样的扫描。库大了要换成 denormalized search_text 列或 FTS5。
       if (input.search) {
         const needle = `%${escapeLike(input.search)}%`;
-        const localePath = `$."${localeKey}"`;
+        // 探当前 locale 与 en 两个键:resolveTldr 在缺当前语言时会回退到 en 显示,
+        // 只探当前 locale 的话,用户搜一个屏幕上看得见的词会得到 0 结果。
+        // (实测:真实库里 10 篇有 6 篇只有 en。news.list 一直是这么做的。)
+        const localePaths =
+          localeKey === "en" ? ['$."en"'] : [`$."${localeKey}"`, '$."en"'];
         const searchCond = or(
           sql`${papers.title} LIKE ${needle} ESCAPE '\\'`,
-          sql`json_extract(${paperResults.tldr}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
-          sql`json_extract(${paperResults.summaries}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+          ...localePaths.map(
+            (path) =>
+              sql`json_extract(${paperResults.tldr}, ${path}) LIKE ${needle} ESCAPE '\\'`,
+          ),
+          ...localePaths.map(
+            (path) =>
+              sql`json_extract(${paperResults.summaries}, ${path}) LIKE ${needle} ESCAPE '\\'`,
+          ),
           sql`${paperResults.tags} LIKE ${needle} ESCAPE '\\'`,
         );
         if (searchCond) conditions.push(searchCond);
