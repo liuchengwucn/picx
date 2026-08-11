@@ -4,17 +4,18 @@ import { createChatProvider } from "#/lib/chat";
 import { extractFirstJsonObject } from "#/lib/json-extract";
 import type { Env } from "#/types/env";
 import { chatJson, clean, DigestAiError, type DigestModelConfig } from "./llm";
-import type {
-  CandidateItem,
-  CandidateReview,
-  FeedbackSample,
-  ReviewedCandidate,
-  ScopeAngle,
-  ScopeResult,
-  SynthesisResult,
-  VerifyVerdict,
+import {
+  type CandidateItem,
+  type CandidateReview,
+  DIGEST_LOCALES,
+  type DigestLocale,
+  type FeedbackSample,
+  type ReviewedCandidate,
+  type ScopeAngle,
+  type ScopeResult,
+  type SynthesisResult,
+  type VerifyVerdict,
 } from "./types";
-import { DIGEST_LOCALES, type DigestLocale } from "./types";
 
 /** 初筛过线阈值（0-100），对齐 news 的经验值再略松（宁多进精读，由精读把关） */
 export const RELEVANCE_THRESHOLD = 55;

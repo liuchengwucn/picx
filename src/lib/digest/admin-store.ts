@@ -447,35 +447,32 @@ export async function adoptFocusUpdateStore(
     .set({ proposedFocusUpdateStatus: "adopted", updatedAt: new Date() })
     .where(eq(digests.id, digestId));
 
+  // 谓词只写一次，计数与清理共用：各抄一遍的话，只改其中一处（例如清理侧漏掉
+  // pending 守卫）就会给该方向的**全部历史期**盖上 dismissed、连既有的 adopted
+  // 记录一起擦掉，而计数侧照旧正确、测试全绿。共用常量让这种分叉无从发生。
+  const siblingPending = and(
+    eq(digests.directionId, row.directionId),
+    eq(digests.proposedFocusUpdateStatus, "pending"),
+    ne(digests.id, digestId),
+  );
   // 先数再写而不是读 UPDATE 的 changes：D1Result.meta 的形状不是所有执行路径都
   // 给得出（测试用的 node:sqlite 适配层就只回 node 的 RunResult），条数要能确定。
   // 谓词是三个定值（不是 inArray 大数组），不受 D1 单查询 100 绑定参数上限影响。
-  const superseded = await db
-    .select({ id: digests.id })
+  const [supersededRow] = await db
+    .select({ value: count() })
     .from(digests)
-    .where(
-      and(
-        eq(digests.directionId, row.directionId),
-        eq(digests.proposedFocusUpdateStatus, "pending"),
-        ne(digests.id, digestId),
-      ),
-    );
-  if (superseded.length > 0) {
+    .where(siblingPending);
+  const supersededCount = supersededRow?.value ?? 0;
+  if (supersededCount > 0) {
     await db
       .update(digests)
       .set({ proposedFocusUpdateStatus: "dismissed", updatedAt: new Date() })
-      .where(
-        and(
-          eq(digests.directionId, row.directionId),
-          eq(digests.proposedFocusUpdateStatus, "pending"),
-          ne(digests.id, digestId),
-        ),
-      );
+      .where(siblingPending);
   }
   return {
     directionId: row.directionId,
     focusBrief: row.proposal,
-    supersededCount: superseded.length,
+    supersededCount,
   };
 }
 

@@ -679,21 +679,58 @@ describe("adoptFocusUpdateStore", () => {
     );
   });
 
-  // D1 无事务：先写 focusBrief 再改 status，中断的最坏情形是「已覆盖但仍 pending」，
-  // 重复采纳写入同一文本、幂等无害；反过来崩在中间就永久丢掉这次演化。
-  // 只断相对次序、容忍多余调用：断成全等的话，任何行为等价的重构（多一次 update）
-  // 都会假红
-  it("writes focusBrief before flipping the status", async () => {
-    const update = vi.spyOn(db, "update");
-    await adoptFocusUpdateStore(db, "dg-11");
-    const tables: string[] = update.mock.calls.map((c) =>
-      getTableName(c[0] as never),
-    );
-    update.mockRestore();
-    expect(tables).toContain("digests");
-    expect(tables.indexOf("directions")).toBeLessThan(
-      tables.indexOf("digests"),
-    );
+  /**
+   * 记录每一次 UPDATE 的「表 + 语义载荷」，形如 "digests:adopted"。
+   * 只数 db.update 的调用次数分辨不出第 2、3 次写的先后（两次都是 digests），
+   * 而这两步的先后正是崩溃语义所在，所以拦 .set() 的载荷。
+   */
+  function recordWrites(db: Db): string[] {
+    const writes: string[] = [];
+    const original = db.update.bind(db);
+    vi.spyOn(db, "update").mockImplementation(((table: never) => {
+      const builder = original(table);
+      const set = builder.set.bind(builder);
+      builder.set = ((values: Record<string, unknown>) => {
+        const payload =
+          typeof values.proposedFocusUpdateStatus === "string"
+            ? values.proposedFocusUpdateStatus
+            : "focusBrief";
+        writes.push(`${getTableName(table)}:${payload}`);
+        return set(values as never);
+      }) as typeof builder.set;
+      return builder;
+    }) as never);
+    return writes;
+  }
+
+  // D1 无事务，三步写序都有崩溃语义：
+  // 1. 先覆盖 focusBrief 再标 adopted —— 中断只是「已覆盖但仍 pending」，再点一次
+  //    采纳写入同一文本、幂等无害；反过来崩在中间就永久丢掉这次演化。
+  // 2. 清理其余 pending 放最后 —— 中断只是漏清理；提到 adopted 之前崩，就成了
+  //    「其余全已作废、这条却还没 adopted」的死局。
+  it("writes focusBrief, then adopts, then clears the siblings", async () => {
+    await db.insert(digests).values({
+      id: "dg-13",
+      directionId: "dir-withdigests",
+      issueNumber: 13,
+      periodStart: PERIOD_START,
+      periodEnd: PERIOD_END,
+      status: "published" as const,
+      workflowInstanceId: "wf-13",
+      proposedFocusUpdate: "更新的一版提案",
+      proposedFocusUpdateStatus: "pending" as const,
+      createdAt: new Date("2026-08-10T00:00:00Z"),
+    });
+
+    const writes = recordWrites(db);
+    await adoptFocusUpdateStore(db, "dg-13");
+    vi.restoreAllMocks();
+
+    expect(writes).toEqual([
+      "directions:focusBrief",
+      "digests:adopted",
+      "digests:dismissed",
+    ]);
   });
 
   // 提案是「修订后的全文」而不是 diff：同方向两条 pending 各自基于生成当期时的
@@ -751,6 +788,22 @@ describe("adoptFocusUpdateStore", () => {
       ).toBe("pending");
       const stillQueued = await listPendingProposals(db);
       expect(stillQueued.map((r) => r.digestId)).toEqual(["dg-other-dir"]);
+    });
+
+    // 清理谓词漏掉 pending 守卫的话，同方向全部历史期（dg-1..dg-12 从来没有过提案，
+    // status 为 NULL）都会被盖成 dismissed，既有的 adopted 记录也会被擦掉。
+    // 上面那条 already-adopted 用例挡不住它：那个场景里计数为 0，UPDATE 根本不执行
+    it("never stamps issues that never carried a proposal", async () => {
+      await adoptFocusUpdateStore(db, "dg-13");
+      const untouched = await readProposal(db, "dg-1");
+      expect(untouched).toEqual({
+        proposedFocusUpdate: null,
+        proposedFocusUpdateStatus: null,
+      });
+      // 本期自己的 adopted 印章也不能被随后的清理覆盖掉
+      expect((await readProposal(db, "dg-13")).proposedFocusUpdateStatus).toBe(
+        "adopted",
+      );
     });
 
     it("does not re-dismiss issues that were already adopted or dismissed", async () => {
