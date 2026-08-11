@@ -6,11 +6,11 @@ import { toast } from "sonner";
 import { localizeUploadError } from "#/components/papers/upload-error-message";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
-// 仅类型导入：agent.ts 是服务端模块（drizzle/R2 一大串）。`import type` 在编译期
+import { authClient } from "#/lib/auth-client";
+// 仅类型导入：discovery-tools.ts 是服务端模块（drizzle/R2 一大串）。`import type` 在编译期
 // 就被整条擦除，运行时不产生 import，服务端代码不会进客户端包
 // （同 paper-chat.tsx 引 chat.ts 的做法）。
-import type { DiscoveredPaper } from "#/lib/agent";
-import { authClient } from "#/lib/auth-client";
+import type { DiscoveredPaper } from "#/lib/discovery-tools";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
