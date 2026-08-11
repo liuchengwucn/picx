@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type HFPaper, intFromEnv, selectPapers } from "./arxiv-cron";
+import {
+  type HFPaper,
+  intFromEnv,
+  resolveSelection,
+  selectPapers,
+} from "./arxiv-cron";
 
 function mk(id: string, upvotes: number): HFPaper {
   return { paper: { id, title: `Paper ${id}`, upvotes } };
@@ -67,6 +72,36 @@ describe("selectPapers - 切换终态（100/0）", () => {
   it("无人过线时返回空数组，不补底", () => {
     const allLow = [mk("x", 99), mk("y", 30), mk("z", 3)];
     expect(selectPapers(allLow, 100, 0)).toEqual([]);
+  });
+});
+
+describe("resolveSelection", () => {
+  it("未配置任何 env 时 = 旧逻辑 30/3（部署即零变化）", () => {
+    expect(resolveSelection({})).toEqual({ minUpvotes: 30, topFallback: 3 });
+  });
+
+  it("切换终态：100/0", () => {
+    expect(
+      resolveSelection({ HF_MIN_UPVOTES: "100", HF_TOP_FALLBACK: "0" }),
+    ).toEqual({ minUpvotes: 100, topFallback: 0 });
+  });
+
+  it("只设其中一个时，另一个吃默认", () => {
+    expect(resolveSelection({ HF_MIN_UPVOTES: "80" })).toEqual({
+      minUpvotes: 80,
+      topFallback: 3,
+    });
+    expect(resolveSelection({ HF_TOP_FALLBACK: "0" })).toEqual({
+      minUpvotes: 30,
+      topFallback: 0,
+    });
+  });
+
+  it("非法值回落默认", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(
+      resolveSelection({ HF_MIN_UPVOTES: "abc", HF_TOP_FALLBACK: "-2" }),
+    ).toEqual({ minUpvotes: 30, topFallback: 3 });
   });
 });
 

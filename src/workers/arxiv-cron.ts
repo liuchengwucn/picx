@@ -27,6 +27,28 @@ export function intFromEnv(
   return n;
 }
 
+/**
+ * 导出仅为测试：把「部署即零变化」这条承诺（默认 30/3）钉成断言。
+ * 参数用结构化字面量而非 Env，测试传 `{}` 即可；Env 结构上满足它。
+ */
+export function resolveSelection(env: {
+  HF_MIN_UPVOTES?: string;
+  HF_TOP_FALLBACK?: string;
+}): { minUpvotes: number; topFallback: number } {
+  return {
+    minUpvotes: intFromEnv(
+      env.HF_MIN_UPVOTES,
+      "HF_MIN_UPVOTES",
+      DEFAULT_MIN_UPVOTES,
+    ),
+    topFallback: intFromEnv(
+      env.HF_TOP_FALLBACK,
+      "HF_TOP_FALLBACK",
+      DEFAULT_TOP_FALLBACK,
+    ),
+  };
+}
+
 // 该 interface 只覆盖 cron 阈值判断所需字段(id/title/upvotes)，
 // src/lib/agent.ts 的 listDailyPapers 工具还要展示 summary/authors/publishedAt，
 // 且对外部 JSON 更防御(字段可选)，形状不同故各自定义；导出仅为 cron 测试。
@@ -73,16 +95,7 @@ export default {
 
       // Step 3: 筛选：过线论文全取，不足 topFallback 篇时补到 topFallback 篇
       // （阈值与补底篇数均由 env 控制，见 DEFAULT_MIN_UPVOTES / DEFAULT_TOP_FALLBACK）
-      const minUpvotes = intFromEnv(
-        env.HF_MIN_UPVOTES,
-        "HF_MIN_UPVOTES",
-        DEFAULT_MIN_UPVOTES,
-      );
-      const topFallback = intFromEnv(
-        env.HF_TOP_FALLBACK,
-        "HF_TOP_FALLBACK",
-        DEFAULT_TOP_FALLBACK,
-      );
+      const { minUpvotes, topFallback } = resolveSelection(env);
       const selected = selectPapers(hfPapers, minUpvotes, topFallback);
       console.log(
         `[ArxivCron] Selected ${selected.length} papers (min=${minUpvotes}, fallback=${topFallback}):`,
