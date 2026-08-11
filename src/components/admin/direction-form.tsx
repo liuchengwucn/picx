@@ -263,6 +263,19 @@ export function DirectionForm({
    */
   const briefUnsaved =
     direction !== null && focusBrief.trim() !== direction.focusBrief.trim();
+  /**
+   * 「生成简介」为什么灰着 —— 一句话，两个去处（外层 span 的 title + 按钮的可访问
+   * 描述）。isPending 那支刻意留空：转圈图标已经在说话了。
+   *
+   * briefUnsaved 这支是这里唯一的显示入口：drifted 还有下面那条 FormNote 兜着，
+   * 而「先保存 focusBrief」除了这里没有别的地方会出现。
+   */
+  const generateIntroBlocked = drifted
+    ? m.admin_direction_drifted()
+    : briefUnsaved
+      ? m.admin_save_brief_first()
+      : undefined;
+  const generateIntroHelpId = `${fieldId}-generate-intro-help`;
 
   return (
     <div className="space-y-6" data-testid="admin-direction-form">
@@ -383,42 +396,54 @@ export function DirectionForm({
             {m.admin_field_intro()}
           </p>
           {direction ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              // 三个限制：
-              // 1. drifted —— 这个按钮的成功回调会认领 baseline，等于一键解除漂移锁；
-              //    漂移期间放它可点，「点一次生成」就能让陈旧草稿重新可保存（横幅消失、
-              //    保存解禁），Blocking 1 那条静默覆盖就从后门回来了。
-              // 2. briefUnsaved —— 服务端读的是**库里**的 focusBrief（generateIntro 只收
-              //    directionId），未保存的改动生成出来的是旧 brief 的简介、还立刻落库。
-              // 3. isPending —— 真实 LLM 调用几十秒起步，不锁住会被连点成几次付费请求。
-              disabled={drifted || briefUnsaved || generateIntro.isPending}
-              title={
-                drifted
-                  ? m.admin_direction_drifted()
-                  : briefUnsaved
-                    ? m.admin_save_brief_first()
-                    : undefined
-              }
-              data-testid="admin-generate-intro"
-              onClick={() =>
-                generateIntro.mutate({ directionId: direction.id })
-              }
-            >
-              {generateIntro.isPending ? (
-                <>
-                  <Loader2 className="size-3.5 animate-spin" />
-                  {m.admin_generating_intro()}
-                </>
-              ) : (
-                <>
-                  <Sparkles className="size-3.5" />
-                  {m.admin_generate_intro()}
-                </>
-              )}
-            </Button>
+            /* 说明挂在外层 span 上而不是按钮上：Button 的基础类里有
+               disabled:pointer-events-none，禁用态的按钮不接收 hover 命中测试，挂在
+               它自己身上的 title 永远弹不出来（这条 briefUnsaved 的解释从上线起就
+               没显示过）。外层 span 没被禁用，hover 会落到它上面。 */
+            <span title={generateIntroBlocked}>
+              {/* 禁用按钮不进 Tab 序，读屏用户听不到 span 的 title，所以同一句话再挂
+                  成按钮自身的可访问描述。指向按钮**外部**的 sr-only 元素而不是用
+                  aria-label，理由同 ConfirmButton 的 description（见 admin-ui.tsx）：
+                  可访问名一旦由 aria-label 给出，按钮的后代就被剪出可访问性树。
+                  sr-only 是 absolute 定位，落在 flex 容器里不占位。 */}
+              {generateIntroBlocked ? (
+                <span id={generateIntroHelpId} className="sr-only">
+                  {generateIntroBlocked}
+                </span>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                // 三个限制：
+                // 1. drifted —— 这个按钮的成功回调会认领 baseline，等于一键解除漂移锁；
+                //    漂移期间放它可点，「点一次生成」就能让陈旧草稿重新可保存（横幅消失、
+                //    保存解禁），Blocking 1 那条静默覆盖就从后门回来了。
+                // 2. briefUnsaved —— 服务端读的是**库里**的 focusBrief（generateIntro 只收
+                //    directionId），未保存的改动生成出来的是旧 brief 的简介、还立刻落库。
+                // 3. isPending —— 真实 LLM 调用几十秒起步，不锁住会被连点成几次付费请求。
+                disabled={drifted || briefUnsaved || generateIntro.isPending}
+                aria-describedby={
+                  generateIntroBlocked ? generateIntroHelpId : undefined
+                }
+                data-testid="admin-generate-intro"
+                onClick={() =>
+                  generateIntro.mutate({ directionId: direction.id })
+                }
+              >
+                {generateIntro.isPending ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    {m.admin_generating_intro()}
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="size-3.5" />
+                    {m.admin_generate_intro()}
+                  </>
+                )}
+              </Button>
+            </span>
           ) : null}
         </div>
         {introEmpty ? (
