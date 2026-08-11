@@ -142,7 +142,14 @@ describe("buildDiscoveryTools external call budget", () => {
       });
       expect(fetchCalls).toBe(budget);
 
-      // 预算是三个工具共享的，且耗尽后回错误对象而不是抛
+      // 预算是三个工具共享的，且耗尽后回错误对象而不是抛。三个都要断言：
+      // 少给哪个工具加检查，都得有测试挂掉
+      const daily = await getExecute(tools.listDailyPapers)({}, toolOptions);
+      expect(daily).toMatchObject({
+        error: expect.stringContaining("budget exhausted"),
+      });
+      expect(fetchCalls).toBe(budget);
+
       const recommend = await getExecute(tools.recommendPapers)(
         { arxivIds: ["2601.13209"] },
         toolOptions,
