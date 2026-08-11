@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isArxivLink } from "./arxiv";
+import { canonicalArxivId, isArxivLink, LEGACY_ARCHIVES } from "./arxiv";
 
 describe("isArxivLink", () => {
   // 分流判据，直接决定 sourceType 与是否写 canonical source_url。
@@ -18,10 +18,10 @@ describe("isArxivLink", () => {
     ["bare legacy id with subject class", "math.AG/0601001"],
     // 白名单收紧后仍须保住大小写宽容：学科类后缀小写写法是合法输入。
     ["bare legacy id with lowercase subject class", "math.ag/0601001"],
-    // 1998 年前停用的 archive: 白名单若只收现役 archive, 这类存量 id 会被误判成
+    // 已停用的历史 archive: 白名单若只收现役 archive, 这类存量 id 会被误判成
     // 普通链接, 进而以 bad_url 报错而不是导入。
-    ["bare pre-1998 legacy id", "alg-geom/9601001"],
-    ["bare pre-1998 legacy id with version", "q-alg/9601001v2"],
+    ["bare retired-archive id", "alg-geom/9601001"],
+    ["bare retired-archive id with version", "q-alg/9601001v2"],
   ];
 
   const NOT_ARXIV: Array<[label: string, input: string]> = [
@@ -67,6 +67,15 @@ describe("isArxivLink", () => {
     ["a ccTLD short link shaped like a legacy id", "t.me/1234567"],
     ["another ccTLD short link", "bit.ly/1234567"],
     ["a bare path segment shaped like a legacy id", "foo/1234567"],
+    // archive 白名单挡不住首段恰好是 archive 名的域名（`cs` + ccTLD `.ly`）——
+    // 正则带 /i，学科类后缀 `[A-Z]{2}` 同时也匹配小写 ccTLD。真正堵死这一类的是
+    // 旧格式数字段的月份校验：1234567 的 MM=34 不合法。
+    ["an archive-named domain with a ccTLD", "cs.ly/1234567"],
+    ["another archive-named domain with a ccTLD", "math.io/1234567"],
+    ["a third archive-named domain with a ccTLD", "stat.us/1234567"],
+    // 月份校验的边界：00 与 13 都不是合法月份。
+    ["a legacy id with month 00", "hep-th/9600001"],
+    ["a legacy id with month 13", "hep-th/9613001"],
     // userinfo 绕过：`@` 前的部分是用户名而非 host。靠 URL 语义挡住，
     // 钉死以防未来有人把 host 判定换回字符串匹配。
     [
@@ -90,4 +99,17 @@ describe("isArxivLink", () => {
   it.each(NOT_ARXIV)("does not treat %s as arXiv", (_label, input) => {
     expect(isArxivLink(input)).toBe(false);
   });
+
+  // 裸 id 分支不经 host 校验，全靠 canonicalArxivId 兜底：一旦白名单里出现
+  // canonicalArxivId 的 `[a-z-]+` 不接受的字符（数字、点、下划线），isArxivLink
+  // 会判 true 而 canonicalArxivUrl 原样返回输入，撞上 paper.create 的
+  // z.string().url()。同时这也钉住「白名单里没有匹配不到任何输入的死项」。
+  it.each(LEGACY_ARCHIVES.map((archive) => [archive] as const))(
+    "keeps the bare-id branch and canonicalArxivId in sync for %s",
+    (archive) => {
+      const id = `${archive}/9601001`;
+      expect(isArxivLink(id)).toBe(true);
+      expect(canonicalArxivId(id)).toBe(id);
+    },
+  );
 });

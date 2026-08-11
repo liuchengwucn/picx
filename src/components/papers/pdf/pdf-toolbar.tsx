@@ -1,10 +1,6 @@
 import { Download, List, Minus, Plus, Search } from "lucide-react";
 import { useRef, useState } from "react";
-import {
-  DISABLED_BTN,
-  ICON_BTN,
-  TOOL_BTN,
-} from "#/components/reader/reader-ui";
+import { DISABLED_BTN, ICON_BTN, TOOL_BTN } from "#/components/reader-ui";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { PDF_FIND_BAR_ID } from "./pdf-find-bar";

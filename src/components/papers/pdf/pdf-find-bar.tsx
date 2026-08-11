@@ -5,11 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  DISABLED_BTN,
-  ICON_BTN,
-  TOOL_BTN,
-} from "#/components/reader/reader-ui";
+import { DISABLED_BTN, ICON_BTN, TOOL_BTN } from "#/components/reader-ui";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 

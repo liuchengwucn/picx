@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { ICON_BTN, TOOL_BTN } from "#/components/reader/reader-ui";
+import { ICON_BTN, TOOL_BTN } from "#/components/reader-ui";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { type TocItem, TocList } from "./reader-toc";

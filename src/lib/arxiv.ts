@@ -52,8 +52,9 @@ export function canonicalArxivId(idOrUrl: string): string | null {
  * `t.me/1234567`、`bit.ly/1234567` 这类短链判成 arXiv, 进而导入一篇不存在的论文
  * 并把捏造的 source_url 写进 canonical 去重索引。
  */
-const LEGACY_ARCHIVES = [
-  // 1998 年前就停用的 archive: 只在存量旧 id 里出现, 但那些 id 至今仍可解析。
+export const LEGACY_ARCHIVES = [
+  // 已停用的历史 archive(1996-2000 年间陆续并入现役分类, 如 chao-dyn -> nlin):
+  // 只在存量旧 id 里出现, 但那些 id 至今仍可解析。
   "acc-phys",
   "adap-org",
   "alg-geom",
@@ -96,9 +97,16 @@ const LEGACY_ARCHIVES = [
   "stat",
 ];
 
-/** 整串就是一个 arXiv id: 新格式 2601.13209v2, 或旧格式 hep-th/9901001。 */
+/**
+ * 整串就是一个 arXiv id: 新格式 2601.13209v2, 或旧格式 hep-th/9901001。
+ *
+ * 旧格式的数字段是 YYMMNNN, 这里显式校验 MM 落在 01-12 —— 否则 `cs.ly/1234567`
+ * 这类「archive 名 + 两字母 ccTLD」的域名仍会漏进来(正则带 /i, 学科类后缀
+ * `[A-Z]{2}` 同时也匹配小写 ccTLD)。校验月份把这一类整体挡掉, 且不影响任何真实
+ * 旧 id(它们的月份按定义合法), 也不必牺牲 `math.ag/0601001` 这种小写写法。
+ */
 const BARE_ARXIV_ID = new RegExp(
-  `^(?:\\d{4}\\.\\d{4,5}(?:v\\d+)?|(?:${LEGACY_ARCHIVES.join("|")})(?:\\.[A-Z]{2})?/\\d{7}(?:v\\d+)?)$`,
+  `^(?:\\d{4}\\.\\d{4,5}(?:v\\d+)?|(?:${LEGACY_ARCHIVES.join("|")})(?:\\.[A-Z]{2})?/\\d{2}(?:0[1-9]|1[0-2])\\d{3}(?:v\\d+)?)$`,
   "i",
 );
 

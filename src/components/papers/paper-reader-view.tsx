@@ -13,7 +13,7 @@ import { useToc } from "#/components/markdown-reader/reader-toc";
 import { ReaderTocDrawer } from "#/components/markdown-reader/reader-toc-drawer";
 import { useReaderSettings } from "#/components/markdown-reader/use-reader-settings";
 import { PaperStateCard } from "#/components/papers/paper-state-card";
-import { TOOL_BTN } from "#/components/reader/reader-ui";
+import { TOOL_BTN } from "#/components/reader-ui";
 import { useTRPC } from "#/integrations/trpc/react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
