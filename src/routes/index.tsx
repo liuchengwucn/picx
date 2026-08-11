@@ -37,8 +37,10 @@ export const Route = createFileRoute("/")({
         const { getHomeToday } = await import("#/lib/home/today");
         const appEnv = env as typeof env & AppEnvBindings;
         return { today: await getHomeToday(drizzle(appEnv.DB, { schema })) };
-      } catch {
-        // D1 抖动:今日精选整区隐藏,静态区照常渲染,首页不至于整页失败
+      } catch (e) {
+        // D1 抖动:今日精选整区隐藏,静态区照常渲染,首页不至于整页失败。
+        // 但降级是静默的——不记日志的话,首页少半屏内容在线上完全看不出来。
+        console.error("home today loader failed", e);
         return { today: null };
       }
     }
@@ -47,7 +49,8 @@ export const Route = createFileRoute("/")({
         context.trpc.home.today.queryOptions(),
       );
       return { today };
-    } catch {
+    } catch (e) {
+      console.error("home today loader failed", e);
       return { today: null };
     }
   },
@@ -73,13 +76,10 @@ export const Route = createFileRoute("/")({
       ],
       links: [
         { rel: "canonical", href: url },
-        // 报头 logo 是首屏 LCP 元素
-        {
-          rel: "preload",
-          as: "image",
-          href: "/logo.webp",
-          fetchPriority: "high",
-        },
+        // 报头 logo 是首屏 LCP 元素。优先级提示只写在 <img fetchPriority> 上:
+        // React 会额外 hoist 一份不带属性的 preload 到 head 顶部, 先到先得,
+        // 挂在这个 link 上的 fetchPriority 会被那份丢弃掉。
+        { rel: "preload", as: "image", href: "/logo.webp" },
       ],
       scripts: [
         {
@@ -153,6 +153,7 @@ function HomePage() {
             alt="PicX"
             width={1408}
             height={768}
+            fetchPriority="high"
             className="mx-auto w-full max-w-2xl"
             style={{
               maskImage:

@@ -19,7 +19,8 @@ type Db = DrizzleD1Database<typeof schema>;
 export interface HomeStory {
   shortId: string;
   title: Record<string, string>;
-  summary: Record<string, string>;
+  // 刻意不带 summary: 首页只渲染标题, 而四语 summary JSON 会随 loader 数据一起
+  // 内联进首屏 HTML(实测约占 8%)。要加回来之前先确认真的有组件渲染它。
   leadImage: NewsMedia | null;
   /**
    * earliestPublishedAt ?? firstSeenAt, epoch ms。
@@ -51,7 +52,6 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       .select({
         shortId: newsStories.shortId,
         title: newsStories.title,
-        summary: newsStories.summary,
         leadImage: newsStories.leadImage,
         earliestPublishedAt: newsStories.earliestPublishedAt,
         firstSeenAt: newsStories.firstSeenAt,
@@ -103,7 +103,6 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
     stories: storyRows.map((s) => ({
       shortId: s.shortId,
       title: s.title,
-      summary: s.summary,
       leadImage: s.leadImage ?? null,
       publishedAt: (s.earliestPublishedAt ?? s.firstSeenAt).getTime(),
     })),

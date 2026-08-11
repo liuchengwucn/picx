@@ -4,7 +4,6 @@ import { assembleTodayCards, type HomePaper, type HomeStory } from "./today";
 const story = (n: number): HomeStory => ({
   shortId: `s${n}`,
   title: { en: `Story ${n}` },
-  summary: { en: `Summary ${n}` },
   leadImage: null,
   publishedAt: 1_700_000_000_000 + n,
 });
