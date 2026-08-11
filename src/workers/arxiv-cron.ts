@@ -5,13 +5,33 @@ import { canonicalArxivUrl, HF_DAILY_PAPERS_API } from "#/lib/arxiv";
 import { createGalleryPaper, ensureGuestUser } from "#/lib/gallery-paper";
 import type { Env } from "#/types/env";
 
-// HFPaper 不导出：该 interface 只覆盖 cron 阈值判断所需字段(id/title/upvotes)，
-// src/lib/agent.ts 的 listDailyPapers 工具还要展示 summary/authors/publishedAt，
-// 且对外部 JSON 更防御(字段可选)，形状不同故各自定义；HF_DAILY_PAPERS_API 常量见 #/lib/arxiv。
-const MIN_UPVOTES = 30;
-const MIN_PAPERS = 3;
+// 渐切开关：默认 30/3 与旧逻辑逐字节等价；方向简报管线供货稳定后把 secret 改成
+// 100/0 即完成 HF 降级（仅爆款兜底入库、不补底），不用重新部署。
+const DEFAULT_MIN_UPVOTES = 30;
+const DEFAULT_TOP_FALLBACK = 3;
 
-interface HFPaper {
+/** 导出仅为测试 */
+export function intFromEnv(
+  raw: string | undefined,
+  name: string,
+  fallback: number,
+): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    console.warn(
+      `[ArxivCron] invalid ${name}="${raw}", using default ${fallback}`,
+    );
+    return fallback;
+  }
+  return n;
+}
+
+// 该 interface 只覆盖 cron 阈值判断所需字段(id/title/upvotes)，
+// src/lib/agent.ts 的 listDailyPapers 工具还要展示 summary/authors/publishedAt，
+// 且对外部 JSON 更防御(字段可选)，形状不同故各自定义；导出仅为 cron 测试。
+// HF_DAILY_PAPERS_API 常量见 #/lib/arxiv。
+export interface HFPaper {
   paper: {
     id: string; // arxiv id
     title: string;
@@ -51,10 +71,21 @@ export default {
         console.error("[ArxivCron] Failed to record HF signals:", error);
       }
 
-      // Step 3: 筛选：upvotes >= 30 全取，不足 3 篇补到 3 篇
-      const selected = selectPapers(hfPapers);
+      // Step 3: 筛选：过线论文全取，不足 topFallback 篇时补到 topFallback 篇
+      // （阈值与补底篇数均由 env 控制，见 DEFAULT_MIN_UPVOTES / DEFAULT_TOP_FALLBACK）
+      const minUpvotes = intFromEnv(
+        env.HF_MIN_UPVOTES,
+        "HF_MIN_UPVOTES",
+        DEFAULT_MIN_UPVOTES,
+      );
+      const topFallback = intFromEnv(
+        env.HF_TOP_FALLBACK,
+        "HF_TOP_FALLBACK",
+        DEFAULT_TOP_FALLBACK,
+      );
+      const selected = selectPapers(hfPapers, minUpvotes, topFallback);
       console.log(
-        `[ArxivCron] Selected ${selected.length} papers:`,
+        `[ArxivCron] Selected ${selected.length} papers (min=${minUpvotes}, fallback=${topFallback}):`,
         selected.map((p) => `${p.paper.id}(${p.paper.upvotes})`).join(", "),
       );
 
@@ -107,18 +138,23 @@ function getYesterdayUTC(): string {
   return d.toISOString().slice(0, 10);
 }
 
-function selectPapers(papers: HFPaper[]): HFPaper[] {
+/** 导出仅为测试 */
+export function selectPapers(
+  papers: HFPaper[],
+  minUpvotes: number,
+  topFallback: number,
+): HFPaper[] {
+  // 不原地排序：调用方的 hfPapers 随后还要用于别处
   const sorted = [...papers].sort((a, b) => b.paper.upvotes - a.paper.upvotes);
 
-  // upvotes >= MIN_UPVOTES 全取
-  const aboveThreshold = sorted.filter((p) => p.paper.upvotes >= MIN_UPVOTES);
+  // upvotes >= minUpvotes 全取
+  const aboveThreshold = sorted.filter((p) => p.paper.upvotes >= minUpvotes);
 
-  // 不足 MIN_PAPERS 篇时补到 MIN_PAPERS 篇
-  if (aboveThreshold.length >= MIN_PAPERS) {
-    return aboveThreshold;
-  }
+  // 不足 topFallback 篇时补到 topFallback 篇；
+  // topFallback=0 时该分支恒真：只取过线论文、不补底
+  if (aboveThreshold.length >= topFallback) return aboveThreshold;
 
-  return sorted.slice(0, MIN_PAPERS);
+  return sorted.slice(0, topFallback);
 }
 
 async function recordHfSignals(

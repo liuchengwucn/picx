@@ -63,4 +63,8 @@ export interface Env {
   DIGEST_STRONG_MODEL?: string; // Scope 分解/定稿，回落 OPENAI_MODEL
   // 站长 userId 白名单（逗号分隔，可选；未配置时管理面对所有人 403/404）
   ADMIN_USER_IDS?: string;
+  // HF 降级渐切：入库 upvotes 阈值与过线不足时补 top-N 的 N。
+  // 默认 30/3 = 旧逻辑等价；切换终态 = 100/0（仅爆款兜底、不补底）
+  HF_MIN_UPVOTES?: string;
+  HF_TOP_FALLBACK?: string;
 }

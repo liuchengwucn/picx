@@ -61,6 +61,12 @@ INDEXNOW_KEY=
 # 站长 userId 白名单（逗号分隔）。本地：从 user 表查自己的 id 填入
 # ADMIN_USER_IDS=
 
+# ===== HF Daily 降级渐切 (Optional) =====
+# arxiv cron 入库筛选：upvotes 阈值 / 过线不足时补的 top-N 篇数。
+# 留空 = 默认 30 / 3（旧逻辑）；方向简报供货稳定后改成 100 / 0（仅爆款兜底、不补底）
+# HF_MIN_UPVOTES=30
+# HF_TOP_FALLBACK=3
+
 # ===== Ops (Optional) =====
 # Secret key to allow manual /__scheduled?cron=...&key=... triggers in production
 # CRON_TRIGGER_KEY=<long-random-string>
