@@ -451,7 +451,7 @@ a:hover { color: var(--academic-brown-deep); }
 }
 
 /* =========================================================================
-   PDF → HTML 阅读器(/reader)。
+   论文原文视图的 markdown 正文排版。
    此处仅保留无法用 Tailwind 表达的部分:主题字体 token,以及作用于
    react-markdown / KaTeX 生成 DOM(无法逐元素挂 class)的正文排版。
    其余所有 chrome 样式已迁移到各组件内的 Tailwind 工具类。
