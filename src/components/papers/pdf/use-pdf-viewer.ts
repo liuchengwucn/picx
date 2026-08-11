@@ -249,8 +249,17 @@ export function usePdfViewer(url: string, initialPage: number): PdfViewerApi {
         } else {
           viewer.currentScaleValue = scaleValueRef.current;
         }
-        if (initialPageRef.current > 1) {
-          viewer.currentPageNumber = initialPageRef.current;
+        // 钳到总页数：种子可能来自手改的 ?page= 或指向旧版本的旧链接。越界时
+        // pdf.js 的 setter 只 console.error、把 _currentPageNumber 留在 1、且**不**派发
+        // pagechanging，于是 React 那边的 pageNumber 会卡在那个荒谬的种子上（初值就是
+        // initialPage），工具栏显示「99999 / 12」而阅读器停在第 1 页。
+        const target = Math.min(initialPageRef.current, viewer.pagesCount);
+        if (target > 1) {
+          viewer.currentPageNumber = target;
+        } else {
+          // 钳到了 1（单页文档 + 越界种子）：上面那条赋值不会发生，也就没有
+          // pagechanging 把 state 拨回来，得自己同步掉那个坏种子。
+          setPageNumber(target);
         }
       });
       eventBus.on("pagechanging", (event: { pageNumber: number }) => {

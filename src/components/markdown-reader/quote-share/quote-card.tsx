@@ -75,9 +75,9 @@ export function QuoteCard({
           <div className="line-clamp-2 text-[15px] font-bold leading-snug text-[var(--ink)]">
             {title}
           </div>
-          {content.section && (
+          {content.subtitle && (
             <div className="mt-1 text-[11px] text-[var(--academic-brown)]">
-              § {content.section}
+              {content.subtitle}
             </div>
           )}
         </div>

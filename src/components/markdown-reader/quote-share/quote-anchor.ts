@@ -48,7 +48,18 @@ export interface QuoteAnchor {
 /** 插图与图注不参与引用文本：卡片里本就丢弃图片块 */
 const SKIPPED_TAGS = new Set(["FIGURE", "IMG", "FIGCAPTION"]);
 
-function latexSourceOf(katex: Element): string {
+/**
+ * 「这棵子树是一个 KaTeX 公式」的唯一判定。提成谓词而不是各处内联 classList 判断：
+ * 规范化遍历（normalizeBlock）与选区取文本（quote-text.ts）必须认同一套「什么算公式」，
+ * 否则一边改了另一边不知道。display 公式外面还套一层 .katex-display，它不带 katex
+ * 这个 token，会照常递归到里层真正的 .katex 上。
+ */
+export function isKatexRoot(el: Element): boolean {
+  return el.classList.contains("katex");
+}
+
+/** 公式的 LaTeX 源，包成 `$...$`；取不到 annotation（例如只克隆了公式的一部分）返回空串。 */
+export function latexSourceOf(katex: Element): string {
   const annotation = katex.querySelector(
     'annotation[encoding="application/x-tex"]',
   );
@@ -112,7 +123,7 @@ export function normalizeBlock(
       return;
     }
 
-    if (el.classList.contains("katex")) {
+    if (isKatexRoot(el)) {
       // 选区端点落在公式内部时收敛到公式起点：公式是不可再分的原子
       points.forEach((p, i) => {
         if (resolved[i] === null && (p.node === el || el.contains(p.node))) {

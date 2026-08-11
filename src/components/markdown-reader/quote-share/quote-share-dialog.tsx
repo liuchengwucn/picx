@@ -19,12 +19,9 @@ import { QuoteCardPreview } from "./quote-card-preview";
 import { useQuoteCardShare } from "./use-quote-card-share";
 import { useQuoteQr } from "./use-quote-qr";
 
-export interface QuoteShareContext {
-  paperId: string;
-  shortId: string;
-  title: string;
+export interface QuoteShareVisibility {
   isPublic: boolean;
-  /** 只有作者能改可见性；非作者根本进不了私有论文的原文视图 */
+  /** 只有作者能改可见性；非作者根本进不了私有论文的原文/PDF 视图 */
   canPublish: boolean;
 }
 
@@ -34,7 +31,7 @@ export function QuoteShareDialog({
   url,
   content,
   title,
-  share,
+  visibility,
   onMakePublic,
   publishing,
 }: {
@@ -43,7 +40,7 @@ export function QuoteShareDialog({
   url: string;
   content: CardContent | null;
   title: string;
-  share: QuoteShareContext;
+  visibility: QuoteShareVisibility;
   onMakePublic: () => void;
   publishing: boolean;
 }) {
@@ -71,12 +68,12 @@ export function QuoteShareDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {!share.isPublic && (
+        {!visibility.isPublic && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-3 py-2">
             <span className="text-xs text-[var(--ink)]">
               {m.quote_share_private_notice()}
             </span>
-            {share.canPublish && (
+            {visibility.canPublish && (
               <Button
                 size="sm"
                 variant="outline"

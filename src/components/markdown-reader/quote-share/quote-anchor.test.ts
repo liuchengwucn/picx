@@ -10,6 +10,7 @@ import {
   type QuoteAnchor,
   rangeToAnchor,
 } from "./quote-anchor";
+import { KATEX_ALPHA, mount } from "./quote-test-fixtures";
 
 /** 断言锚点非空并收窄类型，避免在测试里撒 `!` */
 function expectAnchor(anchor: QuoteAnchor | null): QuoteAnchor {
@@ -18,22 +19,6 @@ function expectAnchor(anchor: QuoteAnchor | null): QuoteAnchor {
     throw new Error("unreachable");
   }
   return anchor;
-}
-
-/**
- * 真实 KaTeX 产物的最小复刻：mathml 与 html 各含一份「α」，textContent 会拿到两份。
- */
-const KATEX_ALPHA =
-  '<span class="katex">' +
-  '<span class="katex-mathml"><math><semantics><mrow><mi>α</mi></mrow>' +
-  '<annotation encoding="application/x-tex">\\alpha</annotation>' +
-  "</semantics></math></span>" +
-  '<span class="katex-html" aria-hidden="true">α</span>' +
-  "</span>";
-
-function mount(html: string): HTMLElement {
-  document.body.innerHTML = `<article class="reader-prose">${html}</article>`;
-  return document.querySelector("article") as HTMLElement;
 }
 
 /** 在第 blockIndex 个块的规范化偏移区间上造一个真实 Range */

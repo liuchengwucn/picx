@@ -34,6 +34,12 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { plainCardContent } from "#/components/markdown-reader/quote-share/quote-card-content";
+import { QuoteShareDialog } from "#/components/markdown-reader/quote-share/quote-share-dialog";
+import {
+  type QuoteSharePayload,
+  useQuoteShare,
+} from "#/components/markdown-reader/quote-share/use-quote-share";
 import { type TocItem, TocList } from "#/components/markdown-reader/reader-toc";
 import { useReadingAnchor } from "#/components/markdown-reader/use-reading-anchor";
 import {
@@ -47,7 +53,6 @@ import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badg
 import {
   type PaperReaderState,
   PaperReaderView,
-  type QuoteShareContext,
   usePaperReader,
 } from "#/components/papers/paper-reader-view";
 import { PaperStateCard } from "#/components/papers/paper-state-card";
@@ -93,7 +98,12 @@ import {
   authClient,
   startGitHubSignIn as beginGitHubSignIn,
 } from "#/lib/auth-client";
-import { buildQuoteBlock, normalizePdfSelection } from "#/lib/pdf-quote";
+import { paperPdfPageUrl, parsePdfPageParam } from "#/lib/embed-code";
+import {
+  buildQuoteBlock,
+  collapseSelectionWhitespace,
+  normalizePdfSelection,
+} from "#/lib/pdf-quote";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -190,13 +200,14 @@ export const Route = createFileRoute("/p/$shortId")({
   // （分享链接可直达原文或 PDF 视图）
   validateSearch: (
     search: Record<string, unknown>,
-  ): { view?: "reader" | "pdf" } => ({
+  ): { view?: "reader" | "pdf"; page?: number } => ({
     view:
       search.view === "reader"
         ? "reader"
         : search.view === "pdf"
           ? "pdf"
           : undefined,
+    page: parsePdfPageParam(search.page),
   }),
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR) {
@@ -478,7 +489,7 @@ const statusProgress: Record<string, number> = {
 
 function PaperDetailPage() {
   const { shortId } = Route.useParams();
-  const { view } = Route.useSearch();
+  const { view, page: initialPageParam } = Route.useSearch();
   const loaderData = Route.useLoaderData();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -486,15 +497,22 @@ function PaperDetailPage() {
   const [copied, setCopied] = useState(false);
   // 切 tab 往返时记住 PDF 读到第几页。用 ref 而不是 state：这个值每翻一页都会更新，
   // 但只在 PdfReaderView 挂载时被读一次当种子——放进 state 会让整个详情页（含 chat
-  // 面板与白板画廊）跟着每一次翻页重渲染，纯属浪费。刻意不进 URL：页码是阅读进度
-  // 不是分享意图，塞进 search param 会让每翻一页都推一条历史记录。
-  const pdfPageRef = useRef(1);
+  // 面板与白板画廊）跟着每一次翻页重渲染，纯属浪费。翻页刻意不**写** URL：页码是
+  // 阅读进度不是分享意图，塞进 search param 会让每翻一页都推一条历史记录。
+  // 但 ?page= 会被**读**一次当落地页：那是「分享这段」深链的落点（写在链接里的页码
+  // 是明确的分享意图），只在挂载时取种子，此后仍然只在 ref 里流转。
+  // 只在 ?view=pdf 时认这个种子：/p/x?page=7 落在摘要视图上时那个 7 没有表达任何意图
+  // （残留参数或手改 URL），认了它用户第一次点开 PDF tab 会莫名落在第 7 页。
+  const pdfPageRef = useRef(view === "pdf" ? (initialPageParam ?? 1) : 1);
   const handlePdfPageChange = useCallback((page: number) => {
     pdfPageRef.current = page;
   }, []);
-  // PDF 里选中文字点「问这段」后待送进 chat 输入框的引用块。一次性事件而不是持久
-  // 状态：PaperChat 消费后立刻清回 null，否则用户手动删掉引用后任何一次重渲染都会
-  // 把它塞回来。
+  // 两个阅读视图（PDF 文本层与原文 markdown）里选中文字点「问这段」后待送进 chat
+  // 输入框的引用块。一次性事件而不是持久状态：PaperChat 消费后立刻清回 null，否则
+  // 用户手动删掉引用后任何一次重渲染都会把它塞回来。
+  //
+  // markdown 侧送来的文本已经是规范化引文（公式折成 $...$ LaTeX 源，见 quoteTextOfSelection），
+  // normalizePdfSelection 在这条路上只起「压空白 + 钳 2000 字」的作用。
   const [pendingQuote, setPendingQuote] = useState<string | null>(null);
   const handleAskSelection = useCallback((text: string) => {
     setPendingQuote(buildQuoteBlock(normalizePdfSelection(text)));
@@ -601,6 +619,9 @@ function PaperDetailPage() {
         search: (prev) => ({
           ...prev,
           view: next === "summary" ? undefined : next,
+          // ?page= 只对 PDF 视图有意义。切走时清掉，别让地址栏留下
+          // ?view=reader&page=7 这种自相矛盾的 URL——用户复制地址栏分享是常见动作。
+          page: next === "pdf" ? prev.page : undefined,
         }),
       });
     },
@@ -619,7 +640,11 @@ function PaperDetailPage() {
     staleTime: ssrData ? 30_000 : undefined,
   });
 
+  // 注意读 data?.paper 而不是下面解构出来的 paper：hooks 必须在 early return 之前
+  // 无条件调用，而 `const { paper } = data` 在那些 early return 之后才执行。
   const paperId = data?.paper?.id ?? "";
+  // shortId 用路由参数：上面那个要被 invalidate 的 getByShortId 查询也是拿它做 key 的。
+  const quoteShare = useQuoteShare(paperId, shortId);
 
   // 原文只对处理完成、且真有 MinerU 解析产物的论文有意义（存量论文没有
   // paper_contents 行，点进去只会看到空态）；?view=reader 落在不可用的论文上时
@@ -767,6 +792,13 @@ function PaperDetailPage() {
     undefined;
 
   const isOwner = paper.userId === profile.data?.id;
+
+  // 不用 useMemo：这里已在 early return 之后，hook 放这儿会违反调用顺序规则。每次渲染
+  // 新建一个对象与内联写 visibility={{...}} 的身份行为完全一致，没有额外代价。
+  const quoteShareVisibility = {
+    isPublic: paper.isPublic,
+    canPublish: isOwner,
+  };
 
   // isReaderAvailable / activeView / isReaderViewReady 已提到 paperId 计算之后
   // （usePaperReader 需要提前知道是否该发请求）。
@@ -1206,18 +1238,26 @@ function PaperDetailPage() {
                   initialPage={pdfPageRef.current}
                   onPageChange={handlePdfPageChange}
                   onAskSelection={handleAskSelection}
+                  onShareSelection={(text, page) =>
+                    quoteShare.openShare({
+                      url: paperPdfPageUrl(paper.shortId ?? shortId, page),
+                      // 只折空白、不按长度裁：长度策略归 plainCardContent（见那边的
+                      // 注释），拿 normalizePdfSelection 预处理会让卡片的截断提示丢掉。
+                      content: plainCardContent(
+                        collapseSelectionWhitespace(text),
+                        page,
+                      ),
+                    })
+                  }
                 />
               </Suspense>
             ) : activeView === "reader" ? (
               <ReaderPane
                 reader={paperReader}
-                share={{
-                  paperId,
-                  shortId: paper.shortId ?? shortId,
-                  title: paper.title,
-                  isPublic: paper.isPublic,
-                  canPublish: isOwner,
-                }}
+                isPublic={paper.isPublic}
+                shortId={paper.shortId ?? shortId}
+                onShare={quoteShare.openShare}
+                onAskSelection={handleAskSelection}
                 isSessionPending={isSessionPending}
                 isSignedIn={!!effectiveSession}
                 onSignIn={startReaderSignIn}
@@ -1403,6 +1443,20 @@ function PaperDetailPage() {
               onPendingQuoteConsumed={handleQuoteConsumed}
             />
           )}
+
+          {/* 分享弹窗挂在页面级：各视图只负责在点击当时算出深链与卡片正文 */}
+          <QuoteShareDialog
+            open={!!quoteShare.payload}
+            onOpenChange={(next) => {
+              if (!next) quoteShare.closeShare();
+            }}
+            url={quoteShare.payload?.url ?? ""}
+            content={quoteShare.payload?.content ?? null}
+            title={paper.title}
+            visibility={quoteShareVisibility}
+            publishing={quoteShare.publishing}
+            onMakePublic={quoteShare.makePublic}
+          />
         </div>
 
         {/* Related papers — real, crawlable internal links (SSR-rendered). */}
@@ -1525,21 +1579,34 @@ function PaperDetailPage() {
  */
 function ReaderPane({
   reader,
-  share,
+  isPublic,
+  shortId,
+  onShare,
+  onAskSelection,
   isSessionPending,
   isSignedIn,
   onSignIn,
 }: {
   reader: PaperReaderState;
-  share: QuoteShareContext;
+  isPublic: boolean;
+  shortId: string;
+  onShare: (payload: QuoteSharePayload) => void;
+  onAskSelection: (text: string) => void;
   isSessionPending: boolean;
   isSignedIn: boolean;
   onSignIn: () => void;
 }) {
   // 公开论文谁都能读，没必要等 session 解析完——段落深链的访客多半没登录过，
   // 让他们先等一轮 session 往返再出正文纯属白等。
-  if (share.isPublic) {
-    return <PaperReaderView reader={reader} share={share} />;
+  if (isPublic) {
+    return (
+      <PaperReaderView
+        reader={reader}
+        shortId={shortId}
+        onShare={onShare}
+        onAskSelection={onAskSelection}
+      />
+    );
   }
 
   // SSR / 首帧 session 还没解析出来，先占位，别把已登录用户闪一下登录墙
@@ -1561,7 +1628,14 @@ function ReaderPane({
     );
   }
 
-  return <PaperReaderView reader={reader} share={share} />;
+  return (
+    <PaperReaderView
+      reader={reader}
+      shortId={shortId}
+      onShare={onShare}
+      onAskSelection={onAskSelection}
+    />
+  );
 }
 
 /**

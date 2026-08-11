@@ -30,6 +30,24 @@ export function paperQuoteUrl(shortId: string, anchor: string): string {
 }
 
 /**
+ * PDF 页级深链。引文内容由分享卡片的图承载，链接只负责把人送到那一页；刻意不带
+ * 引文文本去做落地高亮——pdf.js 的文本匹配对断词连字符、ligature、跨页选区、双栏
+ * 乱序都不可靠，落空后还得静默退化，收益不抵复杂度。
+ */
+export function paperPdfPageUrl(shortId: string, page: number): string {
+  return `${paperPageUrl(shortId)}?view=pdf&page=${page}`;
+}
+
+/**
+ * 解析 ?page=。非正整数一律丢弃（返回 undefined = 从第 1 页开始），别让手改 URL 的人
+ * 把 initialPage 弄成 NaN/0/负数——那会让 PDFViewer 的 currentPageNumber 赋值抛错。
+ */
+export function parsePdfPageParam(raw: unknown): number | undefined {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+/**
  * 生成带回链的嵌入代码: 图片包在指向论文页的 <a> 里, 锚文本/alt 固定英文 + 动态标题,
  * 第三方贴出去即自带指向 picx.dev 的反链。
  */

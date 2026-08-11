@@ -14,11 +14,21 @@ export const PDF_QUOTE_MAX_CHARS = Math.floor(
 /** 引用块与后续提问之间的空行。同时也是光标要落进去的那一行 */
 const QUOTE_TRAILER = "\n\n";
 
+/** 把选中文本折成单行：排版硬换行与连续空白全部折成单空格。长度策略归调用方。 */
+export function collapseSelectionWhitespace(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
+}
+
 /**
- * 把 PDF 文本层选出来的原始文本整理成可读的一行。
+ * 把选中的原始文本整理成可读的一行**并钳到 chat 的引用预算**。两个阅读视图共用：
  *
- * 输入是 `useSelectionRect` 产出的**渲染文本**：每个视觉行之间一个 `\n`（pdf.js 的
- * 文本层用 `<br>` 分行）。直接丢进 chat 会是一堆断句，这里把所有空白折成单空格。
+ * - PDF：输入是 `useSelectionRect` 产出的**渲染文本**，每个视觉行之间一个 `\n`
+ *   （pdf.js 的文本层用 `<br>` 分行）。直接丢进 chat 会是一堆断句。
+ * - markdown 正文：输入是 `quoteTextOfSelection` 产出的引文文本，公式已折成 `$...$`，
+ *   块边界（表格单元格、列表项）同样带换行。
+ *
+ * 两条路都要把所有空白折成单空格，而且在 markdown 这条路上这是**必需**而非无害：
+ * `buildQuoteBlock` 产出的是单行 `> …`，留着换行会让第二行起跳出引用块。
  *
  * 刻意不处理行尾连字符断词（`infer-\nence`）：无法可靠区分排版断词与真实连字符
  * （`state-of-the-art` 恰好断在连字符处时两者完全同形），猜错会造出不存在的词，
@@ -28,12 +38,18 @@ const QUOTE_TRAILER = "\n\n";
  * 不认行边界，断词到这儿已经是焊死的 `infer-ence`、跨行词是 `forlarge`——比这里讨论
  * 的情况严格更糟，而且本函数对它完全是 no-op。改动上游前先看
  * `use-selection-rect.ts` 的 `clippedRenderedText`。
+ *
+ * 只服务 chat 这条路。分享卡片那条路要的是「折空白」而不是「折空白 + 按 chat 预算截」，
+ * 走 collapseSelectionWhitespace：这里的默认上限派生自 CHAT_CLIENT_LIMITS，拿它预处理
+ * 卡片文本会让卡片的截断策略被 chat 输入框的预算暗中接管，而且尾部省略号是在这里加的，
+ * 卡片侧再看长度就已经量不出「用户到底选了多少」，`truncated` 恒为 false——截断提示会
+ * 静默消失。
  */
 export function normalizePdfSelection(
   raw: string,
   maxChars: number = PDF_QUOTE_MAX_CHARS,
 ): string {
-  const collapsed = raw.replace(/\s+/g, " ").trim();
+  const collapsed = collapseSelectionWhitespace(raw);
   if (collapsed.length <= maxChars) return collapsed;
   return `${collapsed.slice(0, maxChars).trimEnd()}…`;
 }

@@ -7,9 +7,9 @@ import { renderQuoteQr } from "./quote-card-image";
  *
  * 关闭时自清（而不是让调用方另外记一个 reset）：open 变 false 这一刻本身就该让二维码
  * 消失，不然下次为另一段引文打开时会先闪一下旧的。实践中 open 和 url 总是同时有效/
- * 同时清空（见 quote-share-overlay.tsx 里 url 只在 shareAnchor 非空时才非空），所以这
- * 里没有引入新的可观察状态，只是把「关闭时清空」这一步从调用方的重置块搬进了它自己
- * 的生命周期里。
+ * 同时清空（见 use-quote-share.ts：payload 非空才开弹窗，而 url 取 payload?.url ?? ""），
+ * 所以这里没有引入新的可观察状态，只是把「关闭时清空」这一步从调用方的重置块搬进了
+ * 它自己的生命周期里。
  */
 export interface QuoteQrResult {
   qrDataUrl: string | null;
