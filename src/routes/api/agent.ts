@@ -18,6 +18,7 @@ import {
   chatStreamBody,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
+import { CARD_TOOL_TYPES } from "#/lib/discovery-tools";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 
 /**
@@ -35,9 +36,6 @@ type Body = z.infer<typeof bodySchema>;
 interface AgentCtx {
   conversation: typeof conversations.$inferSelect;
 }
-
-/** 保留卡片工具（recommendPapers）的 output——历史回显要重建卡片；搜索工具的 output 落库时照常剥掉 */
-const CARD_TOOL_TYPES = new Set(["tool-recommendPapers"]);
 
 const handler = createChatStreamHandler<Body, AgentCtx>({
   logTag: "agent",

@@ -14,6 +14,7 @@ import {
   chatStreamBody,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
+import { CARD_TOOL_TYPES } from "#/lib/discovery-tools";
 
 /**
  * 论文 chatbot 的流式端点。独立于 tRPC：superjson transformer 不支持流式响应。
@@ -41,7 +42,14 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
     maxMessages: CHAT_LIMITS.maxMessagesPerSession,
     webSearchMaxResults: CHAT_LIMITS.webSearchMaxResults,
   },
-  stopWhenSteps: 8,
+  // 比 /api/agent 的 10 再宽一档，是拍的预算而非算出来的上界：论文页一轮里 readPaper
+  // 要按 24k 一段翻页（十几万字的论文就是七八段），发现类工具又鼓励多角度搜索 + 边讲边
+  // recommendPapers，每次交错都占一步，够极端的一轮仍可能撞顶。之所以宁可给宽：步数
+  // 耗尽是静默的——isStepCount 到点直接停，不产生 error part，而历史重放只保留 text
+  // part（见 chat-stream.ts），只发出工具调用就被截断的那轮会整条从模型可见历史里消失，
+  // 下一轮又从头搜一遍。真正的解法是把耗尽显式暴露成 error part，本期不做。
+  stopWhenSteps: 12,
+  keepToolOutputTypes: CARD_TOOL_TYPES,
 
   authorize: async ({
     db,
@@ -95,8 +103,13 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
   buildInstructions: ({ db, body }, { paper }) =>
     buildChatSystemPrompt(db, paper, body.locale, body.webSearch),
 
-  buildLocalTools: ({ env }, { paper }) =>
-    buildChatTools(env.PAPERS_BUCKET, paper.id),
+  buildLocalTools: ({ db, env, userId }, { paper }) =>
+    buildChatTools({
+      db,
+      bucket: env.PAPERS_BUCKET,
+      userId,
+      paperId: paper.id,
+    }),
 
   persistUserMessage: async ({ db, userId, body }, { chatSession }) => {
     // id 由客户端提供，regenerate/edit 会复用同一个 id，必须幂等，否则撞主键 500。

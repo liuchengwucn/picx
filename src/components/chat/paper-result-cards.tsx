@@ -6,11 +6,11 @@ import { toast } from "sonner";
 import { localizeUploadError } from "#/components/papers/upload-error-message";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
-// 仅类型导入：agent.ts 是服务端模块（drizzle/R2 一大串）。`import type` 在编译期
-// 就被整条擦除，运行时不产生 import，服务端代码不会进客户端包
-// （同 paper-chat.tsx 引 chat.ts 的做法）。
-import type { DiscoveredPaper } from "#/lib/agent";
 import { authClient } from "#/lib/auth-client";
+// 仅类型导入：discovery-tools.ts 是服务端模块（drizzle/zod/ai SDK 一大串）。`import type` 在编译期
+// 就被整条擦除，运行时不产生 import，服务端代码不会进客户端包
+// （同 chat-input.tsx / use-chat-settings.ts 引 chat.ts 的做法）。
+import type { DiscoveredPaper } from "#/lib/discovery-tools";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -172,8 +172,9 @@ function PaperResultCard({
 }
 
 /**
- * searchArxiv / listDailyPapers 的结果卡片列表：在回答正文里就地入库，
- * 用户不必再复制链接跑一趟上传对话框。
+ * recommendPapers 精选出来的论文卡片列表：在回答正文里就地入库，用户不必再
+ * 复制链接跑一趟上传对话框。只有这一个工具出卡片——搜索类工具的结果只给模型
+ * 自己看（见 discovery-tools.ts 的 CARD_TOOL_TYPES 与 DISCOVERY_PROMPT_RULE）。
  */
 export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
   const trpc = useTRPC();
@@ -252,9 +253,13 @@ export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
     );
   };
 
-  // url 缺失的条目没法链接也没法入库，直接丢掉（旧格式历史消息的兜底）
+  // url 缺失的条目没法链接也没法入库，直接丢掉（旧格式历史消息的兜底）。
+  // 同时限死 arXiv 前缀：这个值直接当 href 用，而 D1 回放的 output 按约定要当成可能
+  // 畸形的数据看待，唯独这个字段的「畸形」可以是 javascript: 之类的协议。
   const cards = results.filter(
-    (paper) => typeof paper?.url === "string" && paper.url.length > 0,
+    (paper) =>
+      typeof paper?.url === "string" &&
+      paper.url.startsWith("https://arxiv.org/"),
   );
 
   return (

@@ -5,7 +5,6 @@ import {
   BookOpen,
   Check,
   ChevronDown,
-  Globe,
   Loader2,
   MessageSquareQuote,
   PanelRightClose,
@@ -30,8 +29,13 @@ import {
   ChatThinking,
   resolveChatErrorMessage,
   type ToolDisplayMap,
+  WEB_SEARCH_TOOL_DISPLAY,
 } from "#/components/chat/chat-message";
 import { createTextOnlyChatTransport } from "#/components/chat/chat-transport";
+import {
+  DISCOVERY_TOOL_DISPLAYS,
+  renderDiscoveryToolOutput,
+} from "#/components/chat/discovery-ui";
 import { useChatSettings } from "#/components/chat/use-chat-settings";
 import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
 import { Button } from "#/components/ui/button";
@@ -64,21 +68,15 @@ export function clampChatPanelWidth(width: number): number {
   );
 }
 
-/** paper 聊天的工具展示（行为与原硬编码一致） */
+/** paper 聊天的工具展示；发现三件套与 web_search 两条与 /assistant 共用同一份定义 */
 const PAPER_CHAT_TOOLS: ToolDisplayMap = {
   readPaper: {
     icon: BookOpen,
     running: m.chat_reading_paper,
     done: m.chat_read_paper_done,
   },
-  web_search: {
-    icon: Globe,
-    running: m.chat_searching_web,
-    done: m.chat_searched_web,
-    // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
-    // 参数一到齐（input-available）就当「已搜索」，结果以 source part 到达
-    isDone: (state) => state !== "input-streaming",
-  },
+  ...DISCOVERY_TOOL_DISPLAYS,
+  ...WEB_SEARCH_TOOL_DISPLAY,
 };
 
 interface ConversationProps {
@@ -465,6 +463,7 @@ function PaperChatConversation({
               message={message}
               isStreaming={isBusy && message.id === lastMessage?.id}
               toolDisplays={PAPER_CHAT_TOOLS}
+              renderToolOutput={renderDiscoveryToolOutput}
             />
           ))
         )}
@@ -825,6 +824,14 @@ export function PaperChat({
         )}
         {isSignedIn ? (
           <PaperChatConversation
+            // 换论文必须卸载重建：路由没配 remountDeps，/p/$shortId 之间跳转
+            // （卡片里的「查看」、相关论文列表）不会重挂这棵子树，selectedSessionId
+            // 会停在上一篇的会话上，而 didAutoSelectRef/hydratedSessionRef 已置位、
+            // 自动选择与历史注入都会跳过。表面看是「新对话」（sessions 换了一批，
+            // activeSession 找不着），一发送却带着旧 sessionId，被服务端
+            // authorize 的 paperId 校验判 forbidden，只能吃通用报错。
+            // 草稿在 PaperChat 这一层，重挂不会丢用户打了一半的字。
+            key={paperShortId}
             paperShortId={paperShortId}
             input={input}
             onInputChange={setInput}
@@ -903,6 +910,8 @@ export function PaperChat({
           <div className="min-h-0 flex-1">
             {isSignedIn ? (
               <PaperChatConversation
+                // 理由同宽屏形态那处：换论文必须卸载重建，否则会话状态串到上一篇
+                key={paperShortId}
                 paperShortId={paperShortId}
                 onClose={closeSheet}
                 input={input}
