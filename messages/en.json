@@ -588,6 +588,7 @@
   "admin_field_config_invalid": "Config must be valid JSON.",
   "admin_field_config_required": "This adapter needs \"{field}\" in the config.",
   "admin_field_config_bad_url": "\"url\" must be an absolute URL, e.g. https://example.com/feed.xml",
+  "admin_field_config_bad_max_results": "\"maxResults\" must be a positive whole number.",
   "admin_field_enabled": "Enabled",
   "admin_source_health_ok": "Healthy",
   "admin_source_failures": "{count} consecutive failures",

@@ -588,6 +588,7 @@
   "admin_field_config_invalid": "配置必须是合法 JSON。",
   "admin_field_config_required": "这个适配器的配置里必须有 \"{field}\"。",
   "admin_field_config_bad_url": "\"url\" 必须是完整网址，例如 https://example.com/feed.xml",
+  "admin_field_config_bad_max_results": "\"maxResults\" 必须是正整数。",
   "admin_field_enabled": "启用",
   "admin_source_health_ok": "健康",
   "admin_source_failures": "连续失败 {count} 次",

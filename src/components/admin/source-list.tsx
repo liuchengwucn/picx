@@ -15,6 +15,10 @@ import {
   Pill,
   useInvalidateAdmin,
 } from "#/components/admin/admin-ui";
+import {
+  checkSourceConfig,
+  type SourceConfigProblem,
+} from "#/components/admin/source-config-check";
 import { Button } from "#/components/ui/button";
 import {
   Select,
@@ -38,8 +42,9 @@ type SourceConfigInput =
 const ADAPTER_TYPES: AdapterType[] = ["arxiv_query", "rss"];
 
 /**
- * 新建源时的 config 骨架。孤零零一个 `{}` 会让站长去猜字段名，而字段名拼错
- * （zod 会静默剥掉未知键）表现为「保存成功但永远抓不到东西」。
+ * 新建源时的 config 骨架。孤零零一个 `{}` 会让站长去猜字段名，而猜错/拼错的键会被
+ * zod 静默剥掉。骨架管的是「一眼看见这个适配器认哪几个键、值长什么样」——键缺失或
+ * 值不合规现在由 checkSourceConfig 在保存前拦下，骨架不再是唯一的防线。
  */
 const CONFIG_TEMPLATES: Record<AdapterType, string> = {
   arxiv_query:
@@ -48,15 +53,13 @@ const CONFIG_TEMPLATES: Record<AdapterType, string> = {
 };
 const TEMPLATE_VALUES = Object.values(CONFIG_TEMPLATES);
 
-/**
- * 每个适配器的必填 config 字段，与后端 upsertSourceInput 的跨字段校验逐条对应。
- * 少了它就是「保存成功但永远抓不到东西」：适配器要到周六 workflow 跑才抛，
- * consecutiveFailures 每周才 +1，好几周后才熔断。
- */
-const REQUIRED_CONFIG_FIELD: Record<AdapterType, "query" | "url"> = {
-  arxiv_query: "query",
-  rss: "url",
-};
+/** checkSourceConfig 的判定 → 站长看得懂的一句话 */
+function configProblemMessage(problem: SourceConfigProblem): string {
+  if (problem.kind === "missing")
+    return m.admin_field_config_required({ field: problem.field });
+  if (problem.kind === "bad_url") return m.admin_field_config_bad_url();
+  return m.admin_field_config_bad_max_results();
+}
 
 /**
  * 折叠行里那一眼。query / url 是这条源的身份，优先显示；两者都没有时（比如只填了
@@ -301,24 +304,19 @@ function SourceForm({
       return;
     }
     /**
-     * 必填项按当前适配器查，与后端同一条判定。字段名拼错（`ur`）也走这里：读的是
-     * 站长手写的那份 JSON，拼错等于该字段缺失 —— 而后端那侧 zod 的 strip 语义同样
-     * 会把拼错的键剥掉，两侧结论一致。
+     * 逐条镜像后端的字段校验（判定与理由都在 source-config-check.ts）。这一步不是
+     * 「顺手多拦一道」：没有 errorFormatter，后端 zod 的 issue path 到不了 UI，
+     * 站长能看到的字段级提示只有这一份。
      *
-     * 只查「该有的有没有」：切换适配器后残留的无关字段（rss 的 config 里还留着
-     * query）无害，拦住它只会让站长改不动配置。
+     * 字段名拼错（`ur`）也在这里被抓住：读的是站长手写的那份 JSON，拼错等于必填项
+     * 缺失，与后端 strip 掉未知键之后的结论一致。
      */
-    const requiredField = REQUIRED_CONFIG_FIELD[adapterType];
-    const requiredValue = (parsed as Record<string, unknown>)[requiredField];
-    if (typeof requiredValue !== "string" || !requiredValue.trim()) {
-      setError(m.admin_field_config_required({ field: requiredField }));
-      return;
-    }
-    // url 还要能解析：后端是 z.string().url()，漏了 scheme 的 "example.com/feed.xml"
-    // 会换来一条说不清哪里错了的 400。这里用 URL() 判——它比 zod 宽松，只会拦下
-    // 后端也一定会拒的输入，不会误伤合法配置。
-    if (requiredField === "url" && !URL.canParse(requiredValue)) {
-      setError(m.admin_field_config_bad_url());
+    const problem = checkSourceConfig(
+      adapterType,
+      parsed as Record<string, unknown>,
+    );
+    if (problem) {
+      setError(configProblemMessage(problem));
       return;
     }
     setError(null);

@@ -588,6 +588,7 @@
   "admin_field_config_invalid": "設定は正しい JSON である必要があります。",
   "admin_field_config_required": "このアダプターの設定には \"{field}\" が必要です。",
   "admin_field_config_bad_url": "\"url\" は完全な URL を指定してください。例：https://example.com/feed.xml",
+  "admin_field_config_bad_max_results": "\"maxResults\" は正の整数を指定してください。",
   "admin_field_enabled": "有効",
   "admin_source_health_ok": "正常",
   "admin_source_failures": "{count} 回連続で失敗",

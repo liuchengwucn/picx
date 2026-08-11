@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { checkSourceConfig } from "#/components/admin/source-config-check";
 import { directionSources, directions } from "#/db/schema";
 import { REVIEW_GUEST_USER_ID } from "#/lib/review-guest";
 import { createTestDb } from "../../../../test/helpers/sqlite-d1";
@@ -205,7 +206,12 @@ describe("triggerDigest 的 isActive 守卫", () => {
 
 /**
  * 输入被拒时的 zod issue 路径。只断言「抛了 BAD_REQUEST」太松（任何输入错误都是它），
- * 要验的是错误指到了具体字段 —— 站长得知道是哪一个键缺了。
+ * 要验的是这条判定落在了哪个字段上，不然把 query 的守卫写到 url 上也照样绿。
+ *
+ * 注意这些 path **到不了 UI**：src/ 里没有 errorFormatter，默认 shape 不带 zodError，
+ * 客户端只拿到 code 与一段 ZodError 的 JSON 串。站长看到的字段级提示全部来自
+ * components/admin/source-config-check.ts 那份镜像校验（两侧一致性由下面那张
+ * 前后端对照表钉住）。这里的 path 是给读代码的人和这些测试用的。
  */
 async function rejectedInputPaths(
   promise: Promise<unknown>,
@@ -273,7 +279,9 @@ describe("upsertSource 的按适配器必填校验", () => {
     ).toEqual(["config.url"]);
   });
 
-  it("字段名拼错（ur）被 strip 剥掉，于是当作缺 url 抓住", async () => {
+  // 名字只声称结论：这条不依赖 strip 语义（passthrough 下 url 同样缺失，superRefine
+  // 照样报 config.url）。strip 本身由下面那条独立用例钉住。
+  it("字段名拼错（ur）等于没填 url，照样拦住", async () => {
     expect(
       await rejectedInputPaths(
         caller.upsertSource({
@@ -342,5 +350,78 @@ describe("upsertSource 的按适配器必填校验", () => {
         enabled: true,
       }),
     ).resolves.toMatchObject({ id: expect.stringMatching(/^dsrc-/) });
+  });
+});
+
+/**
+ * 前端镜像校验（source-config-check.ts）与**真的这条 procedure** 逐条对照。
+ *
+ * 这张表是这条链上唯一能抓住「镜像比后端严」的东西，而那种偏差最坑：站长眼里就是
+ * 一份看起来完全正确的配置死活存不进去，而后端本来会接受它。最典型的一类是从中文
+ * 网页/聊天窗口复制 URL 时粘上的不可见空白 —— zod 4 的 url 检查会先 trim，WHATWG 的
+ * URL 解析只剥 C0 控制符与空格，两者对 U+00A0 / U+3000 / U+FEFF 的结论正好相反。
+ *
+ * 「镜像比后端松」（放行了后端会拒的）也一并抓住：那种偏差只是退回一条笼统的 400，
+ * 不好但不致命。
+ */
+describe("前端镜像校验与后端 upsertSource 判定一致", () => {
+  const URL_CASES = [
+    "https://example.com/feed.xml",
+    "http://a.co",
+    "example.com/feed.xml",
+    "not a url",
+    "https://",
+    "//a.com/feed.xml",
+    "  https://a.com/feed.xml", // 普通 ASCII 空格：两侧本来就一致
+    " https://a.com/feed.xml", // 不换行空格（复制粘贴常见）
+    "　https://a.com/feed.xml", // 全角空格
+    "﻿https://a.com/feed.xml", // BOM
+    "https://a.com/feed.xml ", // 尾部不换行空格
+  ];
+
+  let db: Db;
+  let caller: ReturnType<typeof makeCaller>;
+
+  beforeEach(async () => {
+    db = createTestDb().db;
+    await seedDirections(db);
+    caller = makeCaller({ session: ADMIN_SESSION, db });
+  });
+
+  /** 后端到底收不收：直接过真 procedure，不复述它的 schema */
+  async function backendAccepts(config: unknown): Promise<boolean> {
+    try {
+      await caller.upsertSource({
+        directionId: "dir-on",
+        adapterType: "rss",
+        config: config as { url?: string },
+        enabled: true,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  it("url 的每一种写法上，两侧结论逐条相同", async () => {
+    const disagreements: string[] = [];
+    for (const url of URL_CASES) {
+      const frontendAccepts = checkSourceConfig("rss", { url }) === null;
+      if (frontendAccepts !== (await backendAccepts({ url })))
+        disagreements.push(JSON.stringify(url));
+    }
+    expect(disagreements).toEqual([]);
+  });
+
+  it("maxResults 的每一种写法上，两侧结论逐条相同", async () => {
+    const cases: unknown[] = [50, 1, 0, -1, 1.5, "50", null, undefined];
+    const disagreements: string[] = [];
+    for (const maxResults of cases) {
+      const config = { url: "https://a.com/feed.xml", maxResults };
+      const frontendAccepts = checkSourceConfig("rss", config) === null;
+      if (frontendAccepts !== (await backendAccepts(config)))
+        disagreements.push(JSON.stringify(maxResults) ?? "undefined");
+    }
+    expect(disagreements).toEqual([]);
   });
 });

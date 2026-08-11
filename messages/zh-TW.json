@@ -588,6 +588,7 @@
   "admin_field_config_invalid": "設定必須是合法的 JSON。",
   "admin_field_config_required": "這個配接器的設定裡必須有 \"{field}\"。",
   "admin_field_config_bad_url": "\"url\" 必須是完整網址，例如 https://example.com/feed.xml",
+  "admin_field_config_bad_max_results": "\"maxResults\" 必須是正整數。",
   "admin_field_enabled": "啟用",
   "admin_source_health_ok": "正常",
   "admin_source_failures": "連續失敗 {count} 次",
