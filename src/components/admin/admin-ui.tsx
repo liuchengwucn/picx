@@ -52,8 +52,8 @@ export function toLocaleDraft(
 
 /**
  * tRPC 错误 → 站长看得懂的一句话。
- * CONFLICT / NOT_FOUND / "proposal not pending" 三种都是并发编辑的正常结局，
- * 说成通用「出了点问题」会让站长反复重试一个永远不会成功的操作。
+ * CONFLICT / NOT_FOUND / "proposal not pending" / "direction not active" 四种都是
+ * 并发编辑的正常结局，说成通用「出了点问题」会让站长反复重试一个永远不会成功的操作。
  */
 export function adminErrorMessage(error: unknown): string {
   const code =
@@ -68,6 +68,9 @@ export function adminErrorMessage(error: unknown): string {
   if (code === "NOT_FOUND") return m.admin_stale_refresh();
   if (code === "BAD_REQUEST" && message === "proposal not pending")
     return m.admin_proposal_not_pending();
+  // 触发按钮在方向停用时已经灰掉，这条兜的是「另一个标签页刚把它停用」的时间差
+  if (code === "BAD_REQUEST" && message === "direction not active")
+    return m.admin_trigger_inactive();
   return m.admin_error_generic();
 }
 

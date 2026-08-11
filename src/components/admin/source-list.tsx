@@ -49,6 +49,16 @@ const CONFIG_TEMPLATES: Record<AdapterType, string> = {
 const TEMPLATE_VALUES = Object.values(CONFIG_TEMPLATES);
 
 /**
+ * 每个适配器的必填 config 字段，与后端 upsertSourceInput 的跨字段校验逐条对应。
+ * 少了它就是「保存成功但永远抓不到东西」：适配器要到周六 workflow 跑才抛，
+ * consecutiveFailures 每周才 +1，好几周后才熔断。
+ */
+const REQUIRED_CONFIG_FIELD: Record<AdapterType, "query" | "url"> = {
+  arxiv_query: "query",
+  rss: "url",
+};
+
+/**
  * 折叠行里那一眼。query / url 是这条源的身份，优先显示；两者都没有时（比如只填了
  * maxResults）退回紧凑 JSON —— 固定显示 "{}" 会让人以为配置是空的。
  */
@@ -288,6 +298,27 @@ function SourceForm({
       Array.isArray(parsed)
     ) {
       setError(m.admin_field_config_invalid());
+      return;
+    }
+    /**
+     * 必填项按当前适配器查，与后端同一条判定。字段名拼错（`ur`）也走这里：读的是
+     * 站长手写的那份 JSON，拼错等于该字段缺失 —— 而后端那侧 zod 的 strip 语义同样
+     * 会把拼错的键剥掉，两侧结论一致。
+     *
+     * 只查「该有的有没有」：切换适配器后残留的无关字段（rss 的 config 里还留着
+     * query）无害，拦住它只会让站长改不动配置。
+     */
+    const requiredField = REQUIRED_CONFIG_FIELD[adapterType];
+    const requiredValue = (parsed as Record<string, unknown>)[requiredField];
+    if (typeof requiredValue !== "string" || !requiredValue.trim()) {
+      setError(m.admin_field_config_required({ field: requiredField }));
+      return;
+    }
+    // url 还要能解析：后端是 z.string().url()，漏了 scheme 的 "example.com/feed.xml"
+    // 会换来一条说不清哪里错了的 400。这里用 URL() 判——它比 zod 宽松，只会拦下
+    // 后端也一定会拒的输入，不会误伤合法配置。
+    if (requiredField === "url" && !URL.canParse(requiredValue)) {
+      setError(m.admin_field_config_bad_url());
       return;
     }
     setError(null);

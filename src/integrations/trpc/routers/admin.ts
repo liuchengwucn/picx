@@ -27,11 +27,55 @@ const localeRecord = z.record(
   z.string().min(1),
 );
 
+/**
+ * config 是原样喂给适配器的 JSON，字段是并集（每个适配器只用其中一部分），所以
+ * 单条字段只能是 optional，「哪些是必填」得看 adapterType —— 见下面 upsertSourceInput
+ * 的跨字段校验。
+ *
+ * 默认的 strip 语义（不要改成 passthrough）是这里的第一道防线：字段名拼错（`ur`）
+ * 会被静默剥掉，剥掉之后必填项就缺了，正好被跨字段校验抓住。
+ */
 const sourceConfig = z.object({
   query: z.string().optional(),
   maxResults: z.number().int().positive().optional(),
   url: z.string().url().optional(),
 });
+
+/**
+ * 源的必填项按 adapterType 分叉，而适配器那边是硬要求（sources.ts 里 arxiv_query
+ * 缺 query、rss 缺 url 都直接 throw）。不在保存这一刻拦住的代价被周更节奏放大：
+ * 错配的源要等到周六 workflow 跑才失败一次，consecutiveFailures 每周 +1，好几周
+ * 才熔断，管理页期间只显示「连续失败 1 次」。
+ *
+ * 校验挂在整个 input 上而不是 sourceConfig 上：adapterType 与 config 是兄弟字段，
+ * 单独的 config schema 看不见 adapterType。
+ *
+ * 只校验「该有的有没有」，不管多出来的：切换适配器类型后 config 里残留的无关字段
+ * （rss 源里还留着 query）是无害残留，拦住它会让站长改不动配置。
+ */
+const upsertSourceInput = z
+  .object({
+    id: z.string().optional(),
+    directionId: z.string(),
+    adapterType: z.enum(["arxiv_query", "rss"]),
+    config: sourceConfig,
+    enabled: z.boolean(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.adapterType === "arxiv_query" && !input.config.query?.trim())
+      ctx.addIssue({
+        code: "custom",
+        path: ["config", "query"],
+        message: "arxiv_query source requires a non-empty config.query",
+      });
+    // url 的合法性已由 sourceConfig 的 .url() 管；这里只补「必须有」
+    if (input.adapterType === "rss" && !input.config.url)
+      ctx.addIssue({
+        code: "custom",
+        path: ["config", "url"],
+        message: "rss source requires config.url",
+      });
+  });
 
 export const adminRouter = router({
   /** 管理页 mount 时的权限探针：能调通即 admin，403/401 由前端渲染 404 态 */
@@ -78,15 +122,7 @@ export const adminRouter = router({
     ),
 
   upsertSource: adminProcedure
-    .input(
-      z.object({
-        id: z.string().optional(),
-        directionId: z.string(),
-        adapterType: z.enum(["arxiv_query", "rss"]),
-        config: sourceConfig,
-        enabled: z.boolean(),
-      }),
-    )
+    .input(upsertSourceInput)
     .mutation(async ({ ctx, input }) => {
       const result = await upsertSource(ctx.db, input);
       if ("error" in result)
@@ -176,11 +212,27 @@ export const adminRouter = router({
     .input(z.object({ directionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const [dir] = await ctx.db
-        .select({ slug: directions.slug })
+        .select({ slug: directions.slug, isActive: directions.isActive })
         .from(directions)
         .where(eq(directions.id, input.directionId))
         .limit(1);
       if (!dir) throw new TRPCError({ code: "NOT_FOUND" });
+      /**
+       * 停用的方向不许起飞。这是权威判定（前端那个灰按钮只是为了讲清原因）：
+       *
+       * 1. deleteDirectionGuarded 的 still_active 守卫押在「停用即无新实例起飞」上，
+       *    此处放行等于给它开第二条跑道 —— 对一个已停用、无历史的方向点「立即开一期」，
+       *    再在 ensureDigestShell 落行之前点删除，两个 COUNT 都是 0、still_active 也过，
+       *    DELETE 成功；在飞的实例随后往已消失的 digest 插子行、撞外键重试到耗尽。
+       * 2. 停用方向的期在公开侧一律不可见（store.ts 的公开查询全是 isActive-only），
+       *    整条 workflow（强模型 scope + 精读 + 三票对抗 + 四语翻译）跑完、发布，
+       *    却没有任何入口能看到产物 —— 静默烧钱。
+       */
+      if (!dir.isActive)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "direction not active",
+        });
       // cron 侧当日确定性 id 是 digest-{slug}-{yyyymmdd}（src/workers/digest-cron.ts:26），
       // 手动触发加 -m{HHmmss} 后缀避开冲突；语义 = 总是新开一期（ensureDigestShell 取 max+1）
       const now = new Date();

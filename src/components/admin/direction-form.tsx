@@ -520,26 +520,47 @@ export function DirectionForm({
         </Button>
         {direction ? (
           <>
-            {/* 实例 id 精确到秒，同方向 1 秒内两次触发会撞 id：pending 期间必须锁住 */}
-            <ConfirmButton
-              label={
-                <>
-                  {triggerDigest.isPending ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Play className="size-3.5" />
-                  )}
-                  {m.admin_trigger_digest()}
-                </>
-              }
+            {/* 两个限制：
+                1. isPending —— 实例 id 精确到秒，同方向 1 秒内两次触发会撞 id。
+                2. 方向已停用 —— 后端也拒（triggerDigest 里那段权威判定），这里灰掉
+                   只是为了把原因讲在前面：吃一个 400 toast 比按钮灰掉难懂得多。
+                   读的是**服务端**的 isActive 而不是表单里那个开关，与后端看到的库内
+                   状态保持一致（开关打开但还没保存时，按钮仍该是灰的）。
+
+                title 挂在外层 span 上而不是按钮上：Button 的基础类里有
+                disabled:pointer-events-none，禁用态的按钮根本不接收 hover 命中测试，
+                挂在它自己身上的 title 永远弹不出来（同页 admin-generate-intro 那个
+                title 就是这么失效的）。外层 span 没被禁用，hover 会落到它上面。 */}
+            <span
               className="ml-auto"
-              confirmLabel={m.admin_trigger_confirm()}
-              disabled={triggerDigest.isPending}
-              data-testid="admin-trigger-digest"
-              onConfirm={() =>
-                triggerDigest.mutate({ directionId: direction.id })
+              title={
+                direction.isActive ? undefined : m.admin_trigger_inactive()
               }
-            />
+            >
+              <ConfirmButton
+                label={
+                  <>
+                    {triggerDigest.isPending ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Play className="size-3.5" />
+                    )}
+                    {m.admin_trigger_digest()}
+                  </>
+                }
+                confirmLabel={m.admin_trigger_confirm()}
+                disabled={triggerDigest.isPending || !direction.isActive}
+                // 禁用的按钮不进 Tab 序，读屏用户只会听到「不可用」而听不到 span 上的
+                // title，所以停用时把原因作为按钮自身的可访问描述再挂一遍
+                description={
+                  direction.isActive ? undefined : m.admin_trigger_inactive()
+                }
+                data-testid="admin-trigger-digest"
+                onConfirm={() =>
+                  triggerDigest.mutate({ directionId: direction.id })
+                }
+              />
+            </span>
             <ConfirmButton
               label={m.admin_delete()}
               confirmLabel={m.admin_delete_confirm()}
