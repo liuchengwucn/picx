@@ -8,6 +8,7 @@ import {
   Rss,
   Search,
 } from "lucide-react";
+import { ModuleKicker } from "#/components/home/module-kicker";
 import { TodayStrip } from "#/components/home/today-strip";
 import type { HomeToday } from "#/lib/home/today";
 import { SITE_URL } from "#/lib/site-url";
@@ -42,9 +43,9 @@ export const Route = createFileRoute("/")({
       }
     }
     try {
-      const today = (await context.queryClient.ensureQueryData(
+      const today = await context.queryClient.ensureQueryData(
         context.trpc.home.today.queryOptions(),
-      )) as HomeToday;
+      );
       return { today };
     } catch {
       return { today: null };
@@ -73,7 +74,12 @@ export const Route = createFileRoute("/")({
       links: [
         { rel: "canonical", href: url },
         // 报头 logo 是首屏 LCP 元素
-        { rel: "preload", as: "image", href: "/logo.webp" },
+        {
+          rel: "preload",
+          as: "image",
+          href: "/logo.webp",
+          fetchPriority: "high",
+        },
       ],
       scripts: [
         {
@@ -108,23 +114,31 @@ export const Route = createFileRoute("/")({
 
 // 序号编码真实工作流顺序(追踪 → 发现 → 阅读 → 讨论),不是装饰性编号。
 const WORKFLOW_STEPS = [
-  { icon: Rss, title: m.home_step_track_title, desc: m.home_step_track_desc },
   {
+    id: "track",
+    icon: Rss,
+    title: m.home_step_track_title,
+    desc: m.home_step_track_desc,
+  },
+  {
+    id: "discover",
     icon: Search,
     title: m.home_step_discover_title,
     desc: m.home_step_discover_desc,
   },
   {
+    id: "read",
     icon: BookOpen,
     title: m.home_step_read_title,
     desc: m.home_step_read_desc,
   },
   {
+    id: "discuss",
     icon: MessageCircle,
     title: m.home_step_discuss_title,
     desc: m.home_step_discuss_desc,
   },
-];
+] as const;
 
 function HomePage() {
   const { today } = Route.useLoaderData();
@@ -196,14 +210,9 @@ function HomePage() {
       {/* 叙事区:这个网站到底做什么 */}
       <section className="px-4 pt-12 sm:px-6 sm:pt-16">
         <div className="page-wrap">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-soft)]">
-            <span
-              aria-hidden
-              className="h-[7px] w-[7px] flex-none bg-[var(--academic-brown)]"
-            />
-            <span>{m.home_whatis_label()}</span>
-            <span aria-hidden className="h-px flex-1 bg-[var(--line)]" />
-          </div>
+          <ModuleKicker color="var(--academic-brown)">
+            {m.home_whatis_label()}
+          </ModuleKicker>
 
           <h2 className="mx-auto mt-5 max-w-3xl text-balance text-center font-serif text-xl font-bold leading-snug text-[var(--ink)] sm:text-2xl">
             {m.home_whatis_title()}
@@ -212,7 +221,7 @@ function HomePage() {
           <div className="stagger-in mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {WORKFLOW_STEPS.map((step, index) => (
               <article
-                key={step.title()}
+                key={step.id}
                 className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-5 shadow-[0_2px_12px_rgba(45,42,36,0.05)]"
               >
                 <span
@@ -271,9 +280,12 @@ function HomePage() {
               />
             </div>
           </div>
-          <p className="mt-3 text-center text-[13px] text-[var(--ink-soft)]">
+          {/* 这句配文就是本区唯一的说明,直接当 h2 用:两图是纯示意(alt=""),
+              没有它这一区在可访问性树里是无名的。preflight 已抹掉 h2 默认字号/边距,
+              渲染结果与原来的 <p> 逐像素一致——所以不必再叠一个 sr-only 标题去重复朗读。 */}
+          <h2 className="mt-3 text-center text-[13px] font-normal text-[var(--ink-soft)]">
             {m.home_wb_note()}
-          </p>
+          </h2>
         </div>
       </section>
 

@@ -24,23 +24,32 @@ export function TodayStrip({ today }: { today: HomeToday | null }) {
 
   const { headline, subStories, latestPaper, galleryPicks } =
     assembleTodayCards(today);
-  // 资讯与论文两条主线全空 = 站点没有任何可展示的当日内容, 整区让位给静态叙事区
-  if (!headline && !latestPaper) return null;
-
   const locale = getLocale();
   const localeKey = normalizeLocaleKey(locale);
+
+  // story 的标题是四语 Record, pickTldr 全缺时返回 null; 照渲染就是一条没有可读
+  // 名字的链接(a11y 与 SEO 双输)。与 news 详情页对缺失译文的处理同源: 取不到标题
+  // 就当这条不存在。papers 的 title 是裸 string 列, 不走这条路径。
+  const headlineTitle = headline ? pickTldr(headline.title, localeKey) : null;
+  const namedSubStories = subStories.flatMap((story) => {
+    const title = pickTldr(story.title, localeKey);
+    return title ? [{ shortId: story.shortId, title }] : [];
+  });
+
+  // 资讯与论文两条主线全空 = 站点没有任何可展示的当日内容, 整区让位给静态叙事区
+  if (!headlineTitle && !latestPaper) return null;
 
   return (
     <section className="px-4 pt-8 sm:px-6 sm:pt-10">
       <div className="page-wrap">
         <div className="stagger-in grid gap-3 md:grid-cols-[1.5fr_1fr_1fr]">
-          {headline ? (
+          {headline && headlineTitle ? (
             <HeadlineCard
               headline={headline}
-              subStories={subStories}
+              title={headlineTitle}
+              subStories={namedSubStories}
               now={today.now}
               locale={locale}
-              localeKey={localeKey}
             />
           ) : null}
           {galleryPicks.length > 0 ? (
@@ -96,18 +105,19 @@ function MoreLink({
 
 function HeadlineCard({
   headline,
+  title,
   subStories,
   now,
   locale,
-  localeKey,
 }: {
   headline: HomeStory;
-  subStories: HomeStory[];
+  /** 已在 TodayStrip 侧取好并确认非空的当前语言标题 */
+  title: string;
+  /** 已过滤掉无标题项 */
+  subStories: Array<{ shortId: string; title: string }>;
   now: number;
   locale: string;
-  localeKey: LocaleKey;
 }) {
-  const title = pickTldr(headline.title, localeKey) ?? "";
   const published = new Date(headline.publishedAt);
   // 基准时间取查询侧捕获的 now, 否则 SSR 与 hydration 会算出不同的「x 小时前」
   const timeAgo = formatRelative(headline.publishedAt, now, locale);
@@ -162,7 +172,7 @@ function HeadlineCard({
                 <span aria-hidden className="mr-1.5 text-[var(--ink-soft)]">
                   ·
                 </span>
-                {pickTldr(story.title, localeKey) ?? ""}
+                {story.title}
               </Link>
             </li>
           ))}
