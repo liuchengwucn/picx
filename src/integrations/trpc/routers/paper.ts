@@ -29,6 +29,10 @@ import { canonicalArxivUrl } from "#/lib/arxiv";
 import { escapeLike, parseSort } from "#/lib/gallery-search";
 import { submitIndexNow } from "#/lib/indexnow";
 import { normalizeCategorySlugs } from "#/lib/paper-categories";
+import {
+  IN_FLIGHT_PAPER_STATUSES,
+  isInFlightPaperStatus,
+} from "#/lib/paper-status";
 import { selectRelatedPapers } from "#/lib/related-papers";
 import {
   getReviewGuestServerSession,
@@ -445,7 +449,7 @@ export const paperRouter = router({
         // 上限 20：categories/tags 各自展开成一个 LIKE 条件，D1 单查询绑定参数
         // 上限是 100，留足余量。
         categories: z.array(z.string()).max(20).optional(),
-        tags: z.array(z.string()).max(20).optional(),
+        tags: z.array(z.string().max(50)).max(20).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -458,19 +462,15 @@ export const paperRouter = router({
       ];
 
       if (input.status === "processing") {
-        conditions.push(
-          inArray(papers.status, [
-            "parsing",
-            "processing_text",
-            "processing_image",
-          ]),
-        );
+        conditions.push(inArray(papers.status, IN_FLIGHT_PAPER_STATUSES));
       } else if (input.status) {
         conditions.push(eq(papers.status, input.status));
       }
 
       // 搜索: 标题 + 当前语言 tldr/summary + tags(LIKE, CJK 子串友好)。
       // 写法与 listPublic 一致。
+      // json_extract(...) LIKE 无法走索引,会对用户库全表扫描,且下面的 count
+      // 查询会重复同样的扫描。库大了要换成 denormalized search_text 列或 FTS5。
       if (input.search) {
         const needle = `%${escapeLike(input.search)}%`;
         const localePath = `$."${localeKey}"`;
@@ -498,7 +498,10 @@ export const paperRouter = router({
         .filter(Boolean);
       if (tagList.length > 0) {
         const tagCond = or(
-          ...tagList.map((t) => sql`${paperResults.tags} LIKE ${`%"${t}"%`}`),
+          ...tagList.map(
+            (t) =>
+              sql`${paperResults.tags} LIKE ${`%"${escapeLike(t)}"%`} ESCAPE '\\'`,
+          ),
         );
         if (tagCond) conditions.push(tagCond);
       }
@@ -518,17 +521,22 @@ export const paperRouter = router({
           tldr: paperResults.tldr,
           summaries: paperResults.summaries,
           tags: paperResults.tags,
+          // 单个 max() 聚合让 SQLite 保证同组裸列取自该行(文档化行为),
+          // 脏数据下多行 paper_results 时固定取最新那条,否则取到哪行是任意的。
+          latestResultAt: sql<number>`max(${paperResults.createdAt})`,
         })
         .from(papers)
         .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
         .where(and(...conditions))
         .groupBy(papers.id)
-        .orderBy(desc(papers.createdAt))
+        // createdAt 是整秒精度,arxiv-cron 批量插入必然撞秒。offset 分页没有
+        // tiebreaker 时跨页顺序不确定,会静默漏行(前端跨页去重只能挡重复,救不回漏的)。
+        .orderBy(desc(papers.createdAt), desc(papers.id))
         .limit(input.limit)
         .offset(offset);
 
       // total 只在首屏算一次: 无限滚动每翻一页都跑一次 count 是纯浪费,
-      // 前端读 pages[0].total。
+      // 前端读 pages[0].total。非首屏返回 null,调用方读 pages[0].total。
       let total: number | null = null;
       if (offset === 0) {
         const [totalResult] = await ctx.db
@@ -577,11 +585,7 @@ export const paperRouter = router({
     let processing = 0;
     let failed = 0;
     for (const row of rows) {
-      if (
-        row.status === "parsing" ||
-        row.status === "processing_text" ||
-        row.status === "processing_image"
-      ) {
+      if (isInFlightPaperStatus(row.status)) {
         processing += row.c;
       } else if (row.status === "failed") {
         failed += row.c;

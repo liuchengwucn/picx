@@ -215,6 +215,9 @@ export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
         void queryClient.invalidateQueries({
           queryKey: trpc.paper.list.queryKey(),
         });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.paper.statusCounts.queryKey(),
+        });
       },
       onError: (error) => {
         console.error("Add to library failed:", error);

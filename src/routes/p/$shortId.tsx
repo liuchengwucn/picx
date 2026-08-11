@@ -684,6 +684,9 @@ function PaperDetailPage() {
     trpc.paper.delete.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: trpc.paper.list.queryKey() });
+        queryClient.invalidateQueries({
+          queryKey: trpc.paper.statusCounts.queryKey(),
+        });
         navigate({ to: "/papers" });
       },
     }),
