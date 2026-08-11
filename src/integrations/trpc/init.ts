@@ -4,10 +4,11 @@ import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { drizzle } from "drizzle-orm/d1";
 import superjson from "superjson";
 import * as schema from "#/db/schema";
-import { auth } from "#/lib/auth";
+import { auth, parseAdminUserIds } from "#/lib/auth";
 import {
   getReviewGuestServerSession,
   isReviewGuestModeEnabled,
+  isReviewGuestSession,
 } from "#/lib/review-guest";
 
 export interface PaperQueueMessage {
@@ -50,6 +51,7 @@ interface AppEnvBindings {
   DIGEST_WORKFLOW: Workflow;
   DIGEST_CHEAP_MODEL?: string; // 扫源初筛/精读/对抗投票，回落 OPENAI_MODEL
   DIGEST_STRONG_MODEL?: string; // Scope 分解/定稿，回落 OPENAI_MODEL
+  ADMIN_USER_IDS?: string;
 }
 
 export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
@@ -95,3 +97,28 @@ const isAuthed = t.middleware(async ({ ctx, next }) => {
 });
 
 export const protectedProcedure = t.procedure.use(isAuthed);
+
+// 管理面一律要求真实 better-auth 会话：不走 isAuthed（它会回落 review-guest）。
+// getSession 本就不会返回 guest 合成会话，isReviewGuestSession 是双保险。
+const isAdmin = t.middleware(async ({ ctx, next }) => {
+  const session = await ctx.auth.api.getSession({ headers: ctx.headers });
+  if (!session) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "You must be logged in to access this resource",
+    });
+  }
+  if (isReviewGuestSession(session)) {
+    throw new TRPCError({ code: "FORBIDDEN" });
+  }
+  const role = (session.user as { role?: string | null }).role;
+  if (
+    role !== "admin" &&
+    !parseAdminUserIds(ctx.env.ADMIN_USER_IDS).includes(session.user.id)
+  ) {
+    throw new TRPCError({ code: "FORBIDDEN" });
+  }
+  return next({ ctx: { ...ctx, session } });
+});
+
+export const adminProcedure = t.procedure.use(isAdmin);

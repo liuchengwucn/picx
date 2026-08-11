@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
+import { admin } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "#/db/schema";
@@ -12,11 +13,20 @@ interface AppEnvBindings {
   BETTER_AUTH_SECRET?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
+  ADMIN_USER_IDS?: string;
 }
 
 // 获取 D1 数据库实例
 const appEnv = env as typeof env & AppEnvBindings;
 const db = drizzle(appEnv.DB, { schema });
+
+/** 逗号分隔的站长 userId 白名单；未配置时无人是 admin（除非 role 列被置 admin），安全默认 */
+export function parseAdminUserIds(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 export const auth = betterAuth({
   database: appEnv.DB, // D1 原生支持，自动检测
@@ -54,5 +64,8 @@ export const auth = betterAuth({
       }
     }),
   },
-  plugins: [tanstackStartCookies()],
+  plugins: [
+    admin({ adminUserIds: parseAdminUserIds(appEnv.ADMIN_USER_IDS) }),
+    tanstackStartCookies(),
+  ],
 });

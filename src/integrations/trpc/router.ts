@@ -1,4 +1,5 @@
 import { createTRPCRouter } from "./init";
+import { adminRouter } from "./routers/admin";
 import { apiConfigRouter } from "./routers/api-config";
 import { assistantRouter } from "./routers/assistant";
 import { chatRouter } from "./routers/chat";
@@ -19,5 +20,6 @@ export const trpcRouter = createTRPCRouter({
   news: newsRouter,
   digest: digestRouter,
   assistant: assistantRouter,
+  admin: adminRouter,
 });
 export type TRPCRouter = typeof trpcRouter;

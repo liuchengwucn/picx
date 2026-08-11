@@ -1,3 +1,4 @@
+import { adminClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { toast } from "sonner";
 import { m } from "#/paraglide/messages";
@@ -9,6 +10,7 @@ export const authClient = createAuthClient({
     typeof window !== "undefined"
       ? window.location.origin
       : "http://localhost:3000",
+  plugins: [adminClient()],
 });
 
 const GITHUB_SIGN_IN_DEBOUNCE_MS = 5000;

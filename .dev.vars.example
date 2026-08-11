@@ -57,6 +57,10 @@ INDEXNOW_KEY=
 # RSSHUB_BASE_URL=https://your-rsshub.example.com
 # NEWS_OPENAI_MODEL=gpt-5.2-instant
 
+# ===== Admin (Optional) =====
+# 站长 userId 白名单（逗号分隔）。本地：从 user 表查自己的 id 填入
+# ADMIN_USER_IDS=
+
 # ===== Ops (Optional) =====
 # Secret key to allow manual /__scheduled?cron=...&key=... triggers in production
 # CRON_TRIGGER_KEY=<long-random-string>

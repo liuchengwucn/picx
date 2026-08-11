@@ -22,6 +22,13 @@ export const user = sqliteTable("user", {
   image: text("image"),
   credits: integer("credits").notNull().default(10),
   lastDailyBonusDate: text("last_daily_bonus_date"),
+  // better-auth admin plugin 的 schema 列（Phase 3 管理页）。ban/impersonate 本期
+  // 不接 UI，但列是插件 schema 的一部分，缺列会在插件运行时报错，一次补齐。
+  // 列名 camelCase 与 better-auth 既有列（emailVerified 等）一致。
+  role: text("role"),
+  banned: integer("banned", { mode: "boolean" }),
+  banReason: text("banReason"),
+  banExpires: integer("banExpires", { mode: "timestamp_ms" }),
   createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
 });
@@ -58,6 +65,7 @@ export const session = sqliteTable("session", {
   updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
   ipAddress: text("ipAddress"),
   userAgent: text("userAgent"),
+  impersonatedBy: text("impersonatedBy"),
   userId: text("userId")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -778,6 +786,9 @@ export const directions = sqliteTable("directions", {
     .$type<Record<string, string>>(),
   // 当前关注的小方向 + 口味描述，直接喂给 LLM；小方向流变 = 改这段文字
   focusBrief: text("focus_brief").notNull(),
+  // 四语公开简介（公开页展示用）；NULL 时公开查询回退 focusBrief 中文原文。
+  // focusBrief 本身保持单语中文（喂 LLM 的内部口味描述），不对外。
+  intro: text("intro", { mode: "json" }).$type<Record<string, string>>(),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" })
@@ -840,6 +851,11 @@ export const digests = sqliteTable(
     content: text("content", { mode: "json" }).$type<Record<string, string>>(),
     // LLM 对 focusBrief 的更新提案，Phase 3 管理页人工采纳
     proposedFocusUpdate: text("proposed_focus_update"),
+    // 提案审阅状态：无提案为 NULL；saveDigestContent 落非空提案时置 pending，
+    // 管理页采纳/驳回翻 adopted/dismissed。采纳链即 focusBrief 演化史，不另建历史表。
+    proposedFocusUpdateStatus: text("proposed_focus_update_status", {
+      enum: ["pending", "adopted", "dismissed"],
+    }),
     // workflow instanceId，step 重试幂等守卫
     workflowInstanceId: text("workflow_instance_id").notNull().unique(),
     publishedAt: integer("published_at", { mode: "timestamp" }),

@@ -61,4 +61,6 @@ export interface Env {
   DIGEST_WORKFLOW: Workflow;
   DIGEST_CHEAP_MODEL?: string; // 扫源初筛/精读/对抗投票，回落 OPENAI_MODEL
   DIGEST_STRONG_MODEL?: string; // Scope 分解/定稿，回落 OPENAI_MODEL
+  // 站长 userId 白名单（逗号分隔，可选；未配置时管理面对所有人 403/404）
+  ADMIN_USER_IDS?: string;
 }

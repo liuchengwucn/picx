@@ -211,6 +211,13 @@
       "when": 1786102629186,
       "tag": "0029_lame_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1786424535516,
+      "tag": "0030_bitter_molten_man",
+      "breakpoints": true
     }
   ]
 }
