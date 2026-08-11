@@ -75,4 +75,21 @@ describe("adminProcedure 权限矩阵", () => {
       }).whoami(),
     ).resolves.toEqual({ userId: "u3" });
   });
+
+  // 全量遍历而非逐个点名：新加端点时漏挂 adminProcedure（哪怕一个 publicProcedure）
+  // 就是权限洞，这条会在加端点的那一刻红掉。isAdmin 排在 .input() 之前，所以
+  // 未登录时不需要构造合法输入就会先抛 UNAUTHORIZED。
+  it("路由里每一个端点都挂了 adminProcedure", async () => {
+    const caller = makeCaller({}) as unknown as Record<
+      string,
+      (input?: unknown) => Promise<unknown>
+    >;
+    const names = Object.keys(adminRouter._def.procedures);
+    expect(names.length).toBeGreaterThan(1);
+    for (const name of names) {
+      await expect(caller[name](undefined), name).rejects.toMatchObject({
+        code: "UNAUTHORIZED",
+      });
+    }
+  });
 });
