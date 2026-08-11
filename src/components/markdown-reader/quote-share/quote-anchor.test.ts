@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   anchorToRange,
+  askQuoteText,
   blocksOf,
   decodeAnchor,
   encodeAnchor,
@@ -187,5 +188,44 @@ describe("encodeAnchor / decodeAnchor", () => {
     expect(decodeAnchor("q=1.2-3")).toBeNull();
     expect(decodeAnchor("q=5.0-3.10.abc")).toBeNull(); // 块倒挂
     expect(decodeAnchor("q=5.10-5.10.abc")).toBeNull(); // 空区间
+  });
+});
+
+describe("askQuoteText", () => {
+  it("按锚点取规范化文本，公式折算成 LaTeX 源", () => {
+    const article = document.createElement("article");
+    article.innerHTML =
+      '<p>能量是 <span class="katex"><span class="katex-mathml">E=mc^2</span>' +
+      '<span class="katex-html">E=mc²</span>' +
+      '<annotation encoding="application/x-tex">E=mc^2</annotation></span> 而已</p>';
+    const blocks = blocksOf(article);
+    const full = normalizeBlock(blocks[0]).text;
+    const anchor: QuoteAnchor = {
+      startBlock: 0,
+      startOffset: 0,
+      endBlock: 0,
+      endOffset: full.length,
+      fingerprint: "x",
+    };
+    expect(askQuoteText(article, anchor, "fallback")).toContain("$E=mc^2$");
+  });
+
+  it("锚点为 null 时回退到渲染文本", () => {
+    const article = document.createElement("article");
+    article.innerHTML = "<p>hello</p>";
+    expect(askQuoteText(article, null, "fallback")).toBe("fallback");
+  });
+
+  it("区间非法时回退到渲染文本", () => {
+    const article = document.createElement("article");
+    article.innerHTML = "<p>hello</p>";
+    const anchor: QuoteAnchor = {
+      startBlock: 0,
+      startOffset: 0,
+      endBlock: 9,
+      endOffset: 3,
+      fingerprint: "x",
+    };
+    expect(askQuoteText(article, anchor, "fallback")).toBe("fallback");
   });
 });

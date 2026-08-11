@@ -80,10 +80,12 @@ export function PaperReaderView({
   reader,
   shortId,
   onShare,
+  onAskSelection,
 }: {
   reader: PaperReaderState;
   shortId: string;
   onShare: (payload: QuoteSharePayload) => void;
+  onAskSelection: (text: string) => void;
 }) {
   const { data, isPending, isError } = reader.query;
 
@@ -120,6 +122,7 @@ export function PaperReaderView({
       toc={reader.toc}
       shortId={shortId}
       onShare={onShare}
+      onAskSelection={onAskSelection}
     />
   );
 }
@@ -133,6 +136,7 @@ function ReaderArticle({
   toc,
   shortId,
   onShare,
+  onAskSelection,
 }: {
   markdown: string;
   imageBase: string;
@@ -142,6 +146,7 @@ function ReaderArticle({
   toc: PaperReaderState["toc"];
   shortId: string;
   onShare: (payload: QuoteSharePayload) => void;
+  onAskSelection: (text: string) => void;
 }) {
   const { settings, update, reset } = useReaderSettings();
   // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
@@ -202,6 +207,7 @@ function ReaderArticle({
         articleRef={articleRef}
         shortId={shortId}
         onShare={onShare}
+        onAskSelection={onAskSelection}
         contentKey={contentKey}
       />
     </div>

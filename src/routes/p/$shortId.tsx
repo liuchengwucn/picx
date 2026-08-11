@@ -496,9 +496,12 @@ function PaperDetailPage() {
   const handlePdfPageChange = useCallback((page: number) => {
     pdfPageRef.current = page;
   }, []);
-  // PDF 里选中文字点「问这段」后待送进 chat 输入框的引用块。一次性事件而不是持久
-  // 状态：PaperChat 消费后立刻清回 null，否则用户手动删掉引用后任何一次重渲染都会
-  // 把它塞回来。
+  // 两个阅读视图（PDF 文本层与原文 markdown）里选中文字点「问这段」后待送进 chat
+  // 输入框的引用块。一次性事件而不是持久状态：PaperChat 消费后立刻清回 null，否则
+  // 用户手动删掉引用后任何一次重渲染都会把它塞回来。
+  //
+  // markdown 侧送来的文本已经是规范化引文（公式折成 $...$ LaTeX 源，见 askQuoteText），
+  // normalizePdfSelection 在这条路上只起「压空白 + 钳 2000 字」的作用。
   const [pendingQuote, setPendingQuote] = useState<string | null>(null);
   const handleAskSelection = useCallback((text: string) => {
     setPendingQuote(buildQuoteBlock(normalizePdfSelection(text)));
@@ -1229,6 +1232,7 @@ function PaperDetailPage() {
                 isPublic={paper.isPublic}
                 shortId={paper.shortId ?? shortId}
                 onShare={quoteShare.openShare}
+                onAskSelection={handleAskSelection}
                 isSessionPending={isSessionPending}
                 isSignedIn={!!effectiveSession}
                 onSignIn={startReaderSignIn}
@@ -1553,6 +1557,7 @@ function ReaderPane({
   isPublic,
   shortId,
   onShare,
+  onAskSelection,
   isSessionPending,
   isSignedIn,
   onSignIn,
@@ -1561,6 +1566,7 @@ function ReaderPane({
   isPublic: boolean;
   shortId: string;
   onShare: (payload: QuoteSharePayload) => void;
+  onAskSelection: (text: string) => void;
   isSessionPending: boolean;
   isSignedIn: boolean;
   onSignIn: () => void;
@@ -1569,7 +1575,12 @@ function ReaderPane({
   // 让他们先等一轮 session 往返再出正文纯属白等。
   if (isPublic) {
     return (
-      <PaperReaderView reader={reader} shortId={shortId} onShare={onShare} />
+      <PaperReaderView
+        reader={reader}
+        shortId={shortId}
+        onShare={onShare}
+        onAskSelection={onAskSelection}
+      />
     );
   }
 
@@ -1593,7 +1604,12 @@ function ReaderPane({
   }
 
   return (
-    <PaperReaderView reader={reader} shortId={shortId} onShare={onShare} />
+    <PaperReaderView
+      reader={reader}
+      shortId={shortId}
+      onShare={onShare}
+      onAskSelection={onAskSelection}
+    />
   );
 }
 

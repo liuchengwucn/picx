@@ -357,3 +357,29 @@ export function decodeAnchor(raw: string): QuoteAnchor | null {
   }
   return anchor;
 }
+
+/**
+ * 「问这段」的引文文本。
+ *
+ * 优先按锚点走规范化文本：KaTeX 的 .katex-mathml 是 clip 视觉隐藏、仍在渲染树里，
+ * Selection.toString() 会把 MathML 那份文本一并收进来，含公式的段落引文就是重复乱码；
+ * normalizeBlock 遇到 .katex 整体折算成 $...$ LaTeX 源，正是要送进 chat 的形态。
+ *
+ * 锚点缺失（选区只碰到图片块、端点倒挂）或区间非法时回退到调用方给的渲染文本——
+ * 「问这段」不该因为分享侧解析不出锚点就整个失效。
+ */
+export function askQuoteText(
+  article: Element | null,
+  anchor: QuoteAnchor | null,
+  fallback: string,
+): string {
+  if (!article || !anchor) return fallback;
+  const text = quoteTextBetween(
+    blocksOf(article),
+    anchor.startBlock,
+    anchor.startOffset,
+    anchor.endBlock,
+    anchor.endOffset,
+  );
+  return text?.trim() ? text : fallback;
+}
