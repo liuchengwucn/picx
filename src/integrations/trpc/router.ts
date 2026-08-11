@@ -2,6 +2,7 @@ import { createTRPCRouter } from "./init";
 import { apiConfigRouter } from "./routers/api-config";
 import { assistantRouter } from "./routers/assistant";
 import { chatRouter } from "./routers/chat";
+import { homeRouter } from "./routers/home";
 import { newsRouter } from "./routers/news";
 import { paperRouter } from "./routers/paper";
 import { userRouter } from "./routers/user";
@@ -13,6 +14,7 @@ export const trpcRouter = createTRPCRouter({
   apiConfig: apiConfigRouter,
   whiteboardPrompt: whiteboardPromptRouter,
   chat: chatRouter,
+  home: homeRouter,
   news: newsRouter,
   assistant: assistantRouter,
 });
