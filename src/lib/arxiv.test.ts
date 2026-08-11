@@ -18,6 +18,10 @@ describe("isArxivLink", () => {
     ["bare legacy id with subject class", "math.AG/0601001"],
     // 白名单收紧后仍须保住大小写宽容：学科类后缀小写写法是合法输入。
     ["bare legacy id with lowercase subject class", "math.ag/0601001"],
+    // 1998 年前停用的 archive: 白名单若只收现役 archive, 这类存量 id 会被误判成
+    // 普通链接, 进而以 bad_url 报错而不是导入。
+    ["bare pre-1998 legacy id", "alg-geom/9601001"],
+    ["bare pre-1998 legacy id with version", "q-alg/9601001v2"],
   ];
 
   const NOT_ARXIV: Array<[label: string, input: string]> = [

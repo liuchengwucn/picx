@@ -53,6 +53,27 @@ export function canonicalArxivId(idOrUrl: string): string | null {
  * 并把捏造的 source_url 写进 canonical 去重索引。
  */
 const LEGACY_ARCHIVES = [
+  // 1998 年前就停用的 archive: 只在存量旧 id 里出现, 但那些 id 至今仍可解析。
+  "acc-phys",
+  "adap-org",
+  "alg-geom",
+  "ao-sci",
+  "atom-ph",
+  "bayes-an",
+  "chao-dyn",
+  "chem-ph",
+  "cmp-lg",
+  "comp-gas",
+  "dg-ga",
+  "funct-an",
+  "mtrl-th",
+  "patt-sol",
+  "plasm-ph",
+  "q-alg",
+  "solv-int",
+  "supr-con",
+  // 仍在使用的 archive。econ / eess / q-fin 是 2007 年后才有的分类, 不存在旧格式
+  // id, 留着无害(匹配不到任何真实输入), 删掉反而要额外论证。
   "astro-ph",
   "cond-mat",
   "cs",
