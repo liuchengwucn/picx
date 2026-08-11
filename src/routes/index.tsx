@@ -13,6 +13,12 @@ import { TodayStrip } from "#/components/home/today-strip";
 import type { HomeToday } from "#/lib/home/today";
 import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
+
+// en/ja 的 h1 一行放不下, 自然断行会切进高亮短语内部(英文甚至断在
+// all-in-one 词中); 在前缀后强制换行让高亮短语整行独占。中文标题
+// 一行放得下, 不强制断, 否则平白多出一行。
+const H1_BREAK_LOCALES = new Set(["en", "ja"]);
 
 interface AppEnvBindings {
   DB: D1Database;
@@ -167,6 +173,10 @@ function HomePage() {
 
           <h1 className="mx-auto max-w-3xl font-serif text-[1.75rem] font-bold leading-tight tracking-tight text-[var(--ink)] sm:text-[2.5rem] sm:leading-[1.22]">
             {m.home_h1_prefix()}
+            {/* 窄屏放不下一整行时 br 无害: 高亮 span 靠 clone 继续逐行断开 */}
+            {H1_BREAK_LOCALES.has(getLocale()) && (
+              <br className="hidden sm:inline" />
+            )}
             {/* 金色高亮沿用站内「划线引用」语义:背景条走 background-image,
                 boxDecorationBreak:clone 让它在换行处逐行断开而不是拉成一条 */}
             <span
@@ -290,8 +300,8 @@ function HomePage() {
         </div>
       </section>
 
-      {/* 信息带:站点自身的三条事实,一行收尾 */}
-      <section className="px-4 py-12 sm:px-6 sm:py-16">
+      {/* 信息带:站点自身的三条事实,一行收尾。pb 收小让它贴近页脚分割线 */}
+      <section className="px-4 pb-4 pt-12 sm:px-6 sm:pb-6 sm:pt-16">
         <div className="page-wrap flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs text-[var(--ink-soft)]">
           <a
             href={GITHUB_URL}
