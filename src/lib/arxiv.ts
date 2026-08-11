@@ -45,6 +45,43 @@ export function canonicalArxivId(idOrUrl: string): string | null {
 }
 
 /**
+ * arXiv 旧格式(2007 年前)id 的 archive 段闭集。
+ *
+ * 收成白名单而非 `[a-z-]+` 是因为: 旧格式形如 `hep-th/9901001`, 而两字母的学科类
+ * 后缀(math.AG)与两字母 ccTLD(.me / .ly / .be)形状完全一致, 宽松匹配会把
+ * `t.me/1234567`、`bit.ly/1234567` 这类短链判成 arXiv, 进而导入一篇不存在的论文
+ * 并把捏造的 source_url 写进 canonical 去重索引。
+ */
+const LEGACY_ARCHIVES = [
+  "astro-ph",
+  "cond-mat",
+  "cs",
+  "econ",
+  "eess",
+  "gr-qc",
+  "hep-ex",
+  "hep-lat",
+  "hep-ph",
+  "hep-th",
+  "math",
+  "math-ph",
+  "nlin",
+  "nucl-ex",
+  "nucl-th",
+  "physics",
+  "q-bio",
+  "q-fin",
+  "quant-ph",
+  "stat",
+];
+
+/** 整串就是一个 arXiv id: 新格式 2601.13209v2, 或旧格式 hep-th/9901001。 */
+const BARE_ARXIV_ID = new RegExp(
+  `^(?:\\d{4}\\.\\d{4,5}(?:v\\d+)?|(?:${LEGACY_ARCHIVES.join("|")})(?:\\.[A-Z]{2})?/\\d{7}(?:v\\d+)?)$`,
+  "i",
+);
+
+/**
  * 判断用户输入是否指向 arXiv。是则走服务端下载 + canonical 去重路径，否则走通用 PDF 抓取。
  *
  * 不能直接用 canonicalArxivId 判断：它的正则 `(\d{4}\.\d{4,5})` 未锚定也不校验 host,
@@ -59,15 +96,12 @@ export function isArxivLink(raw: string): boolean {
   if (!trimmed) {
     return false;
   }
-  // 裸 arXiv id: 整串就是 id(新格式 2601.13209v2 / 旧格式 hep-th/9901001)。
-  // 必须先于补 scheme 重解析 —— new URL("https://2301.12345") 能解析成功,
-  // 且 hostname 就是 "2301.12345", 会被 arxiv.org 判定错杀。
-  if (
-    /^(\d{4}\.\d{4,5}(v\d+)?|[a-z-]+(\.[A-Z]{2})?\/\d{7}(v\d+)?)$/i.test(
-      trimmed,
-    )
-  ) {
-    return true;
+  // 顺序承重: 这一步必须在补 scheme 重解析之前 —— new URL("https://2301.12345")
+  // 能解析成功且 hostname 就是 "2301.12345", 倒过来写会让每个裸 id 都被 host 校验杀掉。
+  if (BARE_ARXIV_ID.test(trimmed)) {
+    // 双保险: 裸 id 分支不经 host 校验, 必须确保 canonicalArxivId 也认得它,
+    // 否则 canonicalArxivUrl 会原样返回输入, 撞上 paper.create 的 z.string().url()。
+    return canonicalArxivId(trimmed) !== null;
   }
   let host: string;
   try {

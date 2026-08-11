@@ -16,6 +16,8 @@ describe("isArxivLink", () => {
     ["bare modern id with version", "2301.12345v2"],
     ["bare legacy id", "hep-th/9901001"],
     ["bare legacy id with subject class", "math.AG/0601001"],
+    // 白名单收紧后仍须保住大小写宽容：学科类后缀小写写法是合法输入。
+    ["bare legacy id with lowercase subject class", "math.ag/0601001"],
   ];
 
   const NOT_ARXIV: Array<[label: string, input: string]> = [
@@ -55,9 +57,26 @@ describe("isArxivLink", () => {
       "a real arXiv URL smuggled into the fragment",
       "https://attacker.com/x#https://arxiv.org/abs/2301.12345",
     ],
+    // Regression: 旧格式 archive 段曾写作 `[a-z-]+`，而两字母学科类后缀
+    // （math.AG）与两字母 ccTLD（.me/.ly/.be）形状一致，于是短链被判成 arXiv，
+    // 导入一篇不存在的论文并写入捏造的 source_url。现已收紧为 archive 白名单。
+    ["a ccTLD short link shaped like a legacy id", "t.me/1234567"],
+    ["another ccTLD short link", "bit.ly/1234567"],
+    ["a bare path segment shaped like a legacy id", "foo/1234567"],
+    // userinfo 绕过：`@` 前的部分是用户名而非 host。靠 URL 语义挡住，
+    // 钉死以防未来有人把 host 判定换回字符串匹配。
+    [
+      "arxiv.org smuggled into the userinfo",
+      "https://arxiv.org@evil.com/2301.12345",
+    ],
     // 边界
     ["empty string", ""],
     ["whitespace only", "   "],
+    // 新格式 id 的小数部分上限是 5 位，6 位不是 arXiv id。
+    ["a six-digit modern id", "2301.123456"],
+    // 两次 new URL 都抛错的兜底分支：空串守卫拦不住这些，只有它们能走到那里。
+    ["an unparseable bare percent sign", "%"],
+    ["an unparseable bracket", "["],
   ];
 
   it.each(ARXIV)("treats %s as arXiv", (_label, input) => {
