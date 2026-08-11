@@ -1,12 +1,11 @@
-import { FileText, Loader2 } from "lucide-react";
+import { FileText, Loader2, MessageSquareQuote } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { SelectionActionBubble } from "#/components/selection/selection-action-bubble";
 import { Button } from "#/components/ui/button";
 import { useSelectionRect } from "#/hooks/use-selection-rect";
 import { m } from "#/paraglide/messages";
 import { PdfFindBar } from "./pdf-find-bar";
 import { PdfOutlineDrawer } from "./pdf-outline-drawer";
-import { PdfSelectionBubble } from "./pdf-selection-bubble";
 import { PdfToolbar } from "./pdf-toolbar";
 import { usePdfViewer } from "./use-pdf-viewer";
 // 官方 viewer 的样式表。它是非 Tailwind 的全局样式，但全部以 .pdfViewer / .textLayer
@@ -192,30 +191,32 @@ export default function PdfReaderView({
         onJump={pdf.goToDest}
       />
 
-      {/* 必须 portal 到 body：气泡是 position:fixed + 视口坐标，而外面这层
-          .paper-card 上有无条件的 backdrop-filter（见 styles.css），按 CSS 规范会
-          成为 fixed 后代的包含块，气泡的视口坐标会被解析进面板的盒子里。
-          SSR 安全：selection.state 初始为 null，只在 useSelectionRect 的 effect 里
+      {/* SSR 安全：selection.state 初始为 null，只在 useSelectionRect 的 effect 里
           挂上的监听器中才会变成非 null，服务端与客户端首帧都走不到这里。 */}
-      {selection.state &&
-        createPortal(
-          <PdfSelectionBubble
-            rect={selection.state.rect}
-            // 交 ref 而不是算好的坐标：气泡要在 layout 阶段跟自身尺寸一起量，
-            // 在这里读就成了 render 期读 ref + 每 rAF 一次多余的强制布局。
-            boundaryRef={pdf.containerRef}
-            onAsk={() => {
-              // state 在下一句就被清掉，先取出文本
-              const text = selection.state?.text ?? "";
-              selection.dismiss();
-              // 只 dismiss 不清 DOM 选区的话，紧接着任何一次滚动都会重新 evaluate
-              // 出同一个选区，气泡自己又冒回来。
-              document.getSelection()?.removeAllRanges();
-              if (text) onAskSelection(text);
-            }}
-          />,
-          document.body,
-        )}
+      {selection.state && (
+        <SelectionActionBubble
+          rect={selection.state.rect}
+          // 交 ref 而不是算好的坐标：气泡要在 layout 阶段跟自身尺寸一起量，
+          // 在这里读就成了 render 期读 ref + 每 rAF 一次多余的强制布局。
+          boundaryRef={pdf.containerRef}
+          actions={[
+            {
+              key: "ask",
+              icon: MessageSquareQuote,
+              label: m.selection_ask(),
+              onClick: () => {
+                // state 在下一句就被清掉，先取出文本
+                const text = selection.state?.text ?? "";
+                selection.dismiss();
+                // 只 dismiss 不清 DOM 选区的话，紧接着任何一次滚动都会重新 evaluate
+                // 出同一个选区，气泡自己又冒回来。
+                document.getSelection()?.removeAllRanges();
+                if (text) onAskSelection(text);
+              },
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }
