@@ -394,10 +394,16 @@ export async function saveDigestContent(
       ...patch,
       // 非空提案落库即进入待审队列（管理页 listProposals 按 status='pending' 捞）。
       // 空提案——null，或模型偶发返回的空串/纯空白（SynthesisResult 是裸 JSON.parse，
-      // 没有 zod 兜底）——保持 NULL，不产生无内容的审阅项。trim 判定与 0030 迁移
-      // 的回填条件（IS NOT NULL AND trim(...) <> ''）必须一致。
-      ...(patch.proposedFocusUpdate?.trim()
-        ? { proposedFocusUpdateStatus: "pending" as const }
+      // 没有 zod 兜底）——显式写回 NULL：只有这样才不会留下悬空状态（提案正文被清空
+      // 而 status 还是 pending，管理页就多一个点不开的 pending 徽章）。
+      // trim 判定与 0030 迁移的回填条件（IS NOT NULL AND trim(...) <> ''）必须一致。
+      // 不带这个字段的后续 patch（publish 等）一律不动 status。
+      ...(patch.proposedFocusUpdate !== undefined
+        ? {
+            proposedFocusUpdateStatus: patch.proposedFocusUpdate?.trim()
+              ? ("pending" as const)
+              : null,
+          }
         : {}),
       updatedAt: new Date(),
     })

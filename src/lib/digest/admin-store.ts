@@ -2,7 +2,7 @@
 // 管理面内部查询/写入。与 store.ts 的「Phase 2 公开区块」刻意分文件：那边的硬约束
 // 是 published-only + 内部字段一律不 select；这边恰恰要读 status / workflowInstanceId /
 // proposedFocusUpdate。绝不从公开 router 调这里的任何函数。
-import { asc, count, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, ne } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import {
   type DirectionSourceConfig,
@@ -354,6 +354,13 @@ export interface PendingProposal {
   issueNumber: number;
   proposal: string;
   createdAt: Date;
+  /**
+   * 该期自身的状态。提案在 finalize 步就落库，而 publish 步最长要轮询论文 3 小时，
+   * 期间这期是 generating，编排失败则是 failed——两种情况下提案都照样该审，所以
+   * 这条查询刻意不按 published 过滤。但公开侧只认 published，管理页据此决定
+   * 「第 N 期」要不要链到 /gallery/d/{slug}/{n}，否则就是一个 404 链接。
+   */
+  status: "generating" | "published" | "failed";
   directionId: string;
   directionSlug: string;
   directionName: Record<string, string>;
@@ -372,6 +379,7 @@ export async function listPendingProposals(db: Db): Promise<PendingProposal[]> {
       issueNumber: digests.issueNumber,
       proposal: digests.proposedFocusUpdate,
       createdAt: digests.createdAt,
+      status: digests.status,
       // 取 digests 侧的外键而不是 directions.id：innerJoin 下两者恒等，但同名的
       // "id" 列会在结果集里撞名（drizzle 不给 select 里的列自动加别名）
       directionId: digests.directionId,
@@ -390,12 +398,28 @@ export async function listPendingProposals(db: Db): Promise<PendingProposal[]> {
   );
 }
 
+export interface AdoptedFocusUpdate {
+  directionId: string;
+  focusBrief: string;
+  /** 同方向被连带作废的其余 pending 提案条数，供管理页提示 */
+  supersededCount: number;
+}
+
 /**
- * 采纳提案：提案全文覆盖方向的 focusBrief，并把该期标记为 adopted。
+ * 采纳提案：提案全文覆盖方向的 focusBrief，把该期标记为 adopted，并把同方向其余
+ * pending 提案一并置 dismissed。
  *
- * D1 无事务，**先覆盖 focusBrief 再改 status**：中断的最坏情形是「已覆盖但仍
- * pending」，管理员再点一次采纳会写入同一段文本，幂等无害；反过来（先改 status）
- * 崩在中间就永久丢掉这次演化，而且再也没有入口能找回。
+ * 连带作废不是省事，是语义要求：提案是「修订后的全文」而不是 diff，每条都基于
+ * 生成当期时的 focusBrief 写成。同方向可以同时挂着第 10、11 期两条 pending，列表
+ * 按 createdAt desc，管理员从上往下点（先 11 后 10）的话，后采纳的旧提案会把新的
+ * 演化整段覆盖回去，且没有任何入口能发现。采纳一条即意味着其余基于旧 brief 的
+ * 重写全部作废——提案正文永久留在各自 digests 行里，只是状态变 dismissed，随时可读。
+ *
+ * D1 无事务，写序是 directions → 本期 adopted → 清理其余 pending：
+ * - 先覆盖 focusBrief 再改 status：中断的最坏情形是「已覆盖但仍 pending」，管理员
+ *   再点一次采纳会写入同一段文本，幂等无害；反过来（先改 status）崩在中间就永久
+ *   丢掉这次演化，而且再也没有入口能找回。
+ * - 清理放最后：中断只是漏清理，那些提案仍是 pending，再采纳一次即可，无害。
  *
  * 返回 null = 这条提案不在 pending（已被采纳/驳回，或压根没有提案），由 router
  * 翻成 BAD_REQUEST；重复点击不会二次覆盖 focusBrief。
@@ -403,7 +427,7 @@ export async function listPendingProposals(db: Db): Promise<PendingProposal[]> {
 export async function adoptFocusUpdateStore(
   db: Db,
   digestId: string,
-): Promise<{ directionId: string; focusBrief: string } | null> {
+): Promise<AdoptedFocusUpdate | null> {
   const [row] = await db
     .select({
       directionId: digests.directionId,
@@ -422,7 +446,37 @@ export async function adoptFocusUpdateStore(
     .update(digests)
     .set({ proposedFocusUpdateStatus: "adopted", updatedAt: new Date() })
     .where(eq(digests.id, digestId));
-  return { directionId: row.directionId, focusBrief: row.proposal };
+
+  // 先数再写而不是读 UPDATE 的 changes：D1Result.meta 的形状不是所有执行路径都
+  // 给得出（测试用的 node:sqlite 适配层就只回 node 的 RunResult），条数要能确定。
+  // 谓词是三个定值（不是 inArray 大数组），不受 D1 单查询 100 绑定参数上限影响。
+  const superseded = await db
+    .select({ id: digests.id })
+    .from(digests)
+    .where(
+      and(
+        eq(digests.directionId, row.directionId),
+        eq(digests.proposedFocusUpdateStatus, "pending"),
+        ne(digests.id, digestId),
+      ),
+    );
+  if (superseded.length > 0) {
+    await db
+      .update(digests)
+      .set({ proposedFocusUpdateStatus: "dismissed", updatedAt: new Date() })
+      .where(
+        and(
+          eq(digests.directionId, row.directionId),
+          eq(digests.proposedFocusUpdateStatus, "pending"),
+          ne(digests.id, digestId),
+        ),
+      );
+  }
+  return {
+    directionId: row.directionId,
+    focusBrief: row.proposal,
+    supersededCount: superseded.length,
+  };
 }
 
 /** 驳回提案：只改 status，focusBrief 一个字不动 */

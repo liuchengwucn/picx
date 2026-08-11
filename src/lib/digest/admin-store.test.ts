@@ -77,6 +77,18 @@ async function seed(db: Db) {
       isActive: true,
       sortOrder: 0,
     },
+    // dir-clean 与 dir-withpapers 同 sortOrder，且**插入顺序与 slug 顺序相反**
+    // （brandnew 先、agents 后）：listDirectionsAdmin 的次级排序键 asc(slug) 只有
+    // 这样才真被锁住 —— 序号各不相同、或插入顺序恰好等于 slug 顺序（SQLite 打平时
+    // 按 rowid 返回）的话，把实现里的 asc(slug) 删掉测试照样绿
+    {
+      id: "dir-clean",
+      slug: "brandnew",
+      sortOrder: 1,
+      name: four("Brand New"),
+      focusBrief: "刚建的方向",
+      isActive: true,
+    },
     {
       id: "dir-withpapers",
       slug: "agents",
@@ -84,16 +96,6 @@ async function seed(db: Db) {
       focusBrief: "智能体",
       isActive: true,
       sortOrder: 1,
-    },
-    {
-      id: "dir-clean",
-      slug: "brandnew",
-      // 与 dir-withpapers 同序号：listDirectionsAdmin 的次级排序键 asc(slug)
-      // 只有在 sortOrder 打平时才起作用，三个各不相同的话去掉它测试照样绿
-      sortOrder: 1,
-      name: four("Brand New"),
-      focusBrief: "刚建的方向",
-      isActive: true,
     },
   ]);
 
@@ -638,6 +640,16 @@ describe("saveDigestContent proposal status", () => {
     ).toBeNull();
   });
 
+  // 显式清空提案必须连状态一起清：否则留下一行「status=pending 但正文为空」，
+  // 管理页会多出一个点不开的 pending 徽章
+  it("clears a dangling status when an existing proposal is emptied", async () => {
+    await saveDigestContent(db, "dg-11", { proposedFocusUpdate: null });
+    expect(await readProposal(db, "dg-11")).toEqual({
+      proposedFocusUpdate: null,
+      proposedFocusUpdateStatus: null,
+    });
+  });
+
   // 定稿之后还会有 publish 等后续 patch，它们不带 proposedFocusUpdate，
   // 不能把已入队的提案顺手打回 NULL
   it("keeps an already queued proposal when a later patch omits the field", async () => {
@@ -657,6 +669,7 @@ describe("adoptFocusUpdateStore", () => {
     await expect(adoptFocusUpdateStore(db, "dg-11")).resolves.toEqual({
       directionId: "dir-withdigests",
       focusBrief: PROPOSAL,
+      supersededCount: 0,
     });
     expect((await readDirection(db, "dir-withdigests")).focusBrief).toBe(
       PROPOSAL,
@@ -667,15 +680,88 @@ describe("adoptFocusUpdateStore", () => {
   });
 
   // D1 无事务：先写 focusBrief 再改 status，中断的最坏情形是「已覆盖但仍 pending」，
-  // 重复采纳写入同一文本、幂等无害；反过来崩在中间就永久丢掉这次演化
+  // 重复采纳写入同一文本、幂等无害；反过来崩在中间就永久丢掉这次演化。
+  // 只断相对次序、容忍多余调用：断成全等的话，任何行为等价的重构（多一次 update）
+  // 都会假红
   it("writes focusBrief before flipping the status", async () => {
     const update = vi.spyOn(db, "update");
     await adoptFocusUpdateStore(db, "dg-11");
-    expect(update.mock.calls.map((c) => getTableName(c[0] as never))).toEqual([
-      "directions",
-      "digests",
-    ]);
+    const tables: string[] = update.mock.calls.map((c) =>
+      getTableName(c[0] as never),
+    );
     update.mockRestore();
+    expect(tables).toContain("digests");
+    expect(tables.indexOf("directions")).toBeLessThan(
+      tables.indexOf("digests"),
+    );
+  });
+
+  // 提案是「修订后的全文」而不是 diff：同方向两条 pending 各自基于生成当期时的
+  // brief 写成，列表按 createdAt desc，管理员从上往下点（先新后旧）的话，后采纳的
+  // 旧提案会把新的演化整段覆盖回去，且没有任何入口能发现
+  describe("supersedes the direction's other pending proposals", () => {
+    beforeEach(async () => {
+      await db.insert(digests).values({
+        id: "dg-13",
+        directionId: "dir-withdigests",
+        issueNumber: 13,
+        periodStart: PERIOD_START,
+        periodEnd: PERIOD_END,
+        status: "published" as const,
+        workflowInstanceId: "wf-13",
+        proposedFocusUpdate: "更新的一版提案",
+        proposedFocusUpdateStatus: "pending" as const,
+        createdAt: new Date("2026-08-10T00:00:00Z"),
+      });
+      // 另一个方向也挂着一条 pending，绝不能被连带清掉
+      await db.insert(digests).values({
+        id: "dg-other-dir",
+        directionId: "dir-withpapers",
+        issueNumber: 1,
+        periodStart: PERIOD_START,
+        periodEnd: PERIOD_END,
+        status: "published" as const,
+        workflowInstanceId: "wf-other-dir",
+        proposedFocusUpdate: "另一个方向的提案",
+        proposedFocusUpdateStatus: "pending" as const,
+        createdAt: new Date("2026-08-10T00:00:00Z"),
+      });
+    });
+
+    it("dismisses the sibling proposals and keeps the adopted text", async () => {
+      // 采纳较新的 dg-13：较旧的 dg-11 必须作废，而不是留着等人点、把 brief 覆盖回去
+      await expect(adoptFocusUpdateStore(db, "dg-13")).resolves.toEqual({
+        directionId: "dir-withdigests",
+        focusBrief: "更新的一版提案",
+        supersededCount: 1,
+      });
+      expect((await readDirection(db, "dir-withdigests")).focusBrief).toBe(
+        "更新的一版提案",
+      );
+      const sibling = await readProposal(db, "dg-11");
+      expect(sibling.proposedFocusUpdateStatus).toBe("dismissed");
+      // 作废只改状态，提案正文永久留档
+      expect(sibling.proposedFocusUpdate).toBe(PROPOSAL);
+    });
+
+    it("leaves other directions' pending proposals alone", async () => {
+      await adoptFocusUpdateStore(db, "dg-13");
+      expect(
+        (await readProposal(db, "dg-other-dir")).proposedFocusUpdateStatus,
+      ).toBe("pending");
+      const stillQueued = await listPendingProposals(db);
+      expect(stillQueued.map((r) => r.digestId)).toEqual(["dg-other-dir"]);
+    });
+
+    it("does not re-dismiss issues that were already adopted or dismissed", async () => {
+      await dismissFocusUpdateStore(db, "dg-11");
+      await expect(adoptFocusUpdateStore(db, "dg-13")).resolves.toMatchObject({
+        supersededCount: 0,
+      });
+      expect((await readProposal(db, "dg-11")).proposedFocusUpdateStatus).toBe(
+        "dismissed",
+      );
+    });
   });
 
   it("refuses a second adoption instead of overwriting an edited focusBrief", async () => {
@@ -791,12 +877,27 @@ describe("listPendingProposals", () => {
     expect(rows[1]).toMatchObject({
       issueNumber: 11,
       proposal: PROPOSAL,
+      status: "published",
       directionId: "dir-withdigests",
       directionSlug: "ai4formath",
       // currentFocusBrief 是方向当前的值，不是提案值——管理页要拿这两者上下对照
       currentFocusBrief: "自动定理证明",
     });
     expect(rows[1].directionName.ja).toBe("AI4Math ja");
+  });
+
+  // 提案在 finalize 步就落库，publish 步还要轮询论文最长 3 小时；这期间（以及
+  // 编排失败时）提案照样该审，但公开侧只认 published——管理页要靠 status 决定
+  // 「第 N 期」能不能链到 /gallery/d/{slug}/{n}，否则就是个 404 链接
+  it("keeps proposals from unpublished issues and reports their digest status", async () => {
+    await db
+      .update(digests)
+      .set({ status: "generating" })
+      .where(eq(digests.id, "dg-11"));
+    const rows = await listPendingProposals(db);
+    expect(rows.map((r) => [r.digestId, r.status])).toEqual([
+      ["dg-11", "generating"],
+    ]);
   });
 
   it("drops out of the queue once the proposal is acted on", async () => {

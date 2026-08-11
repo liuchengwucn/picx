@@ -17,7 +17,9 @@ import {
   upsertSource,
 } from "#/lib/digest/admin-store";
 import { generateDirectionIntro } from "#/lib/digest/ai";
-import { strongModel } from "#/lib/digest/llm";
+// intro 只有 1-3 句四语，比整篇简报翻译（translateDigest 走的也是 cheap）轻得多，
+// 而这又是站长按一次付一次的按钮 —— 没有理由上强模型
+import { cheapModel } from "#/lib/digest/llm";
 import { adminProcedure, router } from "../init";
 
 const localeRecord = z.record(
@@ -127,7 +129,7 @@ export const adminRouter = router({
       let introUpdated = false;
       try {
         const intro = await generateDirectionIntro(
-          strongModel(ctx.env),
+          cheapModel(ctx.env),
           adopted.focusBrief,
         );
         await setDirectionIntro(ctx.db, adopted.directionId, intro);
@@ -135,7 +137,9 @@ export const adminRouter = router({
       } catch (e) {
         console.error("[admin] intro regeneration after adopt failed:", e);
       }
-      return { introUpdated };
+      // supersededCount > 0：同方向其余基于旧 brief 的全量重写已被连带作废，
+      // 前端应当明确提示，别让站长以为它们还在队列里
+      return { introUpdated, supersededCount: adopted.supersededCount };
     }),
 
   dismissFocusUpdate: adminProcedure
@@ -147,7 +151,7 @@ export const adminRouter = router({
           code: "BAD_REQUEST",
           message: "proposal not pending",
         });
-      return { ok };
+      return { ok: true };
     }),
 
   /** 手动重生成四语公开简介（采纳时的自动刷新失败后的补救入口） */
@@ -161,7 +165,7 @@ export const adminRouter = router({
         .limit(1);
       if (!dir) throw new TRPCError({ code: "NOT_FOUND" });
       const intro = await generateDirectionIntro(
-        strongModel(ctx.env),
+        cheapModel(ctx.env),
         dir.focusBrief,
       );
       await setDirectionIntro(ctx.db, input.directionId, intro);

@@ -14,6 +14,7 @@ import type {
   SynthesisResult,
   VerifyVerdict,
 } from "./types";
+import { DIGEST_LOCALES, type DigestLocale } from "./types";
 
 /** 初筛过线阈值（0-100），对齐 news 的经验值再略松（宁多进精读，由精读把关） */
 export const RELEVANCE_THRESHOLD = 55;
@@ -393,9 +394,6 @@ export async function translateDigest(
   return { title: r.title, content: r.content, notes: r.notes ?? {} };
 }
 
-/** 与 DB 里 directions.intro 的 JSON key 一致（小写），也是 localeRecord 要求的四语 */
-const INTRO_LOCALES = ["en", "zh-cn", "zh-tw", "ja"] as const;
-
 const INTRO_SYSTEM = [
   "You write the public introduction for a research-direction tracking page.",
   "Input is the direction's internal focus brief (Chinese). Produce a 1-3 sentence",
@@ -403,27 +401,34 @@ const INTRO_SYSTEM = [
   "covers and why it matters. Neutral encyclopedic tone; do not copy internal",
   "taste notes or editorial judgements verbatim. zh-tw must be Taiwan-style",
   "Traditional Chinese, not a mechanical conversion of zh-cn.",
-  'Return ONLY a JSON object: {"en":"...","zh-cn":"...","zh-tw":"...","ja":"..."}',
-].join(" ");
+  'Return ONLY a JSON object: {"zh-cn":"...","zh-tw":"...","en":"...","ja":"..."}',
+].join("\n");
 
 /**
  * 由内部中文 focusBrief 生成四语公开简介（管理页「生成简介」按钮 + 采纳提案后自动调用）。
- * 四语齐全是硬校验：下游写库要过 localeRecord（zod 的 z.record(z.enum) 在 zod 4 下
- * 是穷尽的），少一语会在离这里很远的地方炸成 BAD_REQUEST，不如就地失败。
+ *
+ * 四语齐全是硬校验：这条路径（router → setDirectionIntro）本身不过 zod，缺一语会
+ * 静静写进库，直到管理员日后在方向表单里**回存**时才被 localeRecord 拦成
+ * BAD_REQUEST——那时离现场已经很远，所以就地失败。
+ * 只挑 DIGEST_LOCALES 这四个 key、丢弃模型多返回的（ko、fr……）同样是有意的：
+ * 多余 key 一旦入库，回存时照样会被穷尽校验的 localeRecord 判 BAD_REQUEST。
  */
 export async function generateDirectionIntro(
   cfg: DigestModelConfig,
   focusBrief: string,
-): Promise<Record<string, string>> {
+): Promise<Record<DigestLocale, string>> {
   const out = await chatJson<Record<string, string>>(
     cfg,
     INTRO_SYSTEM,
     `Internal focus brief:\n${clean(focusBrief)}`,
     2000,
   );
-  for (const k of INTRO_LOCALES) {
-    if (!out[k]?.trim())
-      throw new DigestAiError(`intro generation missing locale: ${k}`);
+  const intro = {} as Record<DigestLocale, string>;
+  for (const locale of DIGEST_LOCALES) {
+    const text = out[locale]?.trim();
+    if (!text)
+      throw new DigestAiError(`intro generation missing locale: ${locale}`);
+    intro[locale] = text;
   }
-  return Object.fromEntries(INTRO_LOCALES.map((k) => [k, out[k].trim()]));
+  return intro;
 }
