@@ -47,6 +47,19 @@ describe("parseArxivAtom", () => {
     expect(parseArxivAtom("not xml at all")).toEqual([]);
   });
 
+  it("caps authors at 10 per entry", () => {
+    // 大型合作组论文能列几百位作者，而 recommendPapers 的 output 会连作者名一起落进 D1
+    const names = Array.from(
+      { length: 12 },
+      (_, i) => `<author><name>Author ${i + 1}</name></author>`,
+    ).join("");
+    const xml = `<feed><entry><id>http://arxiv.org/abs/2601.00002</id><title>T</title><summary>S</summary><published>2026-01-01T00:00:00Z</published>${names}</entry></feed>`;
+    const entries = parseArxivAtom(xml);
+    expect(entries[0].authors).toHaveLength(10);
+    expect(entries[0].authors[0]).toBe("Author 1");
+    expect(entries[0].authors[9]).toBe("Author 10");
+  });
+
   it("truncates abstract to DISCOVERY_LIMITS.abstractChars", () => {
     const longSummary = "x".repeat(DISCOVERY_LIMITS.abstractChars + 200);
     const xml = `<feed><entry><id>http://arxiv.org/abs/2601.00001</id><title>T</title><summary>${longSummary}</summary><published>2026-01-01T00:00:00Z</published></entry></feed>`;
