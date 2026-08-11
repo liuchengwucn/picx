@@ -1,7 +1,10 @@
 /**
- * 阅读器共享按钮样式(Tailwind 工具类常量)。
+ * 阅读界面共享样式常量。
  *
- * 这三种按钮在多个阅读器组件中重复出现,集中为常量以避免大段 arbitrary 类重复。
+ * 不从属于任何单个页面:markdown 阅读器(reader-settings / reader-toc-drawer)与
+ * 论文 PDF 阅读器(pdf-toolbar / pdf-find-bar / pdf-outline-drawer)以及
+ * paper-reader-view 共用同一套按钮外观,改这里等于同时改所有阅读工具栏。
+ *
  * 配色全部走 CSS 变量(--ink/--surface/--academic-brown 等),深色模式由变量自动切换,
  * 因此无需 dark: 变体。字体继承自 body 的 --font-sans。用法:cn(TOOL_BTN, "额外类")。
  */

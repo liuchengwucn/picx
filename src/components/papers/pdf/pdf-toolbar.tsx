@@ -263,7 +263,7 @@ export function PdfToolbar({
         {/* TOOL_BTN 是给 <button> 写的，套在 <a> 上颜色会跑偏：styles.css 里那条裸的
             `a { color: … }` 没进 @layer，按层叠顺序压过 @layer utilities 里的
             text-[var(--ink)]，图标会变成学术棕。下划线其实已被 Tailwind preflight
-            重置掉，no-underline 只是与 reader-view.tsx 的既有写法保持一致。 */}
+            重置掉，no-underline 只是与其它工具栏按钮的既有写法保持一致。 */}
         <a
           href={downloadUrl}
           download={downloadName}
