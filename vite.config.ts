@@ -18,6 +18,18 @@ const PDF_COMPONENT_DIR = fileURLToPath(
 const config = defineConfig({
   // OrbStack VM 内的工具（curl/playwright）经 host.internal 访问 mac 侧 dev server
   server: { allowedHosts: ["host.internal"] },
+  // package.json 的 build 脚本给 vite 显式加了 --max-old-space-size=3072，原因在这里：
+  //
+  // Workers Builds 的构建容器约 4GB，node 据此把默认老生代定在 ~2.0GB。而本项目
+  // 在 SSR 环境的 "rendering chunks" 阶段实测就需要这么多——加 PDF tab 之前的
+  // f3492c7 在 1792MB 下 OOM、2048MB 才勉强过，也就是说线上构建长期只剩不到 10%
+  // 余量，下一个提交无论是什么都会把它推过线（PDF tab 只是恰好排到：需求涨到
+  // 2048 挂、2304 过）。峰值跟产物大小不成比例：SSR 包只涨了 12 KiB gzip，但
+  // client 与 ssr 两个环境在同一个进程里先后构建，client 那 1.26MB 的
+  // pdf.worker 资源与 225KB 样式的驻留内存要一直背到 SSR 阶段。
+  //
+  // 取 3072 而不是 4096：容器总量就 4GB，堆开太大只会把「V8 干净地报 OOM」换成
+  // 「容器被 OOM killer 杀掉」，后者在构建日志里更难认。
   build: {
     rollupOptions: {
       external: ["cloudflare:workers"],
