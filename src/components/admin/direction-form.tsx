@@ -94,8 +94,15 @@ export function DirectionForm({
   /**
    * 本表单自己发起的写入（目前只有「生成简介」——它落库后表单继续开着）也会推进
    * updatedAt。不认领的话，refetch 回来就把自己的写入当成别处的漂移锁死表单。
+   *
+   * 认领是一把能解除漂移锁的钥匙，所以「生成简介」按钮在 drifted 期间必须是
+   * disabled 的（见下方 briefUnsaved 附近）：否则漂移中点一次生成就把 baseline
+   * 推到最新、横幅消失、保存解禁，陈旧草稿又能静默覆盖别处的改动。
+   *
    * 认领窗口只覆盖下一次 direction 变化，覆盖不到「生成简介期间恰好有人采纳提案」
-   * 这种同窗竞态——单人使用的管理台，不为它加版本号。
+   * 这种同窗竞态。而且 directions.updated_at 是 mode:"timestamp"（**秒**精度，
+   * schema.ts），所以同一秒内发生的旁路写入本来就判不出漂移——窗口是秒级不是毫秒级。
+   * 单人使用的管理台，不为这两者加版本号。
    */
   const claimNextUpdateRef = useRef(false);
   useEffect(() => {
@@ -248,9 +255,14 @@ export function DirectionForm({
   };
 
   const introEmpty = LOCALE_KEYS.every((key) => !intro[key].trim());
-  /** 屏幕上的 brief 与库里那份不一致时，「生成简介」会拿旧 brief 去生成并落库 */
+  /**
+   * 屏幕上的 brief 与库里那份不一致时，「生成简介」会拿旧 brief 去生成并落库。
+   * 两边都 trim：库里的 focusBrief 允许带首尾空白（提案是模型直出、原样落库，
+   * store 那边只用 trim() 判 status 不改值），只 trim 左边的话，采纳过一条末尾带
+   * \n 的提案之后 briefUnsaved 会恒为 true，「生成简介」永久灰掉而站长什么都没改。
+   */
   const briefUnsaved =
-    direction !== null && focusBrief.trim() !== direction.focusBrief;
+    direction !== null && focusBrief.trim() !== direction.focusBrief.trim();
 
   return (
     <div className="space-y-6" data-testid="admin-direction-form">
@@ -375,11 +387,21 @@ export function DirectionForm({
               type="button"
               size="sm"
               variant="outline"
-              // 两个限制：真实 LLM 调用几十秒起步，不锁住会被连点成几次付费请求；
-              // 而且服务端读的是**库里**的 focusBrief（generateIntro 只收 directionId），
-              // 未保存的改动生成出来的是旧 brief 的简介、还立刻落库，所以先逼着保存
-              disabled={briefUnsaved || generateIntro.isPending}
-              title={briefUnsaved ? m.admin_save_brief_first() : undefined}
+              // 三个限制：
+              // 1. drifted —— 这个按钮的成功回调会认领 baseline，等于一键解除漂移锁；
+              //    漂移期间放它可点，「点一次生成」就能让陈旧草稿重新可保存（横幅消失、
+              //    保存解禁），Blocking 1 那条静默覆盖就从后门回来了。
+              // 2. briefUnsaved —— 服务端读的是**库里**的 focusBrief（generateIntro 只收
+              //    directionId），未保存的改动生成出来的是旧 brief 的简介、还立刻落库。
+              // 3. isPending —— 真实 LLM 调用几十秒起步，不锁住会被连点成几次付费请求。
+              disabled={drifted || briefUnsaved || generateIntro.isPending}
+              title={
+                drifted
+                  ? m.admin_direction_drifted()
+                  : briefUnsaved
+                    ? m.admin_save_brief_first()
+                    : undefined
+              }
               data-testid="admin-generate-intro"
               onClick={() =>
                 generateIntro.mutate({ directionId: direction.id })
@@ -447,17 +469,20 @@ export function DirectionForm({
           className="flex flex-wrap items-center gap-3"
           data-testid="admin-direction-stale"
         >
-          <FormNote tone="error">{m.admin_stale_refresh()}</FormNote>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
+          <FormNote tone="error">{m.admin_direction_drifted()}</FormNote>
+          {/* 这一下会丢掉站长手里唯一那份未保存草稿（漂移期间六个输入框仍可编辑、
+              可复制，但没有合并入口），与本页其它破坏性动作一样走两步确认 */}
+          <ConfirmButton
+            label={
+              <>
+                <RefreshCw className="size-3.5" />
+                {m.admin_reload_from_server()}
+              </>
+            }
+            confirmLabel={m.admin_reload_confirm()}
             data-testid="admin-direction-reload"
-            onClick={reloadFromServer}
-          >
-            <RefreshCw className="size-3.5" />
-            {m.admin_reload_from_server()}
-          </Button>
+            onConfirm={reloadFromServer}
+          />
         </div>
       ) : null}
 
@@ -480,8 +505,17 @@ export function DirectionForm({
           ) : null}
           {m.admin_save()}
         </Button>
-        {/* 取消刻意不受 saveBusy 约束：生成简介要几十秒，锁住它站长就退不出去 */}
-        <Button type="button" size="sm" variant="ghost" onClick={onDone}>
+        {/* 生成简介那几十秒不锁取消（站长得能退出去），但保存/删除在飞的时候要锁：
+            卸载后 react-query v5 不再执行 onSuccess —— 写入其实成功了，而
+            invalidateAdmin() 与「已保存」都不会发生，折叠行在 staleTime 内继续显示
+            旧摘要，站长会以为没存上 */}
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={upsert.isPending || deleteDirection.isPending}
+          onClick={onDone}
+        >
           {m.admin_cancel()}
         </Button>
         {direction ? (

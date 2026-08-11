@@ -618,6 +618,9 @@
   "admin_inactive": "Inactive",
   "admin_sort_order_invalid": "Sort order must be a whole number.",
   "admin_no_directions": "No directions yet",
+  "admin_direction_drifted": "This direction changed after you opened the form — most likely you just adopted a proposal.",
+  "admin_source_drifted": "This source changed after you opened the form.",
+  "admin_reload_confirm": "Discard your edits?",
   "admin_reload_from_server": "Reload from server",
   "admin_save_brief_first": "Save the focus brief first — the generator reads the saved copy."
 }

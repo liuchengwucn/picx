@@ -618,6 +618,9 @@
   "admin_inactive": "無効",
   "admin_sort_order_invalid": "並び順は整数で入力してください。",
   "admin_no_directions": "方向がまだありません",
+  "admin_direction_drifted": "このフォームを開いた後にこの方向が変更されました。先ほど提案を採用した可能性が高いです。",
+  "admin_source_drifted": "このフォームを開いた後にこのソースが変更されました。",
+  "admin_reload_confirm": "編集内容を破棄しますか？",
   "admin_reload_from_server": "サーバーから再読み込み",
   "admin_save_brief_first": "先に focusBrief を保存してください。生成には保存済みの内容が使われます。"
 }

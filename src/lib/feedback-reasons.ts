@@ -1,9 +1,12 @@
 // 踩票理由分类的唯一一份文案表。前台的 chip（feedback-buttons）与管理页的反馈流
-// （components/admin/feedback-panel）都从这里取，各抄一遍的话，加枚举成员时只会有
-// 一处报错、另一处静默显示原始枚举值。
+// （components/admin/feedback-panel）都从这里取。存在的理由就两条：去重，以及保住
+// 下面那个 Record<枚举键, …> 的穷尽性——各抄一遍的话，枚举加成员时只会有一处编译
+// 报错，另一处静默显示原始枚举值。
 //
-// 刻意不放进 #/lib/paper-feedback：那个模块 import 了 #/db/schema（likeCountSql 需要
-// 表定义），从客户端组件引它会把整份 schema 拖进浏览器包。这里只依赖类型与 paraglide。
+// 单独成文件而不是塞进 #/lib/paper-feedback，是因为那个模块 import 了 #/db/schema
+// （likeCountSql 需要表定义）。注意这并不意味着客户端包里没有 schema：
+// feedback-buttons 仍从 paper-feedback 取 FEEDBACK_REASON_TEXT_MAX_LENGTH，schema
+// 早就在包里了。这里只是不再新增一条 schema 引用边。
 import type { inferRouterInputs } from "@trpc/server";
 import type { TRPCRouter } from "#/integrations/trpc/router";
 import { m } from "#/paraglide/messages";

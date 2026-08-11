@@ -1,7 +1,7 @@
 // 管理页共用的小件与错误分流。站长自用页面，刻意不引入新的 shadcn 组件
 // （确认对话框一律走两步按钮），视觉语汇全部复用站点既有的 CSS 变量。
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
 import { cn } from "#/lib/utils";
@@ -214,7 +214,7 @@ export function ConfirmButton({
   disabled,
   variant = "outline",
   className,
-  ariaLabel,
+  description,
   "data-testid": testId,
 }: {
   label: React.ReactNode;
@@ -223,10 +223,18 @@ export function ConfirmButton({
   disabled?: boolean;
   variant?: "outline" | "destructive" | "default";
   className?: string;
-  /** 同一页出现多个同名按钮时（比如每行源都有一个「删除」）用来区分 */
-  ariaLabel?: string;
+  /**
+   * 同一页出现多个同名按钮时（比如每行源都有一个「删除」）用来区分所在的行。
+   *
+   * 刻意做成 aria-describedby 指向按钮**外部**的一个 sr-only span，而不是 aria-label：
+   * 一旦可访问名由 aria-label 给出，按钮的后代就成了 presentational children 被从
+   * 可访问性树里剪掉——下面那个 aria-live 从此永不播报，而按钮名又始终停在
+   * 「删除 — arxiv_query …」，两个无障碍修法互相抵消。描述不触发这条剪枝。
+   */
+  description?: string;
   "data-testid"?: string;
 }) {
+  const descriptionId = useId();
   const [armed, setArmed] = useState(false);
 
   useEffect(() => {
@@ -241,30 +249,38 @@ export function ConfirmButton({
   }, [disabled]);
 
   return (
-    <Button
-      type="button"
-      size="sm"
-      variant={armed ? "destructive" : variant}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      data-testid={testId}
-      data-armed={armed ? "true" : "false"}
-      className={className}
-      onBlur={() => setArmed(false)}
-      onClick={() => {
-        if (armed) {
-          setArmed(false);
-          onConfirm();
-          return;
-        }
-        setArmed(true);
-      }}
-    >
-      {/* 可访问名从「删除」变成「确认删除？」是一次状态变化，不播报的话读屏用户
-          按下第一次后什么也不知道，第二次按下就直接删了 */}
-      <span aria-live="polite" className="inline-flex items-center gap-2">
-        {armed ? confirmLabel : label}
-      </span>
-    </Button>
+    <>
+      {/* sr-only 是 absolute 定位，落在 flex 容器里不占位 */}
+      {description ? (
+        <span id={descriptionId} className="sr-only">
+          {description}
+        </span>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        variant={armed ? "destructive" : variant}
+        disabled={disabled}
+        aria-describedby={description ? descriptionId : undefined}
+        data-testid={testId}
+        data-armed={armed ? "true" : "false"}
+        className={className}
+        onBlur={() => setArmed(false)}
+        onClick={() => {
+          if (armed) {
+            setArmed(false);
+            onConfirm();
+            return;
+          }
+          setArmed(true);
+        }}
+      >
+        {/* 可访问名从「删除」变成「确认删除？」是一次状态变化，不播报的话读屏用户
+            按下第一次后什么也不知道，第二次按下就直接删了 */}
+        <span aria-live="polite" className="inline-flex items-center gap-2">
+          {armed ? confirmLabel : label}
+        </span>
+      </Button>
+    </>
   );
 }

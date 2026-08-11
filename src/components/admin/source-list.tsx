@@ -169,8 +169,8 @@ export function SourceList({
                   label={m.admin_delete()}
                   confirmLabel={m.admin_delete_confirm()}
                   disabled={deleteSource.isPending}
-                  // 一个方向可能挂着好几条源，读屏下三个按钮都叫「删除」分不出是哪条
-                  ariaLabel={`${m.admin_delete()} — ${source.adapterType} ${configSummary(source)}`}
+                  // 一个方向可能挂着好几条源，读屏下几个按钮都叫「删除」分不出是哪条
+                  description={`${source.adapterType} ${configSummary(source)}`}
                   onConfirm={() => deleteSource.mutate({ sourceId: source.id })}
                   data-testid="admin-delete-source"
                 />
@@ -237,7 +237,7 @@ function SourceForm({
    * direction_sources 没有 updatedAt 列（也不为此加迁移），所以拿三个可写字段的
    * 序列化形态当基线——它们就是这张表单能改的全部内容，够判漂移。
    */
-  const [baseline] = useState(() => sourceFingerprint(source));
+  const [baseline, setBaseline] = useState(() => sourceFingerprint(source));
   const [adapterType, setAdapterType] = useState<AdapterType>(
     source?.adapterType ?? "arxiv_query",
   );
@@ -250,6 +250,16 @@ function SourceForm({
   const [error, setError] = useState<string | null>(null);
 
   const drifted = sourceFingerprint(source) !== baseline;
+
+  /** 原地重置成服务端最新那份，与方向表单的「重新载入」同一语义（不是关掉表单） */
+  const reloadFromServer = () => {
+    if (!source) return;
+    setBaseline(sourceFingerprint(source));
+    setAdapterType(source.adapterType);
+    setConfigText(JSON.stringify(source.config, null, 2));
+    setEnabled(source.enabled);
+    setError(null);
+  };
 
   const upsert = useMutation(
     trpc.admin.upsertSource.mutationOptions({
@@ -369,23 +379,24 @@ function SourceForm({
         </FormNote>
       ) : null}
 
-      {/* 这条源在别处被改过了：锁住保存，请站长放弃这份草稿重新打开 */}
+      {/* 这条源在别处被改过了：锁住保存，否则这份草稿会把那次改动写回去 */}
       {drifted ? (
         <div
           className="flex flex-wrap items-center gap-3"
           data-testid="admin-source-stale"
         >
-          <FormNote tone="error">{m.admin_stale_refresh()}</FormNote>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
+          <FormNote tone="error">{m.admin_source_drifted()}</FormNote>
+          <ConfirmButton
+            label={
+              <>
+                <RefreshCw className="size-3.5" />
+                {m.admin_reload_from_server()}
+              </>
+            }
+            confirmLabel={m.admin_reload_confirm()}
             data-testid="admin-source-reload"
-            onClick={onDone}
-          >
-            <RefreshCw className="size-3.5" />
-            {m.admin_reload_from_server()}
-          </Button>
+            onConfirm={reloadFromServer}
+          />
         </div>
       ) : null}
 

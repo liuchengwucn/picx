@@ -618,6 +618,9 @@
   "admin_inactive": "已停用",
   "admin_sort_order_invalid": "排序必须是整数。",
   "admin_no_directions": "暂无方向",
+  "admin_direction_drifted": "打开表单之后这个方向被改过了——多半是你刚采纳了提案。",
+  "admin_source_drifted": "打开表单之后这条源被改过了。",
+  "admin_reload_confirm": "放弃当前编辑？",
   "admin_reload_from_server": "从服务器重新载入",
   "admin_save_brief_first": "请先保存 focusBrief——生成读取的是库里那一份。"
 }
