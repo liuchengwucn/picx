@@ -29,7 +29,7 @@ import {
 import { Switch } from "#/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { useTRPC } from "#/integrations/trpc/react";
-import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
+import { canonicalArxivUrl, isArxivLink } from "#/lib/arxiv";
 import { authClient, startGitHubSignIn } from "#/lib/auth-client";
 import { isAllowedPdfUrl } from "#/lib/pdf-url";
 import {
@@ -56,29 +56,6 @@ const URL_IMPORT_ERROR: Record<string, () => string> = {
   fetch_failed: () => m.upload_url_err_fetch_failed(),
   unauthorized: () => m.upload_url_err_generic(),
 };
-
-/**
- * 「链接导入」的分流判据：是 arXiv 就走服务端下载 + canonical 去重，否则走通用抓取。
- *
- * 不能只调 canonicalArxivId —— 它的正则 `(\d{4}\.\d{4,5})` 不校验 host，任何路径里
- * 撞上 `1234.56789` 形状的第三方链接都会被误判成 arXiv，从而以错误的 sourceType 入库。
- * 所以带 host 的输入必须先确认 host 落在 arxiv.org 上；只有 new URL 解析失败（即用户
- * 贴的是裸 arXiv id）时才退回纯正则判断。
- */
-function isArxivLink(raw: string): boolean {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return false;
-  }
-  try {
-    const { hostname } = new URL(trimmed);
-    return (
-      /(^|\.)arxiv\.org$/i.test(hostname) && canonicalArxivId(trimmed) !== null
-    );
-  } catch {
-    return canonicalArxivId(trimmed) !== null;
-  }
-}
 
 interface UploadDialogProps {
   credits: number;
@@ -377,10 +354,16 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         } | null;
         throw new Error(err?.error ?? "Upload failed");
       }
-      const { r2Key, fileSize } = (await resp.json()) as {
+      // 200 也可能带非 JSON 体（网关插了一页 HTML）。不兜底的话，原始的
+      // "Unexpected token …" SyntaxError 会被调用方的 toast 原样甩给用户。
+      const ok = (await resp.json().catch(() => null)) as {
         r2Key: string;
         fileSize: number;
-      };
+      } | null;
+      if (!ok) {
+        throw new Error(m.upload_url_err_generic());
+      }
+      const { r2Key, fileSize } = ok;
       await createPaper.mutateAsync({
         sourceType: "upload",
         filename: pdf.name,
@@ -444,11 +427,12 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         let message: string = m.upload_url_err_generic();
         try {
           const data = (await resp.json()) as { error?: string };
-          const resolve = data?.error
-            ? URL_IMPORT_ERROR[data.error]
-            : undefined;
-          if (resolve) {
-            message = resolve();
+          // Object.hasOwn 而非直接索引：对象字面量继承了 toString / valueOf 等
+          // 原型成员，未知码若撞上它们会取到函数并渲染出 "[object Undefined]"
+          // 之类的垃圾，甚至抛 TypeError。只认自有属性。
+          const code = data?.error;
+          if (code && Object.hasOwn(URL_IMPORT_ERROR, code)) {
+            message = URL_IMPORT_ERROR[code]();
           }
         } catch {
           // 非 JSON 响应，沿用默认文案
@@ -800,7 +784,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             <Button
               onClick={handleLinkSubmit}
               disabled={
-                !linkUrl ||
+                !linkUrl.trim() ||
                 uploading ||
                 blockedByCredits ||
                 (apiSource === "user" && !selectedApiConfigId)
