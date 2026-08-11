@@ -43,6 +43,7 @@
   "papers_topic_filter": "Topics",
   "papers_filtered_label": "Filtered by:",
   "papers_clear_filters": "Clear all",
+  "papers_remove_filter": "Remove filter {label}",
   "papers_status_pending": "Pending",
   "papers_status_parsing": "Parsing PDF",
   "papers_status_processing_text": "Extracting Text",

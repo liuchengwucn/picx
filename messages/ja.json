@@ -43,6 +43,7 @@
   "papers_topic_filter": "トピック",
   "papers_filtered_label": "絞り込み：",
   "papers_clear_filters": "すべて解除",
+  "papers_remove_filter": "絞り込み {label} を解除",
   "papers_status_pending": "待機中",
   "papers_status_parsing": "PDF 解析中",
   "papers_status_processing_text": "テキスト抽出中",

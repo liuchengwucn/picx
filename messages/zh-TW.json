@@ -43,6 +43,7 @@
   "papers_topic_filter": "主題",
   "papers_filtered_label": "篩選中：",
   "papers_clear_filters": "清除全部",
+  "papers_remove_filter": "移除篩選 {label}",
   "papers_status_pending": "等待處理",
   "papers_status_parsing": "PDF 解析中",
   "papers_status_processing_text": "提取文字中",
