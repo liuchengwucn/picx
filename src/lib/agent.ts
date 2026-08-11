@@ -17,7 +17,10 @@ import {
   sliceSection,
   slidingWindowRateLimit,
 } from "#/lib/chat";
-import { buildDiscoveryTools, DISCOVERY_LIMITS } from "#/lib/discovery-tools";
+import {
+  buildDiscoveryTools,
+  DISCOVERY_PROMPT_RULE,
+} from "#/lib/discovery-tools";
 import { escapeLike } from "#/lib/gallery-search";
 import { loadPaperText } from "#/lib/paper-text";
 import { SITE_URL } from "#/lib/site-url";
@@ -33,8 +36,8 @@ export const AGENT_LIMITS = {
   maxMessagesPerConversation: CHAT_LIMITS.maxMessagesPerSession,
   historyWindow: CHAT_LIMITS.historyWindow,
   webSearchMaxResults: CHAT_LIMITS.webSearchMaxResults,
-  /** 工具返回的摘要截断长度：与发现类工具同一口径 */
-  abstractChars: DISCOVERY_LIMITS.abstractChars,
+  /** searchNews 返回的新闻摘要截断长度：与 DISCOVERY_LIMITS 的论文摘要预算相互独立 */
+  abstractChars: 800,
 } as const;
 
 /** 滑动窗口限流：数 conversation_messages 里该用户最近的 user 消息（独立配额，与论文页聊天互不占用） */
@@ -68,7 +71,7 @@ export function buildAgentSystemPrompt(
     "- Answer in the same language the user writes in.",
     "- Use searchMyPapers / listMyPapers to look into the user's own library; use readPaper to read the full text of a specific paper before answering detailed questions about it.",
     "- Use searchArxiv / listDailyPapers to discover new papers, and searchNews for the site's aggregated AI news. The user cannot see search results directly.",
-    "- Search results are visible only to you. To show papers to the user, call recommendPapers with their arXiv IDs — it renders cards with an add-to-library button at that point in the conversation. Weave these calls naturally into the flow of your reply, right where you discuss the papers (multiple calls per reply are fine); do not dump one big batch at the end, and do not recommend every search hit — curate. You cannot add papers to the library yourself; when the user wants to save one, tell them to click the add button on its card.",
+    DISCOVERY_PROMPT_RULE,
     "- When the user shares durable facts about their research interests (topics, directions, preferences), call updateProfile to keep their profile up to date. The profile is plain text the user can also edit; rewrite the full content, do not append blindly.",
     ...(webSearchEnabled
       ? [

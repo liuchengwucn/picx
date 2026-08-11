@@ -14,6 +14,7 @@ import {
   chatStreamBody,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
+import { CARD_TOOL_TYPES } from "#/lib/discovery-tools";
 
 /**
  * 论文 chatbot 的流式端点。独立于 tRPC：superjson transformer 不支持流式响应。
@@ -41,7 +42,8 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
     maxMessages: CHAT_LIMITS.maxMessagesPerSession,
     webSearchMaxResults: CHAT_LIMITS.webSearchMaxResults,
   },
-  stopWhenSteps: 8,
+  stopWhenSteps: 10,
+  keepToolOutputTypes: CARD_TOOL_TYPES,
 
   authorize: async ({
     db,
@@ -95,8 +97,13 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
   buildInstructions: ({ db, body }, { paper }) =>
     buildChatSystemPrompt(db, paper, body.locale, body.webSearch),
 
-  buildLocalTools: ({ env }, { paper }) =>
-    buildChatTools(env.PAPERS_BUCKET, paper.id),
+  buildLocalTools: ({ db, env, userId }, { paper }) =>
+    buildChatTools({
+      db,
+      bucket: env.PAPERS_BUCKET,
+      userId,
+      paperId: paper.id,
+    }),
 
   persistUserMessage: async ({ db, userId, body }, { chatSession }) => {
     // id 由客户端提供，regenerate/edit 会复用同一个 id，必须幂等，否则撞主键 500。

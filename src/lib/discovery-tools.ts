@@ -12,7 +12,7 @@ import {
 
 type Db = DrizzleD1Database<typeof schema>;
 
-/** 发现类工具的数值上限（从 AGENT_LIMITS 移入，数值不变） */
+/** 发现类工具的数值上限 */
 export const DISCOVERY_LIMITS = {
   /** 外部 API（arXiv / HF）单次最多返回条数 */
   externalMaxResults: 15,
@@ -27,6 +27,13 @@ export const DISCOVERY_LIMITS = {
 export const CARD_TOOL_TYPES: ReadonlySet<string> = new Set([
   "tool-recommendPapers",
 ]);
+
+/**
+ * recommendPapers 的行为契约：卡片是用户看见论文的唯一途径，模型自己不能入库。
+ * 两个 chatbot 的系统提示逐字复用同一条，避免各自抄一份后静默漂移。
+ */
+export const DISCOVERY_PROMPT_RULE =
+  "- Search results are visible only to you. To show papers to the user, call recommendPapers with their arXiv IDs — it renders cards with an add-to-library button at that point in the conversation. Weave these calls naturally into the flow of your reply, right where you discuss the papers (multiple calls per reply are fine); do not dump one big batch at the end, and do not recommend every search hit — curate. You cannot add papers to the library yourself; when the user wants to save one, tell them to click the add button on its card.";
 
 // ---------- 外部结果的公共形状（前端卡片按这个渲染，别改字段名） ----------
 
@@ -187,7 +194,7 @@ export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
           );
           return { results: markInLibrary(entries, owned) };
         } catch (error) {
-          console.error("[agent] searchArxiv failed:", error);
+          console.error("[discovery] searchArxiv failed:", error);
           return {
             error:
               "arXiv search failed (network or timeout); try again or use web search",
@@ -254,7 +261,7 @@ export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
           );
           return { results: markInLibrary(entries, owned) };
         } catch (error) {
-          console.error("[agent] listDailyPapers failed:", error);
+          console.error("[discovery] listDailyPapers failed:", error);
           return {
             error:
               "HuggingFace Daily Papers request failed; try searchArxiv instead",
@@ -291,7 +298,7 @@ export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
           );
           return { results: markInLibrary(entries, owned) };
         } catch (error) {
-          console.error("[agent] recommendPapers failed:", error);
+          console.error("[discovery] recommendPapers failed:", error);
           return { error: "arXiv lookup failed; retry recommendPapers" };
         }
       },
