@@ -157,7 +157,8 @@ export function selectPapers(
   minUpvotes: number,
   topFallback: number,
 ): HFPaper[] {
-  // 不原地排序：调用方的 hfPapers 随后还要用于别处
+  // 拷贝再排序：导出的函数不该改动调用方传进来的数组（当前唯一调用方在
+  // selectPapers 之后已不再用 hfPapers，但那是调用方的实现细节，不是本函数的契约）
   const sorted = [...papers].sort((a, b) => b.paper.upvotes - a.paper.upvotes);
 
   // upvotes >= minUpvotes 全取

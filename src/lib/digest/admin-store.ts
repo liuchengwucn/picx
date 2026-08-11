@@ -212,7 +212,10 @@ export type DeleteDirectionResult =
  * 还要求方向已停用：两次 COUNT 与 DELETE 之间存在真实的并发窗口——在飞的
  * digest workflow 可能刚 ensureDigestShell 插入 digest 行，被 DELETE 级联带走后，
  * 后续往已消失的 digest 插 digest_papers 会撞外键、step 反复重试到耗尽。
- * digest-cron.ts:17 只捞 active 方向，所以「先停用、观察一周、再删」即可封堵。
+ * 「先停用、观察一周、再删」之所以能封堵这个窗口，靠的是**两处**守卫一起成立：
+ * 周更 cron 只捞 active 方向（digest-cron.ts:17），管理台的手动触发也拒绝非 active
+ * 方向（admin.ts 的 triggerDigest）。停用之后没有任何入口能再让新实例起飞 —— 新增
+ * 起飞入口时必须一并加上 isActive 判定，否则这条论证当场失效。
  *
  * 删除本身是单语句：direction_sources / direction_candidates 的外键都是
  * ON DELETE cascade（drizzle/0029），papers.direction_id 是 SET NULL，
@@ -314,8 +317,7 @@ export async function reviveSource(db: Db, sourceId: string): Promise<void> {
 
 export interface AdminDigestRow {
   digestId: string;
-  /** triggerDigest 吃的是 id，带上省得前端再从 listDirections 反查一次 slug→id */
-  directionId: string;
+  /** 分组键。管理页按方向切段展示，不需要 id（触发/删除都从方向表单发起，那里手上就有 id） */
   directionSlug: string;
   issueNumber: number;
   status: "generating" | "published" | "failed";
@@ -351,9 +353,7 @@ export async function listRecentDigestsAdmin(
       .where(eq(digests.directionId, d.id))
       .orderBy(desc(digests.issueNumber))
       .limit(10);
-    result.push(
-      ...rows.map((r) => ({ ...r, directionId: d.id, directionSlug: d.slug })),
-    );
+    result.push(...rows.map((r) => ({ ...r, directionSlug: d.slug })));
   }
   return result;
 }

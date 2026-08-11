@@ -1,9 +1,15 @@
 // 站长专用的方向管理台。全站唯一一个 admin 页面，不挂进任何导航，也不进索引。
 //
 // 权限判定完全押在 whoami 这一次 adminProcedure 调用上：能调通就是 admin，
-// 401/403 一律渲染 404 文案而不是「无权限」—— 后者等于向随手一试的人确认
-// 「这个地址存在、只是你不够格」，白送一个探测面。页面壳本身不含任何数据，
-// 四个面板各自的查询也全走 adminProcedure，没有前端把关这一说。
+// 401/403 一律渲染 404 文案而不是「无权限」，免得向已登录的非站长确认「这个地址
+// 存在、只是你不够格」。
+//
+// 这层伪装的覆盖范围仅止于此：匿名访客会先命中 useRequireAuth 被弹去 GitHub OAuth，
+// 那次成功的重定向本身就说明这个地址存在，所以「地址存在」对匿名探测者并不隐藏。
+// 仍保留 useRequireAuth 是为了站长自己没登录时有登录入口（否则只会看到 404）；
+// 至于随手一试的爬虫，由 head() 的 noindex 与 robots.txt 的 Disallow: /admin 拦。
+//
+// 页面壳本身不含任何数据，四个面板各自的查询也全走 adminProcedure，没有前端把关这一说。
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { DigestStatusPanel } from "#/components/admin/digest-status-panel";

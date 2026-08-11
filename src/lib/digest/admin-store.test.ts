@@ -577,7 +577,6 @@ describe("listRecentDigestsAdmin", () => {
     // 非 published 的期与内部字段都要暴露给管理面（与公开查询刻意相反）
     expect(forDirection[0]).toMatchObject({
       digestId: "dg-12",
-      directionId: "dir-withdigests",
       status: "failed",
       workflowInstanceId: "wf-12",
       publishedAt: null,
