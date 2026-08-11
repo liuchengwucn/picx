@@ -6,8 +6,10 @@ import {
   createRelativeImageUrlTransform,
   MarkdownArticle,
 } from "#/components/markdown-reader/markdown-article";
-import type { QuoteShareContext } from "#/components/markdown-reader/quote-share/quote-share-dialog";
-import { QuoteShareOverlay } from "#/components/markdown-reader/quote-share/quote-share-overlay";
+import {
+  QuoteShareOverlay,
+  type ReaderSharePayload,
+} from "#/components/markdown-reader/quote-share/quote-share-overlay";
 import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
 import { useToc } from "#/components/markdown-reader/reader-toc";
 import { ReaderTocDrawer } from "#/components/markdown-reader/reader-toc-drawer";
@@ -80,10 +82,10 @@ export type PaperReaderState = ReturnType<typeof usePaperReader>;
  */
 export function PaperReaderView({
   reader,
-  share,
+  onShare,
 }: {
   reader: PaperReaderState;
-  share: QuoteShareContext;
+  onShare: (payload: ReaderSharePayload) => void;
 }) {
   const { data, isPending, isError } = reader.query;
 
@@ -118,7 +120,7 @@ export function PaperReaderView({
       setArticleRef={reader.setArticleRef}
       contentKey={reader.contentKey}
       toc={reader.toc}
-      share={share}
+      onShare={onShare}
     />
   );
 }
@@ -130,7 +132,7 @@ function ReaderArticle({
   setArticleRef,
   contentKey,
   toc,
-  share,
+  onShare,
 }: {
   markdown: string;
   imageBase: string;
@@ -138,7 +140,7 @@ function ReaderArticle({
   setArticleRef: (node: HTMLElement | null) => void;
   contentKey: string;
   toc: PaperReaderState["toc"];
-  share: QuoteShareContext;
+  onShare: (payload: ReaderSharePayload) => void;
 }) {
   const { settings, update, reset } = useReaderSettings();
   // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
@@ -197,7 +199,7 @@ function ReaderArticle({
 
       <QuoteShareOverlay
         articleRef={articleRef}
-        share={share}
+        onShare={onShare}
         contentKey={contentKey}
       />
     </div>

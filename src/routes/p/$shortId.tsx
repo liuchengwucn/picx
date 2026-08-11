@@ -34,6 +34,9 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { QuoteShareDialog } from "#/components/markdown-reader/quote-share/quote-share-dialog";
+import type { ReaderSharePayload } from "#/components/markdown-reader/quote-share/quote-share-overlay";
+import { useQuoteShare } from "#/components/markdown-reader/quote-share/use-quote-share";
 import { type TocItem, TocList } from "#/components/markdown-reader/reader-toc";
 import { useReadingAnchor } from "#/components/markdown-reader/use-reading-anchor";
 import {
@@ -93,6 +96,7 @@ import {
   authClient,
   startGitHubSignIn as beginGitHubSignIn,
 } from "#/lib/auth-client";
+import { paperQuoteUrl } from "#/lib/embed-code";
 import { buildQuoteBlock, normalizePdfSelection } from "#/lib/pdf-quote";
 import {
   getReviewGuestClientSession,
@@ -620,6 +624,9 @@ function PaperDetailPage() {
   });
 
   const paperId = data?.paper?.id ?? "";
+  // 注意读 data?.paper 而不是下面解构出来的 paper：hooks 必须在 early return 之前
+  // 无条件调用，而 `const { paper } = data` 在那些 early return 之后才执行。
+  const quoteShare = useQuoteShare(paperId, data?.paper?.shortId ?? shortId);
 
   // 原文只对处理完成、且真有 MinerU 解析产物的论文有意义（存量论文没有
   // paper_contents 行，点进去只会看到空态）；?view=reader 落在不可用的论文上时
@@ -767,6 +774,16 @@ function PaperDetailPage() {
     undefined;
 
   const isOwner = paper.userId === profile.data?.id;
+
+  // 不用 useMemo：这里已在 early return 之后，hook 放这儿会违反调用顺序规则。每次渲染
+  // 新建一个对象与之前内联写 share={{...}} 的身份行为完全一致，没有额外代价。
+  const quoteShareContext = {
+    paperId,
+    shortId: paper.shortId ?? shortId,
+    title: paper.title,
+    isPublic: paper.isPublic,
+    canPublish: isOwner,
+  };
 
   // isReaderAvailable / activeView / isReaderViewReady 已提到 paperId 计算之后
   // （usePaperReader 需要提前知道是否该发请求）。
@@ -1211,13 +1228,16 @@ function PaperDetailPage() {
             ) : activeView === "reader" ? (
               <ReaderPane
                 reader={paperReader}
-                share={{
-                  paperId,
-                  shortId: paper.shortId ?? shortId,
-                  title: paper.title,
-                  isPublic: paper.isPublic,
-                  canPublish: isOwner,
-                }}
+                share={quoteShareContext}
+                onShare={(payload) =>
+                  quoteShare.openShare({
+                    url: paperQuoteUrl(
+                      paper.shortId ?? shortId,
+                      payload.anchorParam,
+                    ),
+                    content: payload.content,
+                  })
+                }
                 isSessionPending={isSessionPending}
                 isSignedIn={!!effectiveSession}
                 onSignIn={startReaderSignIn}
@@ -1403,6 +1423,13 @@ function PaperDetailPage() {
               onPendingQuoteConsumed={handleQuoteConsumed}
             />
           )}
+
+          {/* 分享弹窗挂在页面级：各视图只负责在点击当时算出深链与卡片正文 */}
+          <QuoteShareDialog
+            {...quoteShare.dialogProps}
+            title={paper.title}
+            share={quoteShareContext}
+          />
         </div>
 
         {/* Related papers — real, crawlable internal links (SSR-rendered). */}
@@ -1526,12 +1553,14 @@ function PaperDetailPage() {
 function ReaderPane({
   reader,
   share,
+  onShare,
   isSessionPending,
   isSignedIn,
   onSignIn,
 }: {
   reader: PaperReaderState;
   share: QuoteShareContext;
+  onShare: (payload: ReaderSharePayload) => void;
   isSessionPending: boolean;
   isSignedIn: boolean;
   onSignIn: () => void;
@@ -1539,7 +1568,7 @@ function ReaderPane({
   // 公开论文谁都能读，没必要等 session 解析完——段落深链的访客多半没登录过，
   // 让他们先等一轮 session 往返再出正文纯属白等。
   if (share.isPublic) {
-    return <PaperReaderView reader={reader} share={share} />;
+    return <PaperReaderView reader={reader} onShare={onShare} />;
   }
 
   // SSR / 首帧 session 还没解析出来，先占位，别把已登录用户闪一下登录墙
@@ -1561,7 +1590,7 @@ function ReaderPane({
     );
   }
 
-  return <PaperReaderView reader={reader} share={share} />;
+  return <PaperReaderView reader={reader} onShare={onShare} />;
 }
 
 /**
