@@ -60,6 +60,9 @@ export const adminRouter = router({
       return result;
     }),
 
+  // 刻意不把 not_found 翻成 TRPCError（与 upsertDirection/upsertSource 相反）：
+  // 三个 reason（not_found / has_history / still_active）都是 UI 必须逐条解释的
+  // 正常态，做成返回值前端一次 switch 就够，不用去 catch 里辨认 code。
   deleteDirection: adminProcedure
     .input(z.object({ directionId: z.string() }))
     .mutation(({ ctx, input }) =>

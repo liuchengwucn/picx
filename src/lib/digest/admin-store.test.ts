@@ -4,7 +4,7 @@
  * ——这些都只有让 SQL 真跑一遍才看得见。
  */
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   digests,
   directionSources,
@@ -81,10 +81,12 @@ async function seed(db: Db) {
     {
       id: "dir-clean",
       slug: "brandnew",
+      // 与 dir-withpapers 同序号：listDirectionsAdmin 的次级排序键 asc(slug)
+      // 只有在 sortOrder 打平时才起作用，三个各不相同的话去掉它测试照样绿
+      sortOrder: 1,
       name: four("Brand New"),
       focusBrief: "刚建的方向",
       isActive: true,
-      sortOrder: 2,
     },
   ]);
 
@@ -212,6 +214,19 @@ describe("deleteDirectionGuarded", () => {
     expect(dirs).toHaveLength(1);
   });
 
+  // has_history 优先于 still_active：反过来的话管理员会先被引去停用（=该方向所有
+  // 历史期立刻 404、主页 tab 消失），停完再点删才发现根本删不掉
+  it("reports has_history before still_active, so nobody deactivates a direction that can never be deleted", async () => {
+    const [before] = await db
+      .select({ isActive: directions.isActive })
+      .from(directions)
+      .where(eq(directions.id, "dir-withdigests"));
+    expect(before.isActive).toBe(true);
+    await expect(
+      deleteDirectionGuarded(db, "dir-withdigests"),
+    ).resolves.toEqual({ deleted: false, reason: "has_history" });
+  });
+
   it("refuses to delete a direction that still has papers attached", async () => {
     await deactivate(db, "dir-withpapers");
     await expect(deleteDirectionGuarded(db, "dir-withpapers")).resolves.toEqual(
@@ -332,6 +347,28 @@ describe("upsertDirection", () => {
       .where(eq(directions.slug, "alpha"));
     expect(row.id).toBe(id);
     expect(row.focusBrief).toBe("重新占用 alpha");
+  });
+
+  // drizzle 的 DrizzleQueryError.message 里拼着全部绑定参数（含 focusBrief 全文），
+  // 拿它匹配 "UNIQUE constraint failed" 等于让管理员输入决定错误分类：一次无关的
+  // 写入失败会被报成 slug_taken，真错误还连日志都不打，排查两头落空
+  it("does not mistake an unrelated write failure for slug_taken when focusBrief mentions the constraint text", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        upsertDirection(db, {
+          slug: "poisoned",
+          // name 是 NOT NULL 的 json 列，undefined 会被 drizzle 略过 → NOT NULL 违约
+          name: undefined as unknown as Record<string, string>,
+          focusBrief: "关注数据库：UNIQUE constraint failed 这类错误的处理",
+          isActive: true,
+          sortOrder: 3,
+        }),
+      ).rejects.toThrow("failed to persist direction");
+      expect(logged).toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it("reports not_found when updating a direction that no longer exists", async () => {
@@ -462,6 +499,22 @@ describe("upsertSource", () => {
       config: { url: "https://example.com/changed.xml" },
       enabled: false,
     });
+  });
+
+  // 不查存在性的话，INSERT 撞外键抛出的裸 SQL（含全部绑定参数）会被 tRPC
+  // 当成 INTERNAL_SERVER_ERROR 原样回传前端
+  it("reports not_found when creating a source under a direction that no longer exists", async () => {
+    const before = await db.select().from(directionSources);
+    await expect(
+      upsertSource(db, {
+        directionId: "dir-does-not-exist",
+        adapterType: "rss",
+        config: { url: "https://example.com/x.xml" },
+        enabled: true,
+      }),
+    ).resolves.toEqual({ error: "not_found" });
+    const after = await db.select().from(directionSources);
+    expect(after).toHaveLength(before.length);
   });
 
   it("reports not_found when updating a source that no longer exists", async () => {

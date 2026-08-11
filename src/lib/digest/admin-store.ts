@@ -20,11 +20,30 @@ type Db = ReturnType<typeof drizzle>;
  * 唯一约束违约识别。drizzle 把底层错误包成 DrizzleQueryError，其 message 里带着
  * 整条 SQL 与全部绑定参数（含管理员刚输入的 focusBrief 全文）——那条消息一个字都
  * 不能回传前端，真正的 "UNIQUE constraint failed" 只在 cause 链上，故逐层下钻。
+ *
+ * 同理，那一帧的 message 也不能拿来做**匹配**：focusBrief 里只要出现
+ * 「UNIQUE constraint failed」这几个字（讨论错误处理的方向完全会写到），一次与
+ * 唯一约束无关的写入失败（NOT NULL、外键……）就会被误判成 slug_taken，真错误还
+ * 连日志都不打，排查两头落空。故跳过包装帧，只在被包装的原始错误上匹配。
+ *
+ * 匹配 message 而不是错误码：node:sqlite / D1 的 code 都是笼统的 ERR_SQLITE_ERROR
+ * （任何 SQLite 错误都是它），按 code 判等于把所有写入失败都说成 slug_taken；
+ * 只有原始 message 才区分得出是哪条约束。
  */
+function isWrappedQueryError(e: Error): boolean {
+  // DrizzleQueryError 不设 this.name（e.name 就是 "Error"），构造函数名又扛不住
+  // 打包压缩，所以按它独有的字段结构识别：message = `Failed query: ${query}\nparams: ${params}`
+  const { query, params } = e as { query?: unknown; params?: unknown };
+  return typeof query === "string" && Array.isArray(params);
+}
+
 function isUniqueConstraintError(e: unknown): boolean {
   let cur: unknown = e;
   for (let depth = 0; cur instanceof Error && depth < 5; depth++) {
-    if (/UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(cur.message))
+    if (
+      !isWrappedQueryError(cur) &&
+      /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(cur.message)
+    )
       return true;
     cur = cur.cause;
   }
@@ -129,7 +148,7 @@ export async function upsertDirection(
         })
         .where(eq(directions.id, input.id));
     } catch (e) {
-      return rethrowAsDirectionError(e, "update");
+      return mapDirectionWriteError(e, "update");
     }
     return { id: input.id };
   }
@@ -155,7 +174,7 @@ export async function upsertDirection(
       sortOrder: input.sortOrder,
     });
   } catch (e) {
-    return rethrowAsDirectionError(e, "insert");
+    return mapDirectionWriteError(e, "insert");
   }
   return { id };
 }
@@ -165,7 +184,7 @@ export async function upsertDirection(
  * directions_slug_unique 兜底）翻译成 slug_taken，其余错误只进日志，
  * 抛给 router 的是不含 SQL 与绑定参数的干净消息。
  */
-function rethrowAsDirectionError(
+function mapDirectionWriteError(
   e: unknown,
   op: "insert" | "update",
 ): { error: "slug_taken" } {
@@ -189,6 +208,12 @@ export type DeleteDirectionResult =
  * 删除本身是单语句：direction_sources / direction_candidates 的外键都是
  * ON DELETE cascade（drizzle/0029），papers.direction_id 是 SET NULL，
  * 一条 DELETE 原子带走一切，不需要手工删子表（D1 无事务，手工删反而造出中断窗口）。
+ *
+ * 两个守卫的顺序有意义：has_history 是**永久**判定（历史不会消失，这个方向从此
+ * 只能停用），still_active 只是可补救的前置条件。先报 still_active 会把管理员
+ * 引去停用——而停用即刻让该方向的全部历史期 404、主页 tab 消失、从 sitemap /
+ * llms.txt 移除（store.ts 的公开查询一律 isActive-only）——停完再点删才发现
+ * has_history 根本删不掉，公开页白下线一轮。故先 COUNT 后查 isActive。
  */
 export async function deleteDirectionGuarded(
   db: Db,
@@ -200,7 +225,6 @@ export async function deleteDirectionGuarded(
     .where(eq(directions.id, directionId))
     .limit(1);
   if (!dir) return { deleted: false, reason: "not_found" };
-  if (dir.isActive) return { deleted: false, reason: "still_active" };
 
   const [digestRow] = await db
     .select({ value: count() })
@@ -212,6 +236,8 @@ export async function deleteDirectionGuarded(
     .where(eq(papers.directionId, directionId));
   if ((digestRow?.value ?? 0) > 0 || (paperRow?.value ?? 0) > 0)
     return { deleted: false, reason: "has_history" };
+
+  if (dir.isActive) return { deleted: false, reason: "still_active" };
 
   await db.delete(directions).where(eq(directions.id, directionId));
   return { deleted: true };
@@ -246,6 +272,14 @@ export async function upsertSource(
       .where(eq(directionSources.id, input.id));
     return { id: input.id };
   }
+  // 新建同样要查存在性：方向刚在另一个标签页被删掉的话，INSERT 会撞外键，
+  // 而那条错误的 message 里拼着整条 SQL 与全部绑定参数，tRPC 会原样回传前端
+  const [dir] = await db
+    .select({ id: directions.id })
+    .from(directions)
+    .where(eq(directions.id, input.directionId))
+    .limit(1);
+  if (!dir) return { error: "not_found" };
   const id = `dsrc-${crypto.randomUUID().slice(0, 8)}`;
   await db.insert(directionSources).values({
     id,
