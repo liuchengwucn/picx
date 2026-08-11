@@ -26,7 +26,8 @@ const MAX_REDIRECTS = 5;
 
 /**
  * `error` is a STABLE CODE (not a human string) — the client maps it to a
- * localised message (see URL_IMPORT_ERROR in components/papers/upload-dialog.tsx).
+ * localised message (see components/papers/upload-error-message.ts; the codes
+ * themselves live in lib/upload-errors.ts).
  * Codes:
  * bad_url | unauthorized | blocked | not_pdf | too_large | timeout | fetch_failed
  */

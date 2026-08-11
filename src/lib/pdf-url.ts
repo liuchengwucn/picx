@@ -25,7 +25,7 @@ export const PDF_FETCH_HEADERS: Record<string, string> = {
 /**
  * Map a fetched response's HTTP status to a stable error code, or `null` when
  * the body should be downloaded and inspected (2xx). The client localises the
- * code into a message — see URL_IMPORT_ERROR in components/papers/upload-dialog.tsx.
+ * code into a message — see components/papers/upload-error-message.ts.
  *
  * 403/429/503 almost always mean a bot wall / rate limit / anti-DDoS interstitial
  * (e.g. Cloudflare's "Just a moment…" page), so we tell the user to download the

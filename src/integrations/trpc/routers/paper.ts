@@ -38,6 +38,7 @@ import {
 import { generateShortId } from "#/lib/short-id";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey } from "#/lib/tldr";
+import { UPLOAD_ERROR } from "#/lib/upload-errors";
 import { protectedProcedure, publicProcedure, router } from "../init";
 
 /**
@@ -203,7 +204,8 @@ export const paperRouter = router({
         ) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "Invalid r2Key",
+            // message 是稳定 CODE，客户端按码映射本地化文案（lib/upload-errors.ts）
+            message: UPLOAD_ERROR.INVALID_R2_KEY,
           });
         }
 
@@ -256,7 +258,7 @@ export const paperRouter = router({
           if (!apiConfig) {
             throw new TRPCError({
               code: "NOT_FOUND",
-              message: "API configuration not found",
+              message: UPLOAD_ERROR.API_CONFIG_NOT_FOUND,
             });
           }
         }
@@ -276,7 +278,7 @@ export const paperRouter = router({
           if (!prompt) {
             throw new TRPCError({
               code: "NOT_FOUND",
-              message: "Prompt template not found",
+              message: UPLOAD_ERROR.PROMPT_NOT_FOUND,
             });
           }
         }
@@ -297,7 +299,7 @@ export const paperRouter = router({
           if (!updatedUser) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: "Insufficient credits. You need at least 1 credit.",
+              message: UPLOAD_ERROR.INSUFFICIENT_CREDITS,
             });
           }
         }
