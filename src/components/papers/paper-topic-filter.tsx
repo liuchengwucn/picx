@@ -34,15 +34,18 @@ export function PaperTopicFilterButton({
       <PopoverTrigger asChild>
         <Button
           variant={categories.length > 0 ? "default" : "outline"}
-          size="sm"
-          className="shrink-0 rounded-full"
+          className="h-[26px] shrink-0 rounded-full px-3 py-0 text-xs"
         >
           {m.papers_topic_filter()}
           {categories.length > 0 && ` · ${categories.length}`}
-          <ChevronDown className="ml-1 size-3.5" />
+          <ChevronDown className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-3">
+      <PopoverContent
+        align="end"
+        aria-label={m.papers_topic_filter()}
+        className="max-h-(--radix-popover-content-available-height) w-72 overflow-y-auto p-3"
+      >
         <div className="flex flex-wrap gap-1.5">
           {PAPER_CATEGORY_SLUGS.map((slug) => {
             const isActive = categories.includes(slug);
@@ -51,7 +54,8 @@ export function PaperTopicFilterButton({
                 key={slug}
                 type="button"
                 onClick={() => onToggleCategory(slug)}
-                className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                aria-pressed={isActive}
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
                   isActive
                     ? "border-[var(--academic-brown)] bg-[var(--academic-brown)] text-white"
                     : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
@@ -89,7 +93,7 @@ export function PaperActiveFilters({
           <button
             type="button"
             onClick={() => onToggleCategory(slug)}
-            className="ml-0.5 hover:opacity-70"
+            className="-my-1 -mr-1 ml-0.5 inline-flex size-5 items-center justify-center hover:opacity-70"
             aria-label={m.papers_remove_filter({
               label: getCategoryLabel(slug),
             })}
@@ -107,7 +111,7 @@ export function PaperActiveFilters({
           <button
             type="button"
             onClick={() => onRemoveTag(tag)}
-            className="ml-0.5 hover:opacity-70"
+            className="-my-1 -mr-1 ml-0.5 inline-flex size-5 items-center justify-center hover:opacity-70"
             aria-label={m.papers_remove_filter({ label: `#${tag}` })}
           >
             <X className="size-3" />
