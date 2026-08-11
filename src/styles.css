@@ -165,8 +165,6 @@ body {
   font-family: var(--font-sans);
   background-color: var(--parchment);
   background:
-    radial-gradient(1100px 620px at -8% -10%, rgba(139,111,71,0.08), transparent 58%),
-    radial-gradient(1050px 620px at 112% -12%, rgba(201,169,97,0.06), transparent 62%),
     linear-gradient(180deg, var(--parchment) 0%, var(--parchment-warm) 44%, var(--parchment) 100%);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
