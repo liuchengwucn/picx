@@ -29,7 +29,9 @@ import {
 import { Switch } from "#/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { useTRPC } from "#/integrations/trpc/react";
+import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
 import { authClient, startGitHubSignIn } from "#/lib/auth-client";
+import { isAllowedPdfUrl } from "#/lib/pdf-url";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -40,6 +42,43 @@ import { getLocale } from "#/paraglide/runtime";
 
 // 前端预检，避免大文件传完才被服务端拒绝；与 /api/papers/upload 的 100MB 硬上限对齐。
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
+/**
+ * /api/papers/fetch-url 返回的是稳定错误 CODE 而非人类可读串。这里做本地化映射，
+ * 惰性取值以保证读到的是出错当刻的语言。未知码与 unauthorized 落到 generic。
+ */
+const URL_IMPORT_ERROR: Record<string, () => string> = {
+  bad_url: () => m.upload_url_err_bad_url(),
+  blocked: () => m.upload_url_err_blocked(),
+  not_pdf: () => m.upload_url_err_not_pdf(),
+  too_large: () => m.upload_url_err_too_large(),
+  timeout: () => m.upload_url_err_fetch_failed(),
+  fetch_failed: () => m.upload_url_err_fetch_failed(),
+  unauthorized: () => m.upload_url_err_generic(),
+};
+
+/**
+ * 「链接导入」的分流判据：是 arXiv 就走服务端下载 + canonical 去重，否则走通用抓取。
+ *
+ * 不能只调 canonicalArxivId —— 它的正则 `(\d{4}\.\d{4,5})` 不校验 host，任何路径里
+ * 撞上 `1234.56789` 形状的第三方链接都会被误判成 arXiv，从而以错误的 sourceType 入库。
+ * 所以带 host 的输入必须先确认 host 落在 arxiv.org 上；只有 new URL 解析失败（即用户
+ * 贴的是裸 arXiv id）时才退回纯正则判断。
+ */
+function isArxivLink(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return false;
+  }
+  try {
+    const { hostname } = new URL(trimmed);
+    return (
+      /(^|\.)arxiv\.org$/i.test(hostname) && canonicalArxivId(trimmed) !== null
+    );
+  } catch {
+    return canonicalArxivId(trimmed) !== null;
+  }
+}
 
 interface UploadDialogProps {
   credits: number;
@@ -257,7 +296,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
-  const [arxivUrl, setArxivUrl] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [generateWhiteboard, setGenerateWhiteboard] = useState(false);
   const [summaryLanguage, setSummaryLanguage] = useState<
@@ -324,17 +363,13 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 
   const createPaper = useMutation(trpc.paper.create.mutationOptions());
 
-  const handleFileUpload = useCallback(async () => {
-    if (isReadOnlyGuest) {
-      void startGitHubSignIn("/");
-      return;
-    }
-    if (!file) return;
-    setUploading(true);
-    try {
+  // 文件上传与链接导入的公共尾段：字节进 R2 → 建论文记录。
+  // 抛错交给调用方统一 toast，本函数不碰对话框状态。
+  const uploadPdfAndCreate = useCallback(
+    async (pdf: File) => {
       const resp = await fetch(
-        `/api/papers/upload?filename=${encodeURIComponent(file.name)}`,
-        { method: "POST", body: file },
+        `/api/papers/upload?filename=${encodeURIComponent(pdf.name)}`,
+        { method: "POST", body: pdf },
       );
       if (!resp.ok) {
         const err = (await resp.json().catch(() => null)) as {
@@ -346,10 +381,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         r2Key: string;
         fileSize: number;
       };
-
       await createPaper.mutateAsync({
         sourceType: "upload",
-        filename: file.name,
+        filename: pdf.name,
         fileSize,
         r2Key,
         language: summaryLanguage,
@@ -360,65 +394,127 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
           : undefined,
         generateWhiteboard,
       });
+    },
+    [
+      createPaper,
+      summaryLanguage,
+      whiteboardLanguage,
+      apiSource,
+      selectedApiConfigId,
+      selectedPromptId,
+      generateWhiteboard,
+    ],
+  );
+
+  const handleFileUpload = useCallback(async () => {
+    if (isReadOnlyGuest) {
+      void startGitHubSignIn("/");
+      return;
+    }
+    if (!file) return;
+    setUploading(true);
+    try {
+      await uploadPdfAndCreate(file);
       setOpen(false);
       setFile(null);
       onSuccess?.();
     } catch (e) {
       console.error("Upload failed:", e);
+      // 原实现只 console.error，失败时对话框静止不动，用户以为没点上。
+      toast.error(e instanceof Error ? e.message : m.upload_url_err_generic());
     } finally {
       setUploading(false);
     }
-  }, [
-    createPaper,
-    file,
-    isReadOnlyGuest,
-    onSuccess,
-    summaryLanguage,
-    whiteboardLanguage,
-    apiSource,
-    selectedApiConfigId,
-    selectedPromptId,
-    generateWhiteboard,
-  ]);
+  }, [file, isReadOnlyGuest, onSuccess, uploadPdfAndCreate]);
 
-  const handleArxivSubmit = useCallback(async () => {
+  // 通用 PDF 链接：服务端代抓字节（浏览器受 CORS 限制拿不到跨域 PDF），
+  // 再走与本地文件完全相同的上传链路。
+  const importFromLink = useCallback(
+    async (raw: string) => {
+      // https + 非私有 host 的前置校验；本地判得掉的错就不必往返一次服务端。
+      if (!isAllowedPdfUrl(raw).ok) {
+        throw new Error(m.upload_url_err_bad_url());
+      }
+      const resp = await fetch("/api/papers/fetch-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: raw }),
+      });
+      if (!resp.ok) {
+        let message: string = m.upload_url_err_generic();
+        try {
+          const data = (await resp.json()) as { error?: string };
+          const resolve = data?.error
+            ? URL_IMPORT_ERROR[data.error]
+            : undefined;
+          if (resolve) {
+            message = resolve();
+          }
+        } catch {
+          // 非 JSON 响应，沿用默认文案
+        }
+        throw new Error(message);
+      }
+      const blob = await resp.blob();
+      const headerName = resp.headers.get("X-Filename");
+      const filename = headerName
+        ? decodeURIComponent(headerName)
+        : "document.pdf";
+      await uploadPdfAndCreate(
+        new File([blob], filename, { type: "application/pdf" }),
+      );
+    },
+    [uploadPdfAndCreate],
+  );
+
+  const handleLinkSubmit = useCallback(async () => {
     if (isReadOnlyGuest) {
       void startGitHubSignIn("/");
       return;
     }
-    if (!arxivUrl) return;
+    const raw = linkUrl.trim();
+    if (!raw) return;
     setUploading(true);
     try {
-      const result = await createPaper.mutateAsync({
-        sourceType: "arxiv",
-        arxivUrl,
-        filename: arxivUrl.split("/").pop() || "arxiv-paper",
-        fileSize: 1, // Placeholder size for arxiv, will be updated after download
-        r2Key: `arxiv/${Date.now()}`,
-        language: summaryLanguage,
-        whiteboardLanguage,
-        apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
-        promptId: generateWhiteboard
-          ? (selectedPromptId ?? undefined)
-          : undefined,
-        generateWhiteboard,
-      });
-      // 服务端按 canonical source_url 去重了：这一篇早就在库里，什么也没发生。
-      // 不说一句的话，对话框一关用户会以为在重新处理。
-      if (result.alreadyExists) {
-        toast.info(m.assistant_card_added());
+      if (isArxivLink(raw)) {
+        // canonicalArxivUrl 把裸 id 也补成合法 URL —— paper.create 的 zod
+        // 校验是 z.string().url()，直接传 "2601.13209" 会被拒。
+        const canonical = canonicalArxivUrl(raw);
+        const result = await createPaper.mutateAsync({
+          sourceType: "arxiv",
+          arxivUrl: canonical,
+          filename: canonical.split("/").pop() || "arxiv-paper",
+          fileSize: 1, // arXiv 占位值，下载后由服务端更新
+          r2Key: `arxiv/${Date.now()}`,
+          language: summaryLanguage,
+          whiteboardLanguage,
+          apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
+          promptId: generateWhiteboard
+            ? (selectedPromptId ?? undefined)
+            : undefined,
+          generateWhiteboard,
+        });
+        // 服务端按 canonical source_url 去重了：这一篇早就在库里，什么也没发生。
+        // 不说一句的话，对话框一关用户会以为在重新处理。
+        if (result.alreadyExists) {
+          toast.info(m.assistant_card_added());
+        }
+      } else {
+        await importFromLink(raw);
       }
       setOpen(false);
-      setArxivUrl("");
+      setLinkUrl("");
       onSuccess?.();
     } catch (e) {
-      console.error("arXiv submit failed:", e);
+      console.error("Link import failed:", e);
+      toast.error(e instanceof Error ? e.message : m.upload_url_err_generic());
     } finally {
       setUploading(false);
     }
   }, [
-    arxivUrl,
+    linkUrl,
     createPaper,
+    importFromLink,
     isReadOnlyGuest,
     onSuccess,
     summaryLanguage,
@@ -487,9 +583,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               <FileText className="h-4 w-4" />
               {m.upload_file_title()}
             </TabsTrigger>
-            <TabsTrigger value="arxiv" className="flex-1 gap-1.5">
+            <TabsTrigger value="link" className="flex-1 gap-1.5">
               <LinkIcon className="h-4 w-4" />
-              {m.upload_arxiv_title()}
+              {m.upload_link_title()}
             </TabsTrigger>
           </TabsList>
 
@@ -631,15 +727,15 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             )}
           </TabsContent>
 
-          <TabsContent value="arxiv" className="mt-4">
+          <TabsContent value="link" className="mt-4">
             <Input
-              placeholder="https://arxiv.org/abs/2301.12345"
-              value={arxivUrl}
-              onChange={(e) => setArxivUrl(e.target.value)}
+              placeholder={m.upload_link_placeholder()}
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
               className="border-[var(--line)]"
             />
             <p className="mt-2 text-xs text-[var(--ink-soft)]">
-              {m.upload_arxiv_hint()}
+              {m.upload_link_hint()}
             </p>
             <div className="mt-4">
               <WhiteboardToggle
@@ -702,9 +798,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               </span>
             </div>
             <Button
-              onClick={handleArxivSubmit}
+              onClick={handleLinkSubmit}
               disabled={
-                !arxivUrl ||
+                !linkUrl ||
                 uploading ||
                 blockedByCredits ||
                 (apiSource === "user" && !selectedApiConfigId)
