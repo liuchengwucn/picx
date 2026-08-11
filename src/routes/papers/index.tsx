@@ -10,6 +10,10 @@ import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { PaperEmptyState } from "#/components/papers/paper-empty-state";
 import { PaperRow, PaperRowSkeleton } from "#/components/papers/paper-row";
+import {
+  PaperActiveFilters,
+  PaperTopicFilterButton,
+} from "#/components/papers/paper-topic-filter";
 import { RecentPapers } from "#/components/papers/recent-papers";
 import { UploadDialog } from "#/components/papers/upload-dialog";
 import { Button } from "#/components/ui/button";
@@ -18,7 +22,10 @@ import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
 import { parseCsvParam } from "#/lib/gallery-search";
-import { normalizeCategorySlugs } from "#/lib/paper-categories";
+import {
+  normalizeCategorySlugs,
+  type PaperCategorySlug,
+} from "#/lib/paper-categories";
 import { groupPapersByMonth } from "#/lib/papers-group";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
@@ -129,6 +136,21 @@ function PapersPage() {
     patchSearch({
       tag: Array.from(new Set([...tags, tag])).join(",") || undefined,
     });
+  };
+
+  const toggleCategory = (slug: PaperCategorySlug) => {
+    const next = categories.includes(slug)
+      ? categories.filter((c) => c !== slug)
+      : [...categories, slug];
+    patchSearch({ cat: next.join(",") || undefined });
+  };
+
+  const removeTag = (tag: string) => {
+    patchSearch({ tag: tags.filter((t) => t !== tag).join(",") || undefined });
+  };
+
+  const clearFilters = () => {
+    patchSearch({ cat: undefined, tag: undefined, status: undefined });
   };
 
   // 上传会新建一篇 pending 论文 —— pending 算在途,所以「处理中」chip 的计数
@@ -254,9 +276,19 @@ function PapersPage() {
               {(counts.data?.failed ?? 0) > 0 && ` ${counts.data?.failed}`}
             </button>
           )}
+          <PaperTopicFilterButton
+            categories={categories}
+            onToggleCategory={toggleCategory}
+          />
         </div>
 
-        {/* Task 6 会在这里插入主题筛选 Popover 与已选筛选行 */}
+        <PaperActiveFilters
+          categories={categories}
+          tags={tags}
+          onToggleCategory={toggleCategory}
+          onRemoveTag={removeTag}
+          onClearAll={clearFilters}
+        />
 
         <RecentPapers />
 
