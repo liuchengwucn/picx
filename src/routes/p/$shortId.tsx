@@ -94,6 +94,7 @@ import {
   startGitHubSignIn as beginGitHubSignIn,
 } from "#/lib/auth-client";
 import { buildQuoteBlock, normalizePdfSelection } from "#/lib/pdf-quote";
+import { pushRecentPaper } from "#/lib/recent-papers";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -723,6 +724,18 @@ function PaperDetailPage() {
     mediaQuery.addEventListener("change", handleChange);
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
+
+  // 「最近打开」只在论文真的取到了才记；失败 / 404 不该污染列表页那三张卡。
+  const recentShortId = data?.paper?.shortId;
+  const recentTitle = data?.paper?.title;
+  useEffect(() => {
+    if (!recentShortId || !recentTitle) return;
+    pushRecentPaper({
+      shortId: recentShortId,
+      title: recentTitle,
+      openedAt: Date.now(),
+    });
+  }, [recentShortId, recentTitle]);
 
   const handleCopyMarkdown = async (text: string) => {
     if (!text) return;
