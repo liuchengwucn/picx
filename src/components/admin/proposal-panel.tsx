@@ -1,7 +1,7 @@
 // focusBrief 更新提案的审阅面。整页唯一需要真正「读」的地方，所以做成校样对开：
 // 上格是方向当下的 focusBrief，下格是这一期定稿时强模型写出的**全文替换**。
 // 刻意不做逐词 diff——提案是整段重写，逐词高亮只会把两段都染成一片红绿。
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import { ArrowDown, Check, Loader2, X } from "lucide-react";
@@ -12,6 +12,7 @@ import {
   AdminSection,
   adminErrorMessage,
   Pill,
+  useInvalidateAdmin,
 } from "#/components/admin/admin-ui";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
@@ -26,25 +27,15 @@ type PendingProposal =
 
 export function ProposalPanel() {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
+  const invalidateAdmin = useInvalidateAdmin();
   const proposalsQuery = useQuery(trpc.admin.listProposals.queryOptions());
-
-  const invalidate = () => {
-    void queryClient.invalidateQueries({
-      queryKey: trpc.admin.listProposals.queryKey(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: trpc.admin.listDirections.queryKey(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: trpc.admin.listRecentDigests.queryKey(),
-    });
-  };
 
   const adopt = useMutation(
     trpc.admin.adoptFocusUpdate.mutationOptions({
       onSuccess: (result) => {
-        invalidate();
+        // 采纳整段覆盖了 directions.focusBrief —— 上面若正开着这个方向的编辑表单，
+        // 它必须从这次 refetch 里看到新的 updatedAt 才会锁住保存
+        invalidateAdmin();
         // 采纳成功，但两件事都可能同时出岔子，各说各的，不合并成一句
         if (result.supersededCount > 0) {
           toast.info(
@@ -65,7 +56,7 @@ export function ProposalPanel() {
   const dismiss = useMutation(
     trpc.admin.dismissFocusUpdate.mutationOptions({
       onSuccess: () => {
-        invalidate();
+        invalidateAdmin();
         toast.success(m.admin_saved());
       },
       onError: (error) => toast.error(adminErrorMessage(error)),
@@ -96,6 +87,10 @@ export function ProposalPanel() {
                 adopt.isPending &&
                 adopt.variables?.digestId === proposal.digestId
               }
+              dismissPending={
+                dismiss.isPending &&
+                dismiss.variables?.digestId === proposal.digestId
+              }
               disabled={adopt.isPending || dismiss.isPending}
               onAdopt={() => adopt.mutate({ digestId: proposal.digestId })}
               onDismiss={() => dismiss.mutate({ digestId: proposal.digestId })}
@@ -110,12 +105,14 @@ export function ProposalPanel() {
 function ProposalCard({
   proposal,
   adoptPending,
+  dismissPending,
   disabled,
   onAdopt,
   onDismiss,
 }: {
   proposal: PendingProposal;
   adoptPending: boolean;
+  dismissPending: boolean;
   disabled: boolean;
   onAdopt: () => void;
   onDismiss: () => void;
@@ -217,7 +214,12 @@ function ProposalCard({
           data-testid="admin-dismiss-proposal"
           onClick={onDismiss}
         >
-          <X className="size-3.5" />
+          {/* 驳回被 disabled 灰掉却不转圈会看起来像卡住了 */}
+          {dismissPending ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <X className="size-3.5" />
+          )}
           {m.admin_dismiss()}
         </Button>
       </div>

@@ -571,7 +571,7 @@
   "admin_delete_blocked_missing": "這個方向已不存在，請重新載入頁面。",
   "admin_saved": "已儲存",
   "admin_stale_refresh": "內容已在別處變更，請重新載入頁面。",
-  "admin_slug_taken": "這個 slug 已被占用。",
+  "admin_slug_taken": "這個 slug 已被佔用。",
   "admin_field_slug": "Slug",
   "admin_field_name": "名稱",
   "admin_field_focus_brief": "focusBrief（內部中文，餵給 LLM）",
@@ -615,5 +615,9 @@
   "admin_focus_brief_required": "focusBrief 不能空白。",
   "admin_name_incomplete": "名稱需要四種語言都填。",
   "admin_intro_incomplete": "公開簡介需要四種語言都填——或者四個都清空以移除。",
-  "admin_inactive": "已停用"
+  "admin_inactive": "已停用",
+  "admin_sort_order_invalid": "排序必須是整數。",
+  "admin_no_directions": "還沒有任何方向",
+  "admin_reload_from_server": "從伺服器重新載入",
+  "admin_save_brief_first": "請先儲存 focusBrief——產生時讀取的是資料庫裡那一份。"
 }

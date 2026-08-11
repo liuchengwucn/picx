@@ -1,9 +1,9 @@
 // 一个方向的抓取源清单。源是「内部机器配置」那一侧的东西，所以整块用 mono
 // 排版：config 是原样喂给适配器的 JSON，adapterType 是枚举字面量，都不该被
 // 翻译或美化成散文。
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
-import { Pencil, Plus, RotateCcw } from "lucide-react";
+import { Pencil, Plus, RefreshCw, RotateCcw } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -13,6 +13,7 @@ import {
   FieldLabel,
   FormNote,
   Pill,
+  useInvalidateAdmin,
 } from "#/components/admin/admin-ui";
 import { Button } from "#/components/ui/button";
 import {
@@ -47,8 +48,20 @@ const CONFIG_TEMPLATES: Record<AdapterType, string> = {
 };
 const TEMPLATE_VALUES = Object.values(CONFIG_TEMPLATES);
 
+/**
+ * 折叠行里那一眼。query / url 是这条源的身份，优先显示；两者都没有时（比如只填了
+ * maxResults）退回紧凑 JSON —— 固定显示 "{}" 会让人以为配置是空的。
+ */
 function configSummary(source: AdminSource): string {
-  return source.config.query ?? source.config.url ?? "{}";
+  return (
+    source.config.query ?? source.config.url ?? JSON.stringify(source.config)
+  );
+}
+
+/** 一条源上「这张表单能改的全部内容」的指纹，null = 新建（永不漂移） */
+function sourceFingerprint(source: AdminSource | null): string | null {
+  if (!source) return null;
+  return JSON.stringify([source.adapterType, source.config, source.enabled]);
 }
 
 export function SourceList({
@@ -59,19 +72,14 @@ export function SourceList({
   sources: AdminSource[];
 }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
+  const invalidateAdmin = useInvalidateAdmin();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-
-  const invalidate = () =>
-    queryClient.invalidateQueries({
-      queryKey: trpc.admin.listDirections.queryKey(),
-    });
 
   const deleteSource = useMutation(
     trpc.admin.deleteSource.mutationOptions({
       onSuccess: () => {
-        void invalidate();
+        invalidateAdmin();
         toast.success(m.admin_saved());
       },
       onError: (error) => toast.error(adminErrorMessage(error)),
@@ -81,7 +89,7 @@ export function SourceList({
   const reviveSource = useMutation(
     trpc.admin.reviveSource.mutationOptions({
       onSuccess: () => {
-        void invalidate();
+        invalidateAdmin();
         toast.success(m.admin_saved());
       },
       onError: (error) => toast.error(adminErrorMessage(error)),
@@ -161,6 +169,8 @@ export function SourceList({
                   label={m.admin_delete()}
                   confirmLabel={m.admin_delete_confirm()}
                   disabled={deleteSource.isPending}
+                  // 一个方向可能挂着好几条源，读屏下三个按钮都叫「删除」分不出是哪条
+                  ariaLabel={`${m.admin_delete()} — ${source.adapterType} ${configSummary(source)}`}
                   onConfirm={() => deleteSource.mutate({ sourceId: source.id })}
                   data-testid="admin-delete-source"
                 />
@@ -219,8 +229,15 @@ function SourceForm({
   onDone: () => void;
 }) {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
+  const invalidateAdmin = useInvalidateAdmin();
   const fieldId = useId();
+  /**
+   * 与 DirectionForm 同一个问题的小号版：本地 state 只在挂载时取一次，refetch 不覆盖
+   * （否则抹掉正在敲的 JSON），于是别处改了这条源之后一保存就把那次改动写回去。
+   * direction_sources 没有 updatedAt 列（也不为此加迁移），所以拿三个可写字段的
+   * 序列化形态当基线——它们就是这张表单能改的全部内容，够判漂移。
+   */
+  const [baseline] = useState(() => sourceFingerprint(source));
   const [adapterType, setAdapterType] = useState<AdapterType>(
     source?.adapterType ?? "arxiv_query",
   );
@@ -232,12 +249,12 @@ function SourceForm({
   const [enabled, setEnabled] = useState(source?.enabled ?? true);
   const [error, setError] = useState<string | null>(null);
 
+  const drifted = sourceFingerprint(source) !== baseline;
+
   const upsert = useMutation(
     trpc.admin.upsertSource.mutationOptions({
       onSuccess: () => {
-        void queryClient.invalidateQueries({
-          queryKey: trpc.admin.listDirections.queryKey(),
-        });
+        invalidateAdmin();
         toast.success(m.admin_saved());
         onDone();
       },
@@ -336,17 +353,47 @@ function SourceForm({
           spellCheck={false}
           rows={4}
           className="font-mono text-xs"
-          onChange={(event) => setConfigText(event.target.value)}
+          aria-invalid={error !== null}
+          aria-describedby={error ? `${fieldId}-error` : undefined}
+          onChange={(event) => {
+            // 站长动了 JSON 就撤掉旧的「配置必须是合法 JSON」，否则改好了它还挂着
+            setError(null);
+            setConfigText(event.target.value);
+          }}
         />
       </div>
 
-      {error ? <FormNote tone="error">{error}</FormNote> : null}
+      {error ? (
+        <FormNote tone="error" id={`${fieldId}-error`}>
+          {error}
+        </FormNote>
+      ) : null}
+
+      {/* 这条源在别处被改过了：锁住保存，请站长放弃这份草稿重新打开 */}
+      {drifted ? (
+        <div
+          className="flex flex-wrap items-center gap-3"
+          data-testid="admin-source-stale"
+        >
+          <FormNote tone="error">{m.admin_stale_refresh()}</FormNote>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            data-testid="admin-source-reload"
+            onClick={onDone}
+          >
+            <RefreshCw className="size-3.5" />
+            {m.admin_reload_from_server()}
+          </Button>
+        </div>
+      ) : null}
 
       <div className="flex gap-2">
         <Button
           type="button"
           size="sm"
-          disabled={upsert.isPending}
+          disabled={upsert.isPending || drifted}
           data-testid="admin-save-source"
           onClick={submit}
         >

@@ -7,20 +7,10 @@ import { useMemo } from "react";
 import { AdminEmpty, AdminSection } from "#/components/admin/admin-ui";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTRPC } from "#/integrations/trpc/react";
+// 文案表与踩票 chip 同源（枚举加成员时那份带枚举键的 Record 会编译报错）
+import { feedbackReasonLabel } from "#/lib/feedback-reasons";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
-
-/**
- * 复用踩票表单那四个 chip 的文案。枚举里还有 "other"，但表单从不提交它
- * （只填自由文本时不带 preset），所以没有对应文案 —— 真出现就原样显示这个值，
- * 编一句假的分类名只会污染口味统计的读法。
- */
-const REASON_LABELS: Record<string, () => string> = {
-  "off-topic": () => m.feedback_reason_off_topic(),
-  incremental: () => m.feedback_reason_incremental(),
-  hype: () => m.feedback_reason_hype(),
-  seen: () => m.feedback_reason_seen(),
-};
 
 export function FeedbackPanel() {
   const trpc = useTRPC();
@@ -49,11 +39,14 @@ export function FeedbackPanel() {
         <ul className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
           {feedbackQuery.data.map((row) => {
             const reason = row.reasonPreset
-              ? (REASON_LABELS[row.reasonPreset]?.() ?? row.reasonPreset)
+              ? feedbackReasonLabel(row.reasonPreset)
               : null;
             return (
+              // 一个用户对一篇论文只有一行（paper_feedback 的唯一键），所以
+              // paperShortId + userId 就是稳定身份；带上 updatedAt 会让每次改票
+              // 都换 key、整行重挂
               <li
-                key={`${row.paperShortId}-${row.userName}-${row.updatedAt.getTime()}`}
+                key={`${row.paperShortId}-${row.userId}`}
                 data-testid="admin-feedback-row"
                 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5"
               >

@@ -615,5 +615,9 @@
   "admin_focus_brief_required": "focusBrief は空にできません。",
   "admin_name_incomplete": "名称は 4 言語すべて入力してください。",
   "admin_intro_incomplete": "公開用の紹介文は 4 言語すべて入力するか、4 つすべてを空にしてください。",
-  "admin_inactive": "無効"
+  "admin_inactive": "無効",
+  "admin_sort_order_invalid": "並び順は整数で入力してください。",
+  "admin_no_directions": "方向がまだありません",
+  "admin_reload_from_server": "サーバーから再読み込み",
+  "admin_save_brief_first": "先に focusBrief を保存してください。生成には保存済みの内容が使われます。"
 }

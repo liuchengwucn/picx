@@ -680,6 +680,32 @@ describe("adoptFocusUpdateStore", () => {
   });
 
   /**
+   * 管理页展开着的编辑表单是草稿：它的本地 state 不跟着 refetch 变（否则会抹掉
+   * 正在输入的内容），所以它靠 listDirectionsAdmin 投影出来的 updatedAt 判断
+   * 「库里被旁路改过了」。采纳提案正是那条旁路——它绕过表单直接覆盖 focusBrief，
+   * 表单若察觉不到，站长下一次保存就把刚采纳的演化整段覆盖回旧全文。
+   * 基线先写成一个远古时间：updated_at 是秒精度，同一秒内前后两次读会相等。
+   */
+  it("advances the direction's updatedAt so an open admin form can detect the drift", async () => {
+    await db
+      .update(directions)
+      .set({ updatedAt: new Date("2020-01-01T00:00:00Z") })
+      .where(eq(directions.id, "dir-withdigests"));
+    const before = (await listDirectionsAdmin(db)).find(
+      (d) => d.id === "dir-withdigests",
+    );
+
+    await adoptFocusUpdateStore(db, "dg-11");
+
+    const after = (await listDirectionsAdmin(db)).find(
+      (d) => d.id === "dir-withdigests",
+    );
+    expect(after?.updatedAt.getTime()).toBeGreaterThan(
+      before?.updatedAt.getTime() ?? 0,
+    );
+  });
+
+  /**
    * 记录每一次 UPDATE 的「表 + 语义载荷」，形如 "digests:adopted"。
    * 只数 db.update 的调用次数分辨不出第 2、3 次写的先后（两次都是 digests），
    * 而这两步的先后正是崩溃语义所在，所以拦 .set() 的载荷。
@@ -1003,6 +1029,7 @@ describe("listRecentFeedbackAdmin", () => {
     expect(rows[0]).toEqual({
       paperTitle: "Paper One",
       paperShortId: "sid1",
+      userId: "u2",
       userName: "Bob",
       vote: -1,
       reasonPreset: "off-topic",

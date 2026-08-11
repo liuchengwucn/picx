@@ -36,8 +36,18 @@ function AdminDirectionsPage() {
   const whoami = useQuery({
     ...trpc.admin.whoami.queryOptions(),
     enabled: Boolean(session),
-    // FORBIDDEN 重试三次既拖慢 404 帧，又把「不是 admin」这件事重复问三遍
-    retry: false,
+    /**
+     * 「不是 admin」与「这一次没连上」要分开处理：
+     * - FORBIDDEN / UNAUTHORIZED 是终局答案，重试三次只是把它重复问三遍，还拖慢
+     *   那一帧 404 的出现；
+     * - 其余（网络抖动、Worker 冷启动超时）一次失败就把管理台永久变成「页面不存在」
+     *   太脆了，给两次重试。
+     */
+    retry: (failureCount, error) => {
+      const code = (error as { data?: { code?: string } }).data?.code;
+      if (code === "FORBIDDEN" || code === "UNAUTHORIZED") return false;
+      return failureCount < 2;
+    },
   });
 
   if (isSessionPending || (session && whoami.isPending)) {

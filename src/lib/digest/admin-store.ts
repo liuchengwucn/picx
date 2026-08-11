@@ -69,6 +69,14 @@ export interface AdminDirection {
   intro: Record<string, string> | null;
   isActive: boolean;
   sortOrder: number;
+  /**
+   * 管理页表单的陈旧令牌。展开中的编辑表单是「草稿」——本地 state 不会随 refetch
+   * 跟着变（否则会抹掉正在输入的内容），于是「采纳提案」这类改了 focusBrief 的
+   * 旁路写入之后，表单里仍是旧全文，一保存就把刚采纳的演化整段覆盖回去。
+   * 前端拿这个时间戳与挂载时的基线比，不等就锁住保存并请站长重新载入。
+   * 采纳（adoptFocusUpdateStore）、intro 重写（setDirectionIntro）、表单保存都会推进它。
+   */
+  updatedAt: Date;
   sources: AdminSource[];
 }
 
@@ -86,6 +94,7 @@ export async function listDirectionsAdmin(db: Db): Promise<AdminDirection[]> {
     intro: d.intro,
     isActive: d.isActive,
     sortOrder: d.sortOrder,
+    updatedAt: d.updatedAt,
     sources: sources
       .filter((s) => s.directionId === d.id)
       .map((s) => ({
@@ -509,6 +518,8 @@ export async function setDirectionIntro(
 export interface AdminFeedbackRow {
   paperTitle: string;
   paperShortId: string;
+  /** 列表 key 用它而不是 userName：同名 GitHub 用户会撞 key */
+  userId: string;
   userName: string;
   vote: number;
   reasonPreset: string | null;
@@ -524,6 +535,7 @@ export async function listRecentFeedbackAdmin(
     .select({
       paperTitle: papers.title,
       paperShortId: papers.shortId,
+      userId: paperFeedback.userId,
       userName: user.name,
       vote: paperFeedback.vote,
       reasonPreset: paperFeedback.reasonPreset,

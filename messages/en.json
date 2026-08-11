@@ -615,5 +615,9 @@
   "admin_focus_brief_required": "Focus brief can't be empty.",
   "admin_name_incomplete": "Name needs all four languages.",
   "admin_intro_incomplete": "Public intro needs all four languages — or clear all four to remove it.",
-  "admin_inactive": "Inactive"
+  "admin_inactive": "Inactive",
+  "admin_sort_order_invalid": "Sort order must be a whole number.",
+  "admin_no_directions": "No directions yet",
+  "admin_reload_from_server": "Reload from server",
+  "admin_save_brief_first": "Save the focus brief first — the generator reads the saved copy."
 }

@@ -47,7 +47,11 @@ export function DigestStatusPanel() {
   }, [digestsQuery.data]);
 
   return (
-    <AdminSection anchorId="issues" title={m.admin_section_issues()}>
+    <AdminSection
+      anchorId="issues"
+      title={m.admin_section_issues()}
+      count={digestsQuery.data?.length}
+    >
       {digestsQuery.isPending ? (
         <Skeleton className="h-32 rounded-xl" />
       ) : digestsQuery.isError ? (

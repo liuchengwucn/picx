@@ -615,5 +615,9 @@
   "admin_focus_brief_required": "focusBrief 不能为空。",
   "admin_name_incomplete": "名称需要四语齐全。",
   "admin_intro_incomplete": "公开简介需要四语齐全——或者四个都清空以移除它。",
-  "admin_inactive": "已停用"
+  "admin_inactive": "已停用",
+  "admin_sort_order_invalid": "排序必须是整数。",
+  "admin_no_directions": "暂无方向",
+  "admin_reload_from_server": "从服务器重新载入",
+  "admin_save_brief_first": "请先保存 focusBrief——生成读取的是库里那一份。"
 }

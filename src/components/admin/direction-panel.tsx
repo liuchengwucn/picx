@@ -63,7 +63,7 @@ export function DirectionPanel() {
         </p>
       ) : directions.length === 0 ? (
         adding ? null : (
-          <AdminEmpty>{m.admin_add_direction()}</AdminEmpty>
+          <AdminEmpty>{m.admin_no_directions()}</AdminEmpty>
         )
       ) : (
         <ul className="space-y-3">

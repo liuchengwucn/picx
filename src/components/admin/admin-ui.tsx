@@ -1,9 +1,28 @@
 // 管理页共用的小件与错误分流。站长自用页面，刻意不引入新的 shadcn 组件
 // （确认对话框一律走两步按钮），视觉语汇全部复用站点既有的 CSS 变量。
-import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "#/components/ui/button";
+import { useTRPC } from "#/integrations/trpc/react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
+
+/**
+ * 任一处写入后，把整棵 admin 子树失效。
+ *
+ * 不做精细失效是有意的：slug / name 同时嵌在 listDirections、listProposals
+ * （directionSlug / directionName）和 listRecentDigests（directionSlug）三份投影里，
+ * 只失效 listDirections 的话，改完 slug 后提案卡仍拿旧 slug 去拼
+ * /gallery/d/$slug/$issue —— 一个 404 链接。这一页四条查询都廉价、又只有站长一个人
+ * 在用，一把梭比逐处列举漏一个要安全得多。
+ */
+export function useInvalidateAdmin() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  return useCallback(() => {
+    void queryClient.invalidateQueries(trpc.admin.pathFilter());
+  }, [queryClient, trpc]);
+}
 
 /** 四语 JSON 字段的 key 序，与后端 localeRecord 的 z.enum 完全一致（穷尽，缺一即 400） */
 export const LOCALE_KEYS = ["en", "zh-cn", "zh-tw", "ja"] as const;
@@ -151,16 +170,24 @@ export function FieldLabel({
   );
 }
 
-/** 表单里的行内校验/说明文字 */
+/**
+ * 表单里的行内校验/说明文字。
+ * 错误分支挂 role="alert"：这些表单很长，出错的字段（slug）在最上面而错误文字在
+ * 最下面，不播报的话读屏用户只会看到提交没反应。
+ */
 export function FormNote({
   tone = "muted",
+  id,
   children,
 }: {
   tone?: "muted" | "error";
+  id?: string;
   children: React.ReactNode;
 }) {
   return (
     <p
+      id={id}
+      role={tone === "error" ? "alert" : undefined}
       className={cn(
         "text-xs",
         tone === "error"
@@ -187,6 +214,7 @@ export function ConfirmButton({
   disabled,
   variant = "outline",
   className,
+  ariaLabel,
   "data-testid": testId,
 }: {
   label: React.ReactNode;
@@ -195,6 +223,8 @@ export function ConfirmButton({
   disabled?: boolean;
   variant?: "outline" | "destructive" | "default";
   className?: string;
+  /** 同一页出现多个同名按钮时（比如每行源都有一个「删除」）用来区分 */
+  ariaLabel?: string;
   "data-testid"?: string;
 }) {
   const [armed, setArmed] = useState(false);
@@ -216,6 +246,7 @@ export function ConfirmButton({
       size="sm"
       variant={armed ? "destructive" : variant}
       disabled={disabled}
+      aria-label={ariaLabel}
       data-testid={testId}
       data-armed={armed ? "true" : "false"}
       className={className}
@@ -229,7 +260,11 @@ export function ConfirmButton({
         setArmed(true);
       }}
     >
-      {armed ? confirmLabel : label}
+      {/* 可访问名从「删除」变成「确认删除？」是一次状态变化，不播报的话读屏用户
+          按下第一次后什么也不知道，第二次按下就直接删了 */}
+      <span aria-live="polite" className="inline-flex items-center gap-2">
+        {armed ? confirmLabel : label}
+      </span>
     </Button>
   );
 }

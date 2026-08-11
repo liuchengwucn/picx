@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { inferRouterInputs } from "@trpc/server";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { type MouseEvent, useId, useState } from "react";
 import { toast } from "sonner";
@@ -13,30 +12,16 @@ import {
 } from "#/components/ui/popover";
 import { useHydrated } from "#/hooks/use-hydrated";
 import { useTRPC } from "#/integrations/trpc/react";
-import type { TRPCRouter } from "#/integrations/trpc/router";
 import { startGitHubSignIn } from "#/lib/auth-client";
+import {
+  type ChipReasonPreset,
+  REASON_CHIP_LABELS,
+  REASON_CHIPS,
+} from "#/lib/feedback-reasons";
 import { GALLERY_LIST_QUERY_KEY } from "#/lib/gallery-search";
 import { FEEDBACK_REASON_TEXT_MAX_LENGTH } from "#/lib/paper-feedback";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
-
-type ReasonPreset = NonNullable<
-  inferRouterInputs<TRPCRouter>["paper"]["setFeedback"]["reasonPreset"]
->;
-/**
- * 有 chip 的理由。"other" 故意不在这里: 它和「只填了自由文本」表达的是同一件事
- * (理由在 reasonText 里), 多一个合成分类只会稀释口味统计, 所以自由文本不带 preset 提交。
- */
-type ChipReasonPreset = Exclude<ReasonPreset, "other">;
-
-/** 键序即 chip 展示序。枚举加成员时这个 Record 会编译报错, 逼着这里同步。 */
-const REASON_CHIP_LABELS: Record<ChipReasonPreset, () => string> = {
-  "off-topic": () => m.feedback_reason_off_topic(),
-  incremental: () => m.feedback_reason_incremental(),
-  hype: () => m.feedback_reason_hype(),
-  seen: () => m.feedback_reason_seen(),
-};
-const REASON_CHIPS = Object.keys(REASON_CHIP_LABELS) as ChipReasonPreset[];
 
 /**
  * 同一时刻最多开一个浮层, 所以用一个三选一而不是三个 boolean —— 后者能表达
