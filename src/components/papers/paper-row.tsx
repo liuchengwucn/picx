@@ -71,14 +71,14 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
           e.stopPropagation();
           onTagClick(tag);
         }}
-        className="max-w-[56px] shrink-0 truncate rounded-full border border-[var(--line)] px-1.5 text-[10px] leading-4 text-[var(--ink-soft)] transition-colors hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
+        className="min-w-0 truncate rounded-full border border-[var(--line)] px-1.5 text-[10px] leading-4 text-[var(--ink-soft)] transition-colors hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
       >
         #{tag}
       </button>
     ) : (
       <span
         key={tag}
-        className="max-w-[56px] shrink-0 truncate rounded-full border border-[var(--line)] px-1.5 text-[10px] leading-4 text-[var(--ink-soft)]"
+        className="min-w-0 truncate rounded-full border border-[var(--line)] px-1.5 text-[10px] leading-4 text-[var(--ink-soft)]"
       >
         #{tag}
       </span>
@@ -93,7 +93,7 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
         params={{ shortId: paper.shortId }}
         className="group hidden items-center gap-2.5 rounded-md px-2 py-1.5 no-underline transition-colors hover:bg-[var(--parchment-warm)] sm:flex"
       >
-        <PaperStatusDot status={paper.status} decorative />
+        <PaperStatusDot status={paper.status} />
         <span className="min-w-0 max-w-[50%] flex-initial truncate font-serif text-[13px] font-semibold text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
           {paper.title}
         </span>
@@ -136,7 +136,7 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
       >
         <span className="flex items-start gap-1.5">
           <span className="mt-1.5">
-            <PaperStatusDot status={paper.status} decorative />
+            <PaperStatusDot status={paper.status} />
           </span>
           <span className="line-clamp-2 font-serif text-[13px] font-semibold leading-snug text-[var(--ink)]">
             {paper.title}
