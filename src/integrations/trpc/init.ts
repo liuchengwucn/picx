@@ -109,14 +109,25 @@ const isAdmin = t.middleware(async ({ ctx, next }) => {
     });
   }
   if (isReviewGuestSession(session)) {
-    throw new TRPCError({ code: "FORBIDDEN" });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Review guest cannot access the admin console",
+    });
   }
-  const role = (session.user as { role?: string | null }).role;
+  // role 要 split：better-auth 的 setRole 接受 string[]，插件自己判 admin 也是逗号
+  // 分割后 some 匹配，所以 "admin,user" 在插件路由上算 admin —— 两边判定必须一致，
+  // 否则会出现「能改别人角色却打不开管理页」。
+  const isAdminRole = (session.user.role ?? "")
+    .split(",")
+    .some((r) => r.trim() === "admin");
   if (
-    role !== "admin" &&
+    !isAdminRole &&
     !parseAdminUserIds(ctx.env.ADMIN_USER_IDS).includes(session.user.id)
   ) {
-    throw new TRPCError({ code: "FORBIDDEN" });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin privileges required",
+    });
   }
   return next({ ctx: { ...ctx, session } });
 });

@@ -1,15 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { REVIEW_GUEST_USER_ID } from "#/lib/review-guest";
-import { createTestDb } from "../../../../test/helpers/sqlite-d1";
 import { adminRouter } from "./admin";
 
 function makeCaller(opts: {
   session?: { user: { id: string; role?: string | null } } | null;
   adminIds?: string;
 }) {
-  const { db } = createTestDb();
   const ctx = {
-    db,
+    // whoami 不碰 db：这里刻意不建测试库，免得纯中间件测试被整条迁移历史牵连
+    db: {},
     headers: new Headers(),
     env: { ADMIN_USER_IDS: opts.adminIds },
     auth: { api: { getSession: async () => opts.session ?? null } },
@@ -43,11 +42,24 @@ describe("adminProcedure 权限矩阵", () => {
       }).whoami(),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
-  it("白名单用户 → 放行", async () => {
+  it("非 admin 的 role 值（role=user）→ FORBIDDEN", async () => {
+    await expect(
+      makeCaller({ session: { user: { id: "u1", role: "user" } } }).whoami(),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+  it("ADMIN_USER_IDS 为空串 → 不能变成人人放行", async () => {
+    await expect(
+      makeCaller({
+        session: { user: { id: "u1", role: null } },
+        adminIds: "",
+      }).whoami(),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+  it("白名单用户 → 放行（被测 id 落在带前导空格的那一项，锁住 trim）", async () => {
     await expect(
       makeCaller({
         session: { user: { id: "u-admin", role: null } },
-        adminIds: "u-admin, u-other",
+        adminIds: "u-other, u-admin",
       }).whoami(),
     ).resolves.toEqual({ userId: "u-admin" });
   });
@@ -55,5 +67,12 @@ describe("adminProcedure 权限矩阵", () => {
     await expect(
       makeCaller({ session: { user: { id: "u2", role: "admin" } } }).whoami(),
     ).resolves.toEqual({ userId: "u2" });
+  });
+  it("多角色 role=admin,user → 放行（与插件的逗号分割语义一致）", async () => {
+    await expect(
+      makeCaller({
+        session: { user: { id: "u3", role: "admin,user" } },
+      }).whoami(),
+    ).resolves.toEqual({ userId: "u3" });
   });
 });
