@@ -14,8 +14,13 @@ export const PDF_QUOTE_MAX_CHARS = Math.floor(
 /** 引用块与后续提问之间的空行。同时也是光标要落进去的那一行 */
 const QUOTE_TRAILER = "\n\n";
 
+/** 把选中文本折成单行：排版硬换行与连续空白全部折成单空格。长度策略归调用方。 */
+export function collapseSelectionWhitespace(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
+}
+
 /**
- * 把选中的原始文本整理成可读的一行。两个阅读视图共用：
+ * 把选中的原始文本整理成可读的一行**并钳到 chat 的引用预算**。两个阅读视图共用：
  *
  * - PDF：输入是 `useSelectionRect` 产出的**渲染文本**，每个视觉行之间一个 `\n`
  *   （pdf.js 的文本层用 `<br>` 分行）。直接丢进 chat 会是一堆断句。
@@ -33,12 +38,18 @@ const QUOTE_TRAILER = "\n\n";
  * 不认行边界，断词到这儿已经是焊死的 `infer-ence`、跨行词是 `forlarge`——比这里讨论
  * 的情况严格更糟，而且本函数对它完全是 no-op。改动上游前先看
  * `use-selection-rect.ts` 的 `clippedRenderedText`。
+ *
+ * 只服务 chat 这条路。分享卡片那条路要的是「折空白」而不是「折空白 + 按 chat 预算截」，
+ * 走 collapseSelectionWhitespace：这里的默认上限派生自 CHAT_CLIENT_LIMITS，拿它预处理
+ * 卡片文本会让卡片的截断策略被 chat 输入框的预算暗中接管，而且尾部省略号是在这里加的，
+ * 卡片侧再看长度就已经量不出「用户到底选了多少」，`truncated` 恒为 false——截断提示会
+ * 静默消失。
  */
 export function normalizePdfSelection(
   raw: string,
   maxChars: number = PDF_QUOTE_MAX_CHARS,
 ): string {
-  const collapsed = raw.replace(/\s+/g, " ").trim();
+  const collapsed = collapseSelectionWhitespace(raw);
   if (collapsed.length <= maxChars) return collapsed;
   return `${collapsed.slice(0, maxChars).trimEnd()}…`;
 }

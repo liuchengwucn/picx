@@ -1,4 +1,4 @@
-import { FileText, Loader2, MessageSquareQuote } from "lucide-react";
+import { FileText, Loader2, MessageSquareQuote, Quote } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { SelectionActionBubble } from "#/components/selection/selection-action-bubble";
 import { Button } from "#/components/ui/button";
@@ -6,6 +6,7 @@ import { useSelectionRect } from "#/hooks/use-selection-rect";
 import { m } from "#/paraglide/messages";
 import { PdfFindBar } from "./pdf-find-bar";
 import { PdfOutlineDrawer } from "./pdf-outline-drawer";
+import { pageNumberOfSelection } from "./pdf-selection-page";
 import { PdfToolbar } from "./pdf-toolbar";
 import { usePdfViewer } from "./use-pdf-viewer";
 // 官方 viewer 的样式表。它是非 Tailwind 的全局样式，但全部以 .pdfViewer / .textLayer
@@ -25,6 +26,8 @@ export interface PdfReaderViewProps {
   onPageChange: (page: number) => void;
   /** 用户点「问这段」时把选中文本交出去；页面层负责送进 chat */
   onAskSelection: (text: string) => void;
+  /** 用户点「分享这段」时把选中文本与所在页码交出去；页面层负责拼深链与卡片 */
+  onShareSelection: (text: string, page: number) => void;
 }
 
 export default function PdfReaderView({
@@ -33,6 +36,7 @@ export default function PdfReaderView({
   initialPage,
   onPageChange,
   onAskSelection,
+  onShareSelection,
 }: PdfReaderViewProps) {
   const pdf = usePdfViewer(url, initialPage);
   // 根节点取滚动容器而不是里面那个 .pdfViewer：两者嵌套，对 intersectsNode 判定
@@ -212,6 +216,24 @@ export default function PdfReaderView({
                 // 出同一个选区，气泡自己又冒回来。
                 document.getSelection()?.removeAllRanges();
                 if (text) onAskSelection(text);
+              },
+            },
+            {
+              key: "share",
+              icon: Quote,
+              label: m.selection_share(),
+              onClick: () => {
+                const state = selection.state;
+                // 与 ask 不同，这里刻意不清 DOM 选区：分享会开一个 modal，用户关掉
+                // 之后可能还想接着「问这段」。dismiss() 的闩足够压住气泡，而弹窗
+                // 开着期间 PDF 不会滚动，上面那条「滚动重新 evaluate」的路径到不了。
+                selection.dismiss();
+                if (state?.text) {
+                  onShareSelection(
+                    state.text,
+                    pageNumberOfSelection(state.range, pdf.pageNumber),
+                  );
+                }
               },
             },
           ]}

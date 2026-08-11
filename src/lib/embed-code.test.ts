@@ -5,6 +5,8 @@ import {
   escapeHtml,
   paperImageUrl,
   paperPageUrl,
+  paperPdfPageUrl,
+  parsePdfPageParam,
 } from "./embed-code";
 
 describe("escapeHtml", () => {
@@ -62,5 +64,21 @@ describe("buildSocialShareLinks", () => {
     expect(links.reddit).toBe(
       `https://www.reddit.com/submit?url=${encodedUrl}&title=${encodedTitle}`,
     );
+  });
+});
+
+describe("paperPdfPageUrl / parsePdfPageParam", () => {
+  it("拼出带页码的 PDF 深链", () => {
+    expect(paperPdfPageUrl("abc123", 7)).toContain("/p/abc123?view=pdf&page=7");
+  });
+
+  it("只接受正整数页码", () => {
+    expect(parsePdfPageParam("7")).toBe(7);
+    expect(parsePdfPageParam(7)).toBe(7);
+    expect(parsePdfPageParam("0")).toBeUndefined();
+    expect(parsePdfPageParam("-3")).toBeUndefined();
+    expect(parsePdfPageParam("1.5")).toBeUndefined();
+    expect(parsePdfPageParam("abc")).toBeUndefined();
+    expect(parsePdfPageParam(undefined)).toBeUndefined();
   });
 });

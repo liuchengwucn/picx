@@ -34,6 +34,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import "katex/dist/katex.min.css";
+import { plainCardContent } from "#/components/markdown-reader/quote-share/quote-card-content";
 import { QuoteShareDialog } from "#/components/markdown-reader/quote-share/quote-share-dialog";
 import {
   type QuoteSharePayload,
@@ -97,7 +98,12 @@ import {
   authClient,
   startGitHubSignIn as beginGitHubSignIn,
 } from "#/lib/auth-client";
-import { buildQuoteBlock, normalizePdfSelection } from "#/lib/pdf-quote";
+import { paperPdfPageUrl, parsePdfPageParam } from "#/lib/embed-code";
+import {
+  buildQuoteBlock,
+  collapseSelectionWhitespace,
+  normalizePdfSelection,
+} from "#/lib/pdf-quote";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -194,13 +200,14 @@ export const Route = createFileRoute("/p/$shortId")({
   // （分享链接可直达原文或 PDF 视图）
   validateSearch: (
     search: Record<string, unknown>,
-  ): { view?: "reader" | "pdf" } => ({
+  ): { view?: "reader" | "pdf"; page?: number } => ({
     view:
       search.view === "reader"
         ? "reader"
         : search.view === "pdf"
           ? "pdf"
           : undefined,
+    page: parsePdfPageParam(search.page),
   }),
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR) {
@@ -482,7 +489,7 @@ const statusProgress: Record<string, number> = {
 
 function PaperDetailPage() {
   const { shortId } = Route.useParams();
-  const { view } = Route.useSearch();
+  const { view, page: initialPageParam } = Route.useSearch();
   const loaderData = Route.useLoaderData();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -490,9 +497,13 @@ function PaperDetailPage() {
   const [copied, setCopied] = useState(false);
   // 切 tab 往返时记住 PDF 读到第几页。用 ref 而不是 state：这个值每翻一页都会更新，
   // 但只在 PdfReaderView 挂载时被读一次当种子——放进 state 会让整个详情页（含 chat
-  // 面板与白板画廊）跟着每一次翻页重渲染，纯属浪费。刻意不进 URL：页码是阅读进度
-  // 不是分享意图，塞进 search param 会让每翻一页都推一条历史记录。
-  const pdfPageRef = useRef(1);
+  // 面板与白板画廊）跟着每一次翻页重渲染，纯属浪费。翻页刻意不**写** URL：页码是
+  // 阅读进度不是分享意图，塞进 search param 会让每翻一页都推一条历史记录。
+  // 但 ?page= 会被**读**一次当落地页：那是「分享这段」深链的落点（写在链接里的页码
+  // 是明确的分享意图），只在挂载时取种子，此后仍然只在 ref 里流转。
+  // 只在 ?view=pdf 时认这个种子：/p/x?page=7 落在摘要视图上时那个 7 没有表达任何意图
+  // （残留参数或手改 URL），认了它用户第一次点开 PDF tab 会莫名落在第 7 页。
+  const pdfPageRef = useRef(view === "pdf" ? (initialPageParam ?? 1) : 1);
   const handlePdfPageChange = useCallback((page: number) => {
     pdfPageRef.current = page;
   }, []);
@@ -608,6 +619,9 @@ function PaperDetailPage() {
         search: (prev) => ({
           ...prev,
           view: next === "summary" ? undefined : next,
+          // ?page= 只对 PDF 视图有意义。切走时清掉，别让地址栏留下
+          // ?view=reader&page=7 这种自相矛盾的 URL——用户复制地址栏分享是常见动作。
+          page: next === "pdf" ? prev.page : undefined,
         }),
       });
     },
@@ -1224,6 +1238,17 @@ function PaperDetailPage() {
                   initialPage={pdfPageRef.current}
                   onPageChange={handlePdfPageChange}
                   onAskSelection={handleAskSelection}
+                  onShareSelection={(text, page) =>
+                    quoteShare.openShare({
+                      url: paperPdfPageUrl(paper.shortId ?? shortId, page),
+                      // 只折空白、不按长度裁：长度策略归 plainCardContent（见那边的
+                      // 注释），拿 normalizePdfSelection 预处理会让卡片的截断提示丢掉。
+                      content: plainCardContent(
+                        collapseSelectionWhitespace(text),
+                        page,
+                      ),
+                    })
+                  }
                 />
               </Suspense>
             ) : activeView === "reader" ? (

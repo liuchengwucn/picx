@@ -592,7 +592,10 @@ a:hover { color: var(--academic-brown-deep); }
      - `.pdfViewer .page .canvasWrapper .selection`（选中色；这条管线 v5→v6 才挪到
        canvasWrapper 下，是三处里最容易在升级后静默失效的）
      - `.pdfViewer .textLayer .highlight`（搜索命中色；变量声明在元素自己身上）
-   本段针对 **pdfjs-dist 6.2.108** 验证过。升 pdfjs 时请逐条复查这三个选择器——
+   第四处依赖不在本文件里，但同属这份升级清单：
+     - `[data-page-number]`（页面容器上的页码属性）——分享引文时靠它判断选区落在第几页，
+       见 components/papers/pdf/pdf-selection-page.ts
+   本段针对 **pdfjs-dist 6.2.108** 验证过。升 pdfjs 时请逐条复查这四项——
    它们不会报错，只会安静地不再生效。
 
    两个必须留意的层叠事实（改这段之前先读）：

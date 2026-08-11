@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
+import { m } from "#/paraglide/messages";
+import { overwriteGetLocale } from "#/paraglide/runtime";
 import type { QuoteAnchor } from "./quote-anchor";
 import { fingerprint } from "./quote-anchor";
 import {
@@ -7,6 +9,7 @@ import {
   type CardContent,
   MARK_CLASS,
   MUTED_CLASS,
+  plainCardContent,
 } from "./quote-card-content";
 
 function mount(html: string): HTMLElement {
@@ -124,5 +127,41 @@ describe("buildCardContent", () => {
     const rendered = content.blocks[0].textContent ?? "";
     expect(rendered.startsWith("…")).toBe(true);
     expect(rendered.endsWith("…")).toBe(true);
+  });
+});
+
+describe("plainCardContent", () => {
+  // 必须钉住 locale：paraglide 的默认策略链首项是 localStorage，而 Node 22 起
+  // globalThis 上那个实验性的 localStorage 会让 jsdom 不再注入自己的实现，
+  // 策略链于是撞在 `localStorage.getItem` 上抛 TypeError。overwriteGetLocale 是
+  // paraglide 给的官方旁路，顺带让断言不依赖环境里的语言。
+  overwriteGetLocale(() => "en");
+
+  it("把纯文本包成带高亮的单块，副标题是本地化页码", () => {
+    const content = plainCardContent("hello world", 7);
+    expect(content).not.toBeNull();
+    expect(content?.blocks).toHaveLength(1);
+    expect(content?.blocks[0].tagName).toBe("P");
+    expect(
+      content?.blocks[0].querySelector(`.${MARK_CLASS}`)?.textContent,
+    ).toBe("hello world");
+    // 用 m.* 算期望值而不是硬编码某一种语言的字符串：断言的是「走了 quote_card_page
+    // 这条消息、且页码插的是 7」，具体译文归 messages/*.json 管
+    expect(content?.subtitle).toBe(m.quote_card_page({ page: "7" }));
+    expect(content?.subtitle).toContain("7");
+    expect(content?.truncated).toBe(false);
+  });
+
+  it("空白文本产不出卡片", () => {
+    expect(plainCardContent("   \n ", 1)).toBeNull();
+  });
+
+  it("超上限时截断并置 truncated", () => {
+    const content = plainCardContent("a".repeat(2100), 1);
+    expect(content?.truncated).toBe(true);
+    const text = content?.blocks[0].textContent ?? "";
+    expect(text.endsWith("…")).toBe(true);
+    // 双向钉住 MAX_QUOTE：全是 "a"，trimEnd 吃不到东西，长度确定是 2000 + 省略号
+    expect(text.length).toBe(2001);
   });
 });
