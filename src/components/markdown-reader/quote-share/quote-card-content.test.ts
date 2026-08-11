@@ -137,14 +137,14 @@ describe("plainCardContent", () => {
   // paraglide 给的官方旁路，顺带让断言不依赖环境里的语言。
   overwriteGetLocale(() => "en");
 
-  it("把纯文本包成带高亮的单块，副标题是本地化页码", () => {
+  it("把纯文本包成单块、不加高亮，副标题是本地化页码", () => {
     const content = plainCardContent("hello world", 7);
     expect(content).not.toBeNull();
     expect(content?.blocks).toHaveLength(1);
     expect(content?.blocks[0].tagName).toBe("P");
-    expect(
-      content?.blocks[0].querySelector(`.${MARK_CLASS}`)?.textContent,
-    ).toBe("hello world");
+    expect(content?.blocks[0].textContent).toBe("hello world");
+    // 整张卡片正文就是引文，金色高亮覆盖 100% 不承载信息，只剩重量（见生产代码注释）
+    expect(content?.blocks[0].querySelector(`.${MARK_CLASS}`)).toBeNull();
     // 用 m.* 算期望值而不是硬编码某一种语言的字符串：断言的是「走了 quote_card_page
     // 这条消息、且页码插的是 7」，具体译文归 messages/*.json 管
     expect(content?.subtitle).toBe(m.quote_card_page({ page: "7" }));

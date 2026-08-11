@@ -402,11 +402,12 @@ export function plainCardContent(
   const body = truncated
     ? `${trimmed.slice(0, MAX_QUOTE).trimEnd()}${ELLIPSIS}`
     : trimmed;
+  // 刻意不加 MARK_CLASS 高亮：markdown 侧那个金色底的意思是「这一段才是引文，周围是
+  // 前后文」，而这里整张卡片正文就是引文，高亮 100% 覆盖等于不承载任何信息，只剩重量
+  // ——1900 字的选区实测是一整块金色板砖（浏览器验证时截图对比过短/长两种引文）。
+  // 「这是引文」已经由弹窗标题、卡片头部的标题+页码、以及二维码那一行交代清楚了。
   const block = document.createElement("p");
-  const mark = document.createElement("span");
-  mark.className = MARK_CLASS;
-  mark.textContent = body;
-  block.appendChild(mark);
+  block.textContent = body;
   return {
     blocks: [block],
     subtitle: m.quote_card_page({ page: String(page) }),
