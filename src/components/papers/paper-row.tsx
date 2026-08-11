@@ -6,7 +6,9 @@ import {
   resolveRowSecondary,
 } from "#/components/papers/paper-status-dot";
 import { Skeleton } from "#/components/ui/skeleton";
+import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
 
 export interface PaperRowPaper {
   id: string;
@@ -47,12 +49,16 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
     paper.createdAt instanceof Date
       ? paper.createdAt
       : new Date(paper.createdAt);
-  const fullDate = created.toLocaleDateString();
+  const locale = getLocale();
+  const fullDate = created.toLocaleDateString(locale);
   const visibleTags = paper.tags.slice(0, MAX_ROW_TAGS);
   const pages =
     paper.pageCount != null
-      ? m.papers_page_count({ count: paper.pageCount.toString() })
+      ? m.papers_page_count({ count: paper.pageCount })
       : "—";
+  // 移动端砍 tldr 但保留状态/失败文案:否则在途与失败只剩颜色可分(WCAG 1.4.1),
+  // 且失败原因在移动端完全不可达。completed 行返回 null,不占高度。
+  const mobileNote = paper.status === "completed" ? null : secondary;
 
   const tagButtons = visibleTags.map((tag) =>
     onTagClick ? (
@@ -65,16 +71,16 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
           e.stopPropagation();
           onTagClick(tag);
         }}
-        className="shrink-0 rounded-full border border-[var(--line)] px-1.5 text-[10px] leading-4 text-[var(--ink-soft)] transition-colors hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
+        className="max-w-[56px] shrink-0 truncate rounded-full border border-[var(--line)] px-1.5 text-[10px] leading-4 text-[var(--ink-soft)] transition-colors hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
       >
-        {tag}
+        #{tag}
       </button>
     ) : (
       <span
         key={tag}
-        className="shrink-0 rounded-full border border-[var(--line)] px-1.5 text-[10px] leading-4 text-[var(--ink-soft)]"
+        className="max-w-[56px] shrink-0 truncate rounded-full border border-[var(--line)] px-1.5 text-[10px] leading-4 text-[var(--ink-soft)]"
       >
-        {tag}
+        #{tag}
       </span>
     ),
   );
@@ -87,12 +93,15 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
         params={{ shortId: paper.shortId }}
         className="group hidden items-center gap-2.5 rounded-md px-2 py-1.5 no-underline transition-colors hover:bg-[var(--parchment-warm)] sm:flex"
       >
-        <PaperStatusDot status={paper.status} />
+        <PaperStatusDot status={paper.status} decorative />
         <span className="min-w-0 max-w-[50%] flex-initial truncate font-serif text-[13px] font-semibold text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
           {paper.title}
         </span>
         <span
-          className={`min-w-0 flex-1 truncate text-[11.5px] text-[var(--ink-soft)] ${secondary?.className ?? ""}`}
+          className={cn(
+            "min-w-0 flex-1 truncate text-[11.5px] text-[var(--ink-soft)]",
+            secondary?.className,
+          )}
         >
           {secondary?.text ?? ""}
         </span>
@@ -107,7 +116,13 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
           title={fullDate}
           className="flex w-[46px] shrink-0 items-center justify-end gap-1 text-[10.5px] tabular-nums text-[var(--ink-soft)]"
         >
-          {paper.isPublic && <Globe className="size-2.5 shrink-0" />}
+          {paper.isPublic && (
+            <Globe
+              role="img"
+              aria-label={m.paper_public_badge()}
+              className="size-2.5 shrink-0"
+            />
+          )}
           {shortDate(created)}
         </span>
       </Link>
@@ -121,18 +136,34 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
       >
         <span className="flex items-start gap-1.5">
           <span className="mt-1.5">
-            <PaperStatusDot status={paper.status} />
+            <PaperStatusDot status={paper.status} decorative />
           </span>
           <span className="line-clamp-2 font-serif text-[13px] font-semibold leading-snug text-[var(--ink)]">
             {paper.title}
           </span>
         </span>
-        <span className="flex items-center gap-1.5 text-[10.5px] text-[var(--ink-soft)]">
+        {mobileNote && (
+          <span
+            className={cn(
+              "truncate text-[10.5px] leading-tight text-[var(--ink-soft)]",
+              mobileNote.className,
+            )}
+          >
+            {mobileNote.text}
+          </span>
+        )}
+        <span className="flex items-center gap-1.5 overflow-hidden text-[10.5px] text-[var(--ink-soft)]">
           {tagButtons.slice(0, 1)}
-          <span className="tabular-nums">{pages}</span>
-          <span title={fullDate} className="ml-auto flex items-center gap-1">
-            {paper.isPublic && <Globe className="size-2.5 shrink-0" />}
-            <span className="tabular-nums">{shortDate(created)}</span>
+          <span className="shrink-0 tabular-nums">{pages}</span>
+          <span className="ml-auto flex shrink-0 items-center gap-1">
+            {paper.isPublic && (
+              <Globe
+                role="img"
+                aria-label={m.paper_public_badge()}
+                className="size-2.5 shrink-0"
+              />
+            )}
+            <span className="tabular-nums">{fullDate}</span>
           </span>
         </span>
       </Link>

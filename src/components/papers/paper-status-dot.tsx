@@ -28,30 +28,42 @@ function inFlightLabel(status: PaperRowStatus): (() => string) | null {
 
 /**
  * 状态降权后的唯一状态标记。
- * completed 返回 null —— 库里 99% 的行是 completed,给它们各挂一枚绿 badge
- * 等于什么都没说,却占着最大的视觉权重,正是旧卡片「冗余重复」的主因。
+ * completed 也占同样宽度的透明位:否则标题左边缘在混合列表里忽左忽右,
+ * 而这个布局的全部前提就是整列对齐。
  */
-export function PaperStatusDot({ status }: { status: PaperRowStatus }) {
-  if (status === "failed") {
-    return (
-      <span
-        role="img"
-        aria-label={m.papers_status_failed()}
-        className="size-1.5 shrink-0 rounded-full bg-[var(--sienna)]"
-      />
-    );
+export function PaperStatusDot({
+  status,
+  decorative,
+}: {
+  status: PaperRowStatus;
+  decorative?: boolean;
+}) {
+  const label =
+    status === "failed" ? m.papers_status_failed() : inFlightLabel(status)?.();
+  const tone =
+    status === "failed"
+      ? "bg-[var(--sienna)]"
+      : inFlightLabel(status)
+        ? "bg-[var(--gold)]"
+        : null;
+
+  if (!tone || !label) {
+    return <span aria-hidden="true" className="size-1.5 shrink-0" />;
   }
-  const label = inFlightLabel(status);
-  if (label) {
-    return (
-      <span
-        role="img"
-        aria-label={label()}
-        className="size-1.5 shrink-0 rounded-full bg-[var(--gold)]"
-      />
-    );
-  }
-  return null;
+
+  // decorative:相邻文字已经把状态说了一遍,再给点加 label 会重复朗读
+  return decorative ? (
+    <span
+      aria-hidden="true"
+      className={`size-1.5 shrink-0 rounded-full ${tone}`}
+    />
+  ) : (
+    <span
+      role="img"
+      aria-label={label}
+      className={`size-1.5 shrink-0 rounded-full ${tone}`}
+    />
+  );
 }
 
 /**
