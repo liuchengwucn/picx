@@ -92,9 +92,6 @@ function PapersPage() {
       { getNextPageParam: (last) => last.nextCursor },
     ),
     placeholderData: keepPreviousData,
-    // 无限查询的 refetch 是逐页串行的:滚了 5 页再切回标签页就是 5 次
-    // 全表 LIKE 扫描。挂载期间的新鲜度由 SSE 失效保证,不需要焦点重取。
-    refetchOnWindowFocus: false,
   });
 
   const counts = useQuery(trpc.paper.statusCounts.queryOptions());
@@ -238,7 +235,9 @@ function PapersPage() {
                   : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--gold)]"
               }`}
             >
-              {m.papers_filter_processing()} {counts.data?.processing}
+              {m.papers_filter_processing()}
+              {(counts.data?.processing ?? 0) > 0 &&
+                ` ${counts.data?.processing}`}
             </button>
           )}
           {((counts.data?.failed ?? 0) > 0 || status === "failed") && (
@@ -251,7 +250,8 @@ function PapersPage() {
                   : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--sienna)]"
               }`}
             >
-              {m.papers_filter_failed()} {counts.data?.failed}
+              {m.papers_filter_failed()}
+              {(counts.data?.failed ?? 0) > 0 && ` ${counts.data?.failed}`}
             </button>
           )}
         </div>
@@ -267,10 +267,10 @@ function PapersPage() {
         >
           {papersQuery.isLoading ? (
             paperSkeletonKeys.map((key) => <PaperRowSkeleton key={key} />)
-          ) : papersQuery.isError ? (
-            // isError 时 data 是 undefined，papers 会算出空数组——不挡在这前面
-            // 的话，一次网络抖动就会把"你还没上传过论文"这句话说给一个论文库
-            // 满满当当的用户听。
+          ) : papersQuery.isError && papers.length === 0 ? (
+            // 只在首屏失败时替换列表；后台重取失败时 react-query v5 会保留
+            // data,此时不能把已加载的行换掉，否则一次 SSE 触发的后台重取
+            // 失败就会把已加载的几百行全部换成一张错误卡。
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <AlertTriangle className="size-8 text-[var(--sienna)]" />
               <p className="text-sm text-[var(--ink-soft)]">
