@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { StorySignalsSummary } from "#/db/schema";
 import {
   assembleTodayCards,
   type HomePaper,
   type HomeStory,
-  selectTodayStories,
+  pickTopStories,
 } from "./today";
 
 const story = (n: number): HomeStory => ({
@@ -35,13 +36,19 @@ describe("assembleTodayCards", () => {
     expect(cards.subStories).toEqual([]);
   });
 
-  it("满量: 头条+2 次级, 论文卡与画廊精选不重复", () => {
+  it("满量: 头条+5 次级, 论文卡与画廊精选不重复", () => {
     const cards = assembleTodayCards({
-      stories: [story(1), story(2), story(3)],
+      stories: [story(1), story(2), story(3), story(4), story(5), story(6)],
       papers: [paper(1), paper(2), paper(3), paper(4)],
     });
     expect(cards.headline?.shortId).toBe("s1");
-    expect(cards.subStories.map((s) => s.shortId)).toEqual(["s2", "s3"]);
+    expect(cards.subStories.map((s) => s.shortId)).toEqual([
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+    ]);
     expect(cards.latestPaper?.shortId).toBe("p1");
     expect(cards.galleryPicks.map((p) => p.shortId)).toEqual([
       "p2",
@@ -64,77 +71,66 @@ interface Candidate {
   shortId: string;
   scoreMax: number | null;
   sourceCount: number;
-  signalsSummary: null;
+  signalsSummary: StorySignalsSummary | null;
   firstSeenAt: Date;
   earliestPublishedAt: Date;
 }
 
-// hoursAgo 越小越新; 调用方须按时间倒序排列传入
+const signals = (points: number): StorySignalsSummary => ({
+  domains: [],
+  hn: { points, comments: 0, url: "" },
+});
+
+// hoursAgo 越小越新; 用于构造固定时间戳, 排序断言不依赖它
 const candidate = (
   shortId: string,
-  hoursAgo: number,
   scoreMax: number | null,
   sourceCount = 1,
+  signalsSummary: StorySignalsSummary | null = null,
+  hoursAgo = 1,
 ): Candidate => ({
   shortId,
   scoreMax,
   sourceCount,
-  signalsSummary: null,
+  signalsSummary,
   firstSeenAt: new Date(NOW - hoursAgo * HOUR),
   earliestPublishedAt: new Date(NOW - hoursAgo * HOUR),
 });
 
-describe("selectTodayStories", () => {
-  it("24h 窗口内选最高分而非最新", () => {
+describe("pickTopStories", () => {
+  it("乱序候选按分数取 top-N", () => {
     const list = [
-      candidate("a", 1, 60),
-      candidate("b", 5, 95),
-      candidate("c", 10, 70),
+      candidate("a", 60),
+      candidate("b", 95),
+      candidate("c", 70),
+      candidate("d", 88),
     ];
-    expect(selectTodayStories(list, NOW).map((s) => s.shortId)).toEqual([
+    expect(pickTopStories(list, 3).map((s) => s.shortId)).toEqual([
       "b",
-      "a",
+      "d",
       "c",
     ]);
   });
 
-  it("分数并列时按 sourceCount 决胜", () => {
-    const list = [
-      candidate("a", 1, 90, 2),
-      candidate("b", 5, 90, 6),
-      candidate("c", 10, 50),
-    ];
-    expect(selectTodayStories(list, NOW)[0]?.shortId).toBe("b");
+  it("分数并列按 sourceCount 决胜", () => {
+    const list = [candidate("a", 90, 2), candidate("b", 90, 6)];
+    expect(pickTopStories(list, 2).map((s) => s.shortId)).toEqual(["b", "a"]);
   });
 
-  it("窗口内不足 3 条时放宽到全池", () => {
+  it("再并列按 HN points 决胜", () => {
     const list = [
-      candidate("a", 1, 40),
-      candidate("b", 30, 99),
-      candidate("c", 40, 80),
+      candidate("a", 90, 3, signals(10)),
+      candidate("b", 90, 3, signals(200)),
     ];
-    expect(selectTodayStories(list, NOW).map((s) => s.shortId)).toEqual([
-      "b",
-      "a",
-      "c",
-    ]);
+    expect(pickTopStories(list, 2).map((s) => s.shortId)).toEqual(["b", "a"]);
   });
 
-  it("窗口外旧闻不参与头条(窗口内够 3 条)", () => {
-    const list = [
-      candidate("a", 1, 50),
-      candidate("b", 2, 70),
-      candidate("c", 3, 60),
-      candidate("d", 48, 99),
-    ];
-    expect(selectTodayStories(list, NOW).map((s) => s.shortId)).toEqual([
-      "b",
-      "a",
-      "c",
-    ]);
+  it("count 超出候选数返回全部(仍按分数序)", () => {
+    const list = [candidate("a", 60), candidate("b", 90)];
+    expect(pickTopStories(list, 6).map((s) => s.shortId)).toEqual(["b", "a"]);
   });
 
   it("空候选返回 []", () => {
-    expect(selectTodayStories([], NOW)).toEqual([]);
+    expect(pickTopStories([], 6)).toEqual([]);
   });
 });

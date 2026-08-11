@@ -251,7 +251,7 @@ function HomePage() {
       {/* 论文 → 白板:刻意放在叙事区之后,它是顺带能力而不是主线 */}
       <section className="px-4 pt-12 sm:px-6 sm:pt-16">
         <div className="page-wrap">
-          <div className="mx-auto max-w-5xl rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-4 shadow-[0_2px_12px_rgba(45,42,36,0.05)] sm:p-5">
+          <div className="mx-auto max-w-5xl">
             <div className="grid items-center gap-4 sm:grid-cols-[1fr_auto_1fr]">
               <img
                 src="/paper-example.webp"

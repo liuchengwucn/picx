@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type * as schema from "#/db/schema";
 import {
@@ -8,11 +8,7 @@ import {
   papers,
   whiteboardImages,
 } from "#/db/schema";
-import {
-  compareFeatured,
-  type GroupableStory,
-  storyDate,
-} from "#/lib/news/group-stories";
+import { compareFeatured, type GroupableStory } from "#/lib/news/group-stories";
 
 // 首页「今日精选」数据。SSR loader 与 tRPC home.today 共用本查询,
 // 两侧形状必须一致(loader 数据作为路由数据直出, 全部字段可序列化)。
@@ -21,10 +17,29 @@ import {
 // router 侧直传 ctx.db, SSR loader 侧自行 drizzle(env.DB)。
 type Db = DrizzleD1Database<typeof schema>;
 
-// 头条候选池与时间窗: 取最近 STORY_CANDIDATES 条, 在 24h 窗口内按分数选头条;
-// 窗口内不足 3 条(低频期)时放宽到整个候选池, 保证首页不空。
-const STORY_CANDIDATES = 12;
+// 今日精选取材窗口: 24h 内全量候选按分数选头条+次级;
+// 窗口内凑不满 HOME_STORY_COUNT 条(低频期)时放宽到最近 12 条(按时间)。
 const HEADLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const HOME_STORY_COUNT = 6; // 1 头条 + 5 次级
+
+// 与 news.list 同款相关子查询取 story 内 item 分数上限。
+// 陷阱: 单表查询时 drizzle 会剥去插值 Column 的表限定符, 子查询里的
+// ${newsStories.id} 会变成裸 id 被解析成 news_items.id, 结果恒 NULL,
+// 因此手写别名+完整表名, 绝不插值 Column(见 news.ts list 的详细注释)。
+const scoreMaxSql = sql<
+  number | null
+>`(SELECT max(ni.relevance_score) FROM news_items ni WHERE ni.story_id = news_stories.id)`;
+
+const storyProjection = {
+  shortId: newsStories.shortId,
+  title: newsStories.title,
+  leadImage: newsStories.leadImage,
+  earliestPublishedAt: newsStories.earliestPublishedAt,
+  firstSeenAt: newsStories.firstSeenAt,
+  sourceCount: newsStories.sourceCount,
+  signalsSummary: newsStories.signalsSummary,
+  scoreMax: scoreMaxSql,
+};
 
 export interface HomeStory {
   shortId: string;
@@ -50,60 +65,56 @@ export interface HomePaper {
 export interface HomeToday {
   /** 查询侧捕获一次; 客户端相对时间以它为基准, 避免 SSR/hydration 文本漂移 */
   now: number;
-  /** 头条(24h 窗口内按分数选) + 2 条最新次级, 头条排第一 */
+  /** 24h 窗口内按分数选出的头条+次级(≤6), 分数从高到低 */
   stories: HomeStory[];
   /** 最近入库 4 篇公开画廊论文 */
   papers: HomePaper[];
 }
 
-// 头条选择: 与 news 页大头条同款优先级(compareFeatured: scoreMax → sourceCount
-// → HN points), 但候选窗口取滚动 24h 而非访客时区自然日(SSR 拿不到访客时区)。
-// candidates 须已按时间倒序; 返回 [头条, 其余按时间倒序取 2 条]。
-export function selectTodayStories<T extends GroupableStory>(
+// 主查询: 24h 窗口在 SQL 过滤, 按分数取 top-N(SQLite 的 DESC 排序把 NULL
+// scoreMax 排在最后)。limit 36 只是安全上限, 正常一天的 story 远少于此。
+// 状态谓词保持字面量(partial index 只认字面量), 窗口条件是普通绑定参数。
+async function loadStoryCandidates(db: Db, windowStart: Date) {
+  const rows = await db
+    .select(storyProjection)
+    .from(newsStories)
+    .where(
+      and(
+        sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
+        gte(newsStories.earliestPublishedAt, windowStart),
+      ),
+    )
+    .orderBy(
+      desc(scoreMaxSql),
+      desc(newsStories.sourceCount),
+      desc(newsStories.earliestPublishedAt),
+    )
+    .limit(36);
+  if (rows.length >= HOME_STORY_COUNT) return rows;
+  // 低频兜底: 窗口内凑不满 6 条时放宽到最近 12 条, 选择仍按分数
+  return db
+    .select(storyProjection)
+    .from(newsStories)
+    .where(sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`)
+    .orderBy(desc(newsStories.earliestPublishedAt), desc(newsStories.shortId))
+    .limit(12);
+}
+
+// 与 news 页大头条同款优先级(compareFeatured: scoreMax → sourceCount → HN
+// points)。返回按分数从高到低的前 count 条; 并列时保持输入顺序(sort 稳定,
+// 输入来自 SQL 的 score/时间倒序), 即并列取更新的。
+export function pickTopStories<T extends GroupableStory>(
   candidates: T[],
-  now: number,
+  count: number,
 ): T[] {
-  const inWindow = candidates.filter(
-    (s) => storyDate(s).getTime() >= now - HEADLINE_WINDOW_MS,
-  );
-  const pool = inWindow.length >= 3 ? inWindow : candidates;
-  if (pool.length === 0) return [];
-  let best = pool[0];
-  for (const s of pool.slice(1)) {
-    if (compareFeatured(s, best) > 0) best = s;
-  }
-  return [best, ...pool.filter((s) => s !== best).slice(0, 2)];
+  return [...candidates].sort((a, b) => compareFeatured(b, a)).slice(0, count);
 }
 
 export async function getHomeToday(db: Db): Promise<HomeToday> {
   const now = Date.now();
+  const windowStart = new Date(now - HEADLINE_WINDOW_MS);
   const [storyRows, paperRows] = await Promise.all([
-    db
-      .select({
-        shortId: newsStories.shortId,
-        title: newsStories.title,
-        leadImage: newsStories.leadImage,
-        earliestPublishedAt: newsStories.earliestPublishedAt,
-        firstSeenAt: newsStories.firstSeenAt,
-        sourceCount: newsStories.sourceCount,
-        signalsSummary: newsStories.signalsSummary,
-        // 与 news.list 同款相关子查询取 story 内 item 分数上限。
-        // 陷阱: 单表查询时 drizzle 会剥去插值 Column 的表限定符, 子查询里
-        // ${newsStories.id} 会变成裸 id 被解析成 news_items.id, 结果恒 NULL,
-        // 因此手写别名+完整表名, 绝不插值 Column(见 news.ts list 的详细注释)。
-        scoreMax: sql<
-          number | null
-        >`(SELECT max(ni.relevance_score) FROM news_items ni WHERE ni.story_id = news_stories.id)`,
-      })
-      .from(newsStories)
-      // 字面量谓词与 news.list 一致: partial index 只认字面量;
-      // dirty=0 挡未生成四语摘要的占位 story
-      .where(
-        sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
-      )
-      // 次级键防同秒并列漂移, 与 news.list 的 keyset 排序同款
-      .orderBy(desc(newsStories.earliestPublishedAt), desc(newsStories.shortId))
-      .limit(STORY_CANDIDATES),
+    loadStoryCandidates(db, windowStart),
     db
       .select({
         shortId: papers.shortId,
@@ -139,7 +150,7 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
 
   return {
     now,
-    stories: selectTodayStories(storyRows, now).map((s) => ({
+    stories: pickTopStories(storyRows, HOME_STORY_COUNT).map((s) => ({
       shortId: s.shortId,
       title: s.title,
       leadImage: s.leadImage ?? null,
@@ -156,7 +167,7 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
 
 export interface TodayCards {
   headline: HomeStory | null;
-  /** 头条卡内的次级标题, ≤2 */
+  /** 头条卡内的次级标题, ≤5 */
   subStories: HomeStory[];
   /** 论文卡(最新一篇) */
   latestPaper: HomePaper | null;
@@ -172,7 +183,7 @@ export function assembleTodayCards(
   const [latestPaper, ...restPapers] = data.papers;
   return {
     headline: headline ?? null,
-    subStories: restStories.slice(0, 2),
+    subStories: restStories.slice(0, 5),
     latestPaper: latestPaper ?? null,
     galleryPicks: restPapers.slice(0, 3),
   };
