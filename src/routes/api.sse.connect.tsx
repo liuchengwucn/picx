@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/d1";
 import * as schema from "#/db/schema";
 import { papers } from "#/db/schema";
 import { auth } from "#/lib/auth";
+import { IN_FLIGHT_PAPER_STATUSES } from "#/lib/paper-status";
 import {
   getReviewGuestServerSession,
   isReviewGuestModeEnabled,
@@ -44,12 +45,7 @@ async function handler({ request }: { request: Request }) {
           .where(
             and(
               eq(papers.userId, userId),
-              inArray(papers.status, [
-                "pending",
-                "parsing",
-                "processing_text",
-                "processing_image",
-              ]),
+              inArray(papers.status, IN_FLIGHT_PAPER_STATUSES),
             ),
           );
 

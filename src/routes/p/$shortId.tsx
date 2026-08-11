@@ -104,6 +104,7 @@ import {
   collapseSelectionWhitespace,
   normalizePdfSelection,
 } from "#/lib/pdf-quote";
+import { pushRecentPaper } from "#/lib/recent-papers";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
@@ -708,7 +709,14 @@ function PaperDetailPage() {
   const deleteMutation = useMutation(
     trpc.paper.delete.mutationOptions({
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: trpc.paper.list.queryKey() });
+        // paper.list 页用 infiniteQueryOptions，key 带 type:"infinite"；
+        // queryKey() 产出的 type:"query" 不是它的前缀，必须用 pathKey()。
+        queryClient.invalidateQueries({
+          queryKey: trpc.paper.list.pathKey(),
+        });
+        queryClient.invalidateQueries({
+          queryKey: trpc.paper.statusCounts.queryKey(),
+        });
         navigate({ to: "/papers" });
       },
     }),
@@ -745,6 +753,18 @@ function PaperDetailPage() {
     mediaQuery.addEventListener("change", handleChange);
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
+
+  // 「最近打开」只在论文真的取到了才记；失败 / 404 不该污染列表页那三张卡。
+  const recentShortId = data?.paper?.shortId;
+  const recentTitle = data?.paper?.title;
+  useEffect(() => {
+    if (!recentShortId || !recentTitle) return;
+    pushRecentPaper({
+      shortId: recentShortId,
+      title: recentTitle,
+      openedAt: Date.now(),
+    });
+  }, [recentShortId, recentTitle]);
 
   const handleCopyMarkdown = async (text: string) => {
     if (!text) return;

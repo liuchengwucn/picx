@@ -212,9 +212,14 @@ export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
     // 整棵聊天子树，per-call 回调在组件卸载后一律不执行（连失败 toast 都不弹）
     trpc.paper.create.mutationOptions({
       onSuccess: () => {
-        // 论文列表页此刻多了一篇（还在处理中），让它下次进入时能看到
+        // 论文列表页此刻多了一篇（还在处理中），让它下次进入时能看到。
+        // paper.list 页用 infiniteQueryOptions，key 带 type:"infinite"；
+        // queryKey() 产出的 type:"query" 不是它的前缀，必须用 pathKey()。
         void queryClient.invalidateQueries({
-          queryKey: trpc.paper.list.queryKey(),
+          queryKey: trpc.paper.list.pathKey(),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.paper.statusCounts.queryKey(),
         });
       },
       onError: (error) => {
