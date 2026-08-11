@@ -6,8 +6,9 @@ import {
 } from "#/components/selection/selection-action-bubble";
 import { paperQuoteUrl } from "#/lib/embed-code";
 import { m } from "#/paraglide/messages";
-import { askQuoteText, encodeAnchor } from "./quote-anchor";
+import { encodeAnchor } from "./quote-anchor";
 import { buildCardContent } from "./quote-card-content";
+import { quoteTextOfSelection } from "./quote-text";
 import { useQuoteAnchorScroll } from "./use-quote-anchor-scroll";
 import type { QuoteSharePayload } from "./use-quote-share";
 import { useSelectionBubble } from "./use-selection-bubble";
@@ -40,9 +41,12 @@ export function QuoteShareOverlay({
   const bubble = useSelectionBubble(articleRef);
   useQuoteAnchorScroll(articleRef, contentKey);
 
-  // SSR 安全：bubble.state 初始为 null，只在 useSelectionBubble 的 useEffect 挂上的
-  // 事件监听器里才会被置为非 null，服务端渲染与客户端首帧都会走这条 early return。
-  if (!bubble.state) {
+  // 绑成 const 再判空：属性收窄穿不进闭包，const 收窄能穿，下面两个回调里就不必再
+  // 撒可选链与 ?? 兜底。
+  const state = bubble.state;
+  // SSR 安全：state 初始为 null，只在 useSelectionBubble 的 useEffect 挂上的事件
+  // 监听器里才会被置为非 null，服务端渲染与客户端首帧都会走这条 early return。
+  if (!state) {
     return null;
   }
 
@@ -54,17 +58,16 @@ export function QuoteShareOverlay({
       icon: MessageSquareQuote,
       label: m.selection_ask(),
       onClick: () => {
-        const text = askQuoteText(
-          articleRef.current,
-          bubble.state?.anchor ?? null,
-          bubble.state?.text ?? "",
-        );
+        const text = quoteTextOfSelection(state.clippedRange);
         bubble.dismiss();
+        // 上游已保证选区文本非空（use-selection-rect 的 evaluate 会在 !text.trim()
+        // 时置 null，气泡压根不会出现），这道门只是与 PDF 侧对齐的形式守卫，
+        // 不是活分支。
         if (text.trim()) onAskSelection(text);
       },
     },
     // 锚点解析不出来就没有可分享的深链，这一段直接缺席
-    ...(bubble.state.anchor
+    ...(state.anchor
       ? [
           {
             key: "share",
@@ -74,7 +77,7 @@ export function QuoteShareOverlay({
               // buildCardContent 只由这次点击驱动，不是渲染期间要保持的派生值——
               // 直接在事件回调里算完交出去，不用 useMemo（读 ref 也不该发生在
               // render 期间）。
-              const anchor = bubble.state?.anchor ?? null;
+              const anchor = state.anchor;
               const article = articleRef.current;
               if (anchor && article) {
                 onShare({
@@ -89,5 +92,5 @@ export function QuoteShareOverlay({
       : []),
   ];
 
-  return <SelectionActionBubble rect={bubble.state.rect} actions={actions} />;
+  return <SelectionActionBubble rect={state.rect} actions={actions} />;
 }

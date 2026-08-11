@@ -15,10 +15,15 @@ export const PDF_QUOTE_MAX_CHARS = Math.floor(
 const QUOTE_TRAILER = "\n\n";
 
 /**
- * 把 PDF 文本层选出来的原始文本整理成可读的一行。
+ * 把选中的原始文本整理成可读的一行。两个阅读视图共用：
  *
- * 输入是 `useSelectionRect` 产出的**渲染文本**：每个视觉行之间一个 `\n`（pdf.js 的
- * 文本层用 `<br>` 分行）。直接丢进 chat 会是一堆断句，这里把所有空白折成单空格。
+ * - PDF：输入是 `useSelectionRect` 产出的**渲染文本**，每个视觉行之间一个 `\n`
+ *   （pdf.js 的文本层用 `<br>` 分行）。直接丢进 chat 会是一堆断句。
+ * - markdown 正文：输入是 `quoteTextOfSelection` 产出的引文文本，公式已折成 `$...$`，
+ *   块边界（表格单元格、列表项）同样带换行。
+ *
+ * 两条路都要把所有空白折成单空格，而且在 markdown 这条路上这是**必需**而非无害：
+ * `buildQuoteBlock` 产出的是单行 `> …`，留着换行会让第二行起跳出引用块。
  *
  * 刻意不处理行尾连字符断词（`infer-\nence`）：无法可靠区分排版断词与真实连字符
  * （`state-of-the-art` 恰好断在连字符处时两者完全同形），猜错会造出不存在的词，
