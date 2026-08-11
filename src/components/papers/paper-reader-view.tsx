@@ -6,10 +6,8 @@ import {
   createRelativeImageUrlTransform,
   MarkdownArticle,
 } from "#/components/markdown-reader/markdown-article";
-import {
-  QuoteShareOverlay,
-  type ReaderSharePayload,
-} from "#/components/markdown-reader/quote-share/quote-share-overlay";
+import { QuoteShareOverlay } from "#/components/markdown-reader/quote-share/quote-share-overlay";
+import type { QuoteSharePayload } from "#/components/markdown-reader/quote-share/use-quote-share";
 import { ReaderSettingsMenu } from "#/components/markdown-reader/reader-settings";
 import { useToc } from "#/components/markdown-reader/reader-toc";
 import { ReaderTocDrawer } from "#/components/markdown-reader/reader-toc-drawer";
@@ -19,8 +17,6 @@ import { TOOL_BTN } from "#/components/reader-ui";
 import { useTRPC } from "#/integrations/trpc/react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
-
-export type { QuoteShareContext } from "#/components/markdown-reader/quote-share/quote-share-dialog";
 
 /**
  * 页面级 hook：把「原文阅读」的 getContent 查询与 TOC 提升到详情页，好让目录能渲染在
@@ -82,10 +78,12 @@ export type PaperReaderState = ReturnType<typeof usePaperReader>;
  */
 export function PaperReaderView({
   reader,
+  shortId,
   onShare,
 }: {
   reader: PaperReaderState;
-  onShare: (payload: ReaderSharePayload) => void;
+  shortId: string;
+  onShare: (payload: QuoteSharePayload) => void;
 }) {
   const { data, isPending, isError } = reader.query;
 
@@ -120,6 +118,7 @@ export function PaperReaderView({
       setArticleRef={reader.setArticleRef}
       contentKey={reader.contentKey}
       toc={reader.toc}
+      shortId={shortId}
       onShare={onShare}
     />
   );
@@ -132,6 +131,7 @@ function ReaderArticle({
   setArticleRef,
   contentKey,
   toc,
+  shortId,
   onShare,
 }: {
   markdown: string;
@@ -140,7 +140,8 @@ function ReaderArticle({
   setArticleRef: (node: HTMLElement | null) => void;
   contentKey: string;
   toc: PaperReaderState["toc"];
-  onShare: (payload: ReaderSharePayload) => void;
+  shortId: string;
+  onShare: (payload: QuoteSharePayload) => void;
 }) {
   const { settings, update, reset } = useReaderSettings();
   // MarkdownArticle 内部按引用 memo，必须缓存这个函数，否则每次渲染都重跑整篇解析。
@@ -199,6 +200,7 @@ function ReaderArticle({
 
       <QuoteShareOverlay
         articleRef={articleRef}
+        shortId={shortId}
         onShare={onShare}
         contentKey={contentKey}
       />

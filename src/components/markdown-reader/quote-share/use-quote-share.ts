@@ -17,6 +17,9 @@ export interface QuoteSharePayload {
  * 提到页面级（而不是留在 reader 的 overlay 里）是为了让 PDF 视图也能复用整套弹窗：
  * 卡片正文必须在点击当时从各自的活 DOM / 纯文本算出来，所以**生产在各视图侧、消费在
  * 页面级**。PDF 侧因此完全不必认识 tRPC。
+ *
+ * shortId 必须是路由参数那一个：它要 invalidate 的查询也是用路由参数做 key 的，
+ * 两边来源一分岔，invalidate 就静默失配、公开后私有提示条永远不消失。
  */
 export function useQuoteShare(paperId: string, shortId: string) {
   const [payload, setPayload] = useState<QuoteSharePayload | null>(null);
@@ -41,18 +44,16 @@ export function useQuoteShare(paperId: string, shortId: string) {
     setPayload(next);
   }, []);
 
+  const closeShare = useCallback(() => {
+    setPayload(null);
+  }, []);
+
   return {
+    /** 非空即「弹窗该开着」；url 与 content 都从这里取 */
+    payload,
     openShare,
-    /** 直接摊给 <QuoteShareDialog>，另外补 title 与 share */
-    dialogProps: {
-      open: !!payload,
-      onOpenChange: (next: boolean) => {
-        if (!next) setPayload(null);
-      },
-      url: payload?.url ?? "",
-      content: payload?.content ?? null,
-      publishing: togglePublic.isPending,
-      onMakePublic: () => togglePublic.mutate({ paperId }),
-    },
+    closeShare,
+    publishing: togglePublic.isPending,
+    makePublic: () => togglePublic.mutate({ paperId }),
   };
 }
