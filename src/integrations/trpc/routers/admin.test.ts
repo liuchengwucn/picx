@@ -76,19 +76,30 @@ describe("adminProcedure 权限矩阵", () => {
     ).resolves.toEqual({ userId: "u3" });
   });
 
-  // 全量遍历而非逐个点名：新加端点时漏挂 adminProcedure（哪怕一个 publicProcedure）
-  // 就是权限洞，这条会在加端点的那一刻红掉。isAdmin 排在 .input() 之前，所以
-  // 未登录时不需要构造合法输入就会先抛 UNAUTHORIZED。
+  // 全量遍历而非逐个点名：新加端点时漏挂 adminProcedure 就是权限洞，这条会在加
+  // 端点的那一刻红掉。isAdmin 排在 .input() 之前，所以不用构造合法输入就先抛。
+  // 两轮都要跑：未登录轮只能抓出 publicProcedure，而最可能误用的其实是同一个
+  // ../init 里的邻居 protectedProcedure —— 它未登录时同样抛 UNAUTHORIZED，
+  // 只有「已登录的普通用户」这一轮才能把它揪出来（任意登录用户能改方向、
+  // 拉全站反馈、触发 workflow）。
   it("路由里每一个端点都挂了 adminProcedure", async () => {
-    const caller = makeCaller({}) as unknown as Record<
-      string,
-      (input?: unknown) => Promise<unknown>
-    >;
+    type Callers = Record<string, (input?: unknown) => Promise<unknown>>;
     const names = Object.keys(adminRouter._def.procedures);
     expect(names.length).toBeGreaterThan(1);
+
+    const anonymous = makeCaller({}) as unknown as Callers;
     for (const name of names) {
-      await expect(caller[name](undefined), name).rejects.toMatchObject({
+      await expect(anonymous[name](undefined), name).rejects.toMatchObject({
         code: "UNAUTHORIZED",
+      });
+    }
+
+    const authed = makeCaller({
+      session: { user: { id: "u1", role: null } },
+    }) as unknown as Callers;
+    for (const name of names) {
+      await expect(authed[name](undefined), name).rejects.toMatchObject({
+        code: "FORBIDDEN",
       });
     }
   });

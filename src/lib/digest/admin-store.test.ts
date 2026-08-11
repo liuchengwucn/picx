@@ -16,10 +16,12 @@ import {
 import { createTestDb } from "../../../test/helpers/sqlite-d1";
 import {
   deleteDirectionGuarded,
+  listDirectionsAdmin,
   listRecentDigestsAdmin,
   listRecentFeedbackAdmin,
   reviveSource,
   upsertDirection,
+  upsertSource,
 } from "./admin-store";
 
 type Db = ReturnType<typeof createTestDb>["db"];
@@ -148,8 +150,17 @@ beforeEach(async () => {
   await seed(db);
 });
 
+/** 物理删除的前置条件是先停用 */
+async function deactivate(db: Db, id: string) {
+  await db
+    .update(directions)
+    .set({ isActive: false })
+    .where(eq(directions.id, id));
+}
+
 describe("deleteDirectionGuarded", () => {
-  it("deletes a direction with no digests and no papers, taking its sources with it", async () => {
+  it("deletes a deactivated direction with no digests and no papers, cascading its sources", async () => {
+    await deactivate(db, "dir-clean");
     await expect(deleteDirectionGuarded(db, "dir-clean")).resolves.toEqual({
       deleted: true,
     });
@@ -168,10 +179,32 @@ describe("deleteDirectionGuarded", () => {
     expect(others.map((s) => s.id)).toEqual(["dsrc-other"]);
   });
 
+  // 两次 COUNT 与 DELETE 之间，在飞的 workflow 可能刚插入 digest 行；
+  // 只删已停用方向（cron 不再为其排期）才关得上这个窗口
+  it("refuses to delete a direction that is still active", async () => {
+    await expect(deleteDirectionGuarded(db, "dir-clean")).resolves.toEqual({
+      deleted: false,
+      reason: "still_active",
+    });
+    const dirs = await db
+      .select()
+      .from(directions)
+      .where(eq(directions.id, "dir-clean"));
+    expect(dirs).toHaveLength(1);
+  });
+
+  it("reports not_found for an unknown direction instead of claiming success", async () => {
+    await expect(deleteDirectionGuarded(db, "dir-nope")).resolves.toEqual({
+      deleted: false,
+      reason: "not_found",
+    });
+  });
+
   it("refuses to delete a direction that has digests", async () => {
+    await deactivate(db, "dir-withdigests");
     await expect(
       deleteDirectionGuarded(db, "dir-withdigests"),
-    ).resolves.toEqual({ deleted: false });
+    ).resolves.toEqual({ deleted: false, reason: "has_history" });
     const dirs = await db
       .select()
       .from(directions)
@@ -180,8 +213,9 @@ describe("deleteDirectionGuarded", () => {
   });
 
   it("refuses to delete a direction that still has papers attached", async () => {
+    await deactivate(db, "dir-withpapers");
     await expect(deleteDirectionGuarded(db, "dir-withpapers")).resolves.toEqual(
-      { deleted: false },
+      { deleted: false, reason: "has_history" },
     );
     const dirs = await db
       .select()
@@ -260,6 +294,64 @@ describe("upsertDirection", () => {
     expect(row.intro?.ja).toBe("公开简介 ja");
   });
 
+  // id 不随 slug 改名而变，所以 dir-{slug} 可能早被一个改过名的方向占着：
+  // 撞了主键就退随机后缀，否则 insert 抛的裸 SQL 错会把 focusBrief 全文回传前端，
+  // 而且这个 slug 从此再也建不出来
+  it("falls back to a suffixed id when dir-{slug} is already taken by a renamed direction", async () => {
+    const first = await upsertDirection(db, {
+      slug: "alpha",
+      name: four("Alpha"),
+      focusBrief: "第一个",
+      isActive: true,
+      sortOrder: 5,
+    });
+    expect(first).toEqual({ id: "dir-alpha" });
+    // 改名腾出 slug alpha，但 id 仍是 dir-alpha
+    await upsertDirection(db, {
+      id: "dir-alpha",
+      slug: "beta",
+      name: four("Beta"),
+      focusBrief: "改名了",
+      isActive: true,
+      sortOrder: 5,
+    });
+
+    const second = await upsertDirection(db, {
+      slug: "alpha",
+      name: four("Alpha again"),
+      focusBrief: "重新占用 alpha",
+      isActive: true,
+      sortOrder: 6,
+    });
+    expect(second).not.toHaveProperty("error");
+    const id = (second as { id: string }).id;
+    expect(id).toMatch(/^dir-alpha-[0-9a-f]{8}$/);
+    const [row] = await db
+      .select()
+      .from(directions)
+      .where(eq(directions.slug, "alpha"));
+    expect(row.id).toBe(id);
+    expect(row.focusBrief).toBe("重新占用 alpha");
+  });
+
+  it("reports not_found when updating a direction that no longer exists", async () => {
+    await expect(
+      upsertDirection(db, {
+        id: "dir-gone",
+        slug: "ghost",
+        name: four("Ghost"),
+        focusBrief: "另一个标签页已经把它删了",
+        isActive: true,
+        sortOrder: 0,
+      }),
+    ).resolves.toEqual({ error: "not_found" });
+    const rows = await db
+      .select()
+      .from(directions)
+      .where(eq(directions.slug, "ghost"));
+    expect(rows).toHaveLength(0);
+  });
+
   it("rejects an update that steals another direction's slug, leaving the row untouched", async () => {
     const result = await upsertDirection(db, {
       id: "dir-withdigests",
@@ -280,6 +372,111 @@ describe("upsertDirection", () => {
       isActive: true,
       sortOrder: 0,
     });
+  });
+});
+
+describe("listDirectionsAdmin", () => {
+  it("orders by sortOrder then slug and groups each direction's sources under it", async () => {
+    const rows = await listDirectionsAdmin(db);
+    expect(rows.map((d) => d.slug)).toEqual([
+      "ai4formath",
+      "agents",
+      "brandnew",
+    ]);
+    expect(rows.map((d) => d.sources.length)).toEqual([0, 1, 2]);
+    expect(rows[2].sources.map((s) => s.id)).toEqual([
+      "dsrc-clean-1",
+      "dsrc-clean-2",
+    ]);
+    expect(rows[2].sources[0]).toMatchObject({
+      adapterType: "arxiv_query",
+      config: { query: "cat:cs.AI", maxResults: 30 },
+      enabled: true,
+    });
+    expect(rows[1].sources[0].id).toBe("dsrc-other");
+  });
+
+  it("exposes the internal fields the public queries deliberately hide", async () => {
+    await db
+      .update(directionSources)
+      .set({
+        enabled: false,
+        consecutiveFailures: 4,
+        lastError: "429 Too Many Requests",
+        lastAttemptAt: new Date("2026-08-09T00:00:00Z"),
+      })
+      .where(eq(directionSources.id, "dsrc-clean-1"));
+
+    const rows = await listDirectionsAdmin(db);
+    const clean = rows.find((d) => d.slug === "brandnew");
+    expect(clean?.sources[0]).toMatchObject({
+      enabled: false,
+      consecutiveFailures: 4,
+      lastError: "429 Too Many Requests",
+      lastAttemptAt: new Date("2026-08-09T00:00:00Z"),
+      lastFetchedAt: null,
+    });
+    // focusBrief 是喂 LLM 的内部口味描述，管理页要能读到并编辑
+    expect(clean?.focusBrief).toBe("刚建的方向");
+  });
+});
+
+describe("upsertSource", () => {
+  it("creates a source with a dsrc- prefixed id under the given direction", async () => {
+    const result = await upsertSource(db, {
+      directionId: "dir-clean",
+      adapterType: "rss",
+      config: { url: "https://example.com/new.xml" },
+      enabled: true,
+    });
+    expect(result).not.toHaveProperty("error");
+    const id = (result as { id: string }).id;
+    expect(id).toMatch(/^dsrc-[0-9a-f]{8}$/);
+    const [row] = await db
+      .select()
+      .from(directionSources)
+      .where(eq(directionSources.id, id));
+    expect(row).toMatchObject({
+      directionId: "dir-clean",
+      adapterType: "rss",
+      enabled: true,
+    });
+  });
+
+  it("updates config and enabled only, ignoring a directionId move", async () => {
+    const result = await upsertSource(db, {
+      id: "dsrc-clean-1",
+      directionId: "dir-withpapers", // 刻意搬家：源不能换方向，这里应被忽略
+      adapterType: "rss",
+      config: { url: "https://example.com/changed.xml" },
+      enabled: false,
+    });
+    expect(result).toEqual({ id: "dsrc-clean-1" });
+    const [row] = await db
+      .select()
+      .from(directionSources)
+      .where(eq(directionSources.id, "dsrc-clean-1"));
+    expect(row).toMatchObject({
+      directionId: "dir-clean",
+      adapterType: "rss",
+      config: { url: "https://example.com/changed.xml" },
+      enabled: false,
+    });
+  });
+
+  it("reports not_found when updating a source that no longer exists", async () => {
+    const before = await db.select().from(directionSources);
+    await expect(
+      upsertSource(db, {
+        id: "dsrc-gone",
+        directionId: "dir-clean",
+        adapterType: "rss",
+        config: { url: "https://example.com/ghost.xml" },
+        enabled: true,
+      }),
+    ).resolves.toEqual({ error: "not_found" });
+    const after = await db.select().from(directionSources);
+    expect(after).toHaveLength(before.length);
   });
 });
 
@@ -314,6 +511,7 @@ describe("listRecentDigestsAdmin", () => {
     // 非 published 的期与内部字段都要暴露给管理面（与公开查询刻意相反）
     expect(forDirection[0]).toMatchObject({
       digestId: "dg-12",
+      directionId: "dir-withdigests",
       status: "failed",
       workflowInstanceId: "wf-12",
       publishedAt: null,

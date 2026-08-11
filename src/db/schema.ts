@@ -802,7 +802,9 @@ export const directions = sqliteTable("directions", {
 export const directionSources = sqliteTable(
   "direction_sources",
   {
-    id: text("id").primaryKey(), // 可读固定 id（如 "dsrc-ai4formath-arxiv-atp"）
+    // 可读固定 id（如 "dsrc-ai4formath-arxiv-atp"）只是 seed 脚本的约定；
+    // 管理页运行时创建的源走 "dsrc-{随机 8 位}"（见 lib/digest/admin-store.ts）
+    id: text("id").primaryKey(),
     directionId: text("direction_id")
       .notNull()
       .references(() => directions.id, { onDelete: "cascade" }),

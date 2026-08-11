@@ -16,6 +16,21 @@ import {
 
 type Db = ReturnType<typeof drizzle>;
 
+/**
+ * 唯一约束违约识别。drizzle 把底层错误包成 DrizzleQueryError，其 message 里带着
+ * 整条 SQL 与全部绑定参数（含管理员刚输入的 focusBrief 全文）——那条消息一个字都
+ * 不能回传前端，真正的 "UNIQUE constraint failed" 只在 cause 链上，故逐层下钻。
+ */
+function isUniqueConstraintError(e: unknown): boolean {
+  let cur: unknown = e;
+  for (let depth = 0; cur instanceof Error && depth < 5; depth++) {
+    if (/UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(cur.message))
+      return true;
+    cur = cur.cause;
+  }
+  return false;
+}
+
 export interface AdminSource {
   id: string;
   adapterType: "arxiv_query" | "rss";
@@ -67,6 +82,10 @@ export async function listDirectionsAdmin(db: Db): Promise<AdminDirection[]> {
   }));
 }
 
+export type UpsertDirectionResult =
+  | { id: string }
+  | { error: "slug_taken" | "not_found" };
+
 export async function upsertDirection(
   db: Db,
   input: {
@@ -78,54 +97,111 @@ export async function upsertDirection(
     isActive: boolean;
     sortOrder: number;
   },
-): Promise<{ id: string } | { error: "slug_taken" }> {
-  const now = new Date();
-  if (input.id) {
-    const [dup] = await db
-      .select({ id: directions.id })
-      .from(directions)
-      .where(eq(directions.slug, input.slug))
-      .limit(1);
-    if (dup && dup.id !== input.id) return { error: "slug_taken" };
-    await db
-      .update(directions)
-      .set({
-        slug: input.slug,
-        name: input.name,
-        focusBrief: input.focusBrief,
-        ...(input.intro !== undefined ? { intro: input.intro } : {}),
-        isActive: input.isActive,
-        sortOrder: input.sortOrder,
-        updatedAt: now,
-      })
-      .where(eq(directions.id, input.id));
-    return { id: input.id };
-  }
+): Promise<UpsertDirectionResult> {
+  // slug 查重两个分支共用：新建时 input.id 为 undefined，恒不等于任何已有 id
   const [dup] = await db
     .select({ id: directions.id })
     .from(directions)
     .where(eq(directions.slug, input.slug))
     .limit(1);
-  if (dup) return { error: "slug_taken" };
-  // 可读固定 id，与 seed 脚本（scripts/seed-directions.sql）的 dir-{slug} 约定一致
-  const id = `dir-${input.slug}`;
-  await db.insert(directions).values({
-    id,
-    slug: input.slug,
-    name: input.name,
-    focusBrief: input.focusBrief,
-    intro: input.intro ?? null,
-    isActive: input.isActive,
-    sortOrder: input.sortOrder,
-  });
+  if (dup && dup.id !== input.id) return { error: "slug_taken" };
+
+  if (input.id) {
+    // 匹配 0 行的 UPDATE 不报错：另一个标签页刚把这个方向删了的话，
+    // 不检查存在性就会「保存成功」但库里什么都没变
+    const [existing] = await db
+      .select({ id: directions.id })
+      .from(directions)
+      .where(eq(directions.id, input.id))
+      .limit(1);
+    if (!existing) return { error: "not_found" };
+    try {
+      await db
+        .update(directions)
+        .set({
+          slug: input.slug,
+          name: input.name,
+          focusBrief: input.focusBrief,
+          ...(input.intro !== undefined ? { intro: input.intro } : {}),
+          isActive: input.isActive,
+          sortOrder: input.sortOrder,
+          updatedAt: new Date(),
+        })
+        .where(eq(directions.id, input.id));
+    } catch (e) {
+      return rethrowAsDirectionError(e, "update");
+    }
+    return { id: input.id };
+  }
+
+  // 可读固定 id，与 seed 脚本（scripts/seed-directions.sql）的 dir-{slug} 约定一致。
+  // 但 id 一经写入就不再随 slug 改名而变，所以「建 alpha → 改名 beta → 再建 alpha」
+  // 会让 slug 查重放行、主键却已被占用，故 PK 撞车时退化成带随机后缀的 id。
+  let id = `dir-${input.slug}`;
+  const [pkTaken] = await db
+    .select({ id: directions.id })
+    .from(directions)
+    .where(eq(directions.id, id))
+    .limit(1);
+  if (pkTaken) id = `${id}-${crypto.randomUUID().slice(0, 8)}`;
+  try {
+    await db.insert(directions).values({
+      id,
+      slug: input.slug,
+      name: input.name,
+      focusBrief: input.focusBrief,
+      intro: input.intro ?? null,
+      isActive: input.isActive,
+      sortOrder: input.sortOrder,
+    });
+  } catch (e) {
+    return rethrowAsDirectionError(e, "insert");
+  }
   return { id };
 }
 
-/** 物理删除防呆：有任何 digests 或关联 papers 的方向只能停用 */
+/**
+ * 上面两处 catch 的共用出口：唯一约束违约（查重与写入之间的并发窗口，
+ * directions_slug_unique 兜底）翻译成 slug_taken，其余错误只进日志，
+ * 抛给 router 的是不含 SQL 与绑定参数的干净消息。
+ */
+function rethrowAsDirectionError(
+  e: unknown,
+  op: "insert" | "update",
+): { error: "slug_taken" } {
+  if (isUniqueConstraintError(e)) return { error: "slug_taken" };
+  console.error(`[admin-store] upsertDirection ${op} failed:`, e);
+  throw new Error("failed to persist direction");
+}
+
+export type DeleteDirectionResult =
+  | { deleted: true }
+  | { deleted: false; reason: "not_found" | "still_active" | "has_history" };
+
+/**
+ * 物理删除防呆：有任何 digests 或关联 papers 的方向只能停用。
+ *
+ * 还要求方向已停用：两次 COUNT 与 DELETE 之间存在真实的并发窗口——在飞的
+ * digest workflow 可能刚 ensureDigestShell 插入 digest 行，被 DELETE 级联带走后，
+ * 后续往已消失的 digest 插 digest_papers 会撞外键、step 反复重试到耗尽。
+ * digest-cron.ts:17 只捞 active 方向，所以「先停用、观察一周、再删」即可封堵。
+ *
+ * 删除本身是单语句：direction_sources / direction_candidates 的外键都是
+ * ON DELETE cascade（drizzle/0029），papers.direction_id 是 SET NULL，
+ * 一条 DELETE 原子带走一切，不需要手工删子表（D1 无事务，手工删反而造出中断窗口）。
+ */
 export async function deleteDirectionGuarded(
   db: Db,
   directionId: string,
-): Promise<{ deleted: boolean }> {
+): Promise<DeleteDirectionResult> {
+  const [dir] = await db
+    .select({ isActive: directions.isActive })
+    .from(directions)
+    .where(eq(directions.id, directionId))
+    .limit(1);
+  if (!dir) return { deleted: false, reason: "not_found" };
+  if (dir.isActive) return { deleted: false, reason: "still_active" };
+
   const [digestRow] = await db
     .select({ value: count() })
     .from(digests)
@@ -135,15 +211,13 @@ export async function deleteDirectionGuarded(
     .from(papers)
     .where(eq(papers.directionId, directionId));
   if ((digestRow?.value ?? 0) > 0 || (paperRow?.value ?? 0) > 0)
-    return { deleted: false };
-  // D1 无事务：先删子表再删主表，中断的最坏情形是「源没了、方向还在」，可重试
-  await db
-    .delete(directionSources)
-    .where(eq(directionSources.directionId, directionId));
+    return { deleted: false, reason: "has_history" };
+
   await db.delete(directions).where(eq(directions.id, directionId));
   return { deleted: true };
 }
 
+/** 更新分支刻意不改 directionId：源不能在方向之间搬家，要换方向请删了重建 */
 export async function upsertSource(
   db: Db,
   input: {
@@ -153,8 +227,15 @@ export async function upsertSource(
     config: DirectionSourceConfig;
     enabled: boolean;
   },
-): Promise<{ id: string }> {
+): Promise<{ id: string } | { error: "not_found" }> {
   if (input.id) {
+    // 与 upsertDirection 同理：匹配 0 行的 UPDATE 不能报告成功
+    const [existing] = await db
+      .select({ id: directionSources.id })
+      .from(directionSources)
+      .where(eq(directionSources.id, input.id))
+      .limit(1);
+    if (!existing) return { error: "not_found" };
     await db
       .update(directionSources)
       .set({
@@ -190,6 +271,8 @@ export async function reviveSource(db: Db, sourceId: string): Promise<void> {
 
 export interface AdminDigestRow {
   digestId: string;
+  /** triggerDigest 吃的是 id，带上省得前端再从 listDirections 反查一次 slug→id */
+  directionId: string;
   directionSlug: string;
   issueNumber: number;
   status: "generating" | "published" | "failed";
@@ -225,7 +308,9 @@ export async function listRecentDigestsAdmin(
       .where(eq(digests.directionId, d.id))
       .orderBy(desc(digests.issueNumber))
       .limit(10);
-    result.push(...rows.map((r) => ({ ...r, directionSlug: d.slug })));
+    result.push(
+      ...rows.map((r) => ({ ...r, directionId: d.id, directionSlug: d.slug })),
+    );
   }
   return result;
 }

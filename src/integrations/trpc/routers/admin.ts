@@ -37,11 +37,12 @@ export const adminRouter = router({
     .input(
       z.object({
         id: z.string().optional(),
+        // 连字符只能做分隔符：^[a-z0-9-]+$ 会放行 "-" / "---" 这种公开 URL
         slug: z
           .string()
           .min(1)
           .max(50)
-          .regex(/^[a-z0-9-]+$/),
+          .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
         name: localeRecord,
         focusBrief: z.string().min(1).max(8000),
         intro: localeRecord.nullish(),
@@ -52,7 +53,10 @@ export const adminRouter = router({
     .mutation(async ({ ctx, input }) => {
       const result = await upsertDirection(ctx.db, input);
       if ("error" in result)
-        throw new TRPCError({ code: "CONFLICT", message: result.error });
+        throw new TRPCError({
+          code: result.error === "not_found" ? "NOT_FOUND" : "CONFLICT",
+          message: result.error,
+        });
       return result;
     }),
 
@@ -72,7 +76,12 @@ export const adminRouter = router({
         enabled: z.boolean(),
       }),
     )
-    .mutation(({ ctx, input }) => upsertSource(ctx.db, input)),
+    .mutation(async ({ ctx, input }) => {
+      const result = await upsertSource(ctx.db, input);
+      if ("error" in result)
+        throw new TRPCError({ code: "NOT_FOUND", message: result.error });
+      return result;
+    }),
 
   deleteSource: adminProcedure
     .input(z.object({ sourceId: z.string() }))
