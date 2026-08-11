@@ -31,6 +31,7 @@ export const CARD_TOOL_TYPES: ReadonlySet<string> = new Set([
 /**
  * recommendPapers 的行为契约：卡片是用户看见论文的唯一途径，模型自己不能入库。
  * 两个 chatbot 的系统提示逐字复用同一条，避免各自抄一份后静默漂移。
+ * 含开头的 "- " 项目符号：两端都是拼进 Rules 数组直接用，改这里的格式要同时看两处。
  */
 export const DISCOVERY_PROMPT_RULE =
   "- Search results are visible only to you. To show papers to the user, call recommendPapers with their arXiv IDs — it renders cards with an add-to-library button at that point in the conversation. Weave these calls naturally into the flow of your reply, right where you discuss the papers (multiple calls per reply are fine); do not dump one big batch at the end, and do not recommend every search hit — curate. You cannot add papers to the library yourself; when the user wants to save one, tell them to click the add button on its card.";
@@ -73,9 +74,12 @@ export function parseArxivAtom(
     const rawId = text(block, "id"); // 形如 http://arxiv.org/abs/2601.13209v2
     const arxivId = canonicalArxivId(rawId);
     if (!arxivId) continue;
-    const authors = [...block.matchAll(/<name>([\s\S]*?)<\/name>/g)].map((a) =>
-      unescapeXml(a[1].trim()),
-    );
+    // 截前 10 位：大型合作组论文能列几百位作者，而卡片最多显示 3 位 + et al.。
+    // recommendPapers 的 output 会连同作者名一起落进 D1（CARD_TOOL_TYPES 保留），
+    // 且 getMessages 整会话不分页返回，不设上限等于把这几百个名字反复搬运。
+    const authors = [...block.matchAll(/<name>([\s\S]*?)<\/name>/g)]
+      .slice(0, 10)
+      .map((a) => unescapeXml(a[1].trim()));
     const categories = [...block.matchAll(/<category[^>]*term="([^"]+)"/g)].map(
       (c) => c[1],
     );

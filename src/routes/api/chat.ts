@@ -42,7 +42,12 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
     maxMessages: CHAT_LIMITS.maxMessagesPerSession,
     webSearchMaxResults: CHAT_LIMITS.webSearchMaxResults,
   },
-  stopWhenSteps: 10,
+  // 比 /api/agent 的 10 再宽一档：论文页一轮里 readPaper 要按 24k 一段翻页（十几万字
+  // 的论文就是七八段），发现类工具又鼓励多角度搜索 + 边讲边 recommendPapers，每次交错
+  // 都占一步。步数耗尽是静默的：isStepCount 到点直接停，不产生 error part，而历史重放
+  // 只保留 text part（见 chat-stream.ts），只发出工具调用就被截断的那轮会整条从模型可见
+  // 历史里消失，下一轮又从头搜一遍。
+  stopWhenSteps: 12,
   keepToolOutputTypes: CARD_TOOL_TYPES,
 
   authorize: async ({

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChatTools,
   CHAT_LIMITS,
+  type ChatToolsDeps,
   mapReasoningEffort,
   sliceSection,
 } from "./chat";
@@ -11,8 +12,11 @@ const SECTION_SIZE = CHAT_LIMITS.sectionChars;
 /** minimal ToolExecutionOptions stub — only fields required by the type */
 const toolOptions = { toolCallId: "test-call", messages: [] } as never;
 
-/** 发现类工具在 readPaper 用例里不会被执行，db/userId 只需满足类型 */
-const discoveryDeps = { db: {} as never, userId: "user-1" };
+/** 发现类工具在这些用例里不会被执行，db/userId 只需满足类型 */
+const discoveryDeps = {
+  db: {} as unknown as ChatToolsDeps["db"],
+  userId: "user-1",
+};
 
 /** readPaper.execute is optional per the Tool type; assert it's set without a `!` (biome forbids it) */
 function readPaper(
@@ -93,6 +97,26 @@ describe("mapReasoningEffort", () => {
   it("never mixes enabled and effort in one object", () => {
     expect(mapReasoningEffort("high")).not.toHaveProperty("enabled");
     expect(mapReasoningEffort("off")).not.toHaveProperty("effort");
+  });
+});
+
+describe("buildChatTools", () => {
+  // 类型系统看不见「少了一个 spread」：漏掉 buildDiscoveryTools 照样编译通过、
+  // 照样上线，只是论文页悄悄没了发现能力。这条断言把接线钉住。
+  it("exposes readPaper plus the shared discovery tools", () => {
+    const bucket = { get: async () => null } as unknown as R2Bucket;
+    const tools = buildChatTools({
+      ...discoveryDeps,
+      bucket,
+      paperId: "paper-1",
+    });
+
+    expect(Object.keys(tools).sort()).toEqual([
+      "listDailyPapers",
+      "readPaper",
+      "recommendPapers",
+      "searchArxiv",
+    ]);
   });
 });
 
