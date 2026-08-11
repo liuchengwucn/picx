@@ -7,6 +7,7 @@ import {
   pdfFetchErrorCode,
   pdfFilenameFromUrl,
 } from "#/lib/pdf-url";
+import { UPLOAD_ERROR, type UploadErrorCode } from "#/lib/upload-errors";
 
 /**
  * Server-side PDF download for the "import from link" flow in the paper upload
@@ -26,19 +27,24 @@ const MAX_REDIRECTS = 5;
 
 /**
  * `error` is a STABLE CODE (not a human string) — the client maps it to a
- * localised message (see URL_IMPORT_ERROR in components/papers/upload-dialog.tsx).
+ * localised message (see components/papers/upload-error-message.ts; the codes
+ * themselves live in lib/upload-errors.ts).
  * Codes:
  * bad_url | unauthorized | blocked | not_pdf | too_large | timeout | fetch_failed
  */
 class FetchUrlError extends Error {
   status: number;
-  constructor(code: string, status: number) {
+  /** 与 `message` 同值；单独留一份是因为 `Error.message` 的类型是 string，
+   *  拿它回填 jsonError 就得靠 cast，白白丢掉码的类型检查。 */
+  code: UploadErrorCode;
+  constructor(code: UploadErrorCode, status: number) {
     super(code);
     this.status = status;
+    this.code = code;
   }
 }
 
-function jsonError(code: string, status: number): Response {
+function jsonError(code: UploadErrorCode, status: number): Response {
   return new Response(JSON.stringify({ error: code }), {
     status,
     headers: { "Content-Type": "application/json" },
@@ -55,7 +61,7 @@ async function fetchFollowingRedirects(
     // Re-validate the host on every hop, including the initial URL (hop 0) — anti-SSRF.
     const check = isAllowedPdfUrl(current);
     if (!check.ok) {
-      throw new FetchUrlError("bad_url", 400);
+      throw new FetchUrlError(UPLOAD_ERROR.BAD_URL, 400);
     }
     const resp = await fetch(current, {
       redirect: "manual",
@@ -66,25 +72,25 @@ async function fetchFollowingRedirects(
       await resp.body?.cancel();
       const location = resp.headers.get("location");
       if (!location) {
-        throw new FetchUrlError("fetch_failed", 502);
+        throw new FetchUrlError(UPLOAD_ERROR.FETCH_FAILED, 502);
       }
       current = new URL(location, current).toString();
       continue;
     }
     return resp;
   }
-  throw new FetchUrlError("fetch_failed", 502);
+  throw new FetchUrlError(UPLOAD_ERROR.FETCH_FAILED, 502);
 }
 
 /** Read the body with a hard size cap; aborts mid-stream if exceeded. */
 async function readCapped(resp: Response): Promise<Uint8Array> {
   const declared = resp.headers.get("content-length");
   if (declared && Number(declared) > MAX_PDF_BYTES) {
-    throw new FetchUrlError("too_large", 413);
+    throw new FetchUrlError(UPLOAD_ERROR.TOO_LARGE, 413);
   }
   const reader = resp.body?.getReader();
   if (!reader) {
-    throw new FetchUrlError("fetch_failed", 502);
+    throw new FetchUrlError(UPLOAD_ERROR.FETCH_FAILED, 502);
   }
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -96,7 +102,7 @@ async function readCapped(resp: Response): Promise<Uint8Array> {
     total += value.byteLength;
     if (total > MAX_PDF_BYTES) {
       await reader.cancel();
-      throw new FetchUrlError("too_large", 413);
+      throw new FetchUrlError(UPLOAD_ERROR.TOO_LARGE, 413);
     }
     chunks.push(value);
   }
@@ -113,7 +119,7 @@ async function handler({ request }: { request: Request }) {
   // Auth: reuse better-auth server session (review-guest has none → blocked).
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
-    return jsonError("unauthorized", 401);
+    return jsonError(UPLOAD_ERROR.UNAUTHORIZED, 401);
   }
 
   let url: string;
@@ -121,12 +127,12 @@ async function handler({ request }: { request: Request }) {
     const body = (await request.json()) as { url?: string };
     url = (body.url ?? "").trim();
   } catch {
-    return jsonError("bad_url", 400);
+    return jsonError(UPLOAD_ERROR.BAD_URL, 400);
   }
 
   const check = isAllowedPdfUrl(url);
   if (!check.ok) {
-    return jsonError("bad_url", 400);
+    return jsonError(UPLOAD_ERROR.BAD_URL, 400);
   }
 
   const controller = new AbortController();
@@ -141,10 +147,10 @@ async function handler({ request }: { request: Request }) {
     }
     const buffer = await readCapped(resp);
     if (buffer.byteLength === 0) {
-      return jsonError("fetch_failed", 502);
+      return jsonError(UPLOAD_ERROR.FETCH_FAILED, 502);
     }
     if (!isPdfBuffer(buffer)) {
-      return jsonError("not_pdf", 400);
+      return jsonError(UPLOAD_ERROR.NOT_PDF_URL, 400);
     }
     const filename = pdfFilenameFromUrl(
       resp.url || url,
@@ -159,13 +165,13 @@ async function handler({ request }: { request: Request }) {
     });
   } catch (error) {
     if (error instanceof FetchUrlError) {
-      return jsonError(error.message, error.status);
+      return jsonError(error.code, error.status);
     }
     if (error instanceof Error && error.name === "AbortError") {
-      return jsonError("timeout", 504);
+      return jsonError(UPLOAD_ERROR.TIMEOUT, 504);
     }
     console.error("fetch-url failed:", error);
-    return jsonError("fetch_failed", 502);
+    return jsonError(UPLOAD_ERROR.FETCH_FAILED, 502);
   } finally {
     clearTimeout(timeout);
   }

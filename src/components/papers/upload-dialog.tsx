@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { localizeUploadError } from "#/components/papers/upload-error-message";
 import {
   Accordion,
   AccordionContent,
@@ -37,25 +38,12 @@ import {
   isReviewGuestModeEnabled,
   isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
+import { UPLOAD_ERROR } from "#/lib/upload-errors";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
 // 前端预检，避免大文件传完才被服务端拒绝；与 /api/papers/upload 的 100MB 硬上限对齐。
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
-
-/**
- * /api/papers/fetch-url 返回的是稳定错误 CODE 而非人类可读串。这里做本地化映射，
- * 惰性取值以保证读到的是出错当刻的语言。未知码与 unauthorized 落到 generic。
- */
-const URL_IMPORT_ERROR: Record<string, () => string> = {
-  bad_url: () => m.upload_url_err_bad_url(),
-  blocked: () => m.upload_url_err_blocked(),
-  not_pdf: () => m.upload_url_err_not_pdf(),
-  too_large: () => m.upload_url_err_too_large(),
-  timeout: () => m.upload_url_err_fetch_failed(),
-  fetch_failed: () => m.upload_url_err_fetch_failed(),
-  unauthorized: () => m.upload_url_err_generic(),
-};
 
 interface UploadDialogProps {
   credits: number;
@@ -342,6 +330,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 
   // 文件上传与链接导入的公共尾段：字节进 R2 → 建论文记录。
   // 抛错交给调用方统一 toast，本函数不碰对话框状态。
+  // 约定：本文件所有 throw 抛的都是**稳定错误码**（lib/upload-errors.ts），
+  // 由 catch 里的 localizeUploadError 统一本地化——中途本地化会让两条路径
+  // 一半抛文案一半抛码，混进同一个 catch 后无从分辨。
   const uploadPdfAndCreate = useCallback(
     async (pdf: File) => {
       const resp = await fetch(
@@ -352,7 +343,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         const err = (await resp.json().catch(() => null)) as {
           error?: string;
         } | null;
-        throw new Error(err?.error ?? "Upload failed");
+        // 拿不到码（网关直接吐了一页 HTML）时给个落 generic 的码占位。
+        throw new Error(err?.error ?? UPLOAD_ERROR.BAD_RESPONSE);
       }
       // 200 也可能带非 JSON 体（网关插了一页 HTML）。不兜底的话，原始的
       // "Unexpected token …" SyntaxError 会被调用方的 toast 原样甩给用户。
@@ -361,7 +353,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         fileSize: number;
       } | null;
       if (!ok) {
-        throw new Error(m.upload_url_err_generic());
+        throw new Error(UPLOAD_ERROR.BAD_RESPONSE);
       }
       const { r2Key, fileSize } = ok;
       await createPaper.mutateAsync({
@@ -404,7 +396,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     } catch (e) {
       console.error("Upload failed:", e);
       // 原实现只 console.error，失败时对话框静止不动，用户以为没点上。
-      toast.error(e instanceof Error ? e.message : m.upload_url_err_generic());
+      toast.error(localizeUploadError(e));
     } finally {
       setUploading(false);
     }
@@ -416,7 +408,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     async (raw: string) => {
       // https + 非私有 host 的前置校验；本地判得掉的错就不必往返一次服务端。
       if (!isAllowedPdfUrl(raw).ok) {
-        throw new Error(m.upload_url_err_bad_url());
+        throw new Error(UPLOAD_ERROR.BAD_URL);
       }
       const resp = await fetch("/api/papers/fetch-url", {
         method: "POST",
@@ -424,20 +416,15 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         body: JSON.stringify({ url: raw }),
       });
       if (!resp.ok) {
-        let message: string = m.upload_url_err_generic();
+        // 非 JSON 响应（网关插了一页 HTML）时给个落 generic 的码占位。
+        let code: string = UPLOAD_ERROR.BAD_RESPONSE;
         try {
           const data = (await resp.json()) as { error?: string };
-          // Object.hasOwn 而非直接索引：对象字面量继承了 toString / valueOf 等
-          // 原型成员，未知码若撞上它们会取到函数并渲染出 "[object Undefined]"
-          // 之类的垃圾，甚至抛 TypeError。只认自有属性。
-          const code = data?.error;
-          if (code && Object.hasOwn(URL_IMPORT_ERROR, code)) {
-            message = URL_IMPORT_ERROR[code]();
-          }
+          code = data?.error ?? code;
         } catch {
-          // 非 JSON 响应，沿用默认文案
+          // 非 JSON 响应，沿用占位码
         }
-        throw new Error(message);
+        throw new Error(code);
       }
       const blob = await resp.blob();
       const headerName = resp.headers.get("X-Filename");
@@ -491,7 +478,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
       onSuccess?.();
     } catch (e) {
       console.error("Link import failed:", e);
-      toast.error(e instanceof Error ? e.message : m.upload_url_err_generic());
+      toast.error(localizeUploadError(e));
     } finally {
       setUploading(false);
     }

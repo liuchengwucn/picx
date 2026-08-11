@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { Check, Loader2, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { localizeUploadError } from "#/components/papers/upload-error-message";
 import { Button } from "#/components/ui/button";
 import { useTRPC } from "#/integrations/trpc/react";
 // 仅类型导入：agent.ts 是服务端模块（drizzle/R2 一大串）。`import type` 在编译期
@@ -217,7 +218,10 @@ export function PaperResultCards({ results }: { results: DiscoveredPaper[] }) {
       },
       onError: (error) => {
         console.error("Add to library failed:", error);
-        toast.error(m.assistant_card_add_failed());
+        // paper.create 的 TRPCError message 是稳定错误码（积分不足、API 配置
+        // 不存在…）。认得出就说具体原因，认不出（网络层错误、未登记的码）才落
+        // 回这条泛化文案——绝不把原始 message 甩给用户。
+        toast.error(localizeUploadError(error, m.assistant_card_add_failed));
       },
     }),
   );

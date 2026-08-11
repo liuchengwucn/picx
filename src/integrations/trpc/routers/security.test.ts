@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { papers } from "#/db/schema";
+import { UPLOAD_ERROR } from "#/lib/upload-errors";
 import { paperRouter } from "./paper";
 
 function createSelectChain(result: unknown[]) {
@@ -89,7 +90,7 @@ describe("paperRouter.create security checks", () => {
       }),
     ).rejects.toMatchObject({
       code: "NOT_FOUND",
-      message: "API configuration not found",
+      message: UPLOAD_ERROR.API_CONFIG_NOT_FOUND,
     });
   });
 
@@ -108,7 +109,7 @@ describe("paperRouter.create security checks", () => {
       }),
     ).rejects.toMatchObject({
       code: "FORBIDDEN",
-      message: "Invalid r2Key",
+      message: UPLOAD_ERROR.INVALID_R2_KEY,
     });
   });
 
@@ -130,7 +131,7 @@ describe("paperRouter.create security checks", () => {
       }),
     ).rejects.toMatchObject({
       code: "NOT_FOUND",
-      message: "Prompt template not found",
+      message: UPLOAD_ERROR.PROMPT_NOT_FOUND,
     });
   });
 });
