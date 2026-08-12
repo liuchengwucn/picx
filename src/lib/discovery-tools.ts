@@ -1,4 +1,4 @@
-import { tool } from "ai";
+import { type ToolUIPart, tool } from "ai";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { z } from "zod";
@@ -129,6 +129,41 @@ export function normalizeArxivIds(ids: string[]): string[] {
     if (id) seen.add(id);
   }
   return [...seen];
+}
+
+/** 回放摘要里单个标题的截断长度 */
+const REPLAY_TITLE_CHARS = 120;
+
+/**
+ * 卡片回放摘要：recommendPapers 的 output 会落进 D1 供前端刷新后重建卡片，但历史
+ * 重放是 text-only 的——不折一行喂回去的话，用户指着屏幕上的卡片问「第二篇讲什么」
+ * 时，模型的上下文里一篇都没有。
+ *
+ * 只带标题 + arXiv id + 是否已入库：摘要不带（8 篇 × 240 字每轮都要重放一遍），
+ * 模型要细节可以拿 id 再查；inLibrary 顺手防住「推荐一篇用户已经加过的论文」。
+ * output 是任意年代的 D1 JSON，逐字段做形状防御，取不到就跳过这一条。
+ */
+export function digestRecommendPapersForReplay(
+  part: ToolUIPart,
+): string | undefined {
+  if (part.type !== "tool-recommendPapers") return undefined;
+  const results = (part.output as { results?: unknown } | undefined)?.results;
+  if (!Array.isArray(results)) return undefined;
+  const lines = results.flatMap((raw) => {
+    const paper = raw as Partial<DiscoveredPaper> | null;
+    if (
+      typeof paper?.title !== "string" ||
+      typeof paper?.arxivId !== "string"
+    ) {
+      return [];
+    }
+    const owned = paper.inLibrary ? " (already in the user's library)" : "";
+    return [
+      `"${paper.title.slice(0, REPLAY_TITLE_CHARS)}" arXiv:${paper.arxivId}${owned}`,
+    ];
+  });
+  if (lines.length === 0) return undefined;
+  return `[Paper cards shown to the user at this point: ${lines.join("; ")}]`;
 }
 
 /** 查用户库，构造 canonical sourceUrl → shortId 映射（urls ≤15，远低于 D1 参数上限） */

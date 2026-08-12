@@ -3,11 +3,13 @@ import {
   consumeStream,
   convertToModelMessages,
   createUIMessageStreamResponse,
+  isStaticToolUIPart,
   isStepCount,
   isToolUIPart,
   streamText,
   type TextStreamPart,
   type ToolSet,
+  type ToolUIPart,
   toUIMessageStream,
   type UIMessage,
 } from "ai";
@@ -36,7 +38,9 @@ import {
  *   顺序反了的话，一条畸形消息会让用户消息已落库但请求 500，此后该会话每次重放
  *   都炸；也避免请求还没真正打到模型就先烧掉一次限流配额。
  * - 历史重放只喂 text part 给模型（工具输出单段可达 24k 字符，整窗重放会爆上下文；
- *   完整 parts 仍存 D1 供前端回显）。
+ *   完整 parts 仍存 D1 供前端回显）。唯一的例外是 spec.replayToolDigest 折出来的
+ *   那一行摘要——output 被保留意味着刷新后用户还看得见卡片，模型就不能一无所知；
+ *   口径见 buildReplayHistory。
  * - 断连仍落库：consumeSseStream 拿到的是 tee 出来的独立分支 + waitUntil 托住。
  *
  * channel 向后兼容：本管线不假设会话只有一个成员——成员归属完全由 spec.authorize
@@ -128,6 +132,14 @@ export interface ChatStreamSpec<TBody extends ChatStreamBody, TCtx> {
   maxToolSteps: number;
   /** 落库时保留 output 的工具 part 类型（历史回显要重建卡片的那类），默认全剥 */
   keepToolOutputTypes?: ReadonlySet<string>;
+  /**
+   * 历史重放时把工具 part 折成一行文本喂给模型；返回 undefined 表示不喂。
+   *
+   * 不变量：能折出摘要的工具必须正好是 keepToolOutputTypes 那一批。output 被保留
+   * 意味着刷新后用户还能在屏幕上看见它（卡片），模型就不能对它一无所知——否则用户
+   * 指着卡片问「第二篇讲什么」时，模型的上下文里一篇都没有。
+   */
+  replayToolDigest?: (part: ToolUIPart) => string | undefined;
   /** 归属校验；不通过时给出错误码与状态码 */
   authorize(args: ChatStreamArgs<TBody>): Promise<AuthorizeResult<TCtx>>;
   /** 会话内消息总数（session_full 上限用） */
@@ -341,6 +353,57 @@ export function buildStepPolicy(maxToolSteps: number, instructions: string) {
 }
 
 /**
+ * 助手消息一个 part 都折不出来时，喂给模型的占位标记。
+ * 只进模型上下文——不落库、不下发前端，用户永远看不到它。
+ */
+const TRUNCATED_REPLY_MARKER =
+  "[The assistant's previous reply was cut off before it produced an answer.]";
+
+/**
+ * D1 历史行 → 喂给模型的 UIMessage 窗口（最旧在前）。
+ *
+ * 只带 text part：工具输出单段可达 24k 字符，整窗重放会爆上下文（完整 parts 仍存
+ * D1 供前端回显）。唯一的例外是 digest 折出来的那一行——见 ChatStreamSpec.replayToolDigest。
+ *
+ * 一个 part 都折不出来的**助手**消息换成 TRUNCATED_REPLY_MARKER，而不是整条丢掉：
+ * 步数耗尽已由 buildStepPolicy 的收尾步兜住，但还有别的路径能产出没有 text part 的
+ * 助手消息——maxOutputTokens 被 reasoning 吃光（finishReason "length"）、客户端中途
+ * 断开。丢掉的话模型看不见自己上一轮干过什么，会把整轮工作重做一遍；给个标记既
+ * 保住了轮次顺序，也明确告诉它上一轮被截断了。
+ * 其余角色仍然丢弃：parts 为空的消息会让 convertToModelMessages 产出空 content，
+ * provider 可能直接 400，而用户消息本来就不可能没有文本（bodySchema 只收 text part）。
+ */
+export function buildReplayHistory(
+  rows: StoredMessageRow[],
+  digest?: (part: ToolUIPart) => string | undefined,
+): UIMessage[] {
+  return rows
+    .map((row) => {
+      // parts 是 D1 里的任意年代 JSON，不是数组就当没有（原来直接 .filter 会抛）
+      const stored = Array.isArray(row.parts)
+        ? (row.parts as UIMessage["parts"])
+        : [];
+      const parts = stored.flatMap((part) => {
+        if (part.type === "text") return [part];
+        // 用 static 而非 isToolUIPart：后者的窄化含 DynamicToolUIPart，而 digest 按
+        // `tool-${name}` 分发，dynamic-tool part 永远匹配不上，本就该跟着一起丢弃
+        if (!isStaticToolUIPart(part)) return [];
+        const line = digest?.(part);
+        return line ? [{ type: "text" as const, text: line }] : [];
+      });
+      return {
+        id: row.id,
+        role: row.role,
+        parts:
+          parts.length === 0 && row.role === "assistant"
+            ? [{ type: "text" as const, text: TRUNCATED_REPLY_MARKER }]
+            : parts,
+      };
+    })
+    .filter((message) => message.parts.length > 0) as UIMessage[];
+}
+
+/**
  * 落库前清洗助手消息的 parts：
  * - 工具 part 剥掉 `output`。readPaper 单次输出可达 ~190KB，存进 D1 后没有任何
  *   读者：前端只用 type/state/toolCallId 渲染状态行，重放给模型时也只保留 text
@@ -433,17 +496,9 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
     const rate = await spec.checkRateLimit(db, userId);
     if (!rate.ok) return jsonError(rate.code, 429);
 
-    // 历史窗口（真源 D1，不信任客户端历史）：重放只带文本 part，工具输出不回喂模型
+    // 历史窗口（真源 D1，不信任客户端历史）；重放口径见 buildReplayHistory
     const historyRows = await spec.loadHistoryRows(args, ctx);
-    const history: UIMessage[] = historyRows
-      .map((row) => ({
-        id: row.id,
-        role: row.role,
-        parts: (row.parts as UIMessage["parts"]).filter(
-          (part) => part.type === "text",
-        ),
-      }))
-      .filter((message) => message.parts.length > 0);
+    const history = buildReplayHistory(historyRows, spec.replayToolDigest);
     const uiMessages: UIMessage[] = [...history, body.message as UIMessage];
 
     // 先把可能抛异常的准备工作做完，再写库（顺序不变量见文件头注释）

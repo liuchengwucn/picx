@@ -1,8 +1,10 @@
+import type { ToolUIPart } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildDiscoveryTools,
   DISCOVERY_LIMITS,
   type DiscoveryToolsDeps,
+  digestRecommendPapersForReplay,
   markInLibrary,
   normalizeArxivIds,
   parseArxivAtom,
@@ -189,5 +191,73 @@ describe("buildDiscoveryTools external call budget", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+const cardPart = (output: unknown) =>
+  ({
+    type: "tool-recommendPapers",
+    toolCallId: "call-1",
+    state: "output-available",
+    input: { arxivIds: ["2601.13209"] },
+    output,
+  }) as unknown as ToolUIPart;
+
+describe("digestRecommendPapersForReplay", () => {
+  it("folds cards into one line with title, id and library flag", () => {
+    const digest = digestRecommendPapersForReplay(
+      cardPart({
+        results: [
+          { arxivId: "2601.13209", title: "Scaling Laws", inLibrary: false },
+          { arxivId: "2602.00001", title: "Retrieval Stuff", inLibrary: true },
+        ],
+      }),
+    );
+    expect(digest).toBe(
+      '[Paper cards shown to the user at this point: "Scaling Laws" arXiv:2601.13209; ' +
+        '"Retrieval Stuff" arXiv:2602.00001 (already in the user\'s library)]',
+    );
+  });
+
+  it("returns undefined for other tool parts", () => {
+    const searchPart = {
+      ...cardPart({ results: [{ arxivId: "1", title: "T" }] }),
+      type: "tool-searchArxiv",
+    } as unknown as ToolUIPart;
+    expect(digestRecommendPapersForReplay(searchPart)).toBeUndefined();
+  });
+
+  it("returns undefined when there is nothing usable in the output", () => {
+    expect(digestRecommendPapersForReplay(cardPart(undefined))).toBeUndefined();
+    expect(
+      digestRecommendPapersForReplay(cardPart({ results: [] })),
+    ).toBeUndefined();
+    expect(
+      digestRecommendPapersForReplay(cardPart({ results: "nope" })),
+    ).toBeUndefined();
+    expect(
+      digestRecommendPapersForReplay(
+        cardPart({ error: "arXiv lookup failed" }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("skips malformed entries instead of throwing", () => {
+    const digest = digestRecommendPapersForReplay(
+      cardPart({
+        results: [null, { title: "No id" }, { arxivId: "2601.1", title: "Ok" }],
+      }),
+    );
+    expect(digest).toBe(
+      '[Paper cards shown to the user at this point: "Ok" arXiv:2601.1]',
+    );
+  });
+
+  it("truncates very long titles", () => {
+    const digest = digestRecommendPapersForReplay(
+      cardPart({ results: [{ arxivId: "2601.1", title: "T".repeat(300) }] }),
+    );
+    expect(digest).toContain(`"${"T".repeat(120)}" arXiv:2601.1`);
+    expect(digest).not.toContain("T".repeat(121));
   });
 });

@@ -1,6 +1,7 @@
 import type { TextStreamPart, ToolSet, UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
+  buildReplayHistory,
   buildStepPolicy,
   sanitizeAssistantParts,
   splitInterleavedSegments,
@@ -280,5 +281,109 @@ describe("buildStepPolicy", () => {
     const policy = buildStepPolicy(1, "S");
     expect(policy.prepareStep({ stepNumber: 0 })).toStrictEqual({});
     expect(policy.prepareStep({ stepNumber: 1 }).activeTools).toEqual([]);
+  });
+});
+
+describe("buildReplayHistory", () => {
+  const textPart = (text: string) => ({ type: "text", text });
+  const toolPart = (type: string) => ({
+    type,
+    toolCallId: "c1",
+    state: "output-available",
+    input: {},
+    output: { results: [] },
+  });
+
+  it("keeps only text parts when no digest is provided", () => {
+    const history = buildReplayHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [textPart("hello"), toolPart("tool-searchArxiv")],
+      },
+    ]);
+    expect(history).toEqual([
+      { id: "m1", role: "assistant", parts: [textPart("hello")] },
+    ]);
+  });
+
+  it("replaces a textless assistant message with a truncation marker", () => {
+    // 丢掉的话模型看不见自己上一轮搜过什么，会把整轮重做一遍
+    const history = buildReplayHistory([
+      { id: "m1", role: "assistant", parts: [toolPart("tool-searchArxiv")] },
+      { id: "m2", role: "user", parts: [textPart("still here")] },
+    ]);
+    expect(history.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(history[0].parts).toHaveLength(1);
+    expect((history[0].parts[0] as { text: string }).text).toContain("cut off");
+  });
+
+  it("drops textless messages from other roles", () => {
+    const history = buildReplayHistory([
+      { id: "m1", role: "user", parts: [] },
+      { id: "m2", role: "user", parts: [textPart("still here")] },
+    ]);
+    expect(history.map((m) => m.id)).toEqual(["m2"]);
+  });
+
+  it("folds tool parts through the digest, preserving position", () => {
+    const history = buildReplayHistory(
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          parts: [
+            textPart("before"),
+            toolPart("tool-recommendPapers"),
+            textPart("after"),
+          ],
+        },
+      ],
+      (part) => (part.type === "tool-recommendPapers" ? "CARDS" : undefined),
+    );
+    expect(history[0].parts).toEqual([
+      textPart("before"),
+      textPart("CARDS"),
+      textPart("after"),
+    ]);
+  });
+
+  it("keeps a message alive when only the digest produced content", () => {
+    const history = buildReplayHistory(
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          parts: [toolPart("tool-recommendPapers")],
+        },
+      ],
+      () => "CARDS",
+    );
+    expect(history).toEqual([
+      { id: "m1", role: "assistant", parts: [textPart("CARDS")] },
+    ]);
+  });
+
+  it("does not fold tool parts whose digest returns undefined", () => {
+    const history = buildReplayHistory(
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          parts: [textPart("kept"), toolPart("tool-searchArxiv")],
+        },
+      ],
+      () => undefined,
+    );
+    expect(history[0].parts).toEqual([textPart("kept")]);
+  });
+
+  it("tolerates rows whose parts are not an array", () => {
+    expect(
+      buildReplayHistory([
+        { id: "m1", role: "user", parts: null },
+        { id: "m2", role: "user", parts: [textPart("ok")] },
+      ]),
+    ).toEqual([{ id: "m2", role: "user", parts: [textPart("ok")] }]);
   });
 });

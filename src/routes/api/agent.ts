@@ -18,7 +18,10 @@ import {
   chatStreamBody,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
-import { CARD_TOOL_TYPES } from "#/lib/discovery-tools";
+import {
+  CARD_TOOL_TYPES,
+  digestRecommendPapersForReplay,
+} from "#/lib/discovery-tools";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 
 /**
@@ -47,6 +50,8 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
   },
   maxToolSteps: 10,
   keepToolOutputTypes: CARD_TOOL_TYPES,
+  // 卡片 output 落库 ⇒ 刷新后用户还看得见 ⇒ 模型也必须看得见（见 replayToolDigest）
+  replayToolDigest: digestRecommendPapersForReplay,
 
   authorize: async ({
     db,
