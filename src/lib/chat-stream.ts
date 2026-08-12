@@ -546,7 +546,9 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
     const modelMessages = await convertToModelMessages(uiMessages);
 
     // 用户消息必须先于助手消息落库、限流计数即时生效；生成在 persist 之后才发起
-    // （生成在 DO 里跑，onEnd 落助手消息，顺序由这里的 await 保证）。
+    // （生成在 DO 里跑，onEnd 落助手消息，顺序由这里的 await 保证）。这里放弃了
+    // 旧管线「streamText 先发、TTFB 与 D1 写重叠」的优化：DO 是自治生成、其 onEnd
+    // 会落助手消息，先发的话助手消息可能抢在用户消息之前落库，先发不再安全。
     await spec.persistUserMessage(args, ctx);
 
     // 生成阶段整体托管给 per-conversation DO：客户端断开后生成继续、onEnd 落库，
@@ -557,10 +559,18 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
         `${spec.logTag}:${spec.conversationKey(body)}`,
       ),
     );
-    return stub.fetch("https://chat-runner/run", {
-      method: "POST",
-      body: JSON.stringify(job),
-    });
+    try {
+      return await stub.fetch("https://chat-runner/run", {
+        method: "POST",
+        body: JSON.stringify(job),
+      });
+    } catch (error) {
+      // DO 调度失败（deploy 重置实例、跨 colo 传输失败、startRun 同步抛）：给稳定
+      // 错误码走前端现成的 i18n 映射，而不是裸 500。用户消息此时已落库，悬空的
+      // user 行由重放层兜住（下一轮照常作为历史喂给模型），无需在这里回滚。
+      console.error(`[${spec.logTag}] chat-runner dispatch failed:`, error);
+      return jsonError("stream_failed", 500);
+    }
   };
 }
 

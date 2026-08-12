@@ -1,25 +1,37 @@
 import { env } from "cloudflare:workers";
 import type { TextStreamPart, ToolSet, UIMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
   buildReplayHistory,
   buildStepPolicy,
   type ChatStreamBody,
   type ChatStreamSpec,
   chatStreamBody,
+  createChatResumeHandler,
   createChatStreamHandler,
   sanitizeAssistantParts,
   splitInterleavedSegments,
   TRUNCATED_REPLY_MARKER,
 } from "./chat-stream";
 
-// handler 测试只需要一个登录态，绕开 better-auth 的真实会话查询
+// handler 测试只需要一个登录态，绕开 better-auth 的真实会话查询；
+// mockResolvedValueOnce(null) 可按用例切成未登录
+const { getSession } = vi.hoisted(() => ({
+  getSession: vi.fn(
+    async (_opts: unknown): Promise<{ user: { id: string } } | null> => ({
+      user: { id: "user-1" },
+    }),
+  ),
+}));
 vi.mock("#/lib/auth", () => ({
-  auth: { api: { getSession: async () => ({ user: { id: "user-1" } }) } },
+  auth: { api: { getSession } },
 }));
 
 // 生成阶段托管给 ChatRunner DO：mock 的 fetch 带可识别 header，
-// 成功路径断言 handler 原样透传 DO 的响应而不是重新包一层
+// 成功路径断言 handler 原样透传 DO 的响应而不是重新包一层。
+// 共享的 cloudflare:workers mock（test/mocks）只导出空 env，这里就地补 binding：
+// vitest 默认按测试文件隔离模块注册表，这次 Object.assign 不会外溢到其他测试文件。
 const runnerFetch = vi.fn(
   async (..._args: unknown[]) =>
     new Response("data: {}\n\n", {
@@ -620,5 +632,84 @@ describe("createChatStreamHandler", () => {
       sessionId: "s1",
       instructions: "SYS",
     });
+  });
+
+  it("maps a failed DO dispatch to the stable stream_failed code", async () => {
+    // deploy 重置实例/跨 colo 传输失败/startRun 同步抛：不能裸 500，
+    // 稳定 code 走前端现成的 i18n 映射
+    runnerFetch.mockRejectedValueOnce(new Error("do transport failed"));
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const handler = createChatStreamHandler(makeSpec({}));
+      const response = await handler({ request: makeRequest() });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "stream_failed" });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+});
+
+describe("createChatResumeHandler", () => {
+  const makeResumeHandler = (
+    overrides: Partial<{
+      authorizeResume: (
+        db: unknown,
+        userId: string,
+        q: { sessionId: string },
+      ) => Promise<boolean>;
+    }> = {},
+  ) =>
+    createChatResumeHandler({
+      logTag: "chat",
+      querySchema: z.object({ sessionId: z.string().min(1) }),
+      authorizeResume: async () => true,
+      conversationKey: (q) => q.sessionId,
+      ...overrides,
+    });
+
+  const makeRequest = (query = "?sessionId=s9") =>
+    new Request(`http://localhost/api/test${query}`, { method: "GET" });
+
+  it("returns 401 when there is no session", async () => {
+    getSession.mockResolvedValueOnce(null);
+    const response = await makeResumeHandler()({ request: makeRequest() });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("returns 400 on a malformed query", async () => {
+    const response = await makeResumeHandler()({ request: makeRequest("") });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "bad_request" });
+  });
+
+  it("returns 204 without touching the DO when authorizeResume denies", async () => {
+    // 契约：无权与无流对客户端是同一件事——204 而不是错误码（错误码会变成用户
+    // 看得见的 toast，也把「这个会话存在但不是你的」泄露给探测者）；且必须在
+    // 打到 DO 之前拦下，否则未授权用户能订到别人会话的生成流
+    runnerFetch.mockClear();
+    const response = await makeResumeHandler({
+      authorizeResume: async () => false,
+    })({ request: makeRequest() });
+    expect(response.status).toBe(204);
+    expect(runnerFetch).not.toHaveBeenCalled();
+  });
+
+  it("relays the DO stream and targets the right instance when authorized", async () => {
+    runnerFetch.mockClear();
+    idFromName.mockClear();
+    const response = await makeResumeHandler()({ request: makeRequest() });
+    // 透传 DO 的响应本体，不重新包一层
+    expect(response.headers.get("x-mock-do")).toBe("chat-runner");
+    expect(idFromName).toHaveBeenCalledWith("chat:s9");
+    const [url, init] = runnerFetch.mock.calls[0] as [
+      string,
+      { method: string },
+    ];
+    expect(url).toBe("https://chat-runner/stream");
+    expect(init.method).toBe("GET");
   });
 });
