@@ -128,6 +128,10 @@ function NewsPage() {
   }, [newsQuery.data]);
   // 搜索时禁用按天分组：把命中结果塞进日期头 + 头条结构没有意义
   const flatList = sort === "active" || Boolean(q);
+  // 展示时间必须跟排序键走：sort=active 排的是 lastActivityAt，仍显示
+  // earliestPublishedAt 会让列表从上到下不是时间顺序。跟 sort 而不是跟
+  // flatList——搜索也走扁平列表，但排序键仍是 latest。
+  const timeBasis = sort === "active" ? "activity" : "published";
   // 分组/头条在累积后的完整列表上计算：日期头不重复
   const groups = useMemo(
     () => (flatList ? [] : groupStoriesByDay(stories)),
@@ -367,6 +371,7 @@ function NewsPage() {
                   key={story.shortId}
                   story={story}
                   showScores={showScores}
+                  timeBasis={timeBasis}
                 />
               ))}
             </div>

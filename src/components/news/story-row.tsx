@@ -25,20 +25,38 @@ export interface NewsListStory {
 // 来源 favicon 叠放上限:超过 5 个只显示前 5,数量交给文字计数表达
 const MAX_FAVICONS = 5;
 
+// 时间口径:必须与列表当前的排序键一致,否则从上到下不是时间顺序。
+// published = earliestPublishedAt(最早成员发布时间),对应 sort=latest;
+// activity  = lastActivityAt(最新成员被并入的收录时刻),对应 sort=active。
+// 注意 lastActivityAt 是收录时刻而非最新成员的 publishedAt,会晚于新闻实际
+// 发布时间(cron 每小时一轮,回填/补抓场景可能晚更多)——这是有意接受的取舍,
+// 换取「最近更新」下排序与展示 100% 一致。
+export type StoryTimeBasis = "published" | "activity";
+
 interface StoryMetaProps {
   story: NewsListStory;
   showScores?: boolean;
+  timeBasis?: StoryTimeBasis;
   className?: string;
 }
 
 // 无框列表共享的元信息行:favicon 叠放 + 篇数/来源数 + debug 分数 + HN pill + 相对时间。
 // 页面无卡片底色,favicon 描边用 --bg 而不是旧 story-card 的 --surface-strong。
-export function StoryMeta({ story, showScores, className }: StoryMetaProps) {
+export function StoryMeta({
+  story,
+  showScores,
+  timeBasis = "published",
+  className,
+}: StoryMetaProps) {
   const domains = story.signalsSummary?.domains?.slice(0, MAX_FAVICONS) ?? [];
   const hn = story.signalsSummary?.hn;
   const xAccounts = story.signalsSummary?.xAccounts;
   const locale = getLocale();
-  const date = new Date(story.earliestPublishedAt ?? story.firstSeenAt);
+  const date = new Date(
+    timeBasis === "activity"
+      ? story.lastActivityAt
+      : (story.earliestPublishedAt ?? story.firstSeenAt),
+  );
   const timeAgo = formatRelative(date.getTime(), Date.now(), locale);
   const countsText = (
     <>
@@ -103,11 +121,17 @@ export function StoryMeta({ story, showScores, className }: StoryMetaProps) {
 interface StoryRowProps {
   story: NewsListStory;
   showScores?: boolean;
+  timeBasis?: StoryTimeBasis;
   className?: string;
 }
 
 // 无框行:衬线标题 + 双行摘要 + 元信息行,下边框细线分隔,不再用卡片
-export function StoryRow({ story, showScores, className }: StoryRowProps) {
+export function StoryRow({
+  story,
+  showScores,
+  timeBasis,
+  className,
+}: StoryRowProps) {
   return (
     <article
       className={`border-b border-[var(--line)] py-3.5 ${className ?? ""}`}
@@ -126,7 +150,12 @@ export function StoryRow({ story, showScores, className }: StoryRowProps) {
           </p>
         ) : null}
       </Link>
-      <StoryMeta story={story} showScores={showScores} className="mt-1.5" />
+      <StoryMeta
+        story={story}
+        showScores={showScores}
+        timeBasis={timeBasis}
+        className="mt-1.5"
+      />
     </article>
   );
 }
