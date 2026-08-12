@@ -42,12 +42,10 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
     maxMessages: CHAT_LIMITS.maxMessagesPerSession,
     webSearchMaxResults: CHAT_LIMITS.webSearchMaxResults,
   },
-  // 比 /api/agent 的 11 再宽一档，是拍的预算而非算出来的上界：论文页一轮里 readPaper
+  // 比 /api/agent 的 10 再宽一档，是拍的预算而非算出来的上界：论文页一轮里 readPaper
   // 要按 24k 一段翻页（十几万字的论文就是七八段），发现类工具又鼓励多角度搜索 + 边讲边
   // recommendPapers，每次交错都占一步。
-  // 这个数含最后那一步「收走工具强制收尾」（见 chat-stream.ts 的 buildFinalStepOverrides），
-  // 所以能调用工具的实际步数是 12——2026-08 从 12 调到 13 正是为了让收尾步不吃掉工具预算。
-  stopWhenSteps: 13,
+  maxToolSteps: 12,
   keepToolOutputTypes: CARD_TOOL_TYPES,
 
   authorize: async ({

@@ -45,9 +45,7 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
     maxMessages: AGENT_LIMITS.maxMessagesPerConversation,
     webSearchMaxResults: AGENT_LIMITS.webSearchMaxResults,
   },
-  // 含最后那一步「收走工具强制收尾」（见 chat-stream.ts 的 buildFinalStepOverrides），
-  // 能调用工具的实际步数仍是 10。
-  stopWhenSteps: 11,
+  maxToolSteps: 10,
   keepToolOutputTypes: CARD_TOOL_TYPES,
 
   authorize: async ({

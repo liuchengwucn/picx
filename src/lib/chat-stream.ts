@@ -121,8 +121,11 @@ export interface ChatStreamSpec<TBody extends ChatStreamBody, TCtx> {
     maxMessages: number;
     webSearchMaxResults: number;
   };
-  /** streamText 的 stopWhen 步数上限 */
-  stopWhenSteps: number;
+  /**
+   * 一轮回复里允许调用工具的步数上限。管线会在其上再加一步「收走全部工具」的收尾步
+   * （见 buildStepPolicy），所以实际 stopWhen 是这个数 +1，这里填的就是纯工具预算。
+   */
+  maxToolSteps: number;
   /** 落库时保留 output 的工具 part 类型（历史回显要重建卡片的那类），默认全剥 */
   keepToolOutputTypes?: ReadonlySet<string>;
   /** 归属校验；不通过时给出错误码与状态码 */
@@ -287,20 +290,28 @@ export function splitInterleavedSegments<TOOLS extends ToolSet>(
 }
 
 /**
- * 最后一步追加的收尾指令。此时 activeTools 已被清空、模型物理上调不到工具，
- * 这条只是别让它把「我这就去搜」写一半就断掉。
+ * 收尾步追加的指令。此时 activeTools 已被清空、模型物理上调不到工具，这条只是
+ * 别让它把「我这就去搜」写一半就断掉。
+ * 两处额外约束：这个模型受提示扰动就会飘语言（见 ai.ts 的语言守卫），而这条又贴在
+ * 系统提示最末尾、位置最显眼，所以必须显式要求跟随用户语言；recommendPapers 也被
+ * 收走了，得允许它退化成正文里的标题+链接，否则它会照 DISCOVERY_PROMPT_RULE 认定
+ * 「只能用卡片展示论文」而聊了一堆用户看不到卡片的论文。
  */
 const FINAL_STEP_RULE =
-  "This is the final step of this reply and no tools are available. Answer now with what you already have. If your findings are incomplete, briefly say what is still missing and invite the user to ask you to continue. Do not mention steps, limits, or tool mechanics.";
+  "This is the final step of this reply and no tools are available. Answer now with what you already have, in the same language the user has been using. You can no longer render paper cards, so mention any paper by title with its arXiv link inline. If your findings are incomplete, briefly say what is still missing and invite the user to ask you to continue. Do not mention steps, limits, or tool mechanics.";
 
-/** prepareStep 在最后一步返回的覆盖项；其余步返回空对象表示「沿用外层设置」 */
-export interface FinalStepOverrides {
+/**
+ * prepareStep 逐步返回的覆盖项：收尾步给出这两项，其余步返回空对象表示「沿用外层设置」
+ * （ai@7 对每个字段都是 `?? 外层值`，空对象与 undefined 等价）。
+ */
+interface StepOverrides {
   activeTools?: never[];
   instructions?: string;
 }
 
 /**
- * 步数到顶前的最后一步收走全部工具，逼模型用手头材料把话说完。
+ * 一次回复的步数策略：前 maxToolSteps 步照常带工具，之后追加一步收走全部工具，
+ * 逼模型用手头材料把话说完。
  *
  * 不这么做的话 stopWhen 到点会「正常」结束一条一个字都没有的助手消息：步数耗尽
  * 不是异常，onError 不触发，用户只看见思考过程里一串工具调用然后没了；更糟的是
@@ -309,19 +320,24 @@ export interface FinalStepOverrides {
  *
  * activeTools: [] 会让请求体里根本不带 tools 字段（ai@7 的 prepareTools 对空工具集
  * 返回 undefined），比 toolChoice:"none" 更硬，也省掉那一步的工具定义 token。
- * stopWhen 保留作兜底：正常路径下它不再被触发。
+ *
+ * stopWhen 与 prepareStep 一起产出，就是不让这两个数各写各的漂开：调用方只给
+ * 「能调工具的步数」，加一步收尾是这里的实现细节。
  */
-export function buildFinalStepOverrides(
-  stopWhenSteps: number,
-  instructions: string,
-): (stepNumber: number) => FinalStepOverrides {
-  return (stepNumber) =>
-    stepNumber >= stopWhenSteps - 1
-      ? {
-          activeTools: [],
-          instructions: `${instructions}\n\n${FINAL_STEP_RULE}`,
-        }
-      : {};
+export function buildStepPolicy(maxToolSteps: number, instructions: string) {
+  // 收尾步：被收走全部工具、只用来把话说完，所以不能吃掉工具预算，总步数 = 工具步 + 1
+  const totalSteps = maxToolSteps + 1;
+  return {
+    // 兜底：正常路径下最后一步没有工具可调，循环会自然结束，走不到这个条件
+    stopWhen: isStepCount(totalSteps),
+    prepareStep: ({ stepNumber }: { stepNumber: number }): StepOverrides =>
+      stepNumber >= maxToolSteps
+        ? {
+            activeTools: [],
+            instructions: `${instructions}\n\n${FINAL_STEP_RULE}`,
+          }
+        : {},
+  };
 }
 
 /**
@@ -450,19 +466,13 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
           }
         : {}),
     };
-    // 最后一步收走工具强制收尾，避免静默的空消息（见 buildFinalStepOverrides）
-    const finalStepOverrides = buildFinalStepOverrides(
-      spec.stopWhenSteps,
-      instructions,
-    );
     const result = streamText({
       model: getChatModel(provider, appEnv),
       instructions,
       messages: modelMessages,
       tools,
-      // 兜底：正常路径下 prepareStep 会让最后一步自然收尾，走不到这里
-      stopWhen: isStepCount(spec.stopWhenSteps),
-      prepareStep: ({ stepNumber }) => finalStepOverrides(stepNumber),
+      // stopWhen + prepareStep 成对给出：最后一步收走工具强制收尾，避免静默的空消息
+      ...buildStepPolicy(spec.maxToolSteps, instructions),
       maxOutputTokens: 4096,
       providerOptions: {
         // thinking 档位由前端选择；off 显式 {enabled:false}，见 mapReasoningEffort

@@ -165,7 +165,7 @@ export interface DiscoveryToolsDeps {
  * 论文页 chatbot 与 assistant agent 共用；调用方 spread 进自己的工具集。
  */
 export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
-  // stopWhenSteps 只限步数，不限每步并发发出的工具调用数：实测一次回复能发出 10 次
+  // maxToolSteps 只限步数，不限每步并发发出的工具调用数：实测一次回复能发出 10 次
   // searchArxiv。arXiv 要求 ≤1 req/3s 且会封 IP，而 Workers 出口 IP 是共享的。
   // 本工厂每个请求只构造一次（chat-stream.ts 的 buildLocalTools），所以闭包计数就是准的。
   let externalCalls = 0;

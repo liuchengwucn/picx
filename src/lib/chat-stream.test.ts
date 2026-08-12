@@ -1,7 +1,7 @@
 import type { TextStreamPart, ToolSet, UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
-  buildFinalStepOverrides,
+  buildStepPolicy,
   sanitizeAssistantParts,
   splitInterleavedSegments,
 } from "./chat-stream";
@@ -241,26 +241,44 @@ describe("splitInterleavedSegments", () => {
   });
 });
 
-describe("buildFinalStepOverrides", () => {
-  const prep = buildFinalStepOverrides(13, "SYSTEM PROMPT");
+describe("buildStepPolicy", () => {
+  const prep = buildStepPolicy(12, "SYSTEM PROMPT").prepareStep;
 
-  it("leaves earlier steps untouched", () => {
-    expect(prep(0)).toEqual({});
-    expect(prep(11)).toEqual({});
+  it("leaves tool-capable steps untouched", () => {
+    expect(prep({ stepNumber: 0 })).toStrictEqual({});
+    expect(prep({ stepNumber: 11 })).toStrictEqual({});
   });
 
-  it("strips every tool on the last allowed step", () => {
-    const overrides = prep(12);
+  it("strips every tool on the closing step", () => {
+    const overrides = prep({ stepNumber: 12 });
     expect(overrides.activeTools).toEqual([]);
     expect(overrides.instructions).toContain("SYSTEM PROMPT");
     expect(overrides.instructions).toContain("no tools are available");
   });
 
-  it("keeps stripping past the boundary — stopWhen is only a backstop", () => {
-    expect(prep(99).activeTools).toEqual([]);
+  it("tells the closing step to follow the user's language and drop cards", () => {
+    const { instructions } = prep({ stepNumber: 12 });
+    // 这两条不是文案偏好：模型受扰动会飘语言，且卡片工具此刻已被收走
+    expect(instructions).toContain("same language the user has been using");
+    expect(instructions).toContain("arXiv link inline");
   });
 
-  it("strips from step 0 when only one step is allowed", () => {
-    expect(buildFinalStepOverrides(1, "S")(0).activeTools).toEqual([]);
+  it("keeps stripping past the boundary — stopWhen is only a backstop", () => {
+    expect(prep({ stepNumber: 99 }).activeTools).toEqual([]);
+  });
+
+  it("keeps stopWhen and prepareStep in agreement about the last step", () => {
+    const policy = buildStepPolicy(12, "S");
+    // isStepCount(N) 在 steps.length === N 时停 ⇒ 最后执行的一步 stepNumber 是 N-1
+    expect(policy.stopWhen({ steps: Array(12).fill({}) } as never)).toBe(false);
+    expect(policy.stopWhen({ steps: Array(13).fill({}) } as never)).toBe(true);
+    expect(policy.prepareStep({ stepNumber: 11 })).toStrictEqual({});
+    expect(policy.prepareStep({ stepNumber: 12 }).activeTools).toEqual([]);
+  });
+
+  it("still grants one tool step when the budget is 1", () => {
+    const policy = buildStepPolicy(1, "S");
+    expect(policy.prepareStep({ stepNumber: 0 })).toStrictEqual({});
+    expect(policy.prepareStep({ stepNumber: 1 }).activeTools).toEqual([]);
   });
 });
