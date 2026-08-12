@@ -15,6 +15,7 @@ import {
   sanitizeAssistantParts,
   splitInterleavedSegments,
 } from "#/lib/chat-stream";
+import { RunSlot, type SlotRun } from "#/lib/run-slot";
 import { StreamBuffer } from "#/lib/stream-buffer";
 
 /**
@@ -29,11 +30,9 @@ const SSE_HEADERS = {
   "x-accel-buffering": "no",
 } as const;
 
-interface ActiveRun {
+/** 一轮生成：RunSlot 经 SlotRun 面管理它，ChatRunner 额外只需要 buffer 订阅 */
+interface ActiveRun extends SlotRun {
   buffer: StreamBuffer;
-  abort: AbortController;
-  /** 生成循环（含落库）整体完成 */
-  finished: Promise<void>;
 }
 
 /**
@@ -45,7 +44,7 @@ interface ActiveRun {
  * 不用 DO storage：D1 是唯一真源，deploy 打断丢内存 buffer 是接受过的残余风险。
  */
 export class ChatRunner extends DurableObject<ChatStreamEnv> {
-  private run: ActiveRun | null = null;
+  private slot = new RunSlot<ActiveRun>();
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -55,24 +54,23 @@ export class ChatRunner extends DurableObject<ChatStreamEnv> {
       // supersede：同会话上一轮还在生成时（用户点「停止」后重发的路径），中止
       // 旧轮并等它把已生成的部分落完库再开新轮——避免两轮并发写 D1，也让
       // 部分回复以 TRUNCATED 形态进历史（重放口径见 buildReplayHistory）。
-      if (this.run && !this.run.buffer.done) {
-        this.run.abort.abort();
-        await this.run.finished;
-      }
-      this.run = this.startRun(job);
-      return new Response(this.run.buffer.subscribe(), {
-        headers: SSE_HEADERS,
-      });
+      // DO 不用 storage、input gate 不关，drain 窗口内会有并发请求进来：
+      // 并发 POST 的交错语义（后到者连先占槽的新轮一起 drain，终态恰好一轮
+      // 存活、此前各轮都被 abort）由 RunSlot 保证并有单测钉住。
+      const run = await this.slot.replace(() => this.startRun(job));
+      return new Response(run.buffer.subscribe(), { headers: SSE_HEADERS });
     }
 
     if (request.method === "GET" && url.pathname === "/stream") {
       // buffer 还在（生成中，或刚结束、DO 尚未闲置回收）→ 重放 + 跟进；
-      // 已结束的重放对客户端无害：start chunk 带同一 messageId，SDK 原位覆盖。
+      // 已结束的重放对客户端无害：start chunk 带同一 messageId，SDK 原位覆盖；
+      // 失败轮的 error chunk 会随重放让客户端每次 resume 再弹一次 toast
+      // （不污染消息 parts），可接受。supersede drain 窗口内打进来的 GET
+      // 订到的是旧轮 buffer（重放 + abort 截断收尾），属预期语义。
       // 从没跑过 / 已被回收 → 204，客户端静默无事发生。
-      if (!this.run) return new Response(null, { status: 204 });
-      return new Response(this.run.buffer.subscribe(), {
-        headers: SSE_HEADERS,
-      });
+      const run = this.slot.current;
+      if (!run) return new Response(null, { status: 204 });
+      return new Response(run.buffer.subscribe(), { headers: SSE_HEADERS });
     }
 
     return new Response("Not found", { status: 404 });
@@ -172,6 +170,14 @@ export class ChatRunner extends DurableObject<ChatStreamEnv> {
       }
     })();
 
-    return { buffer, abort, finished };
+    return {
+      buffer,
+      // done 直读 buffer：生成循环 finally 里 buffer.end() 先于 finished resolve
+      get done() {
+        return buffer.done;
+      },
+      abort: () => abort.abort(),
+      finished,
+    };
   }
 }
