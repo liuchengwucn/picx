@@ -124,6 +124,12 @@ function PaperChatConversation({
 
   const hydratedSessionRef = useRef<string | null>(null);
   const didAutoSelectRef = useRef(false);
+  // transport 的 reconnectQuery 要拿「重连那一刻」的会话 id：transport 用 useMemo
+  // 建一次不重建，经渲染期同步的 ref 取值，避免把 selectedSessionId 加进依赖
+  const selectedSessionIdRef = useRef<string | null>(null);
+  selectedSessionIdRef.current = selectedSessionId;
+  // 已经 resume 探测过的会话：每个会话只试一次，只记最后一个即可
+  const resumedSessionRef = useRef<string | null>(null);
   // 流开始那一刻的 sessionId。onFinish 只认它，不认「当前选中」——流式期间用户
   // 可能已经切走，用当前值会去失效一个毫不相干的会话缓存。
   const streamingSessionIdRef = useRef<string | null>(null);
@@ -154,6 +160,9 @@ function PaperChatConversation({
         api: "/api/chat",
         settingsRef,
         extraBody: () => ({ paperShortId }),
+        reconnectQuery: () => ({
+          sessionId: selectedSessionIdRef.current ?? "",
+        }),
       }),
     [paperShortId, settingsRef],
   );
@@ -174,20 +183,21 @@ function PaperChatConversation({
     [queryClient, trpc],
   );
 
-  const { messages, sendMessage, setMessages, status, stop } = useChat({
-    id: `paper-chat:${paperShortId}:${chatEpoch}`,
-    transport,
-    // 流式 chunk 可以来得比一帧还密；50ms 合批，省掉大量无意义的整表重渲染
-    throttle: 50,
-    onError: (error) => {
-      toast.error(resolveChatErrorMessage(error));
-    },
-    onFinish: () => {
-      invalidateSessions();
-      invalidateSessionMessages(streamingSessionIdRef.current);
-      streamingSessionIdRef.current = null;
-    },
-  });
+  const { messages, sendMessage, setMessages, status, stop, resumeStream } =
+    useChat({
+      id: `paper-chat:${paperShortId}:${chatEpoch}`,
+      transport,
+      // 流式 chunk 可以来得比一帧还密；50ms 合批，省掉大量无意义的整表重渲染
+      throttle: 50,
+      onError: (error) => {
+        toast.error(resolveChatErrorMessage(error));
+      },
+      onFinish: () => {
+        invalidateSessions();
+        invalidateSessionMessages(streamingSessionIdRef.current);
+        streamingSessionIdRef.current = null;
+      },
+    });
 
   const isBusy = status === "submitted" || status === "streaming";
 
@@ -215,7 +225,21 @@ function PaperChatConversation({
     if (!history) return;
     hydratedSessionRef.current = selectedSessionId;
     setMessages(history as unknown as UIMessage[]);
-  }, [selectedSessionId, messagesQuery.data, setMessages]);
+    // 历史末尾停在 user 消息 → 上一轮回复还在 DO 里生成（或已完成未刷缓存），
+    // 重连把它接回来；每个会话只试一次
+    const last = history[history.length - 1] as UIMessage | undefined;
+    if (
+      last?.role === "user" &&
+      resumedSessionRef.current !== selectedSessionId
+    ) {
+      resumedSessionRef.current = selectedSessionId;
+      // 接回的流也算「在本会话开流」：onFinish 要靠它失效正确的历史缓存，
+      // 否则回放完成后缓存仍停在 user 消息，切走再切回会丢这条回答。
+      // （204 无流时它残留非 null 也无害：下次发送会覆盖，openSession 会清。）
+      streamingSessionIdRef.current = selectedSessionId;
+      void resumeStream();
+    }
+  }, [selectedSessionId, messagesQuery.data, setMessages, resumeStream]);
 
   // 流式每来一个 chunk，最后一条消息都是新对象 → 依赖它即可持续贴底。
   // 但只在用户本来就贴着底时跟随：他上滚回看前文时把视口拽回去是最烦人的交互。
@@ -223,9 +247,9 @@ function PaperChatConversation({
   const { scrollRef, handleScroll, resetStick } = useStickToBottom(lastMessage);
 
   const openSession = (sessionId: string | null) => {
-    // 先把「被打断的那个会话」抠出来再 stop()：abort 不会触发 onFinish，但服务端
-    // 的 waitUntil(consumeStream) 仍会把助手消息落库，所以它的历史缓存必须失效，
-    // 否则切回去看到的是缺一条回答的旧快照。
+    // 先把「被打断的那个会话」抠出来再 stop()：abort 不会触发 onFinish，但生成
+    // 托管在 ChatRunner DO 里，断流不影响它跑完并把助手消息落库，所以它的历史
+    // 缓存必须失效，否则切回去看到的是缺一条回答的旧快照。
     const interruptedSessionId = isBusy ? streamingSessionIdRef.current : null;
     if (isBusy) void stop();
     streamingSessionIdRef.current = null;

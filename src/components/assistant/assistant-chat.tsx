@@ -99,6 +99,7 @@ export function AssistantChat({
         api: "/api/agent",
         settingsRef,
         extraBody: () => ({ conversationId }),
+        reconnectQuery: () => ({ conversationId }),
       }),
     [conversationId, settingsRef],
   );
@@ -107,6 +108,9 @@ export function AssistantChat({
     id: `assistant:${conversationId}`,
     messages: initialMessages,
     transport,
+    // 历史末尾停在 user 消息 = 有一轮生成没送达（正在 DO 里跑，或已丢）。
+    // 只在这种指纹下探测：204 静默返回，全量探测则是每次进会话白打一个请求。
+    resume: initialMessages[initialMessages.length - 1]?.role === "user",
     // 流式 chunk 可以来得比一帧还密；50ms 合批，省掉大量无意义的整表重渲染
     throttle: 50,
     onError: (error) => {
@@ -134,8 +138,8 @@ export function AssistantChat({
   const isBusy = status === "submitted" || status === "streaming";
 
   // 卸载（换会话/离开页面）时主动断流，别让一个没人看的请求继续占着连接。
-  // 回复不会因此丢：服务端 waitUntil(consumeStream) 会把完整回答落进 D1，
-  // 下次进这个会话拉到的历史是全的。
+  // 回复不会因此丢：生成托管在 ChatRunner DO 里，断流不影响它跑完并落库；
+  // 回来时 resume 还能接回直播。
   const stopRef = useRef(stop);
   stopRef.current = stop;
   useEffect(
