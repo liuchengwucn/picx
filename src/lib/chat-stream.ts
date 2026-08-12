@@ -60,6 +60,7 @@ type Db = DrizzleD1Database<typeof schema>;
 export type ChatStreamEnv = typeof env & {
   DB: D1Database;
   PAPERS_BUCKET: R2Bucket;
+  CHAT_RUNNER: DurableObjectNamespace;
   OPENAI_API_KEY: string;
   OPENAI_BASE_URL?: string;
   OPENAI_MODEL?: string;

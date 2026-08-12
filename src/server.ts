@@ -1,5 +1,9 @@
 import handler from "@tanstack/react-start/server-entry";
 import { drizzle } from "drizzle-orm/d1";
+
+// DO class 必须从 worker 入口导出，wrangler 才能按 class_name 找到它
+export { ChatRunner } from "#/lib/chat-runner-do";
+
 import { prefersMarkdown } from "#/lib/content-negotiation";
 import { loadPaperMarkdown } from "#/lib/paper-markdown";
 import type { Env } from "#/types/env";

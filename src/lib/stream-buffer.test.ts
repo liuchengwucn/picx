@@ -44,6 +44,16 @@ describe("StreamBuffer", () => {
     expect(await readAll(live)).toBe("data: x\n\n");
   });
 
+  it("end is idempotent: calling it twice does not throw or change state", async () => {
+    const buffer = new StreamBuffer();
+    buffer.append("data: a\n\n");
+    const stream = buffer.subscribe();
+    buffer.end();
+    buffer.end();
+    expect(buffer.done).toBe(true);
+    expect(await readAll(stream)).toBe("data: a\n\n");
+  });
+
   it("append after end is a no-op", async () => {
     const buffer = new StreamBuffer();
     buffer.end();

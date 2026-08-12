@@ -14,6 +14,9 @@ export interface Env {
   // Queue
   PAPER_QUEUE: Queue;
 
+  // 聊天生成宿主 DO（ChatRunner）：生成寿命与客户端连接解耦
+  CHAT_RUNNER: DurableObjectNamespace;
+
   // AI API Keys
   OPENAI_API_KEY: string;
   OPENAI_BASE_URL?: string;
