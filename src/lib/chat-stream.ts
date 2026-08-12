@@ -356,8 +356,16 @@ export function buildStepPolicy(maxToolSteps: number, instructions: string) {
  * 助手消息一个 part 都折不出来时，喂给模型的占位标记。
  * 只进模型上下文——不落库、不下发前端，用户永远看不到它。
  */
-const TRUNCATED_REPLY_MARKER =
+export const TRUNCATED_REPLY_MARKER =
   "[The assistant's previous reply was cut off before it produced an answer.]";
+
+/**
+ * 一次重放里所有 digest 行加起来的字符预算。
+ * 单条摘要已被 MAX_REPLAY_PAPERS 封顶（实测 8 篇满字数约 1.4k 字符），但一轮回复能
+ * 发出多次 recommendPapers、历史窗口又有 50 条，不设总量的话光 digest 就能到十万级
+ * token。预算花光时丢的是最旧的那些行——见 buildReplayHistory。
+ */
+const REPLAY_DIGEST_BUDGET = 8000;
 
 /**
  * D1 历史行 → 喂给模型的 UIMessage 窗口（最旧在前）。
@@ -372,24 +380,37 @@ const TRUNCATED_REPLY_MARKER =
  * 保住了轮次顺序，也明确告诉它上一轮被截断了。
  * 其余角色仍然丢弃：parts 为空的消息会让 convertToModelMessages 产出空 content，
  * provider 可能直接 400，而用户消息本来就不可能没有文本（bodySchema 只收 text part）。
+ *
+ * digest 是必填参数（可以显式给 undefined）：设成可选的话，调用方漏传整个折叠功能
+ * 就静默消失，而 tsc 与全部测试都是绿的。
  */
 export function buildReplayHistory(
   rows: StoredMessageRow[],
-  digest?: (part: ToolUIPart) => string | undefined,
+  digest: ((part: ToolUIPart) => string | undefined) | undefined,
 ): UIMessage[] {
-  return rows
+  // digest 预算倒着花（最新一条先取）：花光时丢的是最旧的卡片，用户此刻正盯着看的
+  // 那批留得住。rows 先复制再 reverse，别就地翻转调用方的数组
+  let budget = REPLAY_DIGEST_BUDGET;
+  return [...rows]
+    .reverse()
     .map((row) => {
       // parts 是 D1 里的任意年代 JSON，不是数组就当没有（原来直接 .filter 会抛）
       const stored = Array.isArray(row.parts)
         ? (row.parts as UIMessage["parts"])
         : [];
       const parts = stored.flatMap((part) => {
+        // part 同样是任意年代的 JSON：没有字符串 type 就当没有。isStaticToolUIPart
+        // 会对 type 取 startsWith，一行坏数据抛出来就是这个会话此后每次请求都 500
+        if (typeof (part as { type?: unknown })?.type !== "string") return [];
         if (part.type === "text") return [part];
         // 用 static 而非 isToolUIPart：后者的窄化含 DynamicToolUIPart，而 digest 按
         // `tool-${name}` 分发，dynamic-tool part 永远匹配不上，本就该跟着一起丢弃
         if (!isStaticToolUIPart(part)) return [];
         const line = digest?.(part);
-        return line ? [{ type: "text" as const, text: line }] : [];
+        // 预算放不下就整行丢掉，不截半句：截断的摘要会让模型读到半个标题当真
+        if (!line || line.length > budget) return [];
+        budget -= line.length;
+        return [{ type: "text" as const, text: line }];
       });
       return {
         id: row.id,
@@ -400,7 +421,8 @@ export function buildReplayHistory(
             : parts,
       };
     })
-    .filter((message) => message.parts.length > 0) as UIMessage[];
+    .filter((message) => message.parts.length > 0)
+    .reverse() as UIMessage[];
 }
 
 /**

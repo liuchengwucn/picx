@@ -5,6 +5,7 @@ import {
   buildStepPolicy,
   sanitizeAssistantParts,
   splitInterleavedSegments,
+  TRUNCATED_REPLY_MARKER,
 } from "./chat-stream";
 
 const textPart = { type: "text", text: "hello" };
@@ -295,13 +296,16 @@ describe("buildReplayHistory", () => {
   });
 
   it("keeps only text parts when no digest is provided", () => {
-    const history = buildReplayHistory([
-      {
-        id: "m1",
-        role: "assistant",
-        parts: [textPart("hello"), toolPart("tool-searchArxiv")],
-      },
-    ]);
+    const history = buildReplayHistory(
+      [
+        {
+          id: "m1",
+          role: "assistant",
+          parts: [textPart("hello"), toolPart("tool-searchArxiv")],
+        },
+      ],
+      undefined,
+    );
     expect(history).toEqual([
       { id: "m1", role: "assistant", parts: [textPart("hello")] },
     ]);
@@ -309,20 +313,27 @@ describe("buildReplayHistory", () => {
 
   it("replaces a textless assistant message with a truncation marker", () => {
     // 丢掉的话模型看不见自己上一轮搜过什么，会把整轮重做一遍
-    const history = buildReplayHistory([
-      { id: "m1", role: "assistant", parts: [toolPart("tool-searchArxiv")] },
-      { id: "m2", role: "user", parts: [textPart("still here")] },
-    ]);
+    const history = buildReplayHistory(
+      [
+        { id: "m1", role: "assistant", parts: [toolPart("tool-searchArxiv")] },
+        { id: "m2", role: "user", parts: [textPart("still here")] },
+      ],
+      undefined,
+    );
     expect(history.map((m) => m.id)).toEqual(["m1", "m2"]);
-    expect(history[0].parts).toHaveLength(1);
-    expect((history[0].parts[0] as { text: string }).text).toContain("cut off");
+    expect(history[0].parts).toEqual([
+      { type: "text", text: TRUNCATED_REPLY_MARKER },
+    ]);
   });
 
   it("drops textless messages from other roles", () => {
-    const history = buildReplayHistory([
-      { id: "m1", role: "user", parts: [] },
-      { id: "m2", role: "user", parts: [textPart("still here")] },
-    ]);
+    const history = buildReplayHistory(
+      [
+        { id: "m1", role: "user", parts: [] },
+        { id: "m2", role: "user", parts: [textPart("still here")] },
+      ],
+      undefined,
+    );
     expect(history.map((m) => m.id)).toEqual(["m2"]);
   });
 
@@ -378,12 +389,63 @@ describe("buildReplayHistory", () => {
     expect(history[0].parts).toEqual([textPart("kept")]);
   });
 
+  it("tolerates junk entries inside parts instead of 500ing the conversation", () => {
+    // 历史行是任意年代写下的 JSON。这些形状会让 isStaticToolUIPart 对 type 取
+    // startsWith 时抛，而抛出来的后果是这个会话此后每次请求都 500，用户无法自救
+    const history = buildReplayHistory(
+      [
+        {
+          id: "m1",
+          role: "user",
+          parts: [
+            null,
+            42,
+            "hello",
+            { foo: 1 },
+            { type: 7 },
+            textPart("survivor"),
+          ] as unknown as UIMessage["parts"],
+        },
+      ],
+      undefined,
+    );
+    expect(history).toEqual([
+      { id: "m1", role: "user", parts: [textPart("survivor")] },
+    ]);
+  });
+
+  it("spends the digest budget newest-first and drops the oldest lines", () => {
+    // 每行 1.4k 字符 ≈ 8 篇满字数的实测上限；10 行必然超预算
+    const line = "D".repeat(1400);
+    const rows = Array.from({ length: 10 }, (_, i) => ({
+      id: `m${i}`,
+      role: "assistant" as const,
+      parts: [textPart(`t${i}`), toolPart("tool-recommendPapers")],
+    }));
+    const history = buildReplayHistory(rows, () => line);
+
+    // 顺序不能因为倒着花预算而乱掉
+    expect(history.map((m) => m.id)).toEqual(rows.map((r) => r.id));
+    const digested = history
+      .filter((m) => m.parts.some((p) => (p as { text: string }).text === line))
+      .map((m) => m.id);
+    // 用户此刻看得见的是最新那几条，留下来的必须是它们
+    expect(digested).toEqual(["m5", "m6", "m7", "m8", "m9"]);
+    const totalDigestChars = digested.length * line.length;
+    expect(totalDigestChars).toBeLessThanOrEqual(8000);
+    // 预算耗尽的行只丢 digest，正文 text part 照常留着
+    expect(history[0].parts).toEqual([textPart("t0")]);
+  });
+
   it("tolerates rows whose parts are not an array", () => {
     expect(
-      buildReplayHistory([
-        { id: "m1", role: "user", parts: null },
-        { id: "m2", role: "user", parts: [textPart("ok")] },
-      ]),
+      buildReplayHistory(
+        [
+          { id: "m1", role: "user", parts: null },
+          { id: "m2", role: "user", parts: [textPart("ok")] },
+        ],
+        undefined,
+      ),
     ).toEqual([{ id: "m2", role: "user", parts: [textPart("ok")] }]);
   });
 });

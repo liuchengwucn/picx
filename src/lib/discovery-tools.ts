@@ -135,6 +135,13 @@ export function normalizeArxivIds(ids: string[]): string[] {
 const REPLAY_TITLE_CHARS = 120;
 
 /**
+ * 单条回放摘要最多折几篇。inputSchema 那边是 .max(8)，但落库的 output 不会在读出来
+ * 时再验一遍（历史行是任意年代写下的），所以这里自己兜一道，别让一行脏数据把整个
+ * 上下文撑爆。
+ */
+const MAX_REPLAY_PAPERS = 8;
+
+/**
  * 卡片回放摘要：recommendPapers 的 output 会落进 D1 供前端刷新后重建卡片，但历史
  * 重放是 text-only 的——不折一行喂回去的话，用户指着屏幕上的卡片问「第二篇讲什么」
  * 时，模型的上下文里一篇都没有。
@@ -149,7 +156,7 @@ export function digestRecommendPapersForReplay(
   if (part.type !== "tool-recommendPapers") return undefined;
   const results = (part.output as { results?: unknown } | undefined)?.results;
   if (!Array.isArray(results)) return undefined;
-  const lines = results.flatMap((raw) => {
+  const lines = results.slice(0, MAX_REPLAY_PAPERS).flatMap((raw) => {
     const paper = raw as Partial<DiscoveredPaper> | null;
     if (
       typeof paper?.title !== "string" ||
@@ -157,14 +164,29 @@ export function digestRecommendPapersForReplay(
     ) {
       return [];
     }
+    // 标题是 arXiv 上的自由文本，而这行会以 assistant 身份进模型上下文（比 tool result
+    // 更受信任）：方括号/引号/换行必须先掉，否则可以闭合注解后伪造角色行注入指令。
+    // 顺序不能反——先剥再截，截断长度才仍然是上限
+    const safeTitle = paper.title
+      .replace(/[[\]"\r\n]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, REPLAY_TITLE_CHARS);
     const owned = paper.inLibrary ? " (already in the user's library)" : "";
-    return [
-      `"${paper.title.slice(0, REPLAY_TITLE_CHARS)}" arXiv:${paper.arxivId}${owned}`,
-    ];
+    return [`"${safeTitle}" arXiv:${paper.arxivId}${owned}`];
   });
   if (lines.length === 0) return undefined;
   return `[Paper cards shown to the user at this point: ${lines.join("; ")}]`;
 }
+
+/**
+ * 卡片工具在流式管线里的成对配置：output 落库（前端刷新后重建卡片）与回放摘要
+ * （模型也得知道卡片存在）必须同进同退。两端 spread 同一个对象，杜绝只接一半。
+ */
+export const CARD_REPLAY_SPEC = {
+  keepToolOutputTypes: CARD_TOOL_TYPES,
+  replayToolDigest: digestRecommendPapersForReplay,
+} as const;
 
 /** 查用户库，构造 canonical sourceUrl → shortId 映射（urls ≤15，远低于 D1 参数上限） */
 async function loadOwnedUrlMap(

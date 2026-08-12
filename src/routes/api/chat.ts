@@ -14,10 +14,7 @@ import {
   chatStreamBody,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
-import {
-  CARD_TOOL_TYPES,
-  digestRecommendPapersForReplay,
-} from "#/lib/discovery-tools";
+import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
 
 /**
  * 论文 chatbot 的流式端点。独立于 tRPC：superjson transformer 不支持流式响应。
@@ -49,9 +46,8 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
   // 要按 24k 一段翻页（十几万字的论文就是七八段），发现类工具又鼓励多角度搜索 + 边讲边
   // recommendPapers，每次交错都占一步。
   maxToolSteps: 12,
-  keepToolOutputTypes: CARD_TOOL_TYPES,
-  // 卡片 output 落库 ⇒ 刷新后用户还看得见 ⇒ 模型也必须看得见（见 replayToolDigest）
-  replayToolDigest: digestRecommendPapersForReplay,
+  // 卡片的落库口径与回放摘要成对给出，只接一半就是模型看不见用户屏幕上的卡片
+  ...CARD_REPLAY_SPEC,
 
   authorize: async ({
     db,
