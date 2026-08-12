@@ -2,7 +2,7 @@ import { useChat } from "@ai-sdk/react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { UIMessage } from "ai";
 import { BookOpen, Library, Newspaper, UserPen } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChatInputArea } from "#/components/chat/chat-input";
 import {
@@ -104,13 +104,20 @@ export function AssistantChat({
     [conversationId, settingsRef],
   );
 
+  // 历史末尾停在 user 消息 = 有一轮生成没送达（正在 DO 里跑，或已丢）。
+  // 只在这种指纹下探测：204 静默返回，全量探测则是每次进会话白打一个请求。
+  // 挂载时冻结成一次性判定：SDK 里 resume 不是 mount-only（effect 依赖它，每次
+  // 渲染重求值），若 initialMessages 随 refetch 换身份，false→true 可能在 POST
+  // 流进行中翻转、resumeStream 与其互踩。探测意图本来就只看进入会话那一刻。
+  const [shouldResume] = useState(
+    () => initialMessages[initialMessages.length - 1]?.role === "user",
+  );
+
   const { messages, sendMessage, status, stop } = useChat({
     id: `assistant:${conversationId}`,
     messages: initialMessages,
     transport,
-    // 历史末尾停在 user 消息 = 有一轮生成没送达（正在 DO 里跑，或已丢）。
-    // 只在这种指纹下探测：204 静默返回，全量探测则是每次进会话白打一个请求。
-    resume: initialMessages[initialMessages.length - 1]?.role === "user",
+    resume: shouldResume,
     // 流式 chunk 可以来得比一帧还密；50ms 合批，省掉大量无意义的整表重渲染
     throttle: 50,
     onError: (error) => {

@@ -736,8 +736,8 @@ export function PaperChat({
     return () => mediaQuery.removeEventListener("change", onChange);
   }, []);
 
-  // 打开 / 展开都要把 chat 相关缓存标脏：关着的这段时间里，被中断的流仍可能由
-  // 服务端的 waitUntil 落库，重新可见时不能拿旧快照当历史。抽屉（<xl）和侧栏
+  // 打开 / 展开都要把 chat 相关缓存标脏：关着的这段时间里，托管在 ChatRunner DO
+  // 里的生成仍会跑完并落库，重新可见时不能拿旧快照当历史。抽屉（<xl）和侧栏
   // 收起（xl+）都会卸载对话子树，重新挂载后 sessions/messages 走这份新鲜数据
   // 重新水合——这就是两种折叠形态下「收起中若正在流式回复」的处理方式：客户端
   // 状态（选中会话、useChat 内部消息列表）会丢，但服务端已落库的内容会在重新

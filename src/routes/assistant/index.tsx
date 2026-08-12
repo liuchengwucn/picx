@@ -231,8 +231,8 @@ function AssistantPage() {
       conversationId: activeId ?? "",
     }),
     enabled: !!activeId,
-    // 覆盖全局 1 分钟 staleTime：每次切回会话都必须重取。历史真源在 D1，被中断
-    // 的流仍会由服务端 waitUntil 补写回答，缓存里的旧快照会少一条。
+    // 覆盖全局 1 分钟 staleTime：每次切回会话都必须重取。历史真源在 D1，断流后
+    // 生成仍在 ChatRunner DO 里跑完并落库，缓存里的旧快照会少一条。
     staleTime: 0,
   });
 
@@ -244,8 +244,8 @@ function AssistantPage() {
 
   const selectConversation = useCallback((id: string | null) => {
     setActiveId(id);
-    // 打上时间戳：在这之前落地的历史缓存一律当过期（中断的流由服务端异步落库，
-    // 旧快照可能缺最后一条回答，而 useChat 只在挂载时读一次 initialMessages）
+    // 打上时间戳：在这之前落地的历史缓存一律当过期（断流后 ChatRunner DO 仍会
+    // 把回答落库，旧快照可能缺最后一条，而 useChat 只在挂载时读一次 initialMessages）
     setSelectedAt(Date.now());
     setIsListOpen(false);
     setRenamingId(null);
