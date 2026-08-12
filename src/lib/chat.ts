@@ -238,10 +238,16 @@ export async function slidingWindowRateLimit(
   countSince: (since: Date) => Promise<number>,
 ): Promise<RateLimitResult> {
   const now = Date.now();
-  if ((await countSince(new Date(now - 60_000))) >= limits.perMinute) {
+  // 两窗计数并发查，省掉关键路径上的一次 D1 往返；错误码优先级保持串行时代
+  // 的口径：先判分钟窗、再判天窗
+  const [minuteCount, dayCount] = await Promise.all([
+    countSince(new Date(now - 60_000)),
+    countSince(new Date(now - 86_400_000)),
+  ]);
+  if (minuteCount >= limits.perMinute) {
     return { ok: false, code: "rate_limited_minute" };
   }
-  if ((await countSince(new Date(now - 86_400_000))) >= limits.perDay) {
+  if (dayCount >= limits.perDay) {
     return { ok: false, code: "rate_limited_day" };
   }
   return { ok: true };

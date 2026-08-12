@@ -34,9 +34,17 @@ import {
  * 论文页 chatbot（/api/chat）与 assistant agent（/api/agent）共用的流式管线。
  * 两条路由只在「落哪张表、怎么鉴权、什么提示词/工具」上不同，这些差异全部收进
  * ChatStreamSpec 回调；本文件持有全部时序不变量：
+ * - 前置 D1 读（鉴权/消息计数/限流/历史窗口）并发发出，buildInstructions 是唯一
+ *   依赖 authorize ctx 的，挂在它后面与其余并行——串行 await 的话光校验就要吃掉
+ *   5+ 次 D1 往返才轮到模型。并发只省往返，不改变对外可见的错误优先级：全部
+ *   settle 后仍按 鉴权失败(404/403) → session_full(409) → rate_limited(429)
+ *   的固定顺序返回。
  * - 先做完可能抛异常的准备工作（历史加载/提示词/convertToModelMessages）再写库：
  *   顺序反了的话，一条畸形消息会让用户消息已落库但请求 500，此后该会话每次重放
  *   都炸；也避免请求还没真正打到模型就先烧掉一次限流配额。
+ * - streamText 先于 persistUserMessage 发出（调用一发出就在后台连 provider，
+ *   TTFB 与两次 D1 写重叠），但响应必须等 persist 完成才返回：用户消息先于
+ *   助手消息落库、限流计数即时生效。trade-off 见 handler 内注释。
  * - 历史重放只喂 text part 给模型（工具输出单段可达 24k 字符，整窗重放会爆上下文；
  *   完整 parts 仍存 D1 供前端回显）。唯一的例外是 spec.replayToolDigest 折出来的
  *   那一行摘要——output 被保留意味着刷新后用户还看得见卡片，模型就不能一无所知；
@@ -142,14 +150,17 @@ export interface ChatStreamSpec<TBody extends ChatStreamBody, TCtx> {
   replayToolDigest?: (part: ToolUIPart) => string | undefined;
   /** 归属校验；不通过时给出错误码与状态码 */
   authorize(args: ChatStreamArgs<TBody>): Promise<AuthorizeResult<TCtx>>;
-  /** 会话内消息总数（session_full 上限用） */
-  countMessages(args: ChatStreamArgs<TBody>, ctx: TCtx): Promise<number>;
+  /**
+   * 会话内消息总数（session_full 上限用）。与 authorize 并发执行，所以拿不到
+   * ctx——必须只靠 body 里的定位字段查询；鉴权不通过时结果直接作废。
+   */
+  countMessages(args: ChatStreamArgs<TBody>): Promise<number>;
   checkRateLimit(db: Db, userId: string): Promise<RateLimitResult>;
-  /** 取最近 historyWindow 条历史，返回时最旧在前 */
-  loadHistoryRows(
-    args: ChatStreamArgs<TBody>,
-    ctx: TCtx,
-  ): Promise<StoredMessageRow[]>;
+  /**
+   * 取最近 historyWindow 条历史，返回时最旧在前。与 authorize 并发执行，
+   * 同样只靠 body 定位、不依赖 ctx。
+   */
+  loadHistoryRows(args: ChatStreamArgs<TBody>): Promise<StoredMessageRow[]>;
   buildInstructions(args: ChatStreamArgs<TBody>, ctx: TCtx): Promise<string>;
   /** 本地工具集；web_search 由管线按 body.webSearch 统一追加 */
   buildLocalTools(args: ChatStreamArgs<TBody>, ctx: TCtx): ToolSet;
@@ -507,28 +518,45 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
       body,
     };
 
-    const authorized = await spec.authorize(args);
+    // 前置 D1 读全部并发发出（时序不变量见文件头注释）：countMessages/
+    // checkRateLimit/loadHistoryRows 只靠 body/userId 定位，不依赖 authorize 的
+    // ctx；buildInstructions 是唯一依赖 ctx 的，挂在 authorize 后面与其余并行。
+    const authorizePromise = spec.authorize(args);
+    const instructionsPromise = authorizePromise.then((authorized) =>
+      authorized.ok ? spec.buildInstructions(args, authorized.ctx) : null,
+    );
+    // 下面的校验提前 return 时没人 await 它；空 catch 防 unhandled rejection
+    // （真正的消费处 await 到的仍是原始异常）
+    void instructionsPromise.catch(() => {});
+
+    const [authorized, messageCount, rate, historyRows] = await Promise.all([
+      authorizePromise,
+      spec.countMessages(args),
+      spec.checkRateLimit(db, userId),
+      spec.loadHistoryRows(args),
+    ]);
+
+    // 并发只省往返，不改变对外可见的错误优先级：全部 settle 后仍按
+    // 鉴权失败(404/403) → session_full(409) → rate_limited(429) 的固定顺序返回
     if (!authorized.ok) return jsonError(authorized.code, authorized.status);
     const ctx = authorized.ctx;
 
-    if ((await spec.countMessages(args, ctx)) >= spec.limits.maxMessages) {
+    if (messageCount >= spec.limits.maxMessages) {
       return jsonError("session_full", 409);
     }
 
-    const rate = await spec.checkRateLimit(db, userId);
     if (!rate.ok) return jsonError(rate.code, 429);
 
     // 历史窗口（真源 D1，不信任客户端历史）；重放口径见 buildReplayHistory
-    const historyRows = await spec.loadHistoryRows(args, ctx);
     const history = buildReplayHistory(historyRows, spec.replayToolDigest);
     const uiMessages: UIMessage[] = [...history, body.message as UIMessage];
 
-    // 先把可能抛异常的准备工作做完，再写库（顺序不变量见文件头注释）
-    const instructions = await spec.buildInstructions(args, ctx);
+    // 先把可能抛异常的准备工作做完，再写库（顺序不变量见文件头注释）。
+    // authorize 已确认 ok ⇒ instructionsPromise 走的是 buildInstructions 分支，
+    // null 只出现在上面提前 return 的路径里
+    const instructions = (await instructionsPromise) as string;
     // v7: convertToModelMessages 是 async 的，必须 await
     const modelMessages = await convertToModelMessages(uiMessages);
-
-    await spec.persistUserMessage(args, ctx);
 
     const provider = createChatProvider(appEnv);
     // 网页搜索是 OpenRouter server tool（服务端执行）：模型自主决定调不调。
@@ -556,6 +584,13 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
         openrouter: { reasoning: mapReasoningEffort(body.reasoningEffort) },
       },
     });
+
+    // 故意放在 streamText 之后：streamText 调用一发出就在后台连 provider（不等流
+    // 被消费），OpenRouter 的 TTFB 得以与这两次 D1 写重叠。响应仍要等 persist 完成
+    // 才返回——用户消息必须先于助手消息落库、限流计数即时生效。trade-off：persist
+    // 抛异常时请求照旧 500，而此刻已经白烧了一次模型调用；写库失败概率极低，
+    // 换掉关键路径上的首字延迟是划算的。
+    await spec.persistUserMessage(args, ctx);
 
     const uiStream = toUIMessageStream({
       // 拆段变换：恢复 OpenRouter 服务端搜索场景下思考/正文的交错时间线

@@ -1,12 +1,21 @@
 import type { TextStreamPart, ToolSet, UIMessage } from "ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildReplayHistory,
   buildStepPolicy,
+  type ChatStreamBody,
+  type ChatStreamSpec,
+  chatStreamBody,
+  createChatStreamHandler,
   sanitizeAssistantParts,
   splitInterleavedSegments,
   TRUNCATED_REPLY_MARKER,
 } from "./chat-stream";
+
+// handler 测试只需要一个登录态，绕开 better-auth 的真实会话查询
+vi.mock("#/lib/auth", () => ({
+  auth: { api: { getSession: async () => ({ user: { id: "user-1" } }) } },
+}));
 
 const textPart = { type: "text", text: "hello" };
 const toolPart = {
@@ -447,5 +456,95 @@ describe("buildReplayHistory", () => {
         undefined,
       ),
     ).toEqual([{ id: "m2", role: "user", parts: [textPart("ok")] }]);
+  });
+});
+
+describe("createChatStreamHandler error precedence", () => {
+  // 前置读并发化后所有校验结果一起 settle，返回顺序不再由 await 的先后天然保证；
+  // 这里钉住串行时代的对外口径：鉴权失败 → session_full → rate_limited
+  const makeRequest = () =>
+    new Request("http://localhost/api/test", {
+      method: "POST",
+      body: JSON.stringify({
+        message: {
+          id: "u1",
+          role: "user",
+          parts: [{ type: "text", text: "hi" }],
+        },
+      }),
+    });
+
+  type TestSpec = ChatStreamSpec<ChatStreamBody, Record<string, never>>;
+
+  const makeSpec = (overrides: Partial<TestSpec>): TestSpec => ({
+    logTag: "test",
+    bodySchema: chatStreamBody,
+    limits: { maxInputChars: 1000, maxMessages: 10, webSearchMaxResults: 5 },
+    maxToolSteps: 1,
+    authorize: async () => ({ ok: true, ctx: {} }),
+    countMessages: async () => 0,
+    checkRateLimit: async () => ({ ok: true }),
+    loadHistoryRows: async () => [],
+    buildInstructions: async () => "SYS",
+    buildLocalTools: () => ({}),
+    persistUserMessage: async () => {},
+    persistAssistantMessage: async () => {},
+    ...overrides,
+  });
+
+  it("authorize failure wins over session_full and rate_limited", async () => {
+    const persistUserMessage = vi.fn(async () => {});
+    const buildInstructions = vi.fn(async () => "SYS");
+    const handler = createChatStreamHandler(
+      makeSpec({
+        authorize: async () => ({
+          ok: false,
+          code: "session_not_found",
+          status: 404,
+        }),
+        countMessages: async () => 999,
+        checkRateLimit: async () => ({
+          ok: false,
+          code: "rate_limited_minute",
+        }),
+        persistUserMessage,
+        buildInstructions,
+      }),
+    );
+    const response = await handler({ request: makeRequest() });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "session_not_found" });
+    // 鉴权没过：不写库，也不做挂在 authorize 后面的提示词查询
+    expect(persistUserMessage).not.toHaveBeenCalled();
+    expect(buildInstructions).not.toHaveBeenCalled();
+  });
+
+  it("session_full wins over rate_limited", async () => {
+    const persistUserMessage = vi.fn(async () => {});
+    const handler = createChatStreamHandler(
+      makeSpec({
+        countMessages: async () => 999,
+        checkRateLimit: async () => ({
+          ok: false,
+          code: "rate_limited_minute",
+        }),
+        persistUserMessage,
+      }),
+    );
+    const response = await handler({ request: makeRequest() });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "session_full" });
+    expect(persistUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns rate_limited when it is the only failure", async () => {
+    const handler = createChatStreamHandler(
+      makeSpec({
+        checkRateLimit: async () => ({ ok: false, code: "rate_limited_day" }),
+      }),
+    );
+    const response = await handler({ request: makeRequest() });
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "rate_limited_day" });
   });
 });

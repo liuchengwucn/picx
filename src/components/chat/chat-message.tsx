@@ -206,6 +206,28 @@ export function messageText(message: UIMessage): string {
     .join("\n\n");
 }
 
+/**
+ * 消息里是否已有任何用户看得见的内容。useChat 在收到流的 start chunk（远早于
+ * 模型首字）时就把 status 从 "submitted" 翻成 "streaming"，只看 status 的话
+ * ChatThinking 会在首字到达前几秒就消失，屏幕上只剩一条什么都不渲染的空助手
+ * 消息——体感"无响应"。两个聊天面板据此在 streaming 但本判定仍为 false 时
+ * 继续挂着指示条，第一个可见 part（首个 reasoning/text 增量、首个工具调用、
+ * 首批来源）一出现指示条即消失。
+ * 可见的口径：非空 text/reasoning、工具 part（本地 tool-* 与 dynamic-tool，
+ * 一出现就有状态行/卡片）、来源（source-url / source-document）。
+ */
+export function hasVisibleParts(message: UIMessage): boolean {
+  return message.parts.some((part) => {
+    if (part.type === "text" || part.type === "reasoning") {
+      return part.text.length > 0;
+    }
+    if (part.type.startsWith("tool-") || part.type === "dynamic-tool") {
+      return true;
+    }
+    return part.type === "source-url" || part.type === "source-document";
+  });
+}
+
 /** 助手回复里的工具调用：只以一行状态出现，不展开原始输入输出 */
 function ToolTrace({
   part,

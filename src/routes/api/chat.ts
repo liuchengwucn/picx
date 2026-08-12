@@ -54,20 +54,25 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
     userId,
     body,
   }): Promise<AuthorizeResult<ChatCtx>> => {
-    const [chatSession] = await db
-      .select()
-      .from(chatSessions)
-      .where(
-        and(
-          eq(chatSessions.id, body.sessionId),
-          eq(chatSessions.userId, userId),
-        ),
-      )
-      .limit(1);
+    // session 归属与论文可达性互不依赖，并发查省一次 D1 往返；
+    // paper.id 与 chatSession.paperId 的绑定校验等两边都到齐再做
+    const [sessionRows, paper] = await Promise.all([
+      db
+        .select()
+        .from(chatSessions)
+        .where(
+          and(
+            eq(chatSessions.id, body.sessionId),
+            eq(chatSessions.userId, userId),
+          ),
+        )
+        .limit(1),
+      loadAccessiblePaper(db, body.paperShortId, userId),
+    ]);
+    const chatSession = sessionRows[0];
     if (!chatSession) {
       return { ok: false, code: "session_not_found", status: 404 };
     }
-    const paper = await loadAccessiblePaper(db, body.paperShortId, userId);
     if (!paper || paper.id !== chatSession.paperId) {
       return { ok: false, code: "forbidden", status: 403 };
     }

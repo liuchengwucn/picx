@@ -8,6 +8,7 @@ import { ChatInputArea } from "#/components/chat/chat-input";
 import {
   ChatMessage,
   ChatThinking,
+  hasVisibleParts,
   resolveChatErrorMessage,
   type ToolDisplayMap,
   WEB_SEARCH_TOOL_DISPLAY,
@@ -168,7 +169,12 @@ export function AssistantChat({
     void sendMessage({ text });
   };
 
-  const showThinking = status === "submitted";
+  // "streaming" 只说明流的 start chunk 到了，离模型首字还差几秒：最后一条助手
+  // 消息真渲染出内容之前继续挂着指示条，别让屏幕上只剩一条空消息
+  const showThinking =
+    status === "submitted" ||
+    (status === "streaming" &&
+      (lastMessage?.role !== "assistant" || !hasVisibleParts(lastMessage)));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
