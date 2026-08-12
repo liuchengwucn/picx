@@ -1,6 +1,7 @@
 import type { TextStreamPart, ToolSet, UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
+  buildFinalStepOverrides,
   sanitizeAssistantParts,
   splitInterleavedSegments,
 } from "./chat-stream";
@@ -237,5 +238,29 @@ describe("splitInterleavedSegments", () => {
         .map((c) => ("id" in c ? c.id : "")),
     );
     expect(reasoningIds.size).toBe(2);
+  });
+});
+
+describe("buildFinalStepOverrides", () => {
+  const prep = buildFinalStepOverrides(13, "SYSTEM PROMPT");
+
+  it("leaves earlier steps untouched", () => {
+    expect(prep(0)).toEqual({});
+    expect(prep(11)).toEqual({});
+  });
+
+  it("strips every tool on the last allowed step", () => {
+    const overrides = prep(12);
+    expect(overrides.activeTools).toEqual([]);
+    expect(overrides.instructions).toContain("SYSTEM PROMPT");
+    expect(overrides.instructions).toContain("no tools are available");
+  });
+
+  it("keeps stripping past the boundary — stopWhen is only a backstop", () => {
+    expect(prep(99).activeTools).toEqual([]);
+  });
+
+  it("strips from step 0 when only one step is allowed", () => {
+    expect(buildFinalStepOverrides(1, "S")(0).activeTools).toEqual([]);
   });
 });

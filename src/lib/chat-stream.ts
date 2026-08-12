@@ -287,6 +287,44 @@ export function splitInterleavedSegments<TOOLS extends ToolSet>(
 }
 
 /**
+ * 最后一步追加的收尾指令。此时 activeTools 已被清空、模型物理上调不到工具，
+ * 这条只是别让它把「我这就去搜」写一半就断掉。
+ */
+const FINAL_STEP_RULE =
+  "This is the final step of this reply and no tools are available. Answer now with what you already have. If your findings are incomplete, briefly say what is still missing and invite the user to ask you to continue. Do not mention steps, limits, or tool mechanics.";
+
+/** prepareStep 在最后一步返回的覆盖项；其余步返回空对象表示「沿用外层设置」 */
+export interface FinalStepOverrides {
+  activeTools?: never[];
+  instructions?: string;
+}
+
+/**
+ * 步数到顶前的最后一步收走全部工具，逼模型用手头材料把话说完。
+ *
+ * 不这么做的话 stopWhen 到点会「正常」结束一条一个字都没有的助手消息：步数耗尽
+ * 不是异常，onError 不触发，用户只看见思考过程里一串工具调用然后没了；更糟的是
+ * 历史重放只保留 text part，没有 text part 的消息会被整条丢掉，下一轮模型看不见
+ * 自己搜过什么，于是原样重搜一遍——一个能自我循环的坑。
+ *
+ * activeTools: [] 会让请求体里根本不带 tools 字段（ai@7 的 prepareTools 对空工具集
+ * 返回 undefined），比 toolChoice:"none" 更硬，也省掉那一步的工具定义 token。
+ * stopWhen 保留作兜底：正常路径下它不再被触发。
+ */
+export function buildFinalStepOverrides(
+  stopWhenSteps: number,
+  instructions: string,
+): (stepNumber: number) => FinalStepOverrides {
+  return (stepNumber) =>
+    stepNumber >= stopWhenSteps - 1
+      ? {
+          activeTools: [],
+          instructions: `${instructions}\n\n${FINAL_STEP_RULE}`,
+        }
+      : {};
+}
+
+/**
  * 落库前清洗助手消息的 parts：
  * - 工具 part 剥掉 `output`。readPaper 单次输出可达 ~190KB，存进 D1 后没有任何
  *   读者：前端只用 type/state/toolCallId 渲染状态行，重放给模型时也只保留 text
@@ -412,12 +450,19 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
           }
         : {}),
     };
+    // 最后一步收走工具强制收尾，避免静默的空消息（见 buildFinalStepOverrides）
+    const finalStepOverrides = buildFinalStepOverrides(
+      spec.stopWhenSteps,
+      instructions,
+    );
     const result = streamText({
       model: getChatModel(provider, appEnv),
       instructions,
       messages: modelMessages,
       tools,
+      // 兜底：正常路径下 prepareStep 会让最后一步自然收尾，走不到这里
       stopWhen: isStepCount(spec.stopWhenSteps),
+      prepareStep: ({ stepNumber }) => finalStepOverrides(stepNumber),
       maxOutputTokens: 4096,
       providerOptions: {
         // thinking 档位由前端选择；off 显式 {enabled:false}，见 mapReasoningEffort
