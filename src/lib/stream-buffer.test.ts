@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { StreamBuffer } from "#/lib/stream-buffer";
 
+// @cloudflare/workers-types 重定义的全局 ReadableStream 没有 Symbol.asyncIterator，
+// for-await 会挂 tsc；改用 getReader()，同 chat-stream.test.ts 的 collect() 写法。
 async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
   const decoder = new TextDecoder();
+  const reader = stream.getReader();
   let out = "";
-  for await (const chunk of stream) out += decoder.decode(chunk);
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    out += decoder.decode(value);
+  }
   return out;
 }
 

@@ -46,9 +46,7 @@ export class StreamBuffer {
   /** 重放 + 实时跟进的字节流（SSE 行已在 append 时编好帧，这里只做 UTF-8 编码） */
   subscribe(): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
-    let listener:
-      | { enqueue(line: string): void; close(): void }
-      | undefined;
+    let listener: { enqueue(line: string): void; close(): void } | undefined;
     return new ReadableStream<Uint8Array>({
       start: (controller) => {
         for (const line of this.lines) {
