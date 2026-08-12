@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import type { TextStreamPart, ToolSet, UIMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -16,6 +17,25 @@ import {
 vi.mock("#/lib/auth", () => ({
   auth: { api: { getSession: async () => ({ user: { id: "user-1" } }) } },
 }));
+
+// 生成阶段托管给 ChatRunner DO：mock 的 fetch 带可识别 header，
+// 成功路径断言 handler 原样透传 DO 的响应而不是重新包一层
+const runnerFetch = vi.fn(
+  async (..._args: unknown[]) =>
+    new Response("data: {}\n\n", {
+      headers: {
+        "content-type": "text/event-stream",
+        "x-mock-do": "chat-runner",
+      },
+    }),
+);
+const idFromName = vi.fn((name: string) => name);
+Object.assign(env, {
+  CHAT_RUNNER: {
+    idFromName,
+    get: () => ({ fetch: runnerFetch }),
+  },
+});
 
 const textPart = { type: "text", text: "hello" };
 const toolPart = {
@@ -459,9 +479,9 @@ describe("buildReplayHistory", () => {
   });
 });
 
-describe("createChatStreamHandler error precedence", () => {
-  // 前置读并发化后所有校验结果一起 settle，返回顺序不再由 await 的先后天然保证；
-  // 这里钉住串行时代的对外口径：鉴权失败 → session_full → rate_limited
+describe("createChatStreamHandler", () => {
+  // 错误优先级：前置读并发化后所有校验结果一起 settle，返回顺序不再由 await 的
+  // 先后天然保证；这里钉住串行时代的对外口径：鉴权失败 → session_full → rate_limited
   const makeRequest = () =>
     new Request("http://localhost/api/test", {
       method: "POST",
@@ -477,24 +497,34 @@ describe("createChatStreamHandler error precedence", () => {
   type TestSpec = ChatStreamSpec<ChatStreamBody, Record<string, never>>;
 
   const makeSpec = (overrides: Partial<TestSpec>): TestSpec => ({
-    logTag: "test",
+    logTag: "chat",
     bodySchema: chatStreamBody,
-    limits: { maxInputChars: 1000, maxMessages: 10, webSearchMaxResults: 5 },
-    maxToolSteps: 1,
+    limits: { maxInputChars: 1000, maxMessages: 10 },
     authorize: async () => ({ ok: true, ctx: {} }),
     countMessages: async () => 0,
     checkRateLimit: async () => ({ ok: true }),
     loadHistoryRows: async () => [],
     buildInstructions: async () => "SYS",
-    buildLocalTools: () => ({}),
     persistUserMessage: async () => {},
-    persistAssistantMessage: async () => {},
+    conversationKey: () => "s1",
+    buildJob: (_args, _ctx, prepared) => ({
+      kind: "chat",
+      sessionId: "s1",
+      paperId: "p1",
+      userId: "user-1",
+      locale: "en",
+      webSearch: true,
+      reasoningEffort: "low",
+      instructions: prepared.instructions,
+      modelMessages: prepared.modelMessages,
+    }),
     ...overrides,
   });
 
   it("authorize failure wins over session_full and rate_limited", async () => {
     const persistUserMessage = vi.fn(async () => {});
     const buildInstructions = vi.fn(async () => "SYS");
+    const buildJob = vi.fn(makeSpec({}).buildJob);
     const handler = createChatStreamHandler(
       makeSpec({
         authorize: async () => ({
@@ -509,18 +539,21 @@ describe("createChatStreamHandler error precedence", () => {
         }),
         persistUserMessage,
         buildInstructions,
+        buildJob,
       }),
     );
     const response = await handler({ request: makeRequest() });
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "session_not_found" });
-    // 鉴权没过：不写库，也不做挂在 authorize 后面的提示词查询
+    // 鉴权没过：不写库、不做挂在 authorize 后面的提示词查询，也不发生成任务
     expect(persistUserMessage).not.toHaveBeenCalled();
     expect(buildInstructions).not.toHaveBeenCalled();
+    expect(buildJob).not.toHaveBeenCalled();
   });
 
   it("session_full wins over rate_limited", async () => {
     const persistUserMessage = vi.fn(async () => {});
+    const buildJob = vi.fn(makeSpec({}).buildJob);
     const handler = createChatStreamHandler(
       makeSpec({
         countMessages: async () => 999,
@@ -529,22 +562,63 @@ describe("createChatStreamHandler error precedence", () => {
           code: "rate_limited_minute",
         }),
         persistUserMessage,
+        buildJob,
       }),
     );
     const response = await handler({ request: makeRequest() });
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "session_full" });
     expect(persistUserMessage).not.toHaveBeenCalled();
+    expect(buildJob).not.toHaveBeenCalled();
   });
 
   it("returns rate_limited when it is the only failure", async () => {
+    const buildJob = vi.fn(makeSpec({}).buildJob);
     const handler = createChatStreamHandler(
       makeSpec({
         checkRateLimit: async () => ({ ok: false, code: "rate_limited_day" }),
+        buildJob,
       }),
     );
     const response = await handler({ request: makeRequest() });
     expect(response.status).toBe(429);
     expect(await response.json()).toEqual({ error: "rate_limited_day" });
+    expect(buildJob).not.toHaveBeenCalled();
+  });
+
+  it("persists the user message, then forwards the job to the DO and relays its response", async () => {
+    runnerFetch.mockClear();
+    idFromName.mockClear();
+    const persistUserMessage = vi.fn(async () => {});
+    const buildJob = vi.fn(makeSpec({}).buildJob);
+    const handler = createChatStreamHandler(
+      makeSpec({ persistUserMessage, buildJob }),
+    );
+    const response = await handler({ request: makeRequest() });
+
+    // 响应必须是 DO stub 的响应本体（原样透传），不是 Worker 重新包的一层
+    expect(response.headers.get("x-mock-do")).toBe("chat-runner");
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+
+    // 生成任务在用户消息落库之后才发出（用户消息先于助手消息落库的不变量）
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    expect(buildJob).toHaveBeenCalledTimes(1);
+    expect(buildJob.mock.invocationCallOrder[0]).toBeGreaterThan(
+      persistUserMessage.mock.invocationCallOrder[0],
+    );
+
+    // DO 实例按 `${logTag}:${conversationKey}` 定位，同一会话固定同一实例
+    expect(idFromName).toHaveBeenCalledWith("chat:s1");
+    const [url, init] = runnerFetch.mock.calls[0] as [
+      string,
+      { method: string; body: string },
+    ];
+    expect(url).toBe("https://chat-runner/run");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toMatchObject({
+      kind: "chat",
+      sessionId: "s1",
+      instructions: "SYS",
+    });
   });
 });

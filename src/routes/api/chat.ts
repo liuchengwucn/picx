@@ -4,7 +4,6 @@ import { z } from "zod";
 import { chatMessages, chatSessions } from "#/db/schema";
 import {
   buildChatSystemPrompt,
-  buildChatTools,
   CHAT_LIMITS,
   checkChatRateLimit,
   loadAccessiblePaper,
@@ -12,6 +11,7 @@ import {
 import {
   type AuthorizeResult,
   chatStreamBody,
+  createChatResumeHandler,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
 import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
@@ -40,14 +40,24 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
   limits: {
     maxInputChars: CHAT_LIMITS.maxInputChars,
     maxMessages: CHAT_LIMITS.maxMessagesPerSession,
-    webSearchMaxResults: CHAT_LIMITS.webSearchMaxResults,
   },
-  // 比 /api/agent 的 10 再宽一档，是拍的预算而非算出来的上界：论文页一轮里 readPaper
-  // 要按 24k 一段翻页（十几万字的论文就是七八段），发现类工具又鼓励多角度搜索 + 边讲边
-  // recommendPapers，每次交错都占一步。
-  maxToolSteps: 12,
-  // 卡片的落库口径与回放摘要成对给出，只接一半就是模型看不见用户屏幕上的卡片
-  ...CARD_REPLAY_SPEC,
+  // 落库口径（keepToolOutputTypes）已随生成阶段移交 GENERATION_SPECS；请求期只剩
+  // 历史重放要用的摘要口径，两者仍同源于 CARD_REPLAY_SPEC（口径见 discovery-tools）
+  replayToolDigest: CARD_REPLAY_SPEC.replayToolDigest,
+
+  conversationKey: (body) => body.sessionId,
+
+  buildJob: ({ userId, body }, ctx, prepared) => ({
+    kind: "chat",
+    sessionId: body.sessionId,
+    paperId: ctx.paper.id,
+    userId,
+    locale: body.locale,
+    webSearch: body.webSearch,
+    reasoningEffort: body.reasoningEffort,
+    instructions: prepared.instructions,
+    modelMessages: prepared.modelMessages,
+  }),
 
   authorize: async ({
     db,
@@ -106,14 +116,6 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
   buildInstructions: ({ db, body }, { paper }) =>
     buildChatSystemPrompt(db, paper, body.locale, body.webSearch),
 
-  buildLocalTools: ({ db, env, userId }, { paper }) =>
-    buildChatTools({
-      db,
-      bucket: env.PAPERS_BUCKET,
-      userId,
-      paperId: paper.id,
-    }),
-
   persistUserMessage: async ({ db, userId, body }, { chatSession }) => {
     // id 由客户端提供，regenerate/edit 会复用同一个 id，必须幂等，否则撞主键 500。
     // TODO: 真正的 regenerate 语义（重发时清掉该消息之后的助手消息）本期不做。
@@ -149,26 +151,31 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
       .set(patch)
       .where(eq(chatSessions.id, body.sessionId));
   },
+});
 
-  persistAssistantMessage: async ({ db, userId, body }, _ctx, message) => {
-    await db.insert(chatMessages).values({
-      id: message.id,
-      sessionId: body.sessionId,
-      userId,
-      role: "assistant",
-      parts: message.parts,
-    });
-    await db
-      .update(chatSessions)
-      .set({ updatedAt: new Date() })
-      .where(eq(chatSessions.id, body.sessionId));
+const resumeHandler = createChatResumeHandler({
+  logTag: "chat",
+  querySchema: z.object({ sessionId: z.string().min(1) }),
+  // 只查会话归属，不再像 POST 那样连 paper 可达性一起校验：会话归属已足够——
+  // 流的内容就是该会话本来可见的东西，paper 绑定在会话创建与每次 POST 时都校验过
+  authorizeResume: async (db, userId, q) => {
+    const [row] = await db
+      .select({ id: chatSessions.id })
+      .from(chatSessions)
+      .where(
+        and(eq(chatSessions.id, q.sessionId), eq(chatSessions.userId, userId)),
+      )
+      .limit(1);
+    return row != null;
   },
+  conversationKey: (q) => q.sessionId,
 });
 
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: handler,
+      GET: resumeHandler,
     },
   },
 });

@@ -1,16 +1,13 @@
-import { env, waitUntil } from "cloudflare:workers";
+import { env } from "cloudflare:workers";
 import {
-  consumeStream,
   convertToModelMessages,
-  createUIMessageStreamResponse,
   isStaticToolUIPart,
   isStepCount,
   isToolUIPart,
-  streamText,
+  type ModelMessage,
   type TextStreamPart,
   type ToolSet,
   type ToolUIPart,
-  toUIMessageStream,
   type UIMessage,
 } from "ai";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
@@ -18,22 +15,19 @@ import { drizzle } from "drizzle-orm/d1";
 import { z } from "zod";
 import * as schema from "#/db/schema";
 import { auth } from "#/lib/auth";
-import {
-  createChatProvider,
-  getChatModel,
-  mapReasoningEffort,
-  type RateLimitResult,
-} from "#/lib/chat";
+import type { RateLimitResult } from "#/lib/chat";
 import type { ChatErrorCode } from "#/lib/chat-errors";
+import type { GenerationJob } from "#/lib/chat-generation";
 import {
   getReviewGuestServerSession,
   isReviewGuestModeEnabled,
 } from "#/lib/review-guest";
 
 /**
- * 论文页 chatbot（/api/chat）与 assistant agent（/api/agent）共用的流式管线。
- * 两条路由只在「落哪张表、怎么鉴权、什么提示词/工具」上不同，这些差异全部收进
- * ChatStreamSpec 回调；本文件持有全部时序不变量：
+ * 论文页 chatbot（/api/chat）与 assistant agent（/api/agent）共用的请求期管线。
+ * 两条路由只在「落哪张表、怎么鉴权、什么提示词」上不同，这些差异全部收进
+ * ChatStreamSpec 回调；生成期的差异（工具集/步数预算/助手消息落库）在
+ * GENERATION_SPECS（chat-generation.ts）。本文件持有请求期的全部时序不变量：
  * - 前置 D1 读（鉴权/消息计数/限流/历史窗口）并发发出，buildInstructions 是唯一
  *   依赖 authorize ctx 的，挂在它后面与其余并行——串行 await 的话光校验就要吃掉
  *   5+ 次 D1 往返才轮到模型。并发只省往返，不改变对外可见的错误优先级：全部
@@ -42,14 +36,13 @@ import {
  * - 先做完可能抛异常的准备工作（历史加载/提示词/convertToModelMessages）再写库：
  *   顺序反了的话，一条畸形消息会让用户消息已落库但请求 500，此后该会话每次重放
  *   都炸；也避免请求还没真正打到模型就先烧掉一次限流配额。
- * - streamText 先于 persistUserMessage 发出（调用一发出就在后台连 provider，
- *   TTFB 与两次 D1 写重叠），但响应必须等 persist 完成才返回：用户消息先于
- *   助手消息落库、限流计数即时生效。trade-off 见 handler 内注释。
  * - 历史重放只喂 text part 给模型（工具输出单段可达 24k 字符，整窗重放会爆上下文；
  *   完整 parts 仍存 D1 供前端回显）。唯一的例外是 spec.replayToolDigest 折出来的
  *   那一行摘要——output 被保留意味着刷新后用户还看得见卡片，模型就不能一无所知；
  *   口径见 buildReplayHistory。
- * - 断连仍落库：consumeSseStream 拿到的是 tee 出来的独立分支 + waitUntil 托住。
+ * - 生成阶段不在 Worker 里跑：persistUserMessage 之后把 GenerationJob 转发给
+ *   per-conversation 的 ChatRunner DO（见 chat-runner-do.ts），断连落库由 DO
+ *   保证（客户端断开只是少一个订阅者），不再依赖 waitUntil 的 30s 窗口。
  *
  * channel 向后兼容：本管线不假设会话只有一个成员——成员归属完全由 spec.authorize
  * 决定（agent 侧是 conversation_members join）。将来加群聊只改 agent 路由的 spec。
@@ -125,26 +118,19 @@ export interface StoredMessageRow {
 }
 
 export interface ChatStreamSpec<TBody extends ChatStreamBody, TCtx> {
-  /** 日志前缀（"chat" / "agent"） */
-  logTag: string;
+  /** 日志前缀，同时是 DO 实例 id 的前缀与 GENERATION_SPECS 的 key */
+  logTag: "chat" | "agent";
   bodySchema: z.ZodType<TBody>;
   /** historyWindow 不在这里：窗口大小封装在 loadHistoryRows 的查询里 */
   limits: {
     maxInputChars: number;
     maxMessages: number;
-    webSearchMaxResults: number;
   };
-  /**
-   * 一轮回复里允许调用工具的步数上限。管线会在其上再加一步「收走全部工具」的收尾步
-   * （见 buildStepPolicy），所以实际 stopWhen 是这个数 +1，这里填的就是纯工具预算。
-   */
-  maxToolSteps: number;
-  /** 落库时保留 output 的工具 part 类型（历史回显要重建卡片的那类），默认全剥 */
-  keepToolOutputTypes?: ReadonlySet<string>;
   /**
    * 历史重放时把工具 part 折成一行文本喂给模型；返回 undefined 表示不喂。
    *
-   * 不变量：能折出摘要的工具必须正好是 keepToolOutputTypes 那一批。output 被保留
+   * 不变量：能折出摘要的工具必须正好是 keepToolOutputTypes（GENERATION_SPECS 里的
+   * 落库口径，与本摘要同源于 CARD_REPLAY_SPEC）那一批。output 被保留
    * 意味着刷新后用户还能在屏幕上看见它（卡片），模型就不能对它一无所知——否则用户
    * 指着卡片问「第二篇讲什么」时，模型的上下文里一篇都没有。
    */
@@ -163,16 +149,16 @@ export interface ChatStreamSpec<TBody extends ChatStreamBody, TCtx> {
    */
   loadHistoryRows(args: ChatStreamArgs<TBody>): Promise<StoredMessageRow[]>;
   buildInstructions(args: ChatStreamArgs<TBody>, ctx: TCtx): Promise<string>;
-  /** 本地工具集；web_search 由管线按 body.webSearch 统一追加 */
-  buildLocalTools(args: ChatStreamArgs<TBody>, ctx: TCtx): ToolSet;
   /** 落用户消息（幂等 upsert + 会话 touch + 首条消息回填标题，也让限流计数即时生效） */
   persistUserMessage(args: ChatStreamArgs<TBody>, ctx: TCtx): Promise<void>;
-  /** 落助手消息（parts 已经过 sanitize）+ 会话 touch */
-  persistAssistantMessage(
+  /** DO 实例定位：同一会话固定同一实例（chat: sessionId / agent: conversationId） */
+  conversationKey(body: TBody): string;
+  /** 请求期产物打包成可序列化的生成任务（类型见 chat-generation.ts） */
+  buildJob(
     args: ChatStreamArgs<TBody>,
     ctx: TCtx,
-    message: { id: string; parts: unknown[] },
-  ): Promise<void>;
+    prepared: { instructions: string; modelMessages: ModelMessage[] },
+  ): GenerationJob;
 }
 
 /**
@@ -559,87 +545,60 @@ export function createChatStreamHandler<TBody extends ChatStreamBody, TCtx>(
     // v7: convertToModelMessages 是 async 的，必须 await
     const modelMessages = await convertToModelMessages(uiMessages);
 
-    const provider = createChatProvider(appEnv);
-    // 网页搜索是 OpenRouter server tool（服务端执行）：模型自主决定调不调。
-    // key 必须叫 web_search——流里回来的 toolName 就是它，对不上会被当成未知工具。
-    const tools: ToolSet = {
-      ...spec.buildLocalTools(args, ctx),
-      ...(body.webSearch
-        ? {
-            web_search: provider.tools.webSearch({
-              maxResults: spec.limits.webSearchMaxResults,
-            }),
-          }
-        : {}),
-    };
-    const result = streamText({
-      model: getChatModel(provider, appEnv),
-      instructions,
-      messages: modelMessages,
-      tools,
-      // stopWhen + prepareStep 成对给出：最后一步收走工具强制收尾，避免静默的空消息
-      ...buildStepPolicy(spec.maxToolSteps, instructions),
-      maxOutputTokens: 4096,
-      providerOptions: {
-        // thinking 档位由前端选择；off 显式 {enabled:false}，见 mapReasoningEffort
-        openrouter: { reasoning: mapReasoningEffort(body.reasoningEffort) },
-      },
-    });
-
-    // 故意放在 streamText 之后：streamText 调用一发出就在后台连 provider（不等流
-    // 被消费），OpenRouter 的 TTFB 得以与这两次 D1 写重叠。响应仍要等 persist 完成
-    // 才返回——用户消息必须先于助手消息落库、限流计数即时生效。trade-off：persist
-    // 抛异常时请求照旧 500，而此刻已经白烧了一次模型调用；写库失败概率极低，
-    // 换掉关键路径上的首字延迟是划算的。
+    // 用户消息必须先于助手消息落库、限流计数即时生效；生成在 persist 之后才发起
+    // （生成在 DO 里跑，onEnd 落助手消息，顺序由这里的 await 保证）。
     await spec.persistUserMessage(args, ctx);
 
-    const uiStream = toUIMessageStream({
-      // 拆段变换：恢复 OpenRouter 服务端搜索场景下思考/正文的交错时间线
-      stream: splitInterleavedSegments(result.stream),
-      tools,
-      originalMessages: uiMessages,
-      // OpenRouter 的网页搜索引用是 source part，默认不下发就全丢了
-      sendSources: true,
-      // 思考过程要流给前端折叠展示（默认虽为 true，显式写出以免升级悄悄改默认值）
-      sendReasoning: true,
-      // 必须显式给：没有它时响应消息的 id 会是空串（originalMessages 最后一条是
-      // user，SDK 只在续写 assistant 消息时复用其 id），落库会撞主键。
-      generateMessageId: () => crypto.randomUUID(),
-      // 返回值会作为 error part 下发给客户端，给稳定 code 而不是原始报错文案
-      // （默认实现返回 "An error occurred."，且有泄露服务端错误细节的风险）
-      onError: (error) => {
-        console.error(`[${spec.logTag}] stream error:`, error);
-        return "stream_failed" satisfies ChatErrorCode;
-      },
-      // v7: onFinish 已 deprecated，改名 onEnd（形状不变，仍有 responseMessage）
-      onEnd: async ({ responseMessage }) => {
-        try {
-          await spec.persistAssistantMessage(args, ctx, {
-            id: responseMessage.id,
-            parts: sanitizeAssistantParts(
-              responseMessage.parts,
-              spec.keepToolOutputTypes,
-            ),
-          });
-        } catch (error) {
-          // 落库失败不能炸流（此刻响应体可能已发完/已被取消）
-          console.error(
-            `[${spec.logTag}] persist assistant message failed:`,
-            error,
-          );
-        }
-      },
+    // 生成阶段整体托管给 per-conversation DO：客户端断开后生成继续、onEnd 落库，
+    // 不再依赖 waitUntil 的 30s 窗口。响应就是 DO 的 SSE，原样透传。
+    const job = spec.buildJob(args, ctx, { instructions, modelMessages });
+    const stub = appEnv.CHAT_RUNNER.get(
+      appEnv.CHAT_RUNNER.idFromName(
+        `${spec.logTag}:${spec.conversationKey(body)}`,
+      ),
+    );
+    return stub.fetch("https://chat-runner/run", {
+      method: "POST",
+      body: JSON.stringify(job),
     });
+  };
+}
 
-    return createUIMessageStreamResponse({
-      stream: uiStream,
-      // 客户端断开也要落库助手消息。consumeSseStream 拿到的是
-      // handleUIMessageStreamFinish 之后 tee 出来的独立分支，响应体那一路被
-      // cancel 不会波及它，所以 onEnd 能拿到完整的助手消息而不是截断的。
-      // 必须用 waitUntil 托住：浮动 promise 在响应结束后会被 Workers 运行时回收。
-      consumeSseStream: ({ stream }) => {
-        waitUntil(consumeStream({ stream }));
-      },
-    });
+/**
+ * GET resume：客户端回到会话时重连正在进行（或刚结束、DO 未回收）的生成流。
+ * 只做鉴权 + 转发 DO，不限流（只读、未命中就是一个 204）。
+ * authorize 失败也返回 204 而不是错误码：resume 是挂载时的后台探测，
+ * 抛错会变成用户看得见的 toast，而「无权」与「无流」对客户端是同一件事。
+ */
+export function createChatResumeHandler<TQuery>(spec: {
+  logTag: "chat" | "agent";
+  querySchema: z.ZodType<TQuery>;
+  authorizeResume(db: Db, userId: string, query: TQuery): Promise<boolean>;
+  conversationKey(query: TQuery): string;
+}): (ctx: { request: Request }) => Promise<Response> {
+  return async ({ request }) => {
+    const appEnv = env as ChatStreamEnv;
+    const db = drizzle(appEnv.DB, { schema });
+    const session =
+      (await auth.api.getSession({ headers: request.headers })) ??
+      (isReviewGuestModeEnabled()
+        ? await getReviewGuestServerSession(db)
+        : null);
+    if (!session) return jsonError("unauthorized", 401);
+
+    const query = spec.querySchema.safeParse(
+      Object.fromEntries(new URL(request.url).searchParams),
+    );
+    if (!query.success) return jsonError("bad_request", 400);
+
+    if (!(await spec.authorizeResume(db, session.user.id, query.data))) {
+      return new Response(null, { status: 204 });
+    }
+    const stub = appEnv.CHAT_RUNNER.get(
+      appEnv.CHAT_RUNNER.idFromName(
+        `${spec.logTag}:${spec.conversationKey(query.data)}`,
+      ),
+    );
+    return stub.fetch("https://chat-runner/stream", { method: "GET" });
   };
 }

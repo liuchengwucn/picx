@@ -224,7 +224,8 @@ export interface DiscoveryToolsDeps {
 export function buildDiscoveryTools({ db, userId }: DiscoveryToolsDeps) {
   // maxToolSteps 只限步数，不限每步并发发出的工具调用数：实测一次回复能发出 10 次
   // searchArxiv。arXiv 要求 ≤1 req/3s 且会封 IP，而 Workers 出口 IP 是共享的。
-  // 本工厂每个请求只构造一次（chat-stream.ts 的 buildLocalTools），所以闭包计数就是准的。
+  // 本工厂每轮生成只构造一次（GENERATION_SPECS.buildTools，在 ChatRunner DO 里），
+  // 所以闭包计数就是准的。
   let externalCalls = 0;
   /** 领一次外部请求配额；超预算返回 false。调用方必须回错误对象而不是抛，让模型还能把回答写完 */
   const takeExternalCallSlot = () =>

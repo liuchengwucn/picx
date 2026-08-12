@@ -10,12 +10,13 @@ import {
 import {
   AGENT_LIMITS,
   buildAgentSystemPrompt,
-  buildAgentTools,
   checkAgentRateLimit,
 } from "#/lib/agent";
 import {
   type AuthorizeResult,
+  type ChatStreamArgs,
   chatStreamBody,
+  createChatResumeHandler,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
 import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
@@ -37,38 +38,68 @@ interface AgentCtx {
   conversation: typeof conversations.$inferSelect;
 }
 
+/** 归属校验：members 里有本人（POST authorize 与 GET authorizeResume 共用，
+ * 将来 channel 复用同一条查询） */
+async function loadMemberConversation(
+  db: ChatStreamArgs<Body>["db"],
+  userId: string,
+  conversationId: string,
+): Promise<typeof conversations.$inferSelect | undefined> {
+  const [convRow] = await db
+    .select({ conversation: conversations })
+    .from(conversations)
+    .innerJoin(
+      conversationMembers,
+      and(
+        eq(conversationMembers.conversationId, conversations.id),
+        eq(conversationMembers.userId, userId),
+      ),
+    )
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  return convRow?.conversation;
+}
+
 const handler = createChatStreamHandler<Body, AgentCtx>({
   logTag: "agent",
   bodySchema,
   limits: {
     maxInputChars: AGENT_LIMITS.maxInputChars,
     maxMessages: AGENT_LIMITS.maxMessagesPerConversation,
-    webSearchMaxResults: AGENT_LIMITS.webSearchMaxResults,
   },
-  maxToolSteps: 10,
-  // 卡片的落库口径与回放摘要成对给出，只接一半就是模型看不见用户屏幕上的卡片
-  ...CARD_REPLAY_SPEC,
+  // 落库口径（keepToolOutputTypes）已随生成阶段移交 GENERATION_SPECS；请求期只剩
+  // 历史重放要用的摘要口径，两者仍同源于 CARD_REPLAY_SPEC（口径见 discovery-tools）
+  replayToolDigest: CARD_REPLAY_SPEC.replayToolDigest,
+
+  conversationKey: (body) => body.conversationId,
+
+  buildJob: ({ userId, session, body }, _ctx, prepared) => ({
+    kind: "agent",
+    conversationId: body.conversationId,
+    userId,
+    locale: body.locale,
+    webSearch: body.webSearch,
+    reasoningEffort: body.reasoningEffort,
+    // 与 tRPC updateProfile 同一口径：mutations 开关打开时 guest 也可写档案
+    isGuest: isReviewGuestReadOnlySession(session),
+    instructions: prepared.instructions,
+    modelMessages: prepared.modelMessages,
+  }),
 
   authorize: async ({
     db,
     userId,
     body,
   }): Promise<AuthorizeResult<AgentCtx>> => {
-    // 归属校验：members 里有本人（将来 channel 复用同一条查询）
-    const [convRow] = await db
-      .select({ conversation: conversations })
-      .from(conversations)
-      .innerJoin(
-        conversationMembers,
-        and(
-          eq(conversationMembers.conversationId, conversations.id),
-          eq(conversationMembers.userId, userId),
-        ),
-      )
-      .where(eq(conversations.id, body.conversationId))
-      .limit(1);
-    if (!convRow) return { ok: false, code: "session_not_found", status: 404 };
-    return { ok: true, ctx: { conversation: convRow.conversation } };
+    const conversation = await loadMemberConversation(
+      db,
+      userId,
+      body.conversationId,
+    );
+    if (!conversation) {
+      return { ok: false, code: "session_not_found", status: 404 };
+    }
+    return { ok: true, ctx: { conversation } };
   },
 
   countMessages: async ({ db, body }) => {
@@ -106,16 +137,6 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
     return buildAgentSystemPrompt(profileRow?.content ?? null, body.webSearch);
   },
 
-  buildLocalTools: ({ db, env, session, userId, body }) =>
-    buildAgentTools({
-      db,
-      bucket: env.PAPERS_BUCKET,
-      userId,
-      locale: body.locale,
-      // 与 tRPC updateProfile 同一口径：mutations 开关打开时 guest 也可写档案
-      isGuest: isReviewGuestReadOnlySession(session),
-    }),
-
   persistUserMessage: async ({ db, userId, body }, { conversation }) => {
     // 幂等 upsert（客户端提供 id，regenerate 会复用）；setWhere 语义同 /api/chat
     await db
@@ -147,26 +168,21 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
       .set(patch)
       .where(eq(conversations.id, body.conversationId));
   },
+});
 
-  persistAssistantMessage: async ({ db, body }, _ctx, message) => {
-    await db.insert(conversationMessages).values({
-      id: message.id,
-      conversationId: body.conversationId,
-      senderType: "assistant",
-      senderId: null,
-      parts: message.parts,
-    });
-    await db
-      .update(conversations)
-      .set({ updatedAt: new Date() })
-      .where(eq(conversations.id, body.conversationId));
-  },
+const resumeHandler = createChatResumeHandler({
+  logTag: "agent",
+  querySchema: z.object({ conversationId: z.string().min(1) }),
+  authorizeResume: async (db, userId, q) =>
+    (await loadMemberConversation(db, userId, q.conversationId)) != null,
+  conversationKey: (q) => q.conversationId,
 });
 
 export const Route = createFileRoute("/api/agent")({
   server: {
     handlers: {
       POST: handler,
+      GET: resumeHandler,
     },
   },
 });
