@@ -369,8 +369,11 @@ async function filterStage(db: Db, env: Env, deadline: number): Promise<void> {
       id: newsItems.id,
       title: newsItems.title,
       excerpt: newsItems.excerpt,
+      // 来源名给打分 prompt 用：按来源识别投稿式宣传文（机器之心/量子位）
+      source: newsSources.name,
     })
     .from(newsItems)
+    .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
     .where(
       and(
         eq(newsItems.status, "pending"),
