@@ -37,8 +37,8 @@ function feedbackBlock(samples: FeedbackSample[]): string {
 /**
  * 查重记忆清单渲染。空清单渲染占位行而不是省略整节——注入无条件、prompt 形状恒定，
  * 相关指令在空清单下自然空转（intel 精读、首期冷启动都走这条路）。
- * title/note 过 clean() 压成单行；清单是自产数据，不属 UNTRUSTED_NOTE 管辖，
- * clean 只为防历史数据夹带换行/控制字符破坏行结构。
+ * title/note 过 clean() 压成单行；note/期号是自产数据，title 源自网络论文标题；
+ * 整体不额外挂 UNTRUSTED_NOTE，clean() 压单行即可防换行/控制字符破坏行结构。
  */
 export function pastPicksBlock(picks: PastPick[]): string {
   if (picks.length === 0) return "(no prior picks yet)";
@@ -346,7 +346,7 @@ export async function synthesizeDigest(
     `## Prior picks (recent issues)\n${pastPicksBlock(input.pastPicks)}`,
     ...(input.lastIssue
       ? [
-          `## Last issue (#${input.lastIssue.issueNumber}) body — do NOT repeat its themes or open questions\n${input.lastIssue.body}`,
+          `## Last issue (#${input.lastIssue.issueNumber}) body — do NOT repeat its themes or open questions\n\`\`\`markdown\n${input.lastIssue.body}\n\`\`\``,
         ]
       : []),
   ];

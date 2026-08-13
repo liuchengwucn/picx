@@ -50,6 +50,10 @@ beforeEach(async () => {
 async function seedIssue(input: {
   issueNumber: number;
   status: "published" | "generating" | "failed";
+  /** 缺省 "dir-1"；跨方向隔离测试需要落在别的方向 */
+  directionId?: string;
+  /** 缺省 `dg-${directionId}-${issueNumber}`，跨方向共用 issueNumber 时须显式传以避免撞主键 */
+  digestId?: string;
   /** 缺省 four(`Body N`)；显式传 null 表示无正文 */
   content?: Record<string, string> | null;
   picks?: Array<{
@@ -58,10 +62,11 @@ async function seedIssue(input: {
     note: Record<string, string> | null;
   }>;
 }) {
-  const digestId = `dg-${input.issueNumber}`;
+  const directionId = input.directionId ?? "dir-1";
+  const digestId = input.digestId ?? `dg-${directionId}-${input.issueNumber}`;
   await db.insert(digests).values({
     id: digestId,
-    directionId: "dir-1",
+    directionId,
     issueNumber: input.issueNumber,
     periodStart: PERIOD_START,
     periodEnd: PERIOD_END,
@@ -70,7 +75,7 @@ async function seedIssue(input: {
       input.content === undefined
         ? four(`Body ${input.issueNumber}`)
         : input.content,
-    workflowInstanceId: `wf-${input.issueNumber}`,
+    workflowInstanceId: `wf-${digestId}`,
   });
   for (const pick of input.picks ?? []) {
     await db.insert(papers).values({
@@ -84,7 +89,7 @@ async function seedIssue(input: {
       status: "completed",
       isPublic: true,
       isListedInGallery: true,
-      directionId: "dir-1",
+      directionId,
     });
     await db.insert(digestPapers).values({
       digestId,
@@ -196,6 +201,35 @@ describe("loadDirectionContext history", () => {
     });
     const ctx = await loadDirectionContext(db, "dir-1");
     expect(ctx.history.lastIssueBody).toBe("en body");
+    expect(ctx.history.lastIssueNumber).toBe(1);
+  });
+
+  it("does not leak another direction's picks or last-issue body", async () => {
+    await db.insert(directions).values({
+      id: "dir-2",
+      slug: "d2",
+      name: four("D2"),
+      focusBrief: "brief 2",
+      isActive: true,
+      sortOrder: 1,
+    });
+    await seedIssue({
+      issueNumber: 1,
+      status: "published",
+      picks: [{ paperId: "p1-dir1", rank: 1, note: four("N1-dir1") }],
+    });
+    await seedIssue({
+      issueNumber: 1,
+      status: "published",
+      directionId: "dir-2",
+      content: four("Body dir2"),
+      picks: [{ paperId: "p1-dir2", rank: 1, note: four("N1-dir2") }],
+    });
+    const ctx = await loadDirectionContext(db, "dir-1");
+    expect(ctx.history.pastPicks).toEqual([
+      { issueNumber: 1, title: "Paper p1-dir1", note: "N1-dir1 zh-cn" },
+    ]);
+    expect(ctx.history.lastIssueBody).toBe("Body 1 zh-cn");
     expect(ctx.history.lastIssueNumber).toBe(1);
   });
 });
