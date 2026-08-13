@@ -61,7 +61,8 @@ export type DigestWorkflowParams = {
   directionId: string;
   /** 触发日 ISO（periodEnd）；cron 侧传入保证可复现 */
   periodEnd: string;
-  /** cron 侧按方向下标错峰启动，避免 7 个实例同时打 arXiv；admin 手动触发不传 = 不错峰 */
+  /** cron 侧按方向下标错峰启动，降低/错开多个实例同时打 arXiv 的概率（非硬保证，
+   * 见 digest-cron.ts 注释）；admin 手动触发不传 = 不错峰 */
   staggerMinutes?: number;
 };
 
@@ -220,13 +221,41 @@ export class DigestWorkflow extends WorkflowEntrypoint<
               return [] as CandidateItem[];
             }
           })
-          .catch((e): CandidateItem[] => {
-            // 429 重试耗尽（分钟级退避 × 2 次仍失败）：不计熔断、丢弃本期该源，
-            // 绝不失败整个方向的 digest
+          .catch(async (e): Promise<CandidateItem[]> => {
+            // 跨 step 边界后 e 可能已被引擎重建为普通 Error（只保留 name/message），
+            // instanceof ArxivRateLimitError 不可靠，改用 name/message 识别
+            const msg = e instanceof Error ? e.message : String(e);
+            const isRateLimit =
+              (e instanceof Error && e.name === "ArxivRateLimitError") ||
+              msg.includes("429");
+            if (isRateLimit) {
+              // 429 退避耗尽（分钟级退避 × 2 次仍失败）：不计熔断（是我们自己的
+              // 速率问题，不是源死了），丢弃本期该源，绝不失败整个方向的 digest
+              console.warn(
+                `[Digest] scan-source-${source.id}: rate-limit retries exhausted, dropping this source for this issue`,
+              );
+              return [] as CandidateItem[];
+            }
+            // 非 429 的 step 级失败（fetch 挂死超时、D1 写失败等）：计熔断后降级，
+            // 让永久挂死的源最终走熔断+探活，而不是每周静默消失
             console.warn(
-              `[Digest] scan-source-${source.id}: rate-limit retries exhausted, dropping this source for this issue:`,
+              `[Digest] scan-source-${source.id} failed at step level:`,
               e,
             );
+            try {
+              await recordSourceResult(
+                db,
+                source.id,
+                source.consecutiveFailures,
+                { ok: false, error: msg },
+              );
+            } catch (recordErr) {
+              // 记账失败不能让整个 workflow 跟着失败——这里已经是降级兜底路径
+              console.warn(
+                `[Digest] scan-source-${source.id}: failed to record breaker failure:`,
+                recordErr,
+              );
+            }
             return [] as CandidateItem[];
           });
         sourceGroups.push(items);
