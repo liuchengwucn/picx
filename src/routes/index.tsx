@@ -150,7 +150,7 @@ function HomePage() {
   const { today } = Route.useLoaderData();
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-dvh">
       {/* 报头:单棕线收边,零纹理零渐变 */}
       <header className="rise-in border-b border-[color-mix(in_srgb,var(--academic-brown)_35%,transparent)] px-4 pb-10 pt-4 text-center sm:px-6 sm:pb-12">
         <div className="page-wrap">

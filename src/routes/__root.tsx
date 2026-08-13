@@ -15,6 +15,7 @@ import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 import Footer from "../components/Footer";
 import Header from "../components/Header";
+import MobileTabBar from "../components/MobileTabBar";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import TanStackQueryProvider from "../integrations/tanstack-query/root-provider";
 import appCss from "../styles.css?url";
@@ -122,12 +123,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <script suppressHydrationWarning>{THEME_INIT_SCRIPT}</script>
         <HeadContent />
       </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
+      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
         <TanStackQueryProvider>
           <DailyBonusClaim />
           <Header />
           {children}
           <Footer />
+          <MobileTabBar />
           <Toaster />
           {import.meta.env.DEV && (
             <TanStackDevtools

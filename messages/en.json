@@ -417,6 +417,8 @@
   "chat_error_rate_limited_day": "You've hit today's message limit. It resets tomorrow.",
   "chat_error_too_many_sessions": "You have too many conversations on this paper. Delete one to start another.",
   "nav_news": "News",
+  "nav_home": "Home",
+  "nav_gallery": "Gallery",
   "news_page_title": "AI Frontier News - PicX",
   "news_page_desc": "What the AI community is talking about — aggregated hourly from lab blogs, researcher blogs, X and Hacker News.",
   "news_heading": "AI Frontier News",

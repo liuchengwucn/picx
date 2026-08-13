@@ -417,6 +417,8 @@
   "chat_error_rate_limited_day": "本日の送信上限に達しました。明日また利用できます。",
   "chat_error_too_many_sessions": "この論文の会話が多すぎます。ひとつ削除してから作成してください。",
   "nav_news": "ニュース",
+  "nav_home": "ホーム",
+  "nav_gallery": "ギャラリー",
   "news_page_title": "AI最前線ニュース - PicX",
   "news_page_desc": "AIコミュニティが今注目しているニュースを毎時集約。",
   "news_heading": "AI最前線ニュース",

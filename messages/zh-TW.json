@@ -417,6 +417,8 @@
   "chat_error_rate_limited_day": "今天的訊息額度已用完，明天恢復。",
   "chat_error_too_many_sessions": "這篇論文底下的對話太多了，刪掉一個再新增。",
   "nav_news": "資訊",
+  "nav_home": "首頁",
+  "nav_gallery": "畫廊",
   "news_page_title": "AI 前沿資訊 - PicX",
   "news_page_desc": "AI 圈正在關注什麼——每小時聚合自實驗室官博、研究者部落格、X 與 Hacker News。",
   "news_heading": "AI 前沿資訊",

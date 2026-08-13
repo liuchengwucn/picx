@@ -185,7 +185,7 @@ function NewsPage() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <main className="min-h-screen bg-[var(--bg)] py-8">
+    <main className="min-h-dvh bg-[var(--bg)] py-8">
       <div className="page-wrap">
         <div className="rise-in">
           <h1 className="font-serif text-3xl font-bold text-[var(--ink)]">

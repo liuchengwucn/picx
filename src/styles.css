@@ -225,6 +225,10 @@ a:hover { color: var(--academic-brown-deep); }
 .nav-link:hover, .nav-link.is-active { color: var(--ink); }
 .nav-link:hover::after, .nav-link.is-active::after { transform: scaleX(1); }
 
+/* 底部 Tab 栏状态色 */
+.tab-link { color: var(--ink-soft); -webkit-tap-highlight-color: transparent; }
+.tab-link.is-active { color: var(--academic-brown); }
+
 /* 动画 */
 .rise-in { animation: rise-in 700ms cubic-bezier(0.16,1,0.3,1) both; }
 @keyframes rise-in {
