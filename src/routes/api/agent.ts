@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
+  assistantSkills,
   conversationMembers,
   conversationMessages,
   conversations,
@@ -21,6 +22,7 @@ import {
 } from "#/lib/chat-stream";
 import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
+import { buildSkillsCatalogSection, SKILL_LIMITS } from "#/lib/skills";
 
 /**
  * Assistant agent 的流式端点。会话创建走 tRPC assistant.createConversation，
@@ -129,12 +131,44 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
   },
 
   buildInstructions: async ({ db, userId, body }) => {
-    const [profileRow] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, userId))
-      .limit(1);
-    return buildAgentSystemPrompt(profileRow?.content ?? null, body.webSearch);
+    // catalog 查询失败不阻断对话：跳过注入，agent 只是这一轮不知道 skills 存在
+    const loadCatalog = async () => {
+      try {
+        const rows = await db
+          .select({
+            name: assistantSkills.name,
+            description: assistantSkills.description,
+          })
+          .from(assistantSkills)
+          .where(
+            and(
+              eq(assistantSkills.userId, userId),
+              eq(assistantSkills.enabled, true),
+            ),
+          )
+          .orderBy(desc(assistantSkills.updatedAt))
+          .limit(SKILL_LIMITS.catalogMaxEntries + 1);
+        return buildSkillsCatalogSection(
+          rows.slice(0, SKILL_LIMITS.catalogMaxEntries),
+          rows.length > SKILL_LIMITS.catalogMaxEntries,
+        );
+      } catch {
+        return "";
+      }
+    };
+    const [profileRows, skillsCatalog] = await Promise.all([
+      db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, userId))
+        .limit(1),
+      loadCatalog(),
+    ]);
+    return buildAgentSystemPrompt(
+      profileRows[0]?.content ?? null,
+      body.webSearch,
+      skillsCatalog,
+    );
   },
 
   persistUserMessage: async ({ db, userId, body }, { conversation }) => {
