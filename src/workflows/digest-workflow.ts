@@ -25,6 +25,7 @@ import {
   tallyVotes,
   type VoteOutcome,
 } from "#/lib/digest/candidates";
+import { enrichAuthorSignals } from "#/lib/digest/enrich";
 import { cheapModel, strongModel } from "#/lib/digest/llm";
 import { fetchDirectionSource } from "#/lib/digest/sources";
 import {
@@ -40,6 +41,7 @@ import {
   upsertCandidatesSeen,
 } from "#/lib/digest/store";
 import type {
+  AuthorSignal,
   CandidateItem,
   ReviewedCandidate,
   SynthesisResult,
@@ -271,14 +273,36 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         };
       });
 
+      // ── 5b. 作者信号富集（S2 batch，每期一次）──
+      // 可降级的优化环节：任何失败（429/超时/未收录）都降级为无信号并留痕，
+      // 绝不失败整期（同 angle prescore 的降级模式）。全 intel 时零请求。
+      const authorSignals = await step
+        .do("enrich-author-signal", () =>
+          enrichAuthorSignals(
+            partition.toReview
+              .filter((it) => it.kind === "paper")
+              .map((it) => it.canonicalUrl),
+            env.SEMANTIC_SCHOLAR_API_KEY,
+          ),
+        )
+        .catch((e): Record<string, AuthorSignal> => {
+          console.warn(
+            "[Digest] enrich-author-signal failed, degrading to no signal:",
+            e,
+          );
+          return {};
+        });
+
       // ── 6. 逐篇精读（每篇一个 step，含全文抓取）──
       // step 名带全局序号（同角度搜索的理由）：批内下标会在不同批次间重复，
       // URL 尾 60 字符理论上也可能撞车，全局序号才是唯一性的真正保证。
       const reviewed: ReviewedCandidate[] = [];
-      const indexedToReview = partition.toReview.map((item, i) => ({
-        item,
-        i,
-      }));
+      const indexedToReview = partition.toReview.map(
+        (item, i): { item: CandidateItem; i: number } => ({
+          item: { ...item, authorSignal: authorSignals[item.canonicalUrl] },
+          i,
+        }),
+      );
       for (const batch of chunk(indexedToReview, 4)) {
         const results = await Promise.all(
           batch.map(({ item, i }) =>

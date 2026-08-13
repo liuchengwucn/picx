@@ -7,6 +7,8 @@ import type { CandidateItem } from "./types";
 
 const ARXIV_API = "https://export.arxiv.org/api/query";
 const MAX_EXCERPT = 1200;
+/** 超长作者团队截断：保留前 AUTHORS_HEAD 位 + 末位 */
+const AUTHORS_HEAD = 5;
 
 const atomParser = new XMLParser({
   ignoreAttributes: false,
@@ -25,6 +27,26 @@ function textOf(node: unknown): string {
     return String((node as Record<string, unknown>)["#text"] ?? "");
   }
   return "";
+}
+
+/** 从 Atom entry 解析作者名单；>AUTHORS_HEAD+1 人截断为前 5 + 末位，authorCount 保留真实总数 */
+export function parseAtomAuthors(entry: Record<string, unknown>): {
+  authors?: string[];
+  authorCount?: number;
+} {
+  const names = asArray(entry.author)
+    .map((a) =>
+      a && typeof a === "object" && "name" in a
+        ? textOf((a as Record<string, unknown>).name).trim()
+        : "",
+    )
+    .filter(Boolean);
+  if (names.length === 0) return {};
+  const authors =
+    names.length > AUTHORS_HEAD + 1
+      ? [...names.slice(0, AUTHORS_HEAD), names[names.length - 1]]
+      : names;
+  return { authors, authorCount: names.length };
 }
 
 /** arXiv Atom API：按查询式取窗口内新论文 */
@@ -66,6 +88,7 @@ export async function fetchArxivQuery(
         .slice(0, MAX_EXCERPT),
       publishedAt: published.toISOString(),
       sourceLabel,
+      ...parseAtomAuthors(e),
     });
   }
   return items;

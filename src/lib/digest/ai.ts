@@ -5,6 +5,7 @@ import { extractFirstJsonObject } from "#/lib/json-extract";
 import type { Env } from "#/types/env";
 import { chatJson, clean, DigestAiError, type DigestModelConfig } from "./llm";
 import {
+  type AuthorMetric,
   type CandidateItem,
   type CandidateReview,
   DIGEST_LOCALES,
@@ -48,6 +49,56 @@ export function pastPicksBlock(picks: PastPick[]): string {
         `- [#${p.issueNumber}] ${clean(p.title)}${p.note ? ` — ${clean(p.note)}` : ""}`,
     )
     .join("\n");
+}
+
+/**
+ * 作者信号渲染（论文候选无条件注入，同 pastPicksBlock 的恒定形状契约）：
+ * 有 signal 渲染指标行；无 signal（S2 未收录/富集降级）渲染免罚文案——
+ * 超新论文未被 S2 收录是常态，缺数据绝不能被模型当成负信号。
+ * intel 候选返回空串（调用处过滤）。名字过 clean() 防换行破坏行结构。
+ */
+export function authorSignalBlock(item: CandidateItem): string {
+  if (item.kind !== "paper") return "";
+  const lines: string[] = [];
+  if (item.authors && item.authors.length > 0) {
+    const total = item.authorCount ?? item.authors.length;
+    if (total > item.authors.length) {
+      // 截断形态固定为「前 5 + 末位」（sources.ts），中间省略的人数 = 总数 - 已示人数
+      const head = item.authors
+        .slice(0, -1)
+        .map((n) => clean(n))
+        .join(", ");
+      const last = clean(item.authors[item.authors.length - 1]);
+      lines.push(
+        `Authors: ${head}, ... +${total - item.authors.length} more; last: ${last}`,
+      );
+    } else {
+      lines.push(`Authors: ${item.authors.map((n) => clean(n)).join(", ")}`);
+    }
+  }
+  const s = item.authorSignal;
+  const NOT_INDEXED =
+    "Author signal: not yet indexed by Semantic Scholar (common for very fresh papers — do NOT penalize).";
+  if (!s) {
+    lines.push(NOT_INDEXED);
+  } else {
+    const fmt = (m: AuthorMetric) =>
+      `${clean(m.name)} h-index ${m.hIndex ?? "unknown"} (${m.citations ?? "unknown"} citations)`;
+    const parts: string[] = [];
+    if (s.first) parts.push(`first author ${fmt(s.first)}`);
+    if (s.last && s.totalAuthors > 1) parts.push(`last author ${fmt(s.last)}`);
+    if (s.maxHIndex !== null && s.totalAuthors > 2) {
+      parts.push(
+        `max h-index across ${s.totalAuthors} authors: ${s.maxHIndex}`,
+      );
+    }
+    lines.push(
+      parts.length > 0
+        ? `Author signal (Semantic Scholar): ${parts.join("; ")}.`
+        : NOT_INDEXED,
+    );
+  }
+  return lines.join("\n");
 }
 
 /** Scope（强模型）：把本周挖掘任务分解为 4-6 个互补搜索角度 */
@@ -236,16 +287,20 @@ export async function reviewCandidate(
     "- relevance: 0-100 fit to the research focus.",
     "- recommendation: 2-3 sentences: why a researcher in this direction should (or should not) read it.",
     "- score: 0-100 overall (novelty x relevance x rigor). Marketing fluff and incremental work score low. Work that merely re-does a prior pick's method without a concrete increment must score low.",
+    "- Author signal / author list (when present) are a WEAK prior on report credibility (the rigor axis) ONLY: extraordinary claims from a low-track-record team with no code and no independent evals deserve extra skepticism; a strong track record slightly raises benefit-of-the-doubt for borderline scores. If the full text reveals a well-known lab or research group, weigh that the same way.",
+    "- NEVER use author signal to judge novelty, and never let reputation substitute for reading the content. Missing or unknown author data is NOT a negative signal.",
     UNTRUSTED_NOTE,
     `Research focus:\n${focusBrief}`,
     `Prior picks (already recommended in past issues):\n${pastPicksBlock(pastPicks)}`,
     'Return JSON only: {"novelty":"...","noveltyQuote":"...","relevance":n,"recommendation":"...","score":n}',
   ].join("\n");
+  const authorLines = authorSignalBlock(item);
   const user = [
     `# ${clean(item.title)}`,
     `URL: ${item.canonicalUrl}`,
     `Kind: ${item.kind} · Found via: ${item.sourceLabel}` +
       (item.hfUpvotes ? ` · HF upvotes: ${item.hfUpvotes}` : ""),
+    ...(authorLines ? [authorLines] : []),
     "",
     fullText ??
       `(full text unavailable; abstract/excerpt only)\n${clean(item.excerpt ?? "")}`,
@@ -317,6 +372,7 @@ export async function synthesizeDigest(
     "Tasks:",
     "1. picks: select papers genuinely worth the reader's time. Quality bar over quota — typically 3-10, fewer is fine. Rank by importance. For each write recommendationNote (zh-cn, 2-4 sentences: what's new + why read it).",
     "   Cross-issue dedup: downgrade any candidate methodologically similar to a prior pick (see Prior picks below) unless its recommendationNote names that prior pick (with issue number) and states the concrete increment over it.",
+    "   Author signal (when present) is a tiebreaker between borderline picks only — never a primary selection reason, and never mention author reputation in recommendationNote or content.",
     "2. content: the issue body in markdown (zh-cn), sections: 本期看点 (2-3 段总评) / 社区与动态 (based on intel items; skip if none) / 未解之问 (2-4 open questions).",
     "   Do NOT re-describe each picked paper in content — the picks render as cards below the body.",
     "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them.",
@@ -331,10 +387,18 @@ export async function synthesizeDigest(
     'Return JSON only: {"title":"...","content":"...","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"usedIntelUrls":["..."],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
   ].join("\n");
   const paperBlock = input.papers
-    .map(
-      (p) =>
-        `### [vote:${p.voteOutcome}] ${clean(p.item.title)}\nURL: ${p.item.canonicalUrl}\nScore: ${p.review.score} · Relevance: ${p.review.relevance}${p.item.hfUpvotes ? ` · HF: ${p.item.hfUpvotes}` : ""}\nNovelty: ${p.review.novelty}\nQuote: "${p.review.noveltyQuote}"\nDraft note: ${p.review.recommendation}`,
-    )
+    .map((p) => {
+      const authorLines = authorSignalBlock(p.item);
+      return [
+        `### [vote:${p.voteOutcome}] ${clean(p.item.title)}`,
+        `URL: ${p.item.canonicalUrl}`,
+        `Score: ${p.review.score} · Relevance: ${p.review.relevance}${p.item.hfUpvotes ? ` · HF: ${p.item.hfUpvotes}` : ""}`,
+        ...(authorLines ? [authorLines] : []),
+        `Novelty: ${p.review.novelty}`,
+        `Quote: "${p.review.noveltyQuote}"`,
+        `Draft note: ${p.review.recommendation}`,
+      ].join("\n");
+    })
     .join("\n\n");
   const intelBlock = input.intel
     .map(

@@ -67,4 +67,7 @@ export interface Env {
   // 默认 30/3 = 旧逻辑等价；切换终态 = 100/0（仅爆款兜底、不补底）
   HF_MIN_UPVOTES?: string;
   HF_TOP_FALLBACK?: string;
+  // Semantic Scholar API key（可选；digest 作者指标富集用）。无 key 走匿名共享池，
+  // 429/失败时该期降级为无作者信号，不影响产出
+  SEMANTIC_SCHOLAR_API_KEY?: string;
 }

@@ -15,6 +15,23 @@ export interface ScopeResult {
   angles: ScopeAngle[];
 }
 
+/** 单个作者的引用量指标（Semantic Scholar；新人 hIndex/citations 可为 null，语义 ≠ 0） */
+export interface AuthorMetric {
+  name: string;
+  hIndex: number | null;
+  citations: number | null;
+}
+
+/** 一篇论文的作者信号（enrich-author-signal step 产出）。只存三个槽位控制 workflow step state 体积 */
+export interface AuthorSignal {
+  first: AuthorMetric | null;
+  /** 单作者时与 first 相同（渲染层合并为一段） */
+  last: AuthorMetric | null;
+  /** 全作者列表中最高 h-index（精锐大组常在中间位）；全 null 时为 null */
+  maxHIndex: number | null;
+  totalAuthors: number;
+}
+
 /** 一条待评审候选（论文或非论文情报），跨 源适配器/角度搜索 的统一形状 */
 export interface CandidateItem {
   /** 论文用 canonicalArxivUrl 规范化；intel 用讨论串/文章链接 */
@@ -30,6 +47,12 @@ export interface CandidateItem {
   hfUpvotes?: number;
   /** 初筛相关性分 0-100（scoreSourceItems 产出）；预算裁剪按此排序，砍最低分 */
   prescore?: number;
+  /** 作者名单（arXiv Atom 自带；>6 人截断为前 5 位 + 末位）。角度搜索/intel 候选无此字段 */
+  authors?: string[];
+  /** 截断前的作者总数，渲染 "+N more" 用 */
+  authorCount?: number;
+  /** S2 富集的引用量指标；未收录/富集失败/intel 为 undefined（渲染层出免罚文案） */
+  authorSignal?: AuthorSignal;
 }
 
 export interface CandidateReview {
