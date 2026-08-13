@@ -1,256 +1,41 @@
-import { getTableColumns } from "drizzle-orm";
-import { SQLiteSyncDialect } from "drizzle-orm/sqlite-core";
+/**
+ * skills 路由的 CRUD / 越权 / 唯一约束 / 上限四件套。
+ *
+ * 跑在真 SQLite 上（见 test/helpers/sqlite-d1）而非 mock 链：isUniqueViolation
+ * 靠 error.message 正则识别唯一约束冲突，只有让 assistant_skills_user_name_uq
+ * 这条真索引在真引擎里跑一遍、抛出真的 "UNIQUE constraint failed" 才测得到；
+ * per-user 计数上限、越权 NOT_FOUND 同理依赖 WHERE 的真实语义。
+ */
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assistantSkills } from "#/db/schema";
+import { assistantSkills, user } from "#/db/schema";
 import { REVIEW_GUEST_USER_ID } from "#/lib/review-guest";
+import { createTestDb } from "../../../../test/helpers/sqlite-d1";
 import { skillsRouter } from "./skills";
 
-// 项目里目前没有真实的 D1/sqlite 测试基座（唯一先例 security.test.ts 全靠手写
-// vi.fn() 链式 mock），但这个 router 的用例（唯一约束、按 userId 计数上限、
-// 越权 NOT_FOUND）都依赖真实的查询语义,逐条摆 mock 返回值既啰嗦又不可信。
-// 这里改用 SQLiteSyncDialect 把 drizzle 生成的 where/orderBy 条件编译成真实 SQL
-// 文本再做等值匹配，本质是给 assistant_skills 单表现算一个内存版 drizzle 执行器。
-// 只覆盖本路由实际用到的形状：eq/and 等值条件、desc 排序、limit、count(*)。
-type Row = typeof assistantSkills.$inferSelect;
-type InsertValues = typeof assistantSkills.$inferInsert;
+type Db = ReturnType<typeof createTestDb>["db"];
 
-const dialect = new SQLiteSyncDialect();
-const columns = getTableColumns(assistantSkills);
-const dbNameToKey = Object.fromEntries(
-  Object.entries(columns).map(([key, col]) => [col.name, key]),
-) as Record<string, string>;
-
-function isColumnRef(value: unknown): value is { name: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "columnType" in value &&
-    "name" in value
-  );
-}
-
-function isAggregate(value: unknown): boolean {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "queryChunks" in value &&
-    !("columnType" in value)
-  );
-}
-
-function uniqueMessage(): string {
-  return "UNIQUE constraint failed: assistant_skills.user_id, assistant_skills.name";
-}
-
-/** eq/and 等值条件 → 逐子句 `"table"."col" = ?` 解析为 { key(js), value } 对 */
-function parseEqClauses(condition: unknown): { key: string; value: unknown }[] {
-  const { sql, params } = dialect.sqlToQuery(condition as never);
-  const body = sql.replace(/^\(/, "").replace(/\)$/, "");
-  const clauses = body.split(" and ");
-  let paramIndex = 0;
-  return clauses.map((clause) => {
-    const match = /^"[^"]+"\."([^"]+)"\s*=\s*\?$/.exec(clause.trim());
-    if (!match) {
-      throw new Error(`fake db: unsupported where clause: ${clause}`);
-    }
-    const key = dbNameToKey[match[1] as string];
-    if (!key) throw new Error(`fake db: unknown column: ${match[1]}`);
-    return { key, value: params[paramIndex++] };
-  });
-}
-
-function matches(row: Row, condition: unknown): boolean {
-  if (!condition) return true;
-  return parseEqClauses(condition).every(
-    ({ key, value }) => (row as Record<string, unknown>)[key] === value,
-  );
-}
-
-function parseOrderBy(order: unknown): { key: string; dir: 1 | -1 } {
-  const { sql } = dialect.sqlToQuery(order as never);
-  const match = /^"[^"]+"\."([^"]+)"(?:\s+(asc|desc))?$/.exec(sql.trim());
-  if (!match) throw new Error(`fake db: unsupported orderBy: ${sql}`);
-  const key = dbNameToKey[match[1] as string];
-  if (!key) throw new Error(`fake db: unknown column: ${match[1]}`);
-  return { key, dir: match[2] === "desc" ? -1 : 1 };
-}
-
-function applyDefaults(values: InsertValues): Row {
-  const row: Record<string, unknown> = { ...values };
-  for (const [key, col] of Object.entries(columns)) {
-    if (row[key] !== undefined) continue;
-    if (col.defaultFn) row[key] = col.defaultFn();
-    else if (col.hasDefault) row[key] = col.default;
-  }
-  return row as Row;
-}
-
-function findConflict(rows: Row[], candidate: Row): boolean {
-  return rows.some(
-    (r) =>
-      r.id !== candidate.id &&
-      r.userId === candidate.userId &&
-      r.name === candidate.name,
-  );
-}
-
-class SelectBuilder {
-  private _where: unknown;
-  private _orderBy: unknown[] = [];
-  private _limitN: number | undefined;
-
-  constructor(
-    private rows: Row[],
-    private selection?: Record<string, unknown>,
-  ) {}
-
-  from(_table: unknown) {
-    return this;
-  }
-
-  where(condition: unknown) {
-    this._where = condition;
-    return this;
-  }
-
-  orderBy(...cols: unknown[]) {
-    this._orderBy = cols;
-    return this;
-  }
-
-  limit(n: number) {
-    this._limitN = n;
-    return this;
-  }
-
-  private exec(): unknown[] {
-    let filtered = this.rows.filter((r) => matches(r, this._where));
-
-    if (this.selection) {
-      const aggEntry = Object.entries(this.selection).find(([, v]) =>
-        isAggregate(v),
-      );
-      if (aggEntry) return [{ [aggEntry[0]]: filtered.length }];
-    }
-
-    if (this._orderBy.length > 0) {
-      const specs = this._orderBy.map(parseOrderBy);
-      filtered = [...filtered].sort((a, b) => {
-        for (const { key, dir } of specs) {
-          const av = (a as Record<string, unknown>)[key] as
-            | string
-            | number
-            | Date;
-          const bv = (b as Record<string, unknown>)[key] as
-            | string
-            | number
-            | Date;
-          if (av === bv) continue;
-          return av > bv ? dir : -dir;
-        }
-        return 0;
-      });
-    }
-
-    if (this._limitN !== undefined) filtered = filtered.slice(0, this._limitN);
-
-    if (!this.selection) return filtered.map((r) => ({ ...r }));
-    return filtered.map((r) => {
-      const out: Record<string, unknown> = {};
-      for (const [key, field] of Object.entries(
-        this.selection as Record<string, unknown>,
-      )) {
-        if (isColumnRef(field)) {
-          out[key] = (r as Record<string, unknown>)[
-            dbNameToKey[field.name] as string
-          ];
-        }
-      }
-      return out;
-    });
-  }
-
-  // biome-ignore lint/suspicious/noThenProperty: 故意实现 thenable 以模拟 drizzle 惰性查询链
-  then<TResult1 = unknown[], TResult2 = never>(
-    onfulfilled?:
-      | ((value: unknown[]) => TResult1 | PromiseLike<TResult1>)
-      | null,
-    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-  ): PromiseLike<TResult1 | TResult2> {
-    return Promise.resolve(this.exec()).then(onfulfilled, onrejected);
-  }
-}
-
-function createFakeDb() {
-  const rows: Row[] = [];
-
-  return {
-    select(selection?: Record<string, unknown>) {
-      return new SelectBuilder(rows, selection);
-    },
-    insert(_table: unknown) {
-      return {
-        async values(data: InsertValues | InsertValues[]) {
-          const items = Array.isArray(data) ? data : [data];
-          for (const item of items) {
-            const withDefaults = applyDefaults(item);
-            if (findConflict(rows, withDefaults)) {
-              throw new Error(uniqueMessage());
-            }
-            rows.push(withDefaults);
-          }
-        },
-      };
-    },
-    update(_table: unknown) {
-      return {
-        set(patch: Partial<Row>) {
-          return {
-            async where(condition: unknown) {
-              const targets = rows.filter((r) => matches(r, condition));
-              for (const target of targets) {
-                const candidate = { ...target, ...patch };
-                if (findConflict(rows, candidate)) {
-                  throw new Error(uniqueMessage());
-                }
-              }
-              for (const target of targets) Object.assign(target, patch);
-            },
-          };
-        },
-      };
-    },
-    delete(_table: unknown) {
-      return {
-        async where(condition: unknown) {
-          for (let i = rows.length - 1; i >= 0; i--) {
-            const row = rows[i];
-            if (row && matches(row, condition)) rows.splice(i, 1);
-          }
-        },
-      };
-    },
-    _rows: rows,
-  };
-}
-
-type FakeDb = ReturnType<typeof createFakeDb>;
-
-function createContext(
-  db: FakeDb,
-  overrides: { userId?: string; extraEnv?: Record<string, string> } = {},
-) {
-  const userId = overrides.userId ?? "user-1";
-  return {
-    auth: {
-      api: {
-        getSession: vi.fn().mockResolvedValue({ user: { id: userId } }),
-      },
-    },
+function makeCaller(db: Db, userId: string) {
+  const ctx = {
+    db,
     headers: new Headers(),
     env: {},
-    db,
+    auth: { api: { getSession: async () => ({ user: { id: userId } }) } },
   };
+  return skillsRouter.createCaller(ctx as never);
+}
+
+async function seedUsers(db: Db, ids: string[]) {
+  const now = new Date();
+  await db.insert(user).values(
+    ids.map((id) => ({
+      id,
+      name: id,
+      email: `${id}@example.com`,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
 }
 
 const validInput = {
@@ -260,14 +45,15 @@ const validInput = {
 };
 
 describe("skillsRouter CRUD", () => {
-  let db: FakeDb;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createFakeDb();
+  beforeEach(async () => {
+    db = createTestDb().db;
+    await seedUsers(db, ["user-1", "user-2"]);
   });
 
   it("creates a skill and reads it back via list/get; list omits body", async () => {
-    const caller = skillsRouter.createCaller(createContext(db) as never);
+    const caller = makeCaller(db, "user-1");
 
     const { id } = await caller.create(validInput);
     expect(id).toBeTruthy();
@@ -282,12 +68,8 @@ describe("skillsRouter CRUD", () => {
   });
 
   it("rejects a duplicate name for the same user but allows it for another user", async () => {
-    const callerA = skillsRouter.createCaller(
-      createContext(db, { userId: "user-1" }) as never,
-    );
-    const callerB = skillsRouter.createCaller(
-      createContext(db, { userId: "user-2" }) as never,
-    );
+    const callerA = makeCaller(db, "user-1");
+    const callerB = makeCaller(db, "user-2");
 
     await callerA.create(validInput);
 
@@ -301,16 +83,17 @@ describe("skillsRouter CRUD", () => {
   });
 
   it("updates name/enabled and advances updatedAt; renaming into a collision is rejected", async () => {
-    const caller = skillsRouter.createCaller(createContext(db) as never);
+    const caller = makeCaller(db, "user-1");
 
     const { id } = await caller.create(validInput);
     await caller.create({ ...validInput, name: "other-skill" });
 
-    // 秒级/毫秒级 timestamp 同一时刻更新可能相等，先把它拨到过去再更新
-    const row = db._rows.find((r) => r.id === id);
-    if (!row) throw new Error("seed row missing");
+    // 秒级 timestamp 同一时刻更新可能相等，先把它拨到过去再更新
     const past = new Date(Date.now() - 60_000);
-    row.updatedAt = past;
+    await db
+      .update(assistantSkills)
+      .set({ updatedAt: past })
+      .where(eq(assistantSkills.id, id));
 
     await caller.update({ id, name: "renamed-skill", enabled: false });
 
@@ -325,12 +108,8 @@ describe("skillsRouter CRUD", () => {
   });
 
   it("hides other users' skills behind NOT_FOUND for get/update/delete", async () => {
-    const callerA = skillsRouter.createCaller(
-      createContext(db, { userId: "user-1" }) as never,
-    );
-    const callerB = skillsRouter.createCaller(
-      createContext(db, { userId: "user-2" }) as never,
-    );
+    const callerA = makeCaller(db, "user-1");
+    const callerB = makeCaller(db, "user-2");
 
     const { id } = await callerA.create(validInput);
 
@@ -351,30 +130,20 @@ describe("skillsRouter CRUD", () => {
 });
 
 describe("skillsRouter review-guest read-only guard", () => {
-  let db: FakeDb;
+  let db: Db;
 
-  beforeEach(() => {
-    (
-      import.meta.env as unknown as Record<string, string | undefined>
-    ).VITE_ENABLE_REVIEW_GUEST = "1";
-    db = createFakeDb();
+  beforeEach(async () => {
+    vi.stubEnv("VITE_ENABLE_REVIEW_GUEST", "true");
+    db = createTestDb().db;
+    await seedUsers(db, [REVIEW_GUEST_USER_ID, "user-1"]);
   });
 
   afterEach(() => {
-    (
-      import.meta.env as unknown as Record<string, string | undefined>
-    ).VITE_ENABLE_REVIEW_GUEST = undefined;
+    vi.unstubAllEnvs();
   });
 
   it("allows reads but forbids create/update/delete for the review-guest session", async () => {
-    const guestCaller = skillsRouter.createCaller(
-      createContext(db, { userId: REVIEW_GUEST_USER_ID }) as never,
-    );
-    const ownerCaller = skillsRouter.createCaller(
-      createContext(db, { userId: REVIEW_GUEST_USER_ID }) as never,
-    );
-    // 先用一个非 guest 会话种一条数据（review-guest 场景下 create 本就该被挡）
-    void ownerCaller;
+    const guestCaller = makeCaller(db, REVIEW_GUEST_USER_ID);
 
     await expect(guestCaller.list()).resolves.toEqual([]);
 
@@ -390,9 +159,7 @@ describe("skillsRouter review-guest read-only guard", () => {
   });
 
   it("does not block a normal (non-guest) session even while guest mode is enabled", async () => {
-    const normalCaller = skillsRouter.createCaller(
-      createContext(db, { userId: "user-1" }) as never,
-    );
+    const normalCaller = makeCaller(db, "user-1");
     await expect(normalCaller.create(validInput)).resolves.toMatchObject({
       id: expect.any(String),
     });
@@ -401,17 +168,19 @@ describe("skillsRouter review-guest read-only guard", () => {
 
 describe("skillsRouter per-user skill limit", () => {
   it("rejects the 51st skill with PRECONDITION_FAILED", async () => {
-    const db = createFakeDb();
-    const caller = skillsRouter.createCaller(createContext(db) as never);
+    const db = createTestDb().db;
+    await seedUsers(db, ["user-1"]);
+    const caller = makeCaller(db, "user-1");
 
-    const seed: InsertValues[] = Array.from({ length: 50 }, (_, i) => ({
-      userId: "user-1",
-      name: `skill-${i}`,
-      description: "seed",
-      body: "seed body",
-    }));
-    // 直接批量灌库，绕过 tRPC 更快；生产 D1 的绑定参数上限在真实迁移脚本里另有处理
-    await db.insert(null).values(seed);
+    // 直接批量灌库，绕过 tRPC 更快
+    await db.insert(assistantSkills).values(
+      Array.from({ length: 50 }, (_, i) => ({
+        userId: "user-1",
+        name: `skill-${i}`,
+        description: "seed",
+        body: "seed body",
+      })),
+    );
 
     await expect(
       caller.create({ ...validInput, name: "one-too-many" }),

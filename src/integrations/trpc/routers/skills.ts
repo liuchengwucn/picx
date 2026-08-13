@@ -18,9 +18,19 @@ function assertWritable(
   }
 }
 
-/** D1/SQLite 唯一约束冲突识别：drizzle 不给结构化错误码，只能看 message */
+/**
+ * D1/SQLite 唯一约束冲突识别：drizzle 不给结构化错误码，只能看 message。
+ * drizzle-orm 把底层驱动错误包成 DrizzleQueryError，顶层 message 固定是
+ * "Failed query: ..."，真正的 "UNIQUE constraint failed" 落在 .cause 里
+ * （sqlite-core/session.js 统一这样包，d1 驱动同样如此），所以要顺着 cause 链找。
+ */
 function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Error && /unique/i.test(error.message);
+  let current: unknown = error;
+  while (current instanceof Error) {
+    if (/unique/i.test(current.message)) return true;
+    current = current.cause;
+  }
+  return false;
 }
 
 const updateInputSchema = z.object({
