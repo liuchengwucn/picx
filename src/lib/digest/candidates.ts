@@ -2,9 +2,13 @@
 import { canonicalArxivId } from "#/lib/arxiv";
 import type { CandidateItem, VerifyVerdict } from "./types";
 
-/** 本期精读预算：论文与 intel 分开计（intel 便宜但也要有上限） */
-export const PAPER_REVIEW_BUDGET = 40;
-export const INTEL_REVIEW_BUDGET = 30;
+/**
+ * 本期精读预算：论文与 intel 分开计。稳态下每周新增候选远小于首跑积压，
+ * 预算的角色是病态周的保险丝而非常态过滤。intel 精读通过率极高（近似
+ * 直通 synthesize prompt），上限须明显低于论文侧，防合成提示词膨胀。
+ */
+export const PAPER_REVIEW_BUDGET = 100;
+export const INTEL_REVIEW_BUDGET = 50;
 /** 已 rejected 的候选，HF 热度达到该值时允许重新浮出（迟到爆款） */
 export const LATE_BLOOMER_UPVOTES = 30;
 
