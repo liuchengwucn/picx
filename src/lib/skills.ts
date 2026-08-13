@@ -27,7 +27,7 @@ export const skillNameSchema = z
 export const skillInputSchema = z.object({
   name: skillNameSchema,
   description: z.string().trim().min(1).max(SKILL_LIMITS.descriptionMax),
-  body: z.string().min(1).max(SKILL_LIMITS.bodyMax),
+  body: z.string().trim().min(1).max(SKILL_LIMITS.bodyMax),
 });
 export type SkillInput = z.infer<typeof skillInputSchema>;
 

@@ -103,8 +103,16 @@ function SkillEditor({
   /** 删除的就地两步确认（同会话列表的模式，不弹系统对话框） */
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
-  const setField = (field: SkillFormField, value: string) =>
+  const setField = (field: SkillFormField, value: string) => {
     setValues((previous) => ({ ...previous, [field]: value }));
+    // 用户一动这个字段就清掉它的红态，下次提交再统一重算
+    setInvalidFields((previous) => {
+      if (!previous.has(field)) return previous;
+      const next = new Set(previous);
+      next.delete(field);
+      return next;
+    });
+  };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -452,7 +460,8 @@ function AssistantSkillsPage() {
         void queryClient.invalidateQueries({
           queryKey: trpc.skills.get.queryKey({ id: variables.id }),
         });
-        toast.success(m.assistant_skills_saved());
+        // 列表 enabled 开关也走 update：只有编辑器保存（带 body）才弹「已保存」
+        if (variables.body != null) toast.success(m.assistant_skills_saved());
       },
       onError: (error) => toast.error(resolveSkillErrorMessage(error)),
     }),
@@ -585,6 +594,19 @@ function AssistantSkillsPage() {
           {listQuery.isPending ? (
             <div className="flex justify-center py-4">
               <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
+            </div>
+          ) : listQuery.isError ? (
+            <div className="flex flex-col items-start gap-3 py-2">
+              <p className="text-sm leading-relaxed text-[var(--ink-soft)]">
+                {resolveSkillErrorMessage(listQuery.error)}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void listQuery.refetch()}
+              >
+                {m.assistant_history_retry()}
+              </Button>
             </div>
           ) : (skills?.length ?? 0) === 0 ? (
             <p className="py-2 text-sm leading-relaxed text-[var(--ink-soft)]">
