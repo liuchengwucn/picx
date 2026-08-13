@@ -22,7 +22,11 @@ import {
 } from "#/lib/chat-stream";
 import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
-import { buildSkillsCatalogSection, SKILL_LIMITS } from "#/lib/skills";
+import {
+  buildSkillsCatalogSection,
+  parseSkillDirective,
+  SKILL_LIMITS,
+} from "#/lib/skills";
 
 /**
  * Assistant agent 的流式端点。会话创建走 tRPC assistant.createConversation，
@@ -195,7 +199,14 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
     };
     if (!conversation.title) {
       const firstText = body.message.parts[0]?.text;
-      if (firstText) patch.title = firstText.slice(0, 80);
+      if (firstText) {
+        // slash 指令消息落库是 <agent_skill /> 原始标记；标题改用人类可读的 /name args
+        const directive = parseSkillDirective(firstText);
+        const titleText = directive
+          ? `/${directive.name} ${directive.args}`.trim()
+          : firstText;
+        patch.title = titleText.slice(0, 80);
+      }
     }
     await db
       .update(conversations)
