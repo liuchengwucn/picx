@@ -7,6 +7,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { CHAT_ERROR_CODES, type ChatErrorCode } from "#/lib/chat-errors";
+import { parseSkillDirective } from "#/lib/skills";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -520,11 +521,24 @@ export const ChatMessage = memo(function ChatMessage({
   renderToolOutput?: (part: ToolUIPart, messageId: string) => React.ReactNode;
 }) {
   if (message.role === "user") {
+    // slash 指令消息（<agent_skill …/>）不露原始标签，渲染成 /name 徽章 + 参数
+    const directive = parseSkillDirective(messageText(message));
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-lg rounded-tr-sm border border-[var(--line)] bg-[var(--parchment-warm)] px-3 py-2 text-sm whitespace-pre-wrap text-[var(--ink)]">
-          {messageText(message)}
-        </p>
+        <div className="max-w-[85%] rounded-lg rounded-tr-sm border border-[var(--line)] bg-[var(--parchment-warm)] px-3 py-2 text-sm text-[var(--ink)]">
+          {directive ? (
+            <>
+              <span className="inline-flex items-center rounded border border-[var(--academic-brown)]/40 bg-[var(--academic-brown)]/10 px-1.5 py-0.5 font-mono text-xs text-[var(--academic-brown)]">
+                /{directive.name}
+              </span>
+              {directive.args && (
+                <p className="mt-1.5 whitespace-pre-wrap">{directive.args}</p>
+              )}
+            </>
+          ) : (
+            <p className="whitespace-pre-wrap">{messageText(message)}</p>
+          )}
+        </div>
       </div>
     );
   }
