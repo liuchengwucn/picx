@@ -10,7 +10,7 @@ const ITEM_CLASS =
 export default function MobileTabBar() {
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--header-bg)] pb-[env(safe-area-inset-bottom)] backdrop-blur-lg md:hidden"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--header-bg)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur-lg md:hidden"
       aria-label={m.nav_aria_tabbar()}
     >
       <div className="flex items-stretch">
@@ -25,6 +25,8 @@ export default function MobileTabBar() {
             {m.nav_home()}
           </span>
         </Link>
+        {/* 刻意用短版 nav_gallery 而非 Header 用的 nav_explore("公开画廊"):
+            Tab 宽度受限, 长文案会挤压相邻 Tab, 不是疏漏。 */}
         <Link
           to="/gallery"
           className={ITEM_CLASS}

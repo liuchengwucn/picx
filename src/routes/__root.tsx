@@ -26,7 +26,7 @@ interface MyRouterContext {
   trpc: TRPCOptionsProxy<TRPCRouter>;
 }
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
+const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;var tc=document.getElementById('theme-color');if(tc){tc.setAttribute('content',resolved==='dark'?'#1a1816':'#faf8f3')}}catch(e){}})();`;
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
   beforeLoad: async () => {
@@ -111,24 +111,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang={getLocale()} suppressHydrationWarning>
       <head>
+        {/* 单条 theme-color, 交给 THEME_INIT_SCRIPT 按已解析主题(而非系统偏好)
+            同步 content, 让手动切换的站内主题也能驱动 OS 状态栏/地址栏着色。
+            必须排在 script 之前: 内联 script 解析即同步执行,
+            getElementById('theme-color') 此刻要求元素已存在于 DOM。 */}
+        <meta name="theme-color" id="theme-color" content="#faf8f3" />
         <script suppressHydrationWarning>{THEME_INIT_SCRIPT}</script>
-        {/* Two theme-color metas differentiated only by `media`: TanStack
-            Router's HeadContent dedupes meta tags by `name` alone, so both
-            entries can't survive the managed `head()` meta array (only the
-            last one wins). Render them as literal head JSX instead. */}
-        <meta
-          name="theme-color"
-          media="(prefers-color-scheme: light)"
-          content="#faf8f3"
-        />
-        <meta
-          name="theme-color"
-          media="(prefers-color-scheme: dark)"
-          content="#1a1816"
-        />
         <HeadContent />
       </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
+      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         <TanStackQueryProvider>
           <DailyBonusClaim />
           <Header />

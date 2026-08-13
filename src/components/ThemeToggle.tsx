@@ -30,6 +30,18 @@ function applyThemeMode(mode: ThemeMode) {
   }
 
   document.documentElement.style.colorScheme = resolved;
+
+  // 与 __root.tsx 的 THEME_INIT_SCRIPT / src/lib/theme.ts 同步
+  // <meta id="theme-color">: 这是站内主题实际生效的路径(点击本组件的切换按钮,
+  // 或系统偏好在 auto 模式下变化), 不同步的话 OS 状态栏/地址栏颜色就只会
+  // 跟着系统偏好走, 忽略用户在站内手动选的 light/dark。
+  const themeColorMeta = document.getElementById("theme-color");
+  if (themeColorMeta) {
+    themeColorMeta.setAttribute(
+      "content",
+      resolved === "dark" ? "#1a1816" : "#faf8f3",
+    );
+  }
 }
 
 export default function ThemeToggle() {

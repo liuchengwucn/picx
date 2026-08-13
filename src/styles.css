@@ -229,6 +229,12 @@ a:hover { color: var(--academic-brown-deep); }
 .tab-link { color: var(--ink-soft); -webkit-tap-highlight-color: transparent; }
 .tab-link.is-active { color: var(--academic-brown); }
 
+/* Sonner 的 mobileOffset 只在 <600px 生效, Tab 栏在 <768px 才隐藏,
+   601–767px 区间两者断点不齐, toast 会压在 Tab 栏上, 手动补 scoped 覆盖 */
+@media (min-width: 601px) and (max-width: 767px) {
+  [data-sonner-toaster][data-y-position="bottom"] { bottom: calc(4rem + env(safe-area-inset-bottom)); }
+}
+
 /* 动画 */
 .rise-in { animation: rise-in 700ms cubic-bezier(0.16,1,0.3,1) both; }
 @keyframes rise-in {

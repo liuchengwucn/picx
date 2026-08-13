@@ -42,6 +42,16 @@ export function applyThemeMode(mode: ThemeMode): void {
     root.setAttribute("data-theme", mode);
   }
   root.style.colorScheme = resolved;
+
+  // 与 __root.tsx 的 THEME_INIT_SCRIPT 同步 <meta id="theme-color">, 让 OS
+  // 状态栏/地址栏跟随已解析主题, 而不是只跟 prefers-color-scheme。
+  const themeColorMeta = document.getElementById("theme-color");
+  if (themeColorMeta) {
+    themeColorMeta.setAttribute(
+      "content",
+      resolved === "dark" ? "#1a1816" : "#faf8f3",
+    );
+  }
 }
 
 export function setThemeMode(mode: ThemeMode): void {
