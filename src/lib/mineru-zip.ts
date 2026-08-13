@@ -78,11 +78,68 @@ export interface MineruZipContent {
   markdown: string;
   title: string | null;
   images: MineruZipImage[];
+  /**
+   * 从 zip 内元数据推出的总页数，推不出为 null。
+   * 批次结果 API 的 extract_progress 只在 running 期间返回，done 响应里没有，
+   * 页数只能从产物 zip 里取。
+   */
+  pageCount: number | null;
+}
+
+/**
+ * 从 zip 内元数据推总页数：layout.json 的 pdf_info 每页一项（含尾部空白页），
+ * 优先；缺失/形状不符时回退 *_content_list.json 的 max(page_idx)+1
+ * （尾部空白页无内容块会少算，论文场景可接受）。两者皆不可用返回 null。
+ */
+function extractPageCount(entries: Record<string, Uint8Array>): number | null {
+  try {
+    const layout = entries["layout.json"];
+    if (layout) {
+      const parsed = JSON.parse(strFromU8(layout)) as {
+        pdf_info?: unknown;
+      };
+      if (Array.isArray(parsed.pdf_info) && parsed.pdf_info.length > 0) {
+        return parsed.pdf_info.length;
+      }
+    }
+  } catch {
+    // 落到 content_list 回退
+  }
+
+  try {
+    const contentListName = Object.keys(entries).find((name) =>
+      name.endsWith("_content_list.json"),
+    );
+    if (contentListName) {
+      const parsed = JSON.parse(strFromU8(entries[contentListName])) as {
+        page_idx?: unknown;
+      }[];
+      if (Array.isArray(parsed)) {
+        let maxPageIdx = -1;
+        for (const item of parsed) {
+          if (
+            typeof item?.page_idx === "number" &&
+            item.page_idx > maxPageIdx
+          ) {
+            maxPageIdx = item.page_idx;
+          }
+        }
+        if (maxPageIdx >= 0) {
+          return maxPageIdx + 1;
+        }
+      }
+    }
+  } catch {
+    // 推不出页数不阻断解析
+  }
+
+  return null;
 }
 
 export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
   const entries = unzipSync(zipBytes);
   const entryNames = Object.keys(entries);
+  const pageCount = extractPageCount(entries);
 
   let markdownName: string | undefined = entryNames.find(
     (name) => name === "full.md",
@@ -94,7 +151,7 @@ export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
   }
 
   if (!markdownName) {
-    return { markdown: "", title: null, images: [] };
+    return { markdown: "", title: null, images: [], pageCount };
   }
 
   // 落盘前清洗 MinerU 的系统性乱码（连字误读、sub/sup 误判），在
@@ -123,7 +180,7 @@ export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
     };
   });
 
-  return { markdown, title: extractTitle(markdown), images };
+  return { markdown, title: extractTitle(markdown), images, pageCount };
 }
 
 /**

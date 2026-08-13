@@ -133,6 +133,74 @@ describe("parseMineruZip", () => {
     expect(new Set(images.map((img) => img.storedName)).size).toBe(2);
   });
 
+  it("extracts pageCount from layout.json pdf_info length", () => {
+    const zip = zipSync({
+      "full.md": strToU8("# T\n"),
+      "layout.json": strToU8(
+        JSON.stringify({ pdf_info: [{}, {}, {}], _backend: "vlm" }),
+      ),
+    });
+
+    expect(parseMineruZip(zip).pageCount).toBe(3);
+  });
+
+  it("falls back to content_list max page_idx + 1 when layout.json is absent", () => {
+    const zip = zipSync({
+      "full.md": strToU8("# T\n"),
+      "abc_content_list.json": strToU8(
+        JSON.stringify([
+          { type: "text", page_idx: 0 },
+          { type: "text", page_idx: 29 },
+          { type: "text", page_idx: 12 },
+        ]),
+      ),
+      // v2 形状不同，不应被当作 content_list 消费。
+      "abc_content_list_v2.json": strToU8(JSON.stringify([{ foo: 1 }])),
+    });
+
+    expect(parseMineruZip(zip).pageCount).toBe(30);
+  });
+
+  it("falls back to content_list when layout.json has an unexpected shape", () => {
+    const zip = zipSync({
+      "full.md": strToU8("# T\n"),
+      "layout.json": strToU8(JSON.stringify({ pages: 3 })),
+      "abc_content_list.json": strToU8(JSON.stringify([{ page_idx: 4 }])),
+    });
+
+    expect(parseMineruZip(zip).pageCount).toBe(5);
+  });
+
+  it("returns null pageCount when metadata is missing or malformed", () => {
+    const noMeta = zipSync({ "full.md": strToU8("# T\n") });
+    expect(parseMineruZip(noMeta).pageCount).toBeNull();
+
+    const malformed = zipSync({
+      "full.md": strToU8("# T\n"),
+      "layout.json": strToU8("{not json"),
+      "abc_content_list.json": strToU8("[broken"),
+    });
+    expect(parseMineruZip(malformed).pageCount).toBeNull();
+
+    // 有 content_list 但没有任何数值 page_idx。
+    const noIdx = zipSync({
+      "full.md": strToU8("# T\n"),
+      "abc_content_list.json": strToU8(JSON.stringify([{ type: "text" }])),
+    });
+    expect(parseMineruZip(noIdx).pageCount).toBeNull();
+  });
+
+  it("still reports pageCount when there is no markdown entry", () => {
+    const zip = zipSync({
+      "layout.json": strToU8(JSON.stringify({ pdf_info: [{}, {}] })),
+    });
+
+    const result = parseMineruZip(zip);
+
+    expect(result.markdown).toBe("");
+    expect(result.pageCount).toBe(2);
+  });
+
   it("ignores non-image entries", () => {
     const zip = zipSync({
       "full.md": strToU8("# T\n"),
