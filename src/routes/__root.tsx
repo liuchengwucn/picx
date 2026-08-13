@@ -113,8 +113,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         {/* 单条 theme-color, 交给 THEME_INIT_SCRIPT 按已解析主题(而非系统偏好)
             同步 content, 让手动切换的站内主题也能驱动 OS 状态栏/地址栏着色。
-            必须排在 script 之前: 内联 script 解析即同步执行,
-            getElementById('theme-color') 此刻要求元素已存在于 DOM。 */}
+            不能挪回 head() 的 meta 数组: TanStack Router 的 HeadContent 按 name
+            去重, 两条同 name 不同 media 的 theme-color 会被丢掉一条(c4a1f7e 修的
+            就是这个)。meta 先于脚本执行, 是 React hoistable 元素的 flush 顺序保证
+            的, 脚本里的 if(tc) 守卫兜底以防万一。 */}
+        {/* biome-ignore lint/correctness/useUniqueElementIds: RootDocument renders once per
+            document, and THEME_INIT_SCRIPT looks this up by literal id before React boots. */}
         <meta name="theme-color" id="theme-color" content="#faf8f3" />
         <script suppressHydrationWarning>{THEME_INIT_SCRIPT}</script>
         <HeadContent />

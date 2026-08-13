@@ -232,7 +232,7 @@ a:hover { color: var(--academic-brown-deep); }
 /* Sonner 的 mobileOffset 只在 <600px 生效, Tab 栏在 <768px 才隐藏,
    601–767px 区间两者断点不齐, toast 会压在 Tab 栏上, 手动补 scoped 覆盖 */
 @media (min-width: 601px) and (max-width: 767px) {
-  [data-sonner-toaster][data-y-position="bottom"] { bottom: calc(4rem + env(safe-area-inset-bottom)); }
+  html [data-sonner-toaster][data-y-position="bottom"] { bottom: calc(4rem + env(safe-area-inset-bottom)); }
 }
 
 /* 动画 */
