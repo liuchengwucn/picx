@@ -92,4 +92,33 @@ describe("authorSignalBlock", () => {
       "Author signal (Semantic Scholar): first author F h-index 2 (10 citations); last author L h-index 30 (5000 citations).",
     );
   });
+
+  it("renders authors line plus do-not-penalize line when only authors are known", () => {
+    const out = authorSignalBlock({
+      ...baseItem,
+      authors: ["A", "B"],
+      authorCount: 2,
+    });
+    expect(out).toBe(
+      [
+        "Authors: A, B",
+        "Author signal: not yet indexed by Semantic Scholar (common for very fresh papers — do NOT penalize).",
+      ].join("\n"),
+    );
+  });
+
+  it("falls back to the do-not-penalize line when a signal has no renderable parts", () => {
+    const out = authorSignalBlock({
+      ...baseItem,
+      authorSignal: {
+        first: null,
+        last: null,
+        maxHIndex: null,
+        totalAuthors: 0,
+      },
+    });
+    expect(out).toBe(
+      "Author signal: not yet indexed by Semantic Scholar (common for very fresh papers — do NOT penalize).",
+    );
+  });
 });

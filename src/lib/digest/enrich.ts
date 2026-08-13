@@ -86,6 +86,9 @@ export async function enrichAuthorSignals(
   );
   if (!res.ok) throw new Error(`semantic scholar batch: ${res.status}`);
   const rows = (await res.json()) as Array<S2Paper | null>;
+  if (!Array.isArray(rows)) {
+    throw new Error("semantic scholar batch: non-array response");
+  }
   return buildAuthorSignals(
     targets.map((t) => t.url),
     rows,
