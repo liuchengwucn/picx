@@ -317,29 +317,41 @@ export function buildAgentTools(deps: AgentToolsDeps) {
         args: z.string().max(4000).optional(),
       }),
       execute: async ({ name, args }) => {
-        const [row] = await db
-          .select({ name: assistantSkills.name, body: assistantSkills.body })
-          .from(assistantSkills)
-          .where(
-            and(
-              eq(assistantSkills.userId, userId),
-              eq(assistantSkills.name, name),
-              eq(assistantSkills.enabled, true),
-            ),
-          )
-          .limit(1);
-        if (!row) {
-          const rows = await db
-            .select({ name: assistantSkills.name })
+        // 查库失败降级为工具错误文本，不炸整轮生成（spec 承诺）
+        let row: { name: string; body: string } | undefined;
+        try {
+          [row] = await db
+            .select({ name: assistantSkills.name, body: assistantSkills.body })
             .from(assistantSkills)
             .where(
               and(
                 eq(assistantSkills.userId, userId),
+                eq(assistantSkills.name, name),
                 eq(assistantSkills.enabled, true),
               ),
             )
-            .orderBy(desc(assistantSkills.updatedAt))
-            .limit(SKILL_LIMITS.catalogMaxEntries);
+            .limit(1);
+        } catch {
+          return { error: "failed to load skill, try again" };
+        }
+        if (!row) {
+          let rows: { name: string }[];
+          try {
+            rows = await db
+              .select({ name: assistantSkills.name })
+              .from(assistantSkills)
+              .where(
+                and(
+                  eq(assistantSkills.userId, userId),
+                  eq(assistantSkills.enabled, true),
+                ),
+              )
+              .orderBy(desc(assistantSkills.updatedAt))
+              .limit(SKILL_LIMITS.catalogMaxEntries);
+          } catch {
+            // available 只是补充信息，列不出来就只报未找到
+            return { error: "skill not found" };
+          }
           return {
             error: "skill not found",
             available: rows.map((r) => r.name),

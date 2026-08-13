@@ -13,13 +13,14 @@ import {
 // 仅类型导入：chat.ts 是服务端模块，值导入会被打进客户端包
 import type { ChatReasoningEffort } from "#/lib/chat";
 import { CHAT_CLIENT_LIMITS } from "#/lib/chat-errors";
+import { buildSkillDirectiveText } from "#/lib/skills";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
 /** 与服务端 maxInputChars 同源（超出直接 413） */
 const MAX_INPUT_CHARS = CHAT_CLIENT_LIMITS.maxInputChars;
-/** 只在接近上限时才露出计数器，平时不干扰书写 */
-const COUNTER_VISIBLE_FROM = Math.floor(MAX_INPUT_CHARS * 0.9);
+/** 只在接近上限（动态预算的 90%）时才露出计数器，平时不干扰书写 */
+const COUNTER_VISIBLE_RATIO = 0.9;
 
 /**
  * 输入区工具栏微开关的视觉语言（两个开关必须一致）。
@@ -185,6 +186,18 @@ export function ChatInputArea({
     ? m.assistant_slash_args_placeholder()
     : placeholder;
 
+  /**
+   * 输入预算：选中 skill 时实发消息是 `<agent_skill name="…" />\nARGUMENT: <输入>`，
+   * 指令外壳也占服务端 4000 字符上限——按选中 skill 的实际 name 精确扣减，
+   * 否则极限长参数会被 413、而 handleSend 已先清空输入导致文本丢失。
+   * 开销用 buildSkillDirectiveText 本尊来算（占位参数 "x" 再减 1），格式变了不漂移。
+   */
+  const maxInputChars = selectedSlashCommand
+    ? MAX_INPUT_CHARS -
+      (buildSkillDirectiveText(selectedSlashCommand.name, "x").length - 1)
+    : MAX_INPUT_CHARS;
+  const counterVisibleFrom = Math.floor(maxInputChars * COUNTER_VISIBLE_RATIO);
+
   return (
     <>
       <div className="relative flex items-end gap-2 rounded-lg border border-transparent px-2 py-1.5 transition-colors focus-within:border-[var(--academic-brown)]/60 focus-within:bg-[var(--parchment-warm)]/60">
@@ -313,7 +326,7 @@ export function ChatInputArea({
             event.preventDefault();
             onSend();
           }}
-          maxLength={MAX_INPUT_CHARS}
+          maxLength={maxInputChars}
           rows={2}
           placeholder={effectivePlaceholder}
           aria-label={effectivePlaceholder}
@@ -404,9 +417,9 @@ export function ChatInputArea({
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-        {input.length >= COUNTER_VISIBLE_FROM && (
+        {input.length >= counterVisibleFrom && (
           <p className="ml-auto text-[11px] tabular-nums text-[var(--ink-soft)]">
-            {input.length} / {MAX_INPUT_CHARS}
+            {input.length} / {maxInputChars}
           </p>
         )}
       </div>
