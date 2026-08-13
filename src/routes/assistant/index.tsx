@@ -435,8 +435,9 @@ function AssistantPage() {
   })();
 
   return (
-    // 视口高度减去 header（≈60/68px）：对话区自己滚，输入框吸在底部
-    <main className="page-wrap flex h-[calc(100dvh-3.75rem)] sm:h-[calc(100dvh-4.25rem)]">
+    // 视口高度减去 header（≈60/68px）与底部 Tab 栏（md 起消失）及顶/底 safe-area：
+    // 对话区自己滚，输入框吸在底部
+    <main className="page-wrap flex h-[calc(100dvh-3.75rem-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-4.25rem-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] md:h-[calc(100dvh-4.25rem-env(safe-area-inset-top))]">
       <h1 className="sr-only">{m.assistant_page_title()}</h1>
       <aside className="hidden w-64 shrink-0 flex-col border-r border-[var(--line)] py-4 pr-4 md:flex">
         <h2 className="text-[11px] tracking-[0.18em] text-[var(--ink-soft)] uppercase">

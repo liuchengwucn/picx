@@ -9,7 +9,10 @@ const ITEM_CLASS =
 
 export default function MobileTabBar() {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--header-bg)] pb-[env(safe-area-inset-bottom)] backdrop-blur-lg md:hidden">
+    <nav
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--header-bg)] pb-[env(safe-area-inset-bottom)] backdrop-blur-lg md:hidden"
+      aria-label={m.nav_aria_tabbar()}
+    >
       <div className="flex items-stretch">
         <Link
           to="/"
@@ -18,7 +21,7 @@ export default function MobileTabBar() {
           activeProps={{ className: `${ITEM_CLASS} is-active` }}
         >
           <Home className="h-5 w-5" />
-          <span className="text-[10px] font-medium leading-none">
+          <span className="text-[10px] font-medium leading-none whitespace-nowrap">
             {m.nav_home()}
           </span>
         </Link>
@@ -28,7 +31,7 @@ export default function MobileTabBar() {
           activeProps={{ className: `${ITEM_CLASS} is-active` }}
         >
           <Globe className="h-5 w-5" />
-          <span className="text-[10px] font-medium leading-none">
+          <span className="text-[10px] font-medium leading-none whitespace-nowrap">
             {m.nav_gallery()}
           </span>
         </Link>
@@ -38,7 +41,7 @@ export default function MobileTabBar() {
           activeProps={{ className: `${ITEM_CLASS} is-active` }}
         >
           <Newspaper className="h-5 w-5" />
-          <span className="text-[10px] font-medium leading-none">
+          <span className="text-[10px] font-medium leading-none whitespace-nowrap">
             {m.nav_news()}
           </span>
         </Link>
@@ -48,7 +51,7 @@ export default function MobileTabBar() {
           activeProps={{ className: `${ITEM_CLASS} is-active` }}
         >
           <FileText className="h-5 w-5" />
-          <span className="text-[10px] font-medium leading-none">
+          <span className="text-[10px] font-medium leading-none whitespace-nowrap">
             {m.nav_papers()}
           </span>
         </Link>
@@ -58,7 +61,7 @@ export default function MobileTabBar() {
           activeProps={{ className: `${ITEM_CLASS} is-active` }}
         >
           <Sparkles className="h-5 w-5" />
-          <span className="text-[10px] font-medium leading-none">
+          <span className="text-[10px] font-medium leading-none whitespace-nowrap">
             {m.nav_assistant()}
           </span>
         </Link>

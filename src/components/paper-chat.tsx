@@ -895,7 +895,7 @@ export function PaperChat({
           <DialogTrigger asChild>
             <Button
               size="icon-lg"
-              className="fixed right-5 bottom-[calc(1.25rem_+_env(safe-area-inset-bottom))] z-40 rounded-full shadow-[0_10px_30px_rgba(87,61,38,0.28)] xl:hidden"
+              className="fixed right-5 bottom-[calc(1.25rem_+_3.5rem_+_env(safe-area-inset-bottom))] z-40 rounded-full shadow-[0_10px_30px_rgba(87,61,38,0.28)] md:bottom-[calc(1.25rem_+_env(safe-area-inset-bottom))] xl:hidden"
               aria-label={m.chat_open()}
             >
               <MessageSquareQuote className="h-5 w-5" />
