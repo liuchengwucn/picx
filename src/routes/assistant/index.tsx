@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { UIMessage } from "ai";
 import {
@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -397,6 +398,21 @@ function AssistantPage() {
     </Button>
   );
 
+  // 技能管理入口：与个人档案同级同分量（ghost），样式沿用 ProfileDialog 的触发按钮
+  const skillsLink = (
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      aria-label={m.assistant_skills_title()}
+    >
+      <Link to="/assistant/skills" title={m.assistant_skills_title()}>
+        <Sparkles className="h-4 w-4" />
+        <span className="max-md:sr-only">{m.assistant_skills_title()}</span>
+      </Link>
+    </Button>
+  );
+
   // 会话未就绪时的三种落点：拉历史失败、一条会话都没有、正在拉取
   const chatFallback = (() => {
     // 只有「一条历史都没拿到」才算失败落地：后台重取失败时 data 还在，聊天区照常
@@ -446,6 +462,7 @@ function AssistantPage() {
         {/* 按钮不换行也不收缩：日文标签比侧栏还宽时靠 flex-wrap 落到第二行 */}
         <div className="mt-3 flex flex-wrap items-center gap-1">
           {newConversationButton}
+          {skillsLink}
           <ProfileDialog />
         </div>
         <nav
@@ -482,6 +499,7 @@ function AssistantPage() {
               )}
             />
           </button>
+          {skillsLink}
           <ProfileDialog />
           {newConversationButton}
         </div>
