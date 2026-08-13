@@ -80,16 +80,6 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       { property: "og:image", content: "https://picx.dev/logo512.png" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:image", content: "https://picx.dev/logo512.png" },
-      {
-        name: "theme-color",
-        media: "(prefers-color-scheme: light)",
-        content: "#faf8f3",
-      },
-      {
-        name: "theme-color",
-        media: "(prefers-color-scheme: dark)",
-        content: "#1a1816",
-      },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       {
@@ -122,6 +112,20 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     <html lang={getLocale()} suppressHydrationWarning>
       <head>
         <script suppressHydrationWarning>{THEME_INIT_SCRIPT}</script>
+        {/* Two theme-color metas differentiated only by `media`: TanStack
+            Router's HeadContent dedupes meta tags by `name` alone, so both
+            entries can't survive the managed `head()` meta array (only the
+            last one wins). Render them as literal head JSX instead. */}
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: light)"
+          content="#faf8f3"
+        />
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: dark)"
+          content="#1a1816"
+        />
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
