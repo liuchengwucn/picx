@@ -27,7 +27,10 @@ import {
 } from "#/lib/digest/candidates";
 import { enrichAuthorSignals } from "#/lib/digest/enrich";
 import { cheapModel, strongModel } from "#/lib/digest/llm";
-import { fetchDirectionSource } from "#/lib/digest/sources";
+import {
+  ArxivRateLimitError,
+  fetchDirectionSource,
+} from "#/lib/digest/sources";
 import {
   canonicalizeCandidate,
   countUnfinishedPapers,
@@ -58,6 +61,8 @@ export type DigestWorkflowParams = {
   directionId: string;
   /** 触发日 ISO（periodEnd）；cron 侧传入保证可复现 */
   periodEnd: string;
+  /** cron 侧按方向下标错峰启动，避免 7 个实例同时打 arXiv；admin 手动触发不传 = 不错峰 */
+  staggerMinutes?: number;
 };
 
 const WINDOW_DAYS = 7;
@@ -74,8 +79,17 @@ const VOTES = 3;
 const REVIEW_PASS_SCORE = 55;
 /** 论文处理等待：18 轮 × 10 分钟 = 最多 3 小时后兜底发布 */
 const PUBLISH_POLL_ROUNDS = 18;
+/** arXiv 429 惩罚期实测是分钟级，20s 级退避只会连吃 429，须用分钟级恒定退避 */
+const ARXIV_SCAN_RETRIES = {
+  retries: {
+    limit: 2,
+    delay: "5 minutes" as const,
+    backoff: "constant" as const,
+  },
+  timeout: "5 minutes" as const,
+};
 
-/** 简单分批并发（源扫描/精读的批内 Promise.all，批间串行） */
+/** 简单分批并发（角度搜索/精读/验证的批内 Promise.all，批间串行） */
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -96,6 +110,13 @@ export class DigestWorkflow extends WorkflowEntrypoint<
     const periodEnd = new Date(event.payload.periodEnd);
     const periodStart = new Date(periodEnd.getTime() - WINDOW_DAYS * 86400_000);
     const periodLabel = `${periodStart.toISOString().slice(0, 10)} ~ ${periodEnd.toISOString().slice(0, 10)}`;
+
+    // ── 0. 跨实例错峰：cron 一次性创建全部方向实例，不错峰会让 export.arxiv.org
+    // 瞬时收到 ~30 源并发请求，远超其 1 req/3s 的限速 ──
+    const staggerMinutes = event.payload.staggerMinutes ?? 0;
+    if (staggerMinutes > 0) {
+      await step.sleep("stagger-start", `${staggerMinutes} minutes`);
+    }
 
     // ── 1. 加载上下文 + digest shell ──
     const ctx = await step.do("load-context", () =>
@@ -143,50 +164,72 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           `[Digest] ${ctx.direction.slug}: probing ${probes.length} tripped source(s): ${probes.map((s) => s.id).join(", ")}`,
         );
       }
+      // 源扫描严格串行（不再 chunk(3) 并发）：arXiv 对 export.arxiv.org 要求
+      // 单连接 1 req/3s，且实测还有分钟级窗口配额，并发扫多个 arxiv_query 源
+      // 会直接触发 429。rss 源无此限制，但为保持顺序简单一律走同一条串行链。
       const sourceGroups: CandidateItem[][] = [];
-      for (const batch of chunk(activeSources, 3)) {
-        const results = await Promise.all(
-          batch.map((source) =>
-            step.do(`scan-source-${source.id}`, LLM_RETRIES, async () => {
-              try {
-                const items = await fetchDirectionSource(
-                  source.adapterType,
-                  source.config,
-                  periodStart,
-                  source.id,
-                );
-                // 初筛（廉价模型）：只留过线条目
-                const scores = await scoreSourceItems(
-                  cheapModel(env),
-                  ctx.direction.focusBrief,
-                  items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
-                );
-                await recordSourceResult(
-                  db,
-                  source.id,
-                  source.consecutiveFailures,
-                  { ok: true },
-                );
-                return items
-                  .map((it, i) => ({ ...it, prescore: scores[i] }))
-                  .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
-              } catch (e) {
-                // 源失败不失败整期：记熔断，返回空
-                await recordSourceResult(
-                  db,
-                  source.id,
-                  source.consecutiveFailures,
-                  {
-                    ok: false,
-                    error: e instanceof Error ? e.message : String(e),
-                  },
-                );
-                return [] as CandidateItem[];
-              }
-            }),
-          ),
-        );
-        sourceGroups.push(...results);
+      for (let i = 0; i < activeSources.length; i++) {
+        const source = activeSources[i];
+        if (source.adapterType === "arxiv_query" && i > 0) {
+          // 仅 arxiv_query 源之间需要限速间隔；step 名用 activeSources 下标
+          // （由 event.timestamp 派生，重放稳定）而非 source.id，保证唯一且可重放
+          await step.sleep(`arxiv-gap-${i}`, "4 seconds");
+        }
+        const retryConfig =
+          source.adapterType === "arxiv_query"
+            ? ARXIV_SCAN_RETRIES
+            : LLM_RETRIES;
+        const items = await step
+          .do(`scan-source-${source.id}`, retryConfig, async () => {
+            try {
+              const items = await fetchDirectionSource(
+                source.adapterType,
+                source.config,
+                periodStart,
+                source.id,
+              );
+              // 初筛（廉价模型）：只留过线条目
+              const scores = await scoreSourceItems(
+                cheapModel(env),
+                ctx.direction.focusBrief,
+                items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
+              );
+              await recordSourceResult(
+                db,
+                source.id,
+                source.consecutiveFailures,
+                { ok: true },
+              );
+              return items
+                .map((it, i) => ({ ...it, prescore: scores[i] }))
+                .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
+            } catch (e) {
+              // 429 不计熔断（是我们自己的速率问题，不是源死了）：直接重抛，
+              // 交给 step 的分钟级退避重试；其余错误才走熔断记账
+              if (e instanceof ArxivRateLimitError) throw e;
+              // 源失败不失败整期：记熔断，返回空
+              await recordSourceResult(
+                db,
+                source.id,
+                source.consecutiveFailures,
+                {
+                  ok: false,
+                  error: e instanceof Error ? e.message : String(e),
+                },
+              );
+              return [] as CandidateItem[];
+            }
+          })
+          .catch((e): CandidateItem[] => {
+            // 429 重试耗尽（分钟级退避 × 2 次仍失败）：不计熔断、丢弃本期该源，
+            // 绝不失败整个方向的 digest
+            console.warn(
+              `[Digest] scan-source-${source.id}: rate-limit retries exhausted, dropping this source for this issue:`,
+              e,
+            );
+            return [] as CandidateItem[];
+          });
+        sourceGroups.push(items);
       }
 
       // ── 4. 角度搜索扇出（每角度一个 step）──

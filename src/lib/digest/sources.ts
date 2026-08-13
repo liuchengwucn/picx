@@ -10,6 +10,14 @@ const MAX_EXCERPT = 1200;
 /** 超长作者团队截断：保留前 AUTHORS_HEAD 位 + 末位 */
 const AUTHORS_HEAD = 5;
 
+/** arXiv 限流（429）专用错误类型：区别于源本身死亡，调用方需要走分钟级退避重试而非计入熔断 */
+export class ArxivRateLimitError extends Error {
+  constructor() {
+    super("arxiv api: 429 (rate limited)");
+    this.name = "ArxivRateLimitError";
+  }
+}
+
 const atomParser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
@@ -62,6 +70,7 @@ export async function fetchArxivQuery(
   const res = await fetch(url, {
     headers: { "User-Agent": "picx-digest-bot/1.0 (+https://picx.dev)" },
   });
+  if (res.status === 429) throw new ArxivRateLimitError();
   if (!res.ok) throw new Error(`arxiv api: ${res.status}`);
   const xml = await res.text();
   const doc = atomParser.parse(xml) as {
