@@ -1,6 +1,6 @@
 import { Brain, Globe, Loader2, SendHorizontal, X } from "lucide-react";
 import type { RefObject } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { REASONING_EFFORTS } from "#/components/chat/use-chat-settings";
 import { Button } from "#/components/ui/button";
 import {
@@ -145,11 +145,10 @@ export function ChatInputArea({
    * onChange 里重置为 0，不用 effect（避免再添一条 exhaustiveDependencies 抑制）。
    */
   const [slashHighlight, setSlashHighlight] = useState(0);
+  const slashEnabled =
+    !!onSelectSlashCommand && (slashCommands?.length ?? 0) > 0;
   const slashOpen =
-    !!onSelectSlashCommand &&
-    (slashCommands?.length ?? 0) > 0 &&
-    !selectedSlashCommand &&
-    input.startsWith("/");
+    slashEnabled && !selectedSlashCommand && input.startsWith("/");
   const slashQuery = input.slice(1).toLowerCase();
   const filteredSlash = slashOpen
     ? (slashCommands ?? []).filter(
@@ -158,11 +157,33 @@ export function ChatInputArea({
           item.description.toLowerCase().includes(slashQuery),
       )
     : [];
+  // 读取处夹取：state 里的 index 存在不经过 onChange 的越界路径（如 React Query
+  // refetch 让 slashCommands 变短），键盘与渲染一律用夹取后的值
+  const slashActive = Math.min(
+    slashHighlight,
+    Math.max(filteredSlash.length - 1, 0),
+  );
+  // combobox a11y 的稳定 id（listbox 容器与每个 option）
+  const slashListboxId = useId();
+  const slashOptionId = (index: number) => `${slashListboxId}-opt-${index}`;
 
   const selectSlash = (item: SlashCommandItem) => {
     onSelectSlashCommand?.(item);
     onInputChange("");
   };
+
+  // 高亮项滚进视野：useCallback 稳定身份，只在高亮切换（ref 从 undefined 换成
+  // 本函数）时触发一次，普通重渲染不会反复 detach/attach
+  const scrollSlashOptionIntoView = useCallback(
+    (node: HTMLButtonElement | null) =>
+      node?.scrollIntoView({ block: "nearest" }),
+    [],
+  );
+
+  // 选中 skill 后可见 placeholder 换成参数提示，aria-label 必须同步
+  const effectivePlaceholder = selectedSlashCommand
+    ? m.assistant_slash_args_placeholder()
+    : placeholder;
 
   return (
     <>
@@ -179,18 +200,21 @@ export function ChatInputArea({
               </p>
             ) : (
               // div 而非 ul：biome 的 a11y 规则不接受 ul+role=listbox
-              <div className="max-h-56 overflow-y-auto p-1" role="listbox">
+              <div
+                id={slashListboxId}
+                className="max-h-56 overflow-y-auto p-1"
+                role="listbox"
+              >
                 {filteredSlash.map((item, index) => (
                   <button
                     key={item.id}
+                    id={slashOptionId(index)}
                     type="button"
                     role="option"
-                    aria-selected={index === slashHighlight}
-                    // 高亮项滚进视野：ref 随高亮切换而换身份，React 重挂时触发；
-                    // 不用 effect（省一条 exhaustiveDependencies 抑制）
+                    aria-selected={index === slashActive}
                     ref={
-                      index === slashHighlight
-                        ? (node) => node?.scrollIntoView({ block: "nearest" })
+                      index === slashActive
+                        ? scrollSlashOptionIntoView
                         : undefined
                     }
                     // onMouseDown 而非 onClick：click 要等 mouseup，textarea
@@ -202,8 +226,7 @@ export function ChatInputArea({
                     onMouseEnter={() => setSlashHighlight(index)}
                     className={cn(
                       "flex w-full flex-col items-start gap-0.5 rounded-sm px-2 py-1.5 text-left",
-                      index === slashHighlight &&
-                        "bg-[var(--academic-brown)]/10",
+                      index === slashActive && "bg-[var(--academic-brown)]/10",
                     )}
                   >
                     <span className="font-mono text-xs text-[var(--academic-brown)]">
@@ -247,14 +270,14 @@ export function ChatInputArea({
             if (slashOpen && !event.nativeEvent.isComposing) {
               if (event.key === "ArrowDown" && filteredSlash.length > 0) {
                 event.preventDefault();
-                setSlashHighlight((index) =>
-                  Math.min(index + 1, filteredSlash.length - 1),
+                setSlashHighlight(
+                  Math.min(slashActive + 1, filteredSlash.length - 1),
                 );
                 return;
               }
               if (event.key === "ArrowUp" && filteredSlash.length > 0) {
                 event.preventDefault();
-                setSlashHighlight((index) => Math.max(index - 1, 0));
+                setSlashHighlight(Math.max(slashActive - 1, 0));
                 return;
               }
               if (event.key === "Escape") {
@@ -264,7 +287,8 @@ export function ChatInputArea({
                 return;
               }
               if (event.key === "Enter" && !event.shiftKey) {
-                const item = filteredSlash[slashHighlight];
+                // 列表为空时 slashActive=0 也取不到项，保持放行发送的语义
+                const item = filteredSlash[slashActive];
                 if (item) {
                   event.preventDefault();
                   selectSlash(item);
@@ -291,12 +315,21 @@ export function ChatInputArea({
           }}
           maxLength={MAX_INPUT_CHARS}
           rows={2}
-          placeholder={
-            selectedSlashCommand
-              ? m.assistant_slash_args_placeholder()
-              : placeholder
-          }
-          aria-label={placeholder}
+          placeholder={effectivePlaceholder}
+          aria-label={effectivePlaceholder}
+          // combobox 语义只在接入 slash 的页面挂上（条件 spread：论文页零额外
+          // 属性，biome 的静态 role 检查也不会把 textbox 误判成不支持 aria-expanded）
+          {...(slashEnabled
+            ? {
+                role: "combobox",
+                "aria-expanded": slashOpen,
+                "aria-controls": slashOpen ? slashListboxId : undefined,
+                "aria-activedescendant":
+                  slashOpen && filteredSlash.length > 0
+                    ? slashOptionId(slashActive)
+                    : undefined,
+              }
+            : undefined)}
           className="max-h-40 min-h-10 flex-1 resize-none bg-transparent text-sm leading-relaxed text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]"
         />
         {isBusy ? (
@@ -326,6 +359,8 @@ export function ChatInputArea({
           </Button>
         )}
       </div>
+      {/* 设置行：与 ToolTrace 同一套 11px 大写微标签语汇。搜索是 agentic 的：
+          开着也只是允许模型在需要时搜，不是每条都搜 */}
       <div className="mt-1 flex items-center gap-1.5 px-2 pb-0.5">
         <button
           type="button"
