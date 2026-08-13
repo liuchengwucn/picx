@@ -115,7 +115,9 @@ const config = defineConfig({
     paraglideVitePlugin({
       project: "./project.inlang",
       outdir: "./src/paraglide",
-      strategy: ["localStorage", "preferredLanguage", "baseLocale"],
+      // custom-negotiate 只在服务端注册（见 src/server.ts）；客户端解析时未注册的
+      // custom 策略会被跳过，等效链条是 cookie → localStorage → baseLocale。
+      strategy: ["cookie", "localStorage", "custom-negotiate", "baseLocale"],
     }),
     // 本地 dev 不建 remote preview 会话（AI binding 是 remote-only，在部分网络下
     // 隧道不可达会导致 dev server 启动失败）；embed 在 dev 走 REST 回退，
