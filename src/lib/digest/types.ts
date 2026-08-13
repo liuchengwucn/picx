@@ -73,3 +73,11 @@ export interface FeedbackSample {
   reasonPreset?: string | null;
   reasonText?: string | null;
 }
+
+/** 往期已推荐论文的一行记忆（查重清单用）：来自 digest_papers × papers */
+export interface PastPick {
+  issueNumber: number;
+  title: string;
+  /** recommendationNote 的 zh-cn（缺则按 DIGEST_LOCALES 顺序回退），可为空串 */
+  note: string;
+}

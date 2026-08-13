@@ -10,6 +10,7 @@ import {
   DIGEST_LOCALES,
   type DigestLocale,
   type FeedbackSample,
+  type PastPick,
   type ReviewedCandidate,
   type ScopeAngle,
   type ScopeResult,
@@ -30,6 +31,22 @@ function feedbackBlock(samples: FeedbackSample[]): string {
       const reason = [s.reasonPreset, s.reasonText].filter(Boolean).join(": ");
       return `- [${s.vote > 0 ? "LIKED" : "DISLIKED"}] ${clean(s.paperTitle)}${reason ? ` — ${clean(reason)}` : ""}`;
     })
+    .join("\n");
+}
+
+/**
+ * 查重记忆清单渲染。空清单渲染占位行而不是省略整节——注入无条件、prompt 形状恒定，
+ * 相关指令在空清单下自然空转（intel 精读、首期冷启动都走这条路）。
+ * title/note 过 clean() 压成单行；清单是自产数据，不属 UNTRUSTED_NOTE 管辖，
+ * clean 只为防历史数据夹带换行/控制字符破坏行结构。
+ */
+export function pastPicksBlock(picks: PastPick[]): string {
+  if (picks.length === 0) return "(no prior picks yet)";
+  return picks
+    .map(
+      (p) =>
+        `- [#${p.issueNumber}] ${clean(p.title)}${p.note ? ` — ${clean(p.note)}` : ""}`,
+    )
     .join("\n");
 }
 
@@ -209,17 +226,19 @@ export async function reviewCandidate(
   focusBrief: string,
   item: CandidateItem,
   fullText: string | null,
+  pastPicks: PastPick[],
 ): Promise<CandidateReview> {
   const system = [
     "You review one candidate for a weekly research digest. Judge NOVELTY and FIT, not popularity.",
     "Rules:",
-    "- novelty: what is genuinely new here, in one or two sentences.",
+    "- novelty: what is genuinely new here, in one or two sentences. Novelty means novel to a reader of this direction who has already seen every prior pick listed below. If the method is very similar to a prior pick, novelty MUST name that pick (title or issue number) and state the concrete increment over it.",
     "- noveltyQuote: a verbatim quote (<=300 chars) from the source text that supports the novelty claim. If you cannot find a supporting quote, say so in novelty and use an empty string.",
     "- relevance: 0-100 fit to the research focus.",
     "- recommendation: 2-3 sentences: why a researcher in this direction should (or should not) read it.",
-    "- score: 0-100 overall (novelty x relevance x rigor). Marketing fluff and incremental work score low.",
+    "- score: 0-100 overall (novelty x relevance x rigor). Marketing fluff and incremental work score low. Work that merely re-does a prior pick's method without a concrete increment must score low.",
     UNTRUSTED_NOTE,
     `Research focus:\n${focusBrief}`,
+    `Prior picks (already recommended in past issues):\n${pastPicksBlock(pastPicks)}`,
     'Return JSON only: {"novelty":"...","noveltyQuote":"...","relevance":n,"recommendation":"...","score":n}',
   ].join("\n");
   const user = [
@@ -250,15 +269,18 @@ export async function verifyCandidate(
   focusBrief: string,
   reviewed: ReviewedCandidate,
   voterIndex: number,
+  pastPicks: PastPick[],
 ): Promise<VerifyVerdict> {
   const system = [
     `You are adversarial verifier #${voterIndex + 1}/3. Be SKEPTICAL: try to REFUTE this recommendation.`,
     "Checklist:",
-    "1. Is the novelty claim actually supported by the quote, or an overreach?",
+    "1. Is the novelty claim actually supported by the quote — or, for claims comparing against prior picks, by the prior-picks list below? Unsupported either way = overreach.",
     "2. Is this marketing fluff / press release / cherry-picked benchmark / incremental tweak?",
     "3. Does it actually fit the research focus, or is it adjacent-but-noise?",
+    "4. If the novelty claims similarity to or an increment over a prior pick, check that the pick actually appears in the list below and that the comparison holds. A named prior pick missing from the list = refuted.",
     "refuted=true if any check fails. Default to refuted=true if uncertain.",
     `Research focus:\n${focusBrief}`,
+    `Prior picks (reference for comparative claims):\n${pastPicksBlock(pastPicks)}`,
     UNTRUSTED_NOTE,
     'Return JSON only: {"refuted":bool,"evidence":"specific reason"}',
   ].join("\n");
@@ -283,6 +305,9 @@ export async function synthesizeDigest(
     issueNumber: number;
     periodLabel: string; // "2026-08-01 ~ 2026-08-08"
     feedback: FeedbackSample[];
+    pastPicks: PastPick[];
+    /** 上一期 published 正文（防复读对照物）；首期为 null */
+    lastIssue: { issueNumber: number; body: string } | null;
     papers: Array<ReviewedCandidate & { voteOutcome: string }>;
     intel: ReviewedCandidate[];
   },
@@ -291,10 +316,12 @@ export async function synthesizeDigest(
     "You are the editor-in-chief finalizing one issue of a weekly research digest for one research direction. Write in Simplified Chinese (zh-cn).",
     "Tasks:",
     "1. picks: select papers genuinely worth the reader's time. Quality bar over quota — typically 3-10, fewer is fine. Rank by importance. For each write recommendationNote (zh-cn, 2-4 sentences: what's new + why read it).",
+    "   Cross-issue dedup: downgrade any candidate methodologically similar to a prior pick (see Prior picks below) unless its recommendationNote names that prior pick (with issue number) and states the concrete increment over it.",
     "2. content: the issue body in markdown (zh-cn), sections: 本期看点 (2-3 段总评) / 社区与动态 (based on intel items; skip if none) / 未解之问 (2-4 open questions).",
     "   Do NOT re-describe each picked paper in content — the picks render as cards below the body.",
     "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them.",
     "   Every named team/system/dataset/benchmark/result claim in content MUST carry an inline markdown link [标题](URL) to its source. If the provided material has no URL for a claim and web_search cannot find an authoritative one, omit the claim entirely — 宁可不写, never leave a named claim unlinked.",
+    "   Do NOT repeat the previous issue's themes or open questions (its body is provided below when available). A carried-over open question may appear only when framed as progress since last issue (e.g. 「上期提出的X，本周有了…」), never restated as-is.",
     "You have a web_search tool. Its ONLY purpose is to find or verify the canonical URL / details for claims you want to mention in content (official announcement, repo, blog post). NEVER use it to discover new candidate papers or expand coverage beyond the material provided below.",
     "3. title: issue title (zh-cn), concrete not clickbait, e.g. 「第N期：<本期最重要主题>」.",
     "4. proposedFocusUpdate: if this week's findings or feedback suggest the focus brief should evolve (new sub-topic emerging, stale sub-topic), propose the FULL revised focus brief text (zh-cn); otherwise omit.",
@@ -315,9 +342,18 @@ export async function synthesizeDigest(
         `### ${clean(p.item.title)}\nURL: ${p.item.canonicalUrl}\nSummary: ${p.review.novelty}\nNote: ${p.review.recommendation}`,
     )
     .join("\n\n");
+  const historySections = [
+    `## Prior picks (recent issues)\n${pastPicksBlock(input.pastPicks)}`,
+    ...(input.lastIssue
+      ? [
+          `## Last issue (#${input.lastIssue.issueNumber}) body — do NOT repeat its themes or open questions\n${input.lastIssue.body}`,
+        ]
+      : []),
+  ];
   const user = [
     `## Direction: ${input.directionName} — Issue #${input.issueNumber} (${input.periodLabel})`,
     `## Focus brief\n${input.focusBrief}`,
+    ...historySections,
     `## User feedback\n${feedbackBlock(input.feedback)}`,
     `## Paper candidates (passed adversarial verification unless marked otherwise)\n${paperBlock || "(none)"}`,
     `## Intel items\n${intelBlock || "(none)"}`,

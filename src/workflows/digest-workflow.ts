@@ -296,6 +296,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     ctx.direction.focusBrief,
                     item,
                     fullText,
+                    item.kind === "paper" ? ctx.history.pastPicks : [],
                   );
                   await updateCandidateStatus(
                     db,
@@ -347,6 +348,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                         ctx.direction.focusBrief,
                         r,
                         v,
+                        ctx.history.pastPicks,
                       ).catch(() => null),
                     ),
                   );
@@ -396,6 +398,15 @@ export class DigestWorkflow extends WorkflowEntrypoint<
             issueNumber: shell.issueNumber,
             periodLabel,
             feedback: ctx.feedback,
+            pastPicks: ctx.history.pastPicks,
+            lastIssue:
+              ctx.history.lastIssueBody !== null &&
+              ctx.history.lastIssueNumber !== null
+                ? {
+                    issueNumber: ctx.history.lastIssueNumber,
+                    body: ctx.history.lastIssueBody,
+                  }
+                : null,
             papers: passedPapers.map((v) => ({
               ...v.r,
               voteOutcome: v.outcome,

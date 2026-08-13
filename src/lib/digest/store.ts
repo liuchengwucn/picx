@@ -36,11 +36,28 @@ import { directionIntroSource } from "./present";
 import type {
   CandidateItem,
   FeedbackSample,
+  PastPick,
   ReviewedCandidate,
   SynthesisPick,
 } from "./types";
+import { DIGEST_LOCALES } from "./types";
 
 type Db = ReturnType<typeof drizzle>;
+
+/** 查重记忆取最近多少期 published 的 picks */
+export const PAST_PICKS_ISSUES = 8;
+/** 查重清单总行数上限（防御性截断，保新弃旧；正常 8 期 × ≤10 picks 够不着） */
+export const PAST_PICKS_MAX_ROWS = 80;
+
+/** 四语 JSON 取文案：zh-cn 优先（DIGEST_LOCALES 首位），其余按序取第一个非空（确定性回退） */
+function localeTextWithFallback(record: Record<string, string> | null): string {
+  if (!record) return "";
+  for (const locale of DIGEST_LOCALES) {
+    const v = record[locale]?.trim();
+    if (v) return v;
+  }
+  return "";
+}
 
 export interface DirectionContext {
   direction: {
@@ -61,6 +78,15 @@ export interface DirectionContext {
   pool: PoolEntry[];
   /** arxivId → upvotes，近 14 天 */
   hfUpvotesByArxivId: Array<[string, number]>;
+  /** 跨期记忆：最近几期的 picks（查重）+ 上一期正文（防复读）。首期冷启动为空/null */
+  history: {
+    /** 新期在前、期内按 rank 升序 */
+    pastPicks: PastPick[];
+    /** 最新一期 published 的正文 zh-cn（回退同 note）；四语全空视同无正文 */
+    lastIssueBody: string | null;
+    /** 与 lastIssueBody 同生共死：body 为 null 时这里也是 null */
+    lastIssueNumber: number | null;
+  };
 }
 
 export async function loadDirectionContext(
@@ -122,6 +148,63 @@ export async function loadDirectionContext(
     .from(hfSignals)
     .where(gte(hfSignals.date, since));
 
+  // 跨期记忆：最近 N 期 published 的 picks 清单（查重）+ 最新一期正文（防复读）。
+  // 第一查不 select content——8 期 × 四语正文没必要整段拉回，正文只取最新一期。
+  const recentIssues = await db
+    .select({ id: digests.id, issueNumber: digests.issueNumber })
+    .from(digests)
+    .where(
+      and(
+        eq(digests.directionId, directionId),
+        eq(digests.status, "published"),
+      ),
+    )
+    .orderBy(desc(digests.issueNumber))
+    .limit(PAST_PICKS_ISSUES);
+
+  let pastPicks: PastPick[] = [];
+  if (recentIssues.length > 0) {
+    // inArray 最多 8 个 id，离 D1 绑定参数上限 100 很远
+    const pickRows = await db
+      .select({
+        issueNumber: digests.issueNumber,
+        title: papers.title,
+        note: digestPapers.recommendationNote,
+      })
+      .from(digestPapers)
+      .innerJoin(digests, eq(digestPapers.digestId, digests.id))
+      .innerJoin(papers, eq(digestPapers.paperId, papers.id))
+      .where(
+        inArray(
+          digestPapers.digestId,
+          recentIssues.map((d) => d.id),
+        ),
+      )
+      .orderBy(desc(digests.issueNumber), asc(digestPapers.rank))
+      .limit(PAST_PICKS_MAX_ROWS);
+    pastPicks = pickRows.map((r) => ({
+      issueNumber: r.issueNumber,
+      title: r.title,
+      note: localeTextWithFallback(r.note),
+    }));
+  }
+
+  let lastIssueBody: string | null = null;
+  let lastIssueNumber: number | null = null;
+  if (recentIssues.length > 0) {
+    const [latest] = await db
+      .select({ content: digests.content })
+      .from(digests)
+      .where(eq(digests.id, recentIssues[0].id))
+      .limit(1);
+    const body = localeTextWithFallback(latest?.content ?? null);
+    // 正文四语全空视同无往期正文：期号一并保持 null（spec 边界表）
+    if (body) {
+      lastIssueBody = body;
+      lastIssueNumber = recentIssues[0].issueNumber;
+    }
+  }
+
   return {
     direction: {
       id: direction.id,
@@ -140,6 +223,7 @@ export async function loadDirectionContext(
     feedback: feedbackRows,
     pool: poolRows,
     hfUpvotesByArxivId: signalRows.map((r) => [r.arxivId, r.upvotes]),
+    history: { pastPicks, lastIssueBody, lastIssueNumber },
   };
 }
 
