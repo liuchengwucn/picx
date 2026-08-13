@@ -23,10 +23,14 @@ function assertWritable(
  * drizzle-orm 把底层驱动错误包成 DrizzleQueryError，顶层 message 固定是
  * "Failed query: ..."，真正的 "UNIQUE constraint failed" 落在 .cause 里
  * （sqlite-core/session.js 统一这样包，d1 驱动同样如此），所以要顺着 cause 链找。
+ * 深度加上限：防止（理论上的）循环 cause 引用导致死循环。
  */
+const MAX_CAUSE_CHAIN_DEPTH = 10;
+
 function isUniqueViolation(error: unknown): boolean {
   let current: unknown = error;
-  while (current instanceof Error) {
+  for (let depth = 0; depth < MAX_CAUSE_CHAIN_DEPTH; depth++) {
+    if (!(current instanceof Error)) return false;
     if (/unique/i.test(current.message)) return true;
     current = current.cause;
   }
@@ -121,7 +125,12 @@ export const skillsRouter = router({
         await ctx.db
           .update(assistantSkills)
           .set({ ...patch, updatedAt: new Date() })
-          .where(eq(assistantSkills.id, id));
+          .where(
+            and(
+              eq(assistantSkills.id, id),
+              eq(assistantSkills.userId, ctx.session.user.id),
+            ),
+          );
       } catch (error) {
         if (isUniqueViolation(error)) {
           throw new TRPCError({ code: "CONFLICT", message: "name taken" });
@@ -148,7 +157,12 @@ export const skillsRouter = router({
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
       await ctx.db
         .delete(assistantSkills)
-        .where(eq(assistantSkills.id, input.id));
+        .where(
+          and(
+            eq(assistantSkills.id, input.id),
+            eq(assistantSkills.userId, ctx.session.user.id),
+          ),
+        );
       return { ok: true };
     }),
 });
