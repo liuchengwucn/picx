@@ -482,5 +482,11 @@
   "assistant_profile_placeholder": "e.g. I work on multimodal reasoning; interested in efficient inference and agent evaluation.",
   "assistant_profile_save": "Save",
   "assistant_profile_saved": "Profile saved",
-  "assistant_profile_updated_at": "Updated {date}"
+  "assistant_profile_updated_at": "Updated {date}",
+  "assistant_tool_read_skill": "Loading skill",
+  "assistant_tool_read_skill_done": "Skill loaded",
+  "assistant_slash_hint": "Skills",
+  "assistant_slash_no_match": "No matching skill",
+  "assistant_slash_args_placeholder": "Add an argument for the skill (optional)…",
+  "assistant_slash_clear": "Clear selected skill"
 }

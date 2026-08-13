@@ -482,5 +482,11 @@
   "assistant_profile_placeholder": "例：マルチモーダル推論を研究中。効率的な推論とエージェント評価に関心。",
   "assistant_profile_save": "保存",
   "assistant_profile_saved": "プロフィールを保存しました",
-  "assistant_profile_updated_at": "{date} 更新"
+  "assistant_profile_updated_at": "{date} 更新",
+  "assistant_tool_read_skill": "スキルを読み込み中",
+  "assistant_tool_read_skill_done": "スキルを読み込みました",
+  "assistant_slash_hint": "スキル",
+  "assistant_slash_no_match": "一致するスキルがありません",
+  "assistant_slash_args_placeholder": "スキルに渡す引数を入力（任意）…",
+  "assistant_slash_clear": "スキルの選択を解除"
 }

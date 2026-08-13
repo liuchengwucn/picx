@@ -482,5 +482,11 @@
   "assistant_profile_placeholder": "例：我在做多模態推理方向；關注高效推理與 agent 評測。",
   "assistant_profile_save": "儲存",
   "assistant_profile_saved": "已儲存個人檔案",
-  "assistant_profile_updated_at": "更新於 {date}"
+  "assistant_profile_updated_at": "更新於 {date}",
+  "assistant_tool_read_skill": "正在載入技能",
+  "assistant_tool_read_skill_done": "已載入技能",
+  "assistant_slash_hint": "技能",
+  "assistant_slash_no_match": "沒有符合的技能",
+  "assistant_slash_args_placeholder": "為技能補充參數（選填）…",
+  "assistant_slash_clear": "取消選擇技能"
 }

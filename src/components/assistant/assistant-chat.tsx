@@ -1,10 +1,13 @@
 import { useChat } from "@ai-sdk/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UIMessage } from "ai";
-import { BookOpen, Library, Newspaper, UserPen } from "lucide-react";
+import { BookOpen, Library, Newspaper, Sparkles, UserPen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ChatInputArea } from "#/components/chat/chat-input";
+import {
+  ChatInputArea,
+  type SlashCommandItem,
+} from "#/components/chat/chat-input";
 import {
   ChatMessage,
   ChatThinking,
@@ -21,9 +24,10 @@ import {
 import { useChatSettings } from "#/components/chat/use-chat-settings";
 import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
 import { useTRPC } from "#/integrations/trpc/react";
+import { buildSkillDirectiveText } from "#/lib/skills";
 import { m } from "#/paraglide/messages";
 
-/** agent 的 9 个工具在活动区块里的展示（键名与 buildAgentTools 一一对应） */
+/** agent 的 10 个工具在活动区块里的展示（键名与 buildAgentTools 一一对应） */
 const ASSISTANT_TOOLS: ToolDisplayMap = {
   searchMyPapers: {
     icon: Library,
@@ -50,6 +54,11 @@ const ASSISTANT_TOOLS: ToolDisplayMap = {
     icon: UserPen,
     running: m.assistant_tool_update_profile,
     done: m.assistant_tool_update_profile_done,
+  },
+  readSkill: {
+    icon: Sparkles,
+    running: m.assistant_tool_read_skill,
+    done: m.assistant_tool_read_skill_done,
   },
   ...WEB_SEARCH_TOOL_DISPLAY,
 };
@@ -86,6 +95,24 @@ export function AssistantChat({
     toggleWebSearch,
     changeReasoningEffort,
   } = useChatSettings("assistant");
+
+  // slash 选择器的候选（只列启用的 skill）与当前选中项。会话切换时父层按 key
+  // 重挂本组件，selectedSkill 随之清零，正合预期
+  const { data: skillRows } = useQuery(trpc.skills.list.queryOptions());
+  const slashCommands = useMemo(
+    () =>
+      (skillRows ?? [])
+        .filter((row) => row.enabled)
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          description: row.description,
+        })),
+    [skillRows],
+  );
+  const [selectedSkill, setSelectedSkill] = useState<SlashCommandItem | null>(
+    null,
+  );
 
   /** 本会话的首条用户消息已发出、还没通知父层 */
   const pendingFirstMessageRef = useRef(false);
@@ -172,12 +199,19 @@ export function AssistantChat({
 
   const handleSend = () => {
     const text = input.trim();
-    if (!text || isBusy) return;
+    if (isBusy) return;
+    // 选中 skill 时无参数也可发（指令本身就是完整消息）
+    if (!selectedSkill && !text) return;
     if (messages.length === 0) pendingFirstMessageRef.current = true;
     // 主动发言就是「我要看新内容」：哪怕刚才上滚在读前文，也弹回底部
     resetStick();
     onInputChange("");
-    void sendMessage({ text });
+    // slash 通路发短指令纯文本，agent 端由系统提示强制走 readSkill 读正文
+    const outgoing = selectedSkill
+      ? buildSkillDirectiveText(selectedSkill.name, text)
+      : text;
+    setSelectedSkill(null);
+    void sendMessage({ text: outgoing });
   };
 
   // "streaming" 只说明流的 start chunk 到了，离模型首字还差几秒：最后一条助手
@@ -244,6 +278,9 @@ export function AssistantChat({
             onToggleWebSearch={toggleWebSearch}
             reasoningEffort={reasoningEffort}
             onReasoningEffortChange={changeReasoningEffort}
+            slashCommands={slashCommands}
+            selectedSlashCommand={selectedSkill}
+            onSelectSlashCommand={setSelectedSkill}
           />
         </div>
       </div>
