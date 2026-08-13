@@ -756,3 +756,38 @@ export const userProfiles = sqliteTable("user_profiles", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// 用户自建的 assistant skills（可复用指令库）。catalog 注入与 readSkill 只认 enabled 行；
+// name 每用户内唯一（slug，校验在 src/lib/skills.ts 的 zod，库层只兜底唯一性）
+export const assistantSkills = sqliteTable(
+  "assistant_skills",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    body: text("body").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userNameUq: uniqueIndex("assistant_skills_user_name_uq").on(
+      table.userId,
+      table.name,
+    ),
+    // catalog / 管理页列表都按 (userId, updatedAt desc) 取
+    userIdx: index("assistant_skills_user_idx").on(
+      table.userId,
+      table.updatedAt,
+    ),
+  }),
+);
