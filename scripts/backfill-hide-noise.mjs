@@ -14,7 +14,11 @@
  * Usage:
  *   node scripts/backfill-hide-noise.mjs [--dry-run] [--apply]
  *                                        [--limit N] [--batch N]
+ *                                        [--ids-file path]
  *   Default: --dry-run, batch 25, no limit.
+ *   --ids-file: skip LLM classification and hide exactly the short_ids listed
+ *   in the file (one per line) — for applying a human-reviewed dry-run list
+ *   verbatim instead of re-classifying (which could drift).
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -33,6 +37,7 @@ const getOpt = (f, def) => {
 const APPLY = hasFlag("--apply");
 const DRY_RUN = !APPLY;
 const LIMIT = Number(getOpt("--limit", "0"));
+const IDS_FILE = getOpt("--ids-file", "");
 const BATCH = Math.max(1, Math.min(25, Number(getOpt("--batch", "25"))));
 // D1 bound-param limit is 100/query; UPDATE ... WHERE id IN (...) uses 1
 // param per id, so keep chunks well under that.
@@ -175,6 +180,35 @@ async function main() {
   if (!ACCOUNT_ID || !API_TOKEN || !DB_ID) {
     throw new Error("Missing CLOUDFLARE_* credentials in .dev.vars");
   }
+
+  // --ids-file：按人工复核过的 short_id 清单直接隐藏，不重新分类。
+  if (IDS_FILE) {
+    const ids = readFileSync(IDS_FILE, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    console.log(
+      `[backfill-hide-noise] ids-file mode: ${ids.length} short_id(s).${DRY_RUN ? " (DRY RUN — pass --apply to write)" : " (APPLY)"}`,
+    );
+    if (APPLY && ids.length > 0) {
+      const nowSec = Math.floor(Date.now() / 1000); // D1 timestamps are unix seconds
+      let updated = 0;
+      for (const idChunk of chunk(ids, UPDATE_CHUNK)) {
+        const res = await d1Remote(
+          `UPDATE news_stories SET status = 'hidden', updated_at = ? WHERE status != 'hidden' AND short_id IN (${idChunk.map(() => "?").join(",")})`,
+          [nowSec, ...idChunk],
+        );
+        updated += idChunk.length;
+        console.log(`  ✓ chunk of ${idChunk.length} done`, res);
+      }
+      const left = await d1Remote(
+        `SELECT status, count(*) AS n FROM news_stories GROUP BY status`,
+      );
+      console.log(`[backfill-hide-noise] applied ${updated} id(s); status counts:`, left);
+    }
+    return;
+  }
+
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY in .dev.vars");
 
   const rows = await d1Remote(
