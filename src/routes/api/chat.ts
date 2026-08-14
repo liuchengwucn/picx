@@ -4,7 +4,6 @@ import { z } from "zod";
 import { chatMessages, chatSessions } from "#/db/schema";
 import {
   buildChatSystemPrompt,
-  buildChatTools,
   CHAT_LIMITS,
   checkChatRateLimit,
   loadAccessiblePaper,
@@ -12,8 +11,10 @@ import {
 import {
   type AuthorizeResult,
   chatStreamBody,
+  createChatResumeHandler,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
+import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
 
 /**
  * 论文 chatbot 的流式端点。独立于 tRPC：superjson transformer 不支持流式响应。
@@ -39,29 +40,49 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
   limits: {
     maxInputChars: CHAT_LIMITS.maxInputChars,
     maxMessages: CHAT_LIMITS.maxMessagesPerSession,
-    webSearchMaxResults: CHAT_LIMITS.webSearchMaxResults,
   },
-  stopWhenSteps: 8,
+  // 落库口径（keepToolOutputTypes）已随生成阶段移交 GENERATION_SPECS；请求期只剩
+  // 历史重放要用的摘要口径，两者仍同源于 CARD_REPLAY_SPEC（口径见 discovery-tools）
+  replayToolDigest: CARD_REPLAY_SPEC.replayToolDigest,
+
+  conversationKey: (body) => body.sessionId,
+
+  buildJob: ({ userId, body }, ctx, prepared) => ({
+    kind: "chat",
+    sessionId: body.sessionId,
+    paperId: ctx.paper.id,
+    userId,
+    locale: body.locale,
+    webSearch: body.webSearch,
+    reasoningEffort: body.reasoningEffort,
+    instructions: prepared.instructions,
+    modelMessages: prepared.modelMessages,
+  }),
 
   authorize: async ({
     db,
     userId,
     body,
   }): Promise<AuthorizeResult<ChatCtx>> => {
-    const [chatSession] = await db
-      .select()
-      .from(chatSessions)
-      .where(
-        and(
-          eq(chatSessions.id, body.sessionId),
-          eq(chatSessions.userId, userId),
-        ),
-      )
-      .limit(1);
+    // session 归属与论文可达性互不依赖，并发查省一次 D1 往返；
+    // paper.id 与 chatSession.paperId 的绑定校验等两边都到齐再做
+    const [sessionRows, paper] = await Promise.all([
+      db
+        .select()
+        .from(chatSessions)
+        .where(
+          and(
+            eq(chatSessions.id, body.sessionId),
+            eq(chatSessions.userId, userId),
+          ),
+        )
+        .limit(1),
+      loadAccessiblePaper(db, body.paperShortId, userId),
+    ]);
+    const chatSession = sessionRows[0];
     if (!chatSession) {
       return { ok: false, code: "session_not_found", status: 404 };
     }
-    const paper = await loadAccessiblePaper(db, body.paperShortId, userId);
     if (!paper || paper.id !== chatSession.paperId) {
       return { ok: false, code: "forbidden", status: 403 };
     }
@@ -94,9 +115,6 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
 
   buildInstructions: ({ db, body }, { paper }) =>
     buildChatSystemPrompt(db, paper, body.locale, body.webSearch),
-
-  buildLocalTools: ({ env }, { paper }) =>
-    buildChatTools(env.PAPERS_BUCKET, paper.id),
 
   persistUserMessage: async ({ db, userId, body }, { chatSession }) => {
     // id 由客户端提供，regenerate/edit 会复用同一个 id，必须幂等，否则撞主键 500。
@@ -133,26 +151,31 @@ const handler = createChatStreamHandler<Body, ChatCtx>({
       .set(patch)
       .where(eq(chatSessions.id, body.sessionId));
   },
+});
 
-  persistAssistantMessage: async ({ db, userId, body }, _ctx, message) => {
-    await db.insert(chatMessages).values({
-      id: message.id,
-      sessionId: body.sessionId,
-      userId,
-      role: "assistant",
-      parts: message.parts,
-    });
-    await db
-      .update(chatSessions)
-      .set({ updatedAt: new Date() })
-      .where(eq(chatSessions.id, body.sessionId));
+const resumeHandler = createChatResumeHandler({
+  logTag: "chat",
+  querySchema: z.object({ sessionId: z.string().min(1) }),
+  // 只查会话归属，不再像 POST 那样连 paper 可达性一起校验：会话归属已足够——
+  // 流的内容就是该会话本来可见的东西，paper 绑定在会话创建与每次 POST 时都校验过
+  authorizeResume: async (db, userId, q) => {
+    const [row] = await db
+      .select({ id: chatSessions.id })
+      .from(chatSessions)
+      .where(
+        and(eq(chatSessions.id, q.sessionId), eq(chatSessions.userId, userId)),
+      )
+      .limit(1);
+    return row != null;
   },
+  conversationKey: (q) => q.sessionId,
 });
 
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: handler,
+      GET: resumeHandler,
     },
   },
 });

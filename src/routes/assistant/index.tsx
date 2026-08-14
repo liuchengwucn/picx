@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { UIMessage } from "ai";
 import {
@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -231,8 +232,8 @@ function AssistantPage() {
       conversationId: activeId ?? "",
     }),
     enabled: !!activeId,
-    // 覆盖全局 1 分钟 staleTime：每次切回会话都必须重取。历史真源在 D1，被中断
-    // 的流仍会由服务端 waitUntil 补写回答，缓存里的旧快照会少一条。
+    // 覆盖全局 1 分钟 staleTime：每次切回会话都必须重取。历史真源在 D1，断流后
+    // 生成仍在 ChatRunner DO 里跑完并落库，缓存里的旧快照会少一条。
     staleTime: 0,
   });
 
@@ -244,8 +245,8 @@ function AssistantPage() {
 
   const selectConversation = useCallback((id: string | null) => {
     setActiveId(id);
-    // 打上时间戳：在这之前落地的历史缓存一律当过期（中断的流由服务端异步落库，
-    // 旧快照可能缺最后一条回答，而 useChat 只在挂载时读一次 initialMessages）
+    // 打上时间戳：在这之前落地的历史缓存一律当过期（断流后 ChatRunner DO 仍会
+    // 把回答落库，旧快照可能缺最后一条，而 useChat 只在挂载时读一次 initialMessages）
     setSelectedAt(Date.now());
     setIsListOpen(false);
     setRenamingId(null);
@@ -397,6 +398,21 @@ function AssistantPage() {
     </Button>
   );
 
+  // 技能管理入口：与个人档案同级同分量（ghost），样式沿用 ProfileDialog 的触发按钮
+  const skillsLink = (
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      aria-label={m.assistant_skills_title()}
+    >
+      <Link to="/assistant/skills" title={m.assistant_skills_title()}>
+        <Sparkles className="h-4 w-4" />
+        <span className="max-md:sr-only">{m.assistant_skills_title()}</span>
+      </Link>
+    </Button>
+  );
+
   // 会话未就绪时的三种落点：拉历史失败、一条会话都没有、正在拉取
   const chatFallback = (() => {
     // 只有「一条历史都没拿到」才算失败落地：后台重取失败时 data 还在，聊天区照常
@@ -435,8 +451,9 @@ function AssistantPage() {
   })();
 
   return (
-    // 视口高度减去 header（≈60/68px）：对话区自己滚，输入框吸在底部
-    <main className="page-wrap flex h-[calc(100dvh-3.75rem)] sm:h-[calc(100dvh-4.25rem)]">
+    // 视口高度减去 header（≈60/68px）与底部 Tab 栏（md 起消失）及顶/底 safe-area：
+    // 对话区自己滚，输入框吸在底部
+    <main className="page-wrap flex h-[calc(100dvh-3.75rem-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-4.25rem-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] md:h-[calc(100dvh-4.25rem-env(safe-area-inset-top))]">
       <h1 className="sr-only">{m.assistant_page_title()}</h1>
       <aside className="hidden w-64 shrink-0 flex-col border-r border-[var(--line)] py-4 pr-4 md:flex">
         <h2 className="text-[11px] tracking-[0.18em] text-[var(--ink-soft)] uppercase">
@@ -446,6 +463,7 @@ function AssistantPage() {
         {/* 按钮不换行也不收缩：日文标签比侧栏还宽时靠 flex-wrap 落到第二行 */}
         <div className="mt-3 flex flex-wrap items-center gap-1">
           {newConversationButton}
+          {skillsLink}
           <ProfileDialog />
         </div>
         <nav
@@ -482,6 +500,7 @@ function AssistantPage() {
               )}
             />
           </button>
+          {skillsLink}
           <ProfileDialog />
           {newConversationButton}
         </div>

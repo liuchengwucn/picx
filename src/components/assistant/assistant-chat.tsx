@@ -1,34 +1,33 @@
 import { useChat } from "@ai-sdk/react";
-import { useQueryClient } from "@tanstack/react-query";
-import type { ToolUIPart, UIMessage } from "ai";
-import {
-  BookOpen,
-  Globe,
-  Library,
-  Newspaper,
-  Sparkles,
-  UserPen,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { UIMessage } from "ai";
+import { BookOpen, Library, Newspaper, Sparkles, UserPen } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  type DiscoveredPaper,
-  PaperResultCards,
-} from "#/components/assistant/paper-result-cards";
-import { ChatInputArea } from "#/components/chat/chat-input";
+  ChatInputArea,
+  type SlashCommandItem,
+} from "#/components/chat/chat-input";
 import {
   ChatMessage,
   ChatThinking,
+  hasVisibleParts,
   resolveChatErrorMessage,
   type ToolDisplayMap,
+  WEB_SEARCH_TOOL_DISPLAY,
 } from "#/components/chat/chat-message";
 import { createTextOnlyChatTransport } from "#/components/chat/chat-transport";
+import {
+  DISCOVERY_TOOL_DISPLAYS,
+  renderDiscoveryToolOutput,
+} from "#/components/chat/discovery-ui";
 import { useChatSettings } from "#/components/chat/use-chat-settings";
 import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
 import { useTRPC } from "#/integrations/trpc/react";
+import { buildSkillDirectiveText } from "#/lib/skills";
 import { m } from "#/paraglide/messages";
 
-/** agent 的 9 个工具在活动区块里的展示（键名与 buildAgentTools 一一对应） */
+/** agent 的 10 个工具在活动区块里的展示（键名与 buildAgentTools 一一对应） */
 const ASSISTANT_TOOLS: ToolDisplayMap = {
   searchMyPapers: {
     icon: Library,
@@ -45,21 +44,7 @@ const ASSISTANT_TOOLS: ToolDisplayMap = {
     running: m.chat_reading_paper,
     done: m.chat_read_paper_done,
   },
-  searchArxiv: {
-    icon: Sparkles,
-    running: m.assistant_tool_search_arxiv,
-    done: m.assistant_tool_search_arxiv_done,
-  },
-  listDailyPapers: {
-    icon: Sparkles,
-    running: m.assistant_tool_daily_papers,
-    done: m.assistant_tool_daily_papers_done,
-  },
-  recommendPapers: {
-    icon: Sparkles,
-    running: m.assistant_tool_recommend_papers,
-    done: m.assistant_tool_recommend_papers_done,
-  },
+  ...DISCOVERY_TOOL_DISPLAYS,
   searchNews: {
     icon: Newspaper,
     running: m.assistant_tool_search_news,
@@ -70,14 +55,12 @@ const ASSISTANT_TOOLS: ToolDisplayMap = {
     running: m.assistant_tool_update_profile,
     done: m.assistant_tool_update_profile_done,
   },
-  web_search: {
-    icon: Globe,
-    running: m.chat_searching_web,
-    done: m.chat_searched_web,
-    // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
-    // 参数一到齐（input-available）就当「已搜索」，结果以 source part 到达
-    isDone: (state) => state !== "input-streaming",
+  readSkill: {
+    icon: Sparkles,
+    running: m.assistant_tool_read_skill,
+    done: m.assistant_tool_read_skill_done,
   },
+  ...WEB_SEARCH_TOOL_DISPLAY,
 };
 
 export interface AssistantChatProps {
@@ -113,6 +96,24 @@ export function AssistantChat({
     changeReasoningEffort,
   } = useChatSettings("assistant");
 
+  // slash 选择器的候选（只列启用的 skill）与当前选中项。会话切换时父层按 key
+  // 重挂本组件，selectedSkill 随之清零，正合预期
+  const { data: skillRows } = useQuery(trpc.skills.list.queryOptions());
+  const slashCommands = useMemo(
+    () =>
+      (skillRows ?? [])
+        .filter((row) => row.enabled)
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          description: row.description,
+        })),
+    [skillRows],
+  );
+  const [selectedSkill, setSelectedSkill] = useState<SlashCommandItem | null>(
+    null,
+  );
+
   /** 本会话的首条用户消息已发出、还没通知父层 */
   const pendingFirstMessageRef = useRef(false);
   // 回调可能是父层的内联箭头函数（每次渲染换身份），存 ref 避免 effect 反复触发
@@ -125,14 +126,25 @@ export function AssistantChat({
         api: "/api/agent",
         settingsRef,
         extraBody: () => ({ conversationId }),
+        reconnectQuery: () => ({ conversationId }),
       }),
     [conversationId, settingsRef],
+  );
+
+  // 历史末尾停在 user 消息 = 有一轮生成没送达（正在 DO 里跑，或已丢）。
+  // 只在这种指纹下探测：204 静默返回，全量探测则是每次进会话白打一个请求。
+  // 挂载时冻结成一次性判定：SDK 里 resume 不是 mount-only（effect 依赖它，每次
+  // 渲染重求值），若 initialMessages 随 refetch 换身份，false→true 可能在 POST
+  // 流进行中翻转、resumeStream 与其互踩。探测意图本来就只看进入会话那一刻。
+  const [shouldResume] = useState(
+    () => initialMessages[initialMessages.length - 1]?.role === "user",
   );
 
   const { messages, sendMessage, status, stop } = useChat({
     id: `assistant:${conversationId}`,
     messages: initialMessages,
     transport,
+    resume: shouldResume,
     // 流式 chunk 可以来得比一帧还密；50ms 合批，省掉大量无意义的整表重渲染
     throttle: 50,
     onError: (error) => {
@@ -160,8 +172,8 @@ export function AssistantChat({
   const isBusy = status === "submitted" || status === "streaming";
 
   // 卸载（换会话/离开页面）时主动断流，别让一个没人看的请求继续占着连接。
-  // 回复不会因此丢：服务端 waitUntil(consumeStream) 会把完整回答落进 D1，
-  // 下次进这个会话拉到的历史是全的。
+  // 回复不会因此丢：生成托管在 ChatRunner DO 里，断流不影响它跑完并落库；
+  // 回来时 resume 还能接回直播。
   const stopRef = useRef(stop);
   stopRef.current = stop;
   useEffect(
@@ -187,35 +199,27 @@ export function AssistantChat({
 
   const handleSend = () => {
     const text = input.trim();
-    if (!text || isBusy) return;
+    if (isBusy) return;
+    // 选中 skill 时无参数也可发（指令本身就是完整消息）
+    if (!selectedSkill && !text) return;
     if (messages.length === 0) pendingFirstMessageRef.current = true;
     // 主动发言就是「我要看新内容」：哪怕刚才上滚在读前文，也弹回底部
     resetStick();
     onInputChange("");
-    void sendMessage({ text });
+    // slash 通路发短指令纯文本，agent 端由系统提示强制走 readSkill 读正文
+    const outgoing = selectedSkill
+      ? buildSkillDirectiveText(selectedSkill.name, text)
+      : text;
+    setSelectedSkill(null);
+    void sendMessage({ text: outgoing });
   };
 
-  const showThinking = status === "submitted";
-
-  /**
-   * recommendPapers（模型精选推荐）的输出在正文流里就地渲染成可入库的卡片；
-   * 搜索工具的结果只有模型自己可见，不再渲染。服务端落库时保留了该工具的
-   * output，历史回显也能重建出同样的卡片。
-   * useCallback：ChatMessage 是 memo 的，每渲染换一个函数身份会让整列消息重渲染。
-   */
-  const renderToolOutput = useCallback(
-    (part: ToolUIPart, _messageId: string) => {
-      if (part.type !== "tool-recommendPapers") return null;
-      if (part.state !== "output-available") return null;
-      // output 来自 D1 里存着的历史 JSON：早期格式或 {error} 分支都可能到这儿，
-      // 形状不对就当没有卡片，别让一条旧消息把整个聊天区渲染崩掉
-      const output = part.output as { results?: unknown } | undefined;
-      if (!Array.isArray(output?.results) || output.results.length === 0)
-        return null;
-      return <PaperResultCards results={output.results as DiscoveredPaper[]} />;
-    },
-    [],
-  );
+  // "streaming" 只说明流的 start chunk 到了，离模型首字还差几秒：最后一条助手
+  // 消息真渲染出内容之前继续挂着指示条，别让屏幕上只剩一条空消息
+  const showThinking =
+    status === "submitted" ||
+    (status === "streaming" &&
+      (lastMessage?.role !== "assistant" || !hasVisibleParts(lastMessage)));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -252,7 +256,7 @@ export function AssistantChat({
                 message={message}
                 isStreaming={isBusy && message.id === lastMessage?.id}
                 toolDisplays={ASSISTANT_TOOLS}
-                renderToolOutput={renderToolOutput}
+                renderToolOutput={renderDiscoveryToolOutput}
               />
             ))}
             {showThinking && <ChatThinking />}
@@ -274,6 +278,9 @@ export function AssistantChat({
             onToggleWebSearch={toggleWebSearch}
             reasoningEffort={reasoningEffort}
             onReasoningEffortChange={changeReasoningEffort}
+            slashCommands={slashCommands}
+            selectedSlashCommand={selectedSkill}
+            onSelectSlashCommand={setSelectedSkill}
           />
         </div>
       </div>

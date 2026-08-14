@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChatTools,
   CHAT_LIMITS,
+  type ChatToolsDeps,
   mapReasoningEffort,
   sliceSection,
 } from "./chat";
@@ -10,6 +11,12 @@ const SECTION_SIZE = CHAT_LIMITS.sectionChars;
 
 /** minimal ToolExecutionOptions stub — only fields required by the type */
 const toolOptions = { toolCallId: "test-call", messages: [] } as never;
+
+/** 发现类工具在这些用例里不会被执行，db/userId 只需满足类型 */
+const discoveryDeps = {
+  db: {} as unknown as ChatToolsDeps["db"],
+  userId: "user-1",
+};
 
 /** readPaper.execute is optional per the Tool type; assert it's set without a `!` (biome forbids it) */
 function readPaper(
@@ -93,10 +100,34 @@ describe("mapReasoningEffort", () => {
   });
 });
 
+describe("buildChatTools", () => {
+  // 类型系统看不见「少了一个 spread」：漏掉 buildDiscoveryTools 照样编译通过、
+  // 照样上线，只是论文页悄悄没了发现能力。这条断言把接线钉住。
+  it("exposes readPaper plus the shared discovery tools", () => {
+    const bucket = { get: async () => null } as unknown as R2Bucket;
+    const tools = buildChatTools({
+      ...discoveryDeps,
+      bucket,
+      paperId: "paper-1",
+    });
+
+    expect(Object.keys(tools).sort()).toEqual([
+      "listDailyPapers",
+      "readPaper",
+      "recommendPapers",
+      "searchArxiv",
+    ]);
+  });
+});
+
 describe("buildChatTools readPaper", () => {
   it("returns an error object when the R2 object is missing", async () => {
     const bucket = { get: async () => null } as unknown as R2Bucket;
-    const tools = buildChatTools(bucket, "paper-1");
+    const tools = buildChatTools({
+      ...discoveryDeps,
+      bucket,
+      paperId: "paper-1",
+    });
 
     const result = await readPaper(tools, { section: 1 });
 
@@ -113,7 +144,11 @@ describe("buildChatTools readPaper", () => {
         return { text: async () => fullText };
       },
     } as unknown as R2Bucket;
-    const tools = buildChatTools(bucket, "paper-1");
+    const tools = buildChatTools({
+      ...discoveryDeps,
+      bucket,
+      paperId: "paper-1",
+    });
 
     const r1 = await readPaper(tools, { section: 1 });
     const r2 = await readPaper(tools, { section: 2 });
@@ -128,7 +163,11 @@ describe("buildChatTools readPaper", () => {
     const bucket = {
       get: async () => ({ text: async () => fullText }),
     } as unknown as R2Bucket;
-    const tools = buildChatTools(bucket, "paper-1");
+    const tools = buildChatTools({
+      ...discoveryDeps,
+      bucket,
+      paperId: "paper-1",
+    });
 
     const result = await readPaper(tools, { section: 1 });
 

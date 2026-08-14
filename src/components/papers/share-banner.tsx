@@ -23,8 +23,10 @@ export function ShareBanner({
   const queryClient = useQueryClient();
 
   const invalidatePaperQueries = () => {
+    // paper.list 页用 infiniteQueryOptions，key 带 type:"infinite"；
+    // queryKey() 产出的 type:"query" 不是它的前缀，必须用 pathKey()。
     queryClient.invalidateQueries({
-      queryKey: trpc.paper.list.queryKey(),
+      queryKey: trpc.paper.list.pathKey(),
     });
     queryClient.invalidateQueries({
       queryKey: trpc.paper.getById.queryKey(paperId),

@@ -1,9 +1,9 @@
 import { XMLParser } from "fast-xml-parser";
 import type { NewsMedia } from "#/db/schema";
+import { MAX_EXCERPT } from "../enrich";
 import type { NormalizedItem } from "../types";
 
 const USER_AGENT = "picx-news-bot/1.0 (+https://picx.dev)";
-const MAX_EXCERPT = 1000;
 const MAX_ITEMS_PER_FEED = 50;
 
 const parser = new XMLParser({

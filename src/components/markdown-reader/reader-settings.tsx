@@ -1,6 +1,6 @@
 import { Minus, Plus, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { TOOL_BTN } from "#/components/reader/reader-ui";
+import { TOOL_BTN } from "#/components/reader-ui";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import {

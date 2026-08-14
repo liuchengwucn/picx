@@ -53,6 +53,46 @@ function assertNotTruncated(
   }
 }
 
+// 语言校验：reasoning 关闭后 DeepSeek 偶发无视目标语言、用（简体）中文回答
+// ja/zh-tw 的生成或翻译请求（存量修复中实测 ja 失败率显著）。字符集启发式：
+// 真日语必含假名；真繁体会使用常用字的繁体变体。抛错交给上层重试（随机性失败，
+// 重新生成通常即可恢复）。
+const SIMP_ONLY =
+  "们与学训练过这为后华语说证观询议记读见问题动态发经将应对样师权术处别构马网络图书区队伤听欢乐东传边远运连迟错优标准确释单纯变现实获难备";
+const TRAD_ONLY =
+  "們與學訓練過這為後華語說證觀詢議記讀見問題動態發經將應對樣師權術處別構馬網絡圖書區隊傷聽歡樂東傳邊遠運連遲錯優標準確釋單純變現實獲難備";
+function countCharsIn(text: string, set: string): number {
+  let n = 0;
+  for (const c of text) if (set.includes(c)) n++;
+  return n;
+}
+function assertExpectedLanguage(
+  text: string,
+  lang: "en" | "zh-cn" | "zh-tw" | "ja",
+  what: string,
+): void {
+  if (lang === "ja") {
+    const kana = (text.match(/[぀-ヿ]/g) || []).length;
+    if (kana < Math.max(2, text.length / 500)) {
+      throw new Error(
+        `${what} (ja): no kana in output — model answered in the wrong language`,
+      );
+    }
+  } else if (lang === "zh-tw") {
+    if (countCharsIn(text, SIMP_ONLY) > countCharsIn(text, TRAD_ONLY)) {
+      throw new Error(
+        `${what} (zh-tw): output looks Simplified, not Traditional`,
+      );
+    }
+  } else if (lang === "zh-cn") {
+    if (countCharsIn(text, TRAD_ONLY) > countCharsIn(text, SIMP_ONLY)) {
+      throw new Error(
+        `${what} (zh-cn): output looks Traditional, not Simplified`,
+      );
+    }
+  }
+}
+
 /**
  * 调用 OpenAI API 生成论文总结
  *
@@ -186,6 +226,8 @@ Guidelines:
     if (!summary) {
       throw new Error("Empty summary generated");
     }
+
+    assertExpectedLanguage(summary, language, "Summary");
 
     return summary;
   } catch (error) {
@@ -707,6 +749,8 @@ Guidelines:
       throw new Error("Empty translation generated");
     }
 
+    assertExpectedLanguage(translatedText, targetLanguage, "Translation");
+
     return translatedText;
   } catch (error) {
     console.error("Failed to translate summary:", error);
@@ -819,6 +863,8 @@ STRICT OUTPUT RULES:
       throw new Error("Empty tldr generated");
     }
 
+    assertExpectedLanguage(tldr, language, "TLDR");
+
     return tldr;
   } catch (error) {
     console.error("Failed to generate tldr:", error);
@@ -907,6 +953,8 @@ STRICT OUTPUT RULES:
     if (!translated) {
       throw new Error("Empty tldr translation generated");
     }
+
+    assertExpectedLanguage(translated, targetLanguage, "TLDR translation");
 
     return translated;
   } catch (error) {

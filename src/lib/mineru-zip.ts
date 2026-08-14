@@ -1,7 +1,7 @@
 /**
  * MinerU 结果 zip 的通用解析层。
  *
- * reader（内联 data URI）与论文管线（图片落 R2、markdown 存相对路径）共用：
+ * 论文管线（图片落 R2、markdown 存相对路径）使用：
  * 解包、定位 markdown、枚举图片、三级兜底的图片引用解析与重写。
  */
 
@@ -78,11 +78,68 @@ export interface MineruZipContent {
   markdown: string;
   title: string | null;
   images: MineruZipImage[];
+  /**
+   * 从 zip 内元数据推出的总页数，推不出为 null。
+   * 批次结果 API 的 extract_progress 只在 running 期间返回，done 响应里没有，
+   * 页数只能从产物 zip 里取。
+   */
+  pageCount: number | null;
+}
+
+/**
+ * 从 zip 内元数据推总页数：layout.json 的 pdf_info 每页一项（含尾部空白页），
+ * 优先；缺失/形状不符时回退 *_content_list.json 的 max(page_idx)+1
+ * （尾部空白页无内容块会少算，论文场景可接受）。两者皆不可用返回 null。
+ */
+function extractPageCount(entries: Record<string, Uint8Array>): number | null {
+  try {
+    const layout = entries["layout.json"];
+    if (layout) {
+      const parsed = JSON.parse(strFromU8(layout)) as {
+        pdf_info?: unknown;
+      };
+      if (Array.isArray(parsed.pdf_info) && parsed.pdf_info.length > 0) {
+        return parsed.pdf_info.length;
+      }
+    }
+  } catch {
+    // 落到 content_list 回退
+  }
+
+  try {
+    const contentListName = Object.keys(entries).find((name) =>
+      name.endsWith("_content_list.json"),
+    );
+    if (contentListName) {
+      const parsed = JSON.parse(strFromU8(entries[contentListName])) as {
+        page_idx?: unknown;
+      }[];
+      if (Array.isArray(parsed)) {
+        let maxPageIdx = -1;
+        for (const item of parsed) {
+          if (
+            typeof item?.page_idx === "number" &&
+            item.page_idx > maxPageIdx
+          ) {
+            maxPageIdx = item.page_idx;
+          }
+        }
+        if (maxPageIdx >= 0) {
+          return maxPageIdx + 1;
+        }
+      }
+    }
+  } catch {
+    // 推不出页数不阻断解析
+  }
+
+  return null;
 }
 
 export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
   const entries = unzipSync(zipBytes);
   const entryNames = Object.keys(entries);
+  const pageCount = extractPageCount(entries);
 
   let markdownName: string | undefined = entryNames.find(
     (name) => name === "full.md",
@@ -94,7 +151,7 @@ export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
   }
 
   if (!markdownName) {
-    return { markdown: "", title: null, images: [] };
+    return { markdown: "", title: null, images: [], pageCount };
   }
 
   // 落盘前清洗 MinerU 的系统性乱码（连字误读、sub/sup 误判），在
@@ -123,11 +180,11 @@ export function parseMineruZip(zipBytes: Uint8Array): MineruZipContent {
     };
   });
 
-  return { markdown, title: extractTitle(markdown), images };
+  return { markdown, title: extractTitle(markdown), images, pageCount };
 }
 
 /**
- * 三级兜底解析（沿自 reader 实测经验，MinerU 偶尔把内容放子目录而 md 里只写相对名）：
+ * 三级兜底解析（沿自实测经验，MinerU 偶尔把内容放子目录而 md 里只写相对名）：
  * 精确条目路径 → 末尾路径片段 → 唯一 basename。
  *
  * 返回命中的图片本身而非 URL：调用方据此既能生成 URL，也能知道哪些图片真被引用到
@@ -179,7 +236,7 @@ export interface RewrittenMarkdown {
 
 /**
  * 重写 markdown 中所有图片引用（`![](url)` 与内嵌 `<img src>`）。
- * resolve 返回 null 时保留原引用。逻辑整体迁自 reader-render 的 inlineImages。
+ * resolve 返回 null 时保留原引用。逻辑源自早期的内联图片实现。
  */
 export function rewriteImageRefs(
   markdown: string,

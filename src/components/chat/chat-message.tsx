@@ -1,12 +1,13 @@
 import "katex/dist/katex.min.css";
 import { isToolUIPart, type ToolUIPart, type UIMessage } from "ai";
-import { ChevronRight, Loader2, type LucideIcon } from "lucide-react";
+import { ChevronRight, Globe, Loader2, type LucideIcon } from "lucide-react";
 import { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { CHAT_ERROR_CODES, type ChatErrorCode } from "#/lib/chat-errors";
+import { parseSkillDirective } from "#/lib/skills";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -78,6 +79,22 @@ export interface ToolDisplay {
 
 /** key 是工具名（不含 "tool-" 前缀）。不在 map 里的工具 part 不进活动区块 */
 export type ToolDisplayMap = Record<string, ToolDisplay>;
+
+/**
+ * OpenRouter 的服务端联网搜索，两个聊天入口共用。刻意做成单条目的 map 而不是
+ * 裸 ToolDisplay：工具名 `web_search` 由 OpenRouter 定，跟着展示一起走才不会在
+ * 某一边被抄错。
+ */
+export const WEB_SEARCH_TOOL_DISPLAY: ToolDisplayMap = {
+  web_search: {
+    icon: Globe,
+    running: m.chat_searching_web,
+    done: m.chat_searched_web,
+    // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
+    // 参数一到齐（input-available）就当「已搜索」，结果以 source part 到达
+    isDone: (state) => state !== "input-streaming",
+  },
+};
 
 function toolNameOf(partType: string): string {
   return partType.slice("tool-".length);
@@ -188,6 +205,28 @@ export function messageText(message: UIMessage): string {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n\n");
+}
+
+/**
+ * 消息里是否已有任何用户看得见的内容。useChat 在收到流的 start chunk（远早于
+ * 模型首字）时就把 status 从 "submitted" 翻成 "streaming"，只看 status 的话
+ * ChatThinking 会在首字到达前几秒就消失，屏幕上只剩一条什么都不渲染的空助手
+ * 消息——体感"无响应"。两个聊天面板据此在 streaming 但本判定仍为 false 时
+ * 继续挂着指示条，第一个可见 part（首个 reasoning/text 增量、首个工具调用、
+ * 首批来源）一出现指示条即消失。
+ * 可见的口径：非空 text/reasoning、工具 part（本地 tool-* 与 dynamic-tool，
+ * 一出现就有状态行/卡片）、来源（source-url / source-document）。
+ */
+export function hasVisibleParts(message: UIMessage): boolean {
+  return message.parts.some((part) => {
+    if (part.type === "text" || part.type === "reasoning") {
+      return part.text.length > 0;
+    }
+    if (part.type.startsWith("tool-") || part.type === "dynamic-tool") {
+      return true;
+    }
+    return part.type === "source-url" || part.type === "source-document";
+  });
 }
 
 /** 助手回复里的工具调用：只以一行状态出现，不展开原始输入输出 */
@@ -478,15 +517,28 @@ export const ChatMessage = memo(function ChatMessage({
   /** 该消息是否正在流式生成（只有最后一条会是 true），驱动活动区块的自动开合 */
   isStreaming: boolean;
   toolDisplays: ToolDisplayMap;
-  /** 在正文流内渲染某个工具 part 的自定义块（assistant 的论文卡片用）；返回 null 则不渲染 */
+  /** 在正文流内渲染某个工具 part 的自定义块（两个聊天的论文卡片用）；返回 null 则不渲染 */
   renderToolOutput?: (part: ToolUIPart, messageId: string) => React.ReactNode;
 }) {
   if (message.role === "user") {
+    // slash 指令消息（<agent_skill …/>）不露原始标签，渲染成 /name 徽章 + 参数
+    const directive = parseSkillDirective(messageText(message));
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-lg rounded-tr-sm border border-[var(--line)] bg-[var(--parchment-warm)] px-3 py-2 text-sm whitespace-pre-wrap text-[var(--ink)]">
-          {messageText(message)}
-        </p>
+        <div className="max-w-[85%] rounded-lg rounded-tr-sm border border-[var(--line)] bg-[var(--parchment-warm)] px-3 py-2 text-sm text-[var(--ink)]">
+          {directive ? (
+            <>
+              <span className="inline-flex items-center rounded border border-[var(--academic-brown)]/40 bg-[var(--academic-brown)]/10 px-1.5 py-0.5 font-mono text-xs text-[var(--academic-brown)]">
+                /{directive.name}
+              </span>
+              {directive.args && (
+                <p className="mt-1.5 whitespace-pre-wrap">{directive.args}</p>
+              )}
+            </>
+          ) : (
+            <p className="whitespace-pre-wrap">{messageText(message)}</p>
+          )}
+        </div>
       </div>
     );
   }

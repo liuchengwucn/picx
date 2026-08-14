@@ -50,7 +50,7 @@ export function resolveSelection(env: {
 }
 
 // 该 interface 只覆盖 cron 阈值判断所需字段(id/title/upvotes)，
-// src/lib/agent.ts 的 listDailyPapers 工具还要展示 summary/authors/publishedAt，
+// src/lib/discovery-tools.ts 的 listDailyPapers 工具还要展示 summary/authors/publishedAt，
 // 且对外部 JSON 更防御(字段可选)，形状不同故各自定义；导出仅为 cron 测试。
 // HF_DAILY_PAPERS_API 常量见 #/lib/arxiv。
 export interface HFPaper {

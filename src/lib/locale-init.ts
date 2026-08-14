@@ -1,70 +1,47 @@
 /**
- * Initialize locale based on browser language preference
- * This runs before paraglide's preferredLanguage strategy
+ * 浏览器早期的 locale cookie 同步（__root.tsx beforeLoad 调用，幂等）。
+ *
+ * SSR 按 cookie 渲染 locale（见 src/server.ts），所以老用户 localStorage 里的
+ * locale 必须回填到 cookie，否则 SSR 与客户端渲染不一致（hydration #418）。
+ * cookie 已存在合法 locale 时什么都不做；两边都没有时也不写，
+ * 服务端和客户端会一致地落到 baseLocale (en)。
  */
 
-import { locales, localStorageKey } from "#/paraglide/runtime";
+import { type AppLocale, pickLocale } from "#/lib/locale-negotiation";
+import {
+  cookieMaxAge,
+  cookieName,
+  locales,
+  localStorageKey,
+} from "#/paraglide/runtime";
 
-type AppLocale = (typeof locales)[number];
+function isAppLocale(value: string | null | undefined): value is AppLocale {
+  return !!value && locales.includes(value as AppLocale);
+}
 
-/**
- * Map browser language codes to our supported locales
- */
-const LANGUAGE_MAP: Record<string, AppLocale> = {
-  zh: "zh-CN",
-  "zh-cn": "zh-CN",
-  "zh-hans": "zh-CN",
-  "zh-sg": "zh-CN",
-  "zh-tw": "zh-TW",
-  "zh-hant": "zh-TW",
-  "zh-hk": "zh-TW",
-  "zh-mo": "zh-TW",
-  ja: "ja",
-  "ja-jp": "ja",
-  en: "en",
-  "en-us": "en",
-  "en-gb": "en",
-};
-
-/**
- * Initialize locale on first visit
- * If localStorage already has a locale, do nothing
- * Otherwise, detect browser language and set it
- */
 export function initLocale() {
   // Skip if we're on the server
   if (typeof window === "undefined" || typeof navigator === "undefined") {
     return;
   }
 
-  // Skip if user has already set a locale
-  const storedLocale = localStorage.getItem(localStorageKey);
-  if (storedLocale) {
+  // cookie 里已有合法 locale → 幂等退出
+  const cookieMatch = document.cookie.match(
+    new RegExp(`(?:^| )${cookieName}=([^;]+)`),
+  );
+  if (isAppLocale(cookieMatch?.[1])) {
     return;
   }
 
-  // Get browser languages
-  const browserLanguages = navigator.languages || [navigator.language];
+  const storedLocale = localStorage.getItem(localStorageKey);
+  const resolved = isAppLocale(storedLocale)
+    ? storedLocale
+    : pickLocale(navigator.languages || [navigator.language]);
 
-  // Try to find a matching locale
-  for (const lang of browserLanguages) {
-    const normalizedLang = lang.toLowerCase();
-
-    // Try exact match first
-    const mapped = LANGUAGE_MAP[normalizedLang];
-    if (mapped && locales.includes(mapped)) {
-      localStorage.setItem(localStorageKey, mapped);
-      return;
-    }
-
-    // Try base language (e.g., "zh" from "zh-TW")
-    const baseLang = normalizedLang.split("-")[0];
-    const baseMapped = LANGUAGE_MAP[baseLang];
-    if (baseMapped && locales.includes(baseMapped)) {
-      localStorage.setItem(localStorageKey, baseMapped);
-      return;
-    }
+  if (resolved) {
+    // 格式与 runtime setLocale 写 cookie 的方式保持一致。
+    // biome-ignore lint/suspicious/noDocumentCookie: Cookie Store API 是异步且浏览器覆盖不全，paraglide runtime 本身也是同样写法
+    document.cookie = `${cookieName}=${resolved}; path=/; max-age=${cookieMaxAge}`;
+    localStorage.setItem(localStorageKey, resolved);
   }
-
-  // If no match found, paraglide will use baseLocale (en)
 }

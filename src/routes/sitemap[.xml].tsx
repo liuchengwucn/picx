@@ -141,7 +141,7 @@ async function handler({ request }: { request: Request }) {
     {
       url: `${origin}/`,
       priority: "1.0",
-      changefreq: "weekly",
+      changefreq: "daily",
       lastmod: latestPaperDate,
     },
     {
@@ -150,9 +150,7 @@ async function handler({ request }: { request: Request }) {
       changefreq: "daily",
       lastmod: latestPaperDate,
     },
-    { url: `${origin}/reader`, priority: "0.8", changefreq: "monthly" },
     { url: `${origin}/news`, priority: "0.8", changefreq: "hourly" },
-    { url: `${origin}/about`, priority: "0.5", changefreq: "monthly" },
   ];
 
   const paperRoutes: SitemapRoute[] = publicPapers.map((p) => ({

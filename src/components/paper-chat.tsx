@@ -5,7 +5,6 @@ import {
   BookOpen,
   Check,
   ChevronDown,
-  Globe,
   Loader2,
   MessageSquareQuote,
   PanelRightClose,
@@ -13,6 +12,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import type { RefObject } from "react";
 import {
   useCallback,
   useEffect,
@@ -27,10 +27,16 @@ import { ChatInputArea } from "#/components/chat/chat-input";
 import {
   ChatMessage,
   ChatThinking,
+  hasVisibleParts,
   resolveChatErrorMessage,
   type ToolDisplayMap,
+  WEB_SEARCH_TOOL_DISPLAY,
 } from "#/components/chat/chat-message";
 import { createTextOnlyChatTransport } from "#/components/chat/chat-transport";
+import {
+  DISCOVERY_TOOL_DISPLAYS,
+  renderDiscoveryToolOutput,
+} from "#/components/chat/discovery-ui";
 import { useChatSettings } from "#/components/chat/use-chat-settings";
 import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
 import { Button } from "#/components/ui/button";
@@ -42,6 +48,7 @@ import {
   DialogTrigger,
 } from "#/components/ui/dialog";
 import { useTRPC } from "#/integrations/trpc/react";
+import { appendPdfQuote } from "#/lib/pdf-quote";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -62,21 +69,15 @@ export function clampChatPanelWidth(width: number): number {
   );
 }
 
-/** paper 聊天的工具展示（行为与原硬编码一致） */
+/** paper 聊天的工具展示；发现三件套与 web_search 两条与 /assistant 共用同一份定义 */
 const PAPER_CHAT_TOOLS: ToolDisplayMap = {
   readPaper: {
     icon: BookOpen,
     running: m.chat_reading_paper,
     done: m.chat_read_paper_done,
   },
-  web_search: {
-    icon: Globe,
-    running: m.chat_searching_web,
-    done: m.chat_searched_web,
-    // 搜索在 OpenRouter 服务端执行，流里只有工具调用没有 output part：
-    // 参数一到齐（input-available）就当「已搜索」，结果以 source part 到达
-    isDone: (state) => state !== "input-streaming",
-  },
+  ...DISCOVERY_TOOL_DISPLAYS,
+  ...WEB_SEARCH_TOOL_DISPLAY,
 };
 
 interface ConversationProps {
@@ -88,6 +89,8 @@ interface ConversationProps {
   /** 草稿提在 PaperChat 层：抽屉关闭会卸载整棵子树，state 留这儿会丢 */
   input: string;
   onInputChange: (value: string) => void;
+  /** 透传到 textarea，供外部注入引用后聚焦 */
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 function PaperChatConversation({
@@ -96,6 +99,7 @@ function PaperChatConversation({
   onCollapse,
   input,
   onInputChange,
+  inputRef,
 }: ConversationProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -120,6 +124,12 @@ function PaperChatConversation({
 
   const hydratedSessionRef = useRef<string | null>(null);
   const didAutoSelectRef = useRef(false);
+  // transport 的 reconnectQuery 要拿「重连那一刻」的会话 id：transport 用 useMemo
+  // 建一次不重建，经渲染期同步的 ref 取值，避免把 selectedSessionId 加进依赖
+  const selectedSessionIdRef = useRef<string | null>(null);
+  selectedSessionIdRef.current = selectedSessionId;
+  // 已经 resume 探测过的会话：每个会话只试一次，只记最后一个即可
+  const resumedSessionRef = useRef<string | null>(null);
   // 流开始那一刻的 sessionId。onFinish 只认它，不认「当前选中」——流式期间用户
   // 可能已经切走，用当前值会去失效一个毫不相干的会话缓存。
   const streamingSessionIdRef = useRef<string | null>(null);
@@ -150,6 +160,9 @@ function PaperChatConversation({
         api: "/api/chat",
         settingsRef,
         extraBody: () => ({ paperShortId }),
+        reconnectQuery: () => ({
+          sessionId: selectedSessionIdRef.current ?? "",
+        }),
       }),
     [paperShortId, settingsRef],
   );
@@ -170,20 +183,21 @@ function PaperChatConversation({
     [queryClient, trpc],
   );
 
-  const { messages, sendMessage, setMessages, status, stop } = useChat({
-    id: `paper-chat:${paperShortId}:${chatEpoch}`,
-    transport,
-    // 流式 chunk 可以来得比一帧还密；50ms 合批，省掉大量无意义的整表重渲染
-    throttle: 50,
-    onError: (error) => {
-      toast.error(resolveChatErrorMessage(error));
-    },
-    onFinish: () => {
-      invalidateSessions();
-      invalidateSessionMessages(streamingSessionIdRef.current);
-      streamingSessionIdRef.current = null;
-    },
-  });
+  const { messages, sendMessage, setMessages, status, stop, resumeStream } =
+    useChat({
+      id: `paper-chat:${paperShortId}:${chatEpoch}`,
+      transport,
+      // 流式 chunk 可以来得比一帧还密；50ms 合批，省掉大量无意义的整表重渲染
+      throttle: 50,
+      onError: (error) => {
+        toast.error(resolveChatErrorMessage(error));
+      },
+      onFinish: () => {
+        invalidateSessions();
+        invalidateSessionMessages(streamingSessionIdRef.current);
+        streamingSessionIdRef.current = null;
+      },
+    });
 
   const isBusy = status === "submitted" || status === "streaming";
 
@@ -211,7 +225,21 @@ function PaperChatConversation({
     if (!history) return;
     hydratedSessionRef.current = selectedSessionId;
     setMessages(history as unknown as UIMessage[]);
-  }, [selectedSessionId, messagesQuery.data, setMessages]);
+    // 历史末尾停在 user 消息 → 上一轮回复还在 DO 里生成（或已完成未刷缓存），
+    // 重连把它接回来；每个会话只试一次
+    const last = history[history.length - 1] as UIMessage | undefined;
+    if (
+      last?.role === "user" &&
+      resumedSessionRef.current !== selectedSessionId
+    ) {
+      resumedSessionRef.current = selectedSessionId;
+      // 接回的流也算「在本会话开流」：onFinish 要靠它失效正确的历史缓存，
+      // 否则回放完成后缓存仍停在 user 消息，切走再切回会丢这条回答。
+      // （204 无流时它残留非 null 也无害：下次发送会覆盖，openSession 会清。）
+      streamingSessionIdRef.current = selectedSessionId;
+      void resumeStream();
+    }
+  }, [selectedSessionId, messagesQuery.data, setMessages, resumeStream]);
 
   // 流式每来一个 chunk，最后一条消息都是新对象 → 依赖它即可持续贴底。
   // 但只在用户本来就贴着底时跟随：他上滚回看前文时把视口拽回去是最烦人的交互。
@@ -219,9 +247,9 @@ function PaperChatConversation({
   const { scrollRef, handleScroll, resetStick } = useStickToBottom(lastMessage);
 
   const openSession = (sessionId: string | null) => {
-    // 先把「被打断的那个会话」抠出来再 stop()：abort 不会触发 onFinish，但服务端
-    // 的 waitUntil(consumeStream) 仍会把助手消息落库，所以它的历史缓存必须失效，
-    // 否则切回去看到的是缺一条回答的旧快照。
+    // 先把「被打断的那个会话」抠出来再 stop()：abort 不会触发 onFinish，但生成
+    // 托管在 ChatRunner DO 里，断流不影响它跑完并把助手消息落库，所以它的历史
+    // 缓存必须失效，否则切回去看到的是缺一条回答的旧快照。
     const interruptedSessionId = isBusy ? streamingSessionIdRef.current : null;
     if (isBusy) void stop();
     streamingSessionIdRef.current = null;
@@ -300,7 +328,12 @@ function PaperChatConversation({
   const activeSession = sessions.find(
     (session) => session.id === selectedSessionId,
   );
-  const showThinking = status === "submitted";
+  // "streaming" 只说明流的 start chunk 到了，离模型首字还差几秒：最后一条助手
+  // 消息真渲染出内容之前继续挂着指示条，别让屏幕上只剩一条空消息
+  const showThinking =
+    status === "submitted" ||
+    (status === "streaming" &&
+      (lastMessage?.role !== "assistant" || !hasVisibleParts(lastMessage)));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -460,6 +493,7 @@ function PaperChatConversation({
               message={message}
               isStreaming={isBusy && message.id === lastMessage?.id}
               toolDisplays={PAPER_CHAT_TOOLS}
+              renderToolOutput={renderDiscoveryToolOutput}
             />
           ))
         )}
@@ -481,6 +515,7 @@ function PaperChatConversation({
           onToggleWebSearch={toggleWebSearch}
           reasoningEffort={reasoningEffort}
           onReasoningEffortChange={changeReasoningEffort}
+          inputRef={inputRef}
         />
       </div>
     </div>
@@ -635,6 +670,15 @@ export interface PaperChatProps {
   /** 宽屏侧栏是否收起成右下角 FAB；不影响 <xl 的抽屉形态 */
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
+  /**
+   * 待注入输入框的引用块（已含 markdown 引用语法）。这是一次性事件而不是持久状态：
+   * 消费后必须由调用方经 onPendingQuoteConsumed 清回 null，否则用户手动删掉引用后
+   * 任何一次重渲染都会把它重新塞回来，而且注入 effect 还会随输入框内容变化反复追加。
+   * 这对 prop 刻意不设为可选：漏掉清理回调的后果不是「少个功能」而是脏数据，宁可
+   * 编译期就拦下来。
+   */
+  pendingQuote: string | null;
+  onPendingQuoteConsumed: () => void;
 }
 
 /**
@@ -651,6 +695,8 @@ export function PaperChat({
   onPanelResizeEnd,
   collapsed,
   onCollapsedChange,
+  pendingQuote,
+  onPendingQuoteConsumed,
 }: PaperChatProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -661,6 +707,18 @@ export function PaperChat({
   // 草稿留在这一层：抽屉关闭 / 侧栏收起都会卸载整个对话子树，state 放里面等于
   // 清空输入框
   const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  /**
+   * 「注入完引用后要聚焦」的待办，存的是**注入后应有的完整文本**而不是一个布尔。
+   *
+   * 存布尔会踩到一个很隐蔽的顺序坑：面板本来就开着时，注入 effect 与聚焦 effect
+   * 在同一次 flush 里先后跑，此刻 setInput 还没落到 DOM 上，textarea.value 仍是旧
+   * 值——按它去 setSelectionRange / 滚动，光标位置只能靠浏览器「赋新值时把插入点
+   * 挪到末尾」的默认行为侥幸对上，而滚动位置直接是错的（实测 scrollTop 停在 0，
+   * 用户看到的是引用开头而不是要打字的那一行）。
+   * 存目标文本就能等到 value 真的变成它了再动手，两种形态走同一条路径。
+   */
+  const focusPendingRef = useRef<string | null>(null);
   const sheetDescriptionId = useId();
 
   useEffect(() => {
@@ -678,30 +736,86 @@ export function PaperChat({
     return () => mediaQuery.removeEventListener("change", onChange);
   }, []);
 
-  // 打开 / 展开都要把 chat 相关缓存标脏：关着的这段时间里，被中断的流仍可能由
-  // 服务端的 waitUntil 落库，重新可见时不能拿旧快照当历史。抽屉（<xl）和侧栏
+  // 打开 / 展开都要把 chat 相关缓存标脏：关着的这段时间里，托管在 ChatRunner DO
+  // 里的生成仍会跑完并落库，重新可见时不能拿旧快照当历史。抽屉（<xl）和侧栏
   // 收起（xl+）都会卸载对话子树，重新挂载后 sessions/messages 走这份新鲜数据
   // 重新水合——这就是两种折叠形态下「收起中若正在流式回复」的处理方式：客户端
   // 状态（选中会话、useChat 内部消息列表）会丢，但服务端已落库的内容会在重新
   // 打开时立刻拿回来，不算真正丢失。
-  const invalidateChatQueries = () => {
+  // 这三个都包了 useCallback 而不是写成普通函数：下面的注入 effect 要调它们，而它的
+  // 全部正确性论证就建立在依赖表上。普通函数每渲染重建，要么让 effect 每渲染空转，
+  // 要么逼出一条 hook 级的 biome-ignore——那会把整个 effect 的依赖检查一起关掉，以后
+  // 真缺依赖也不会有人提醒。稳定引用换来的是依赖表可以照实写。
+  const invalidateChatQueries = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: trpc.chat.getMessages.pathKey(),
     });
     void queryClient.invalidateQueries({
       queryKey: trpc.chat.listSessions.pathKey(),
     });
-  };
+  }, [queryClient, trpc]);
 
-  const handleSheetOpenChange = (open: boolean) => {
-    setIsSheetOpen(open);
-    if (open) invalidateChatQueries();
-  };
+  const handleSheetOpenChange = useCallback(
+    (open: boolean) => {
+      setIsSheetOpen(open);
+      if (open) invalidateChatQueries();
+    },
+    [invalidateChatQueries],
+  );
 
-  const expandPanel = () => {
+  const expandPanel = useCallback(() => {
     onCollapsedChange(false);
     invalidateChatQueries();
-  };
+  }, [onCollapsedChange, invalidateChatQueries]);
+
+  useEffect(() => {
+    if (!pendingQuote) return;
+    // 刻意不用函数式更新：下面的聚焦 effect 要拿这次注入的结果去比对 DOM，得先
+    // 把它算出来。effect 是在提交之后跑的，这里的 input 就是最新的已提交值。
+    const next = appendPdfQuote(input, pendingQuote);
+    setInput(next);
+    focusPendingRef.current = next;
+    // 面板收着的话，用户点完「问这段」必须看到东西打开，否则毫无反馈
+    if (isWideViewport) {
+      if (collapsed) expandPanel();
+    } else if (!isSheetOpen) {
+      handleSheetOpenChange(true);
+    }
+    // 一次性事件：立刻清回 null。与上面的 setInput 在同一个 effect 里，React 会
+    // 合批成一次重渲染，不存在「清早了导致引用丢失」的窗口。
+    onPendingQuoteConsumed();
+  }, [
+    pendingQuote,
+    onPendingQuoteConsumed,
+    isWideViewport,
+    collapsed,
+    isSheetOpen,
+    input,
+    expandPanel,
+    handleSheetOpenChange,
+  ]);
+
+  const focusInputEnd = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    // rows=2 的输入框放不下整段引用，focus 本身不保证把插入点滚进视野
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // 刻意不写依赖数组：要在**每次**渲染后检查 textarea 挂上了没、值追上了没。展开
+  // 侧栏要多一次渲染才挂上 textarea，而面板本来就开着时又要等下一次提交值才变——
+  // 两种情况的帧数不同，只有每渲染重试才都覆盖得到。
+  // （窄屏抽屉不走这里，见 DialogContent 的 onOpenAutoFocus。）
+  useEffect(() => {
+    const target = focusPendingRef.current;
+    if (target === null) return;
+    const el = inputRef.current;
+    if (!el || el.value !== target) return;
+    focusPendingRef.current = null;
+    focusInputEnd();
+  });
 
   if (isWideViewport) {
     if (collapsed) {
@@ -740,9 +854,18 @@ export function PaperChat({
         )}
         {isSignedIn ? (
           <PaperChatConversation
+            // 换论文必须卸载重建：路由没配 remountDeps，/p/$shortId 之间跳转
+            // （卡片里的「查看」、相关论文列表）不会重挂这棵子树，selectedSessionId
+            // 会停在上一篇的会话上，而 didAutoSelectRef/hydratedSessionRef 已置位、
+            // 自动选择与历史注入都会跳过。表面看是「新对话」（sessions 换了一批，
+            // activeSession 找不着），一发送却带着旧 sessionId，被服务端
+            // authorize 的 paperId 校验判 forbidden，只能吃通用报错。
+            // 草稿在 PaperChat 这一层，重挂不会丢用户打了一半的字。
+            key={paperShortId}
             paperShortId={paperShortId}
             input={input}
             onInputChange={setInput}
+            inputRef={inputRef}
             onCollapse={() => onCollapsedChange(true)}
           />
         ) : (
@@ -772,7 +895,7 @@ export function PaperChat({
           <DialogTrigger asChild>
             <Button
               size="icon-lg"
-              className="fixed right-5 bottom-[calc(1.25rem_+_env(safe-area-inset-bottom))] z-40 rounded-full shadow-[0_10px_30px_rgba(87,61,38,0.28)] xl:hidden"
+              className="fixed right-5 bottom-[calc(1.25rem_+_3.5rem_+_env(safe-area-inset-bottom))] z-40 rounded-full shadow-[0_10px_30px_rgba(87,61,38,0.28)] md:bottom-[calc(1.25rem_+_env(safe-area-inset-bottom))] xl:hidden"
               aria-label={m.chat_open()}
             >
               <MessageSquareQuote className="h-5 w-5" />
@@ -787,6 +910,28 @@ export function PaperChat({
             isSignedIn && "h-[86dvh]",
           )}
           aria-describedby={sheetDescriptionId}
+          onOpenAutoFocus={(event) => {
+            // 抽屉是被「问这段」自动拉开的：焦点该落在那个已经带着引用的输入框上。
+            //
+            // 上面那个无依赖的 effect 其实也能把焦点抢回来（开抽屉本身就是 PaperChat
+            // 的状态变更，它会在那次 commit 里重渲染，父级 effect 排在子级 FocusScope
+            // 之后）——但那是「先让 Radix 把焦点放到会话条的『新对话』按钮上，我们再
+            // 抢回来」，中间会闪一次焦点环。这里直接 preventDefault 掉，让焦点一步到位。
+            //
+            // 用户自己点 FAB 打开时不插手，保持 Radix 默认（移动端不无故弹键盘）。
+            if (focusPendingRef.current === null) return;
+            const el = inputRef.current;
+            // 未登录时抽屉里是登录提示，没有输入框：让 Radix 按默认走，否则焦点会
+            // 掉进真空。顺手把闩解了——这次注入永远等不到 textarea 了，留着它下次
+            // 用户手动开抽屉会被莫名其妙地抢焦点。
+            if (!el) {
+              focusPendingRef.current = null;
+              return;
+            }
+            event.preventDefault();
+            focusPendingRef.current = null;
+            focusInputEnd();
+          }}
         >
           <DialogTitle className="sr-only">{m.chat_title()}</DialogTitle>
           <DialogDescription id={sheetDescriptionId} className="sr-only">
@@ -795,10 +940,13 @@ export function PaperChat({
           <div className="min-h-0 flex-1">
             {isSignedIn ? (
               <PaperChatConversation
+                // 理由同宽屏形态那处：换论文必须卸载重建，否则会话状态串到上一篇
+                key={paperShortId}
                 paperShortId={paperShortId}
                 onClose={closeSheet}
                 input={input}
                 onInputChange={setInput}
+                inputRef={inputRef}
               />
             ) : (
               <SignInPrompt onSignIn={onSignIn} onClose={closeSheet} />

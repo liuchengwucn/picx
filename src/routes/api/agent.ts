@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
+  assistantSkills,
   conversationMembers,
   conversationMessages,
   conversations,
@@ -10,15 +11,22 @@ import {
 import {
   AGENT_LIMITS,
   buildAgentSystemPrompt,
-  buildAgentTools,
   checkAgentRateLimit,
 } from "#/lib/agent";
 import {
   type AuthorizeResult,
+  type ChatStreamArgs,
   chatStreamBody,
+  createChatResumeHandler,
   createChatStreamHandler,
 } from "#/lib/chat-stream";
+import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
+import {
+  buildSkillsCatalogSection,
+  parseSkillDirective,
+  SKILL_LIMITS,
+} from "#/lib/skills";
 
 /**
  * Assistant agent 的流式端点。会话创建走 tRPC assistant.createConversation，
@@ -36,8 +44,27 @@ interface AgentCtx {
   conversation: typeof conversations.$inferSelect;
 }
 
-/** 保留卡片工具（recommendPapers）的 output——历史回显要重建卡片；搜索工具的 output 落库时照常剥掉 */
-const CARD_TOOL_TYPES = new Set(["tool-recommendPapers"]);
+/** 归属校验：members 里有本人（POST authorize 与 GET authorizeResume 共用，
+ * 将来 channel 复用同一条查询） */
+async function loadMemberConversation(
+  db: ChatStreamArgs<Body>["db"],
+  userId: string,
+  conversationId: string,
+): Promise<typeof conversations.$inferSelect | undefined> {
+  const [convRow] = await db
+    .select({ conversation: conversations })
+    .from(conversations)
+    .innerJoin(
+      conversationMembers,
+      and(
+        eq(conversationMembers.conversationId, conversations.id),
+        eq(conversationMembers.userId, userId),
+      ),
+    )
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  return convRow?.conversation;
+}
 
 const handler = createChatStreamHandler<Body, AgentCtx>({
   logTag: "agent",
@@ -45,31 +72,40 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
   limits: {
     maxInputChars: AGENT_LIMITS.maxInputChars,
     maxMessages: AGENT_LIMITS.maxMessagesPerConversation,
-    webSearchMaxResults: AGENT_LIMITS.webSearchMaxResults,
   },
-  stopWhenSteps: 10,
-  keepToolOutputTypes: CARD_TOOL_TYPES,
+  // 落库口径（keepToolOutputTypes）已随生成阶段移交 GENERATION_SPECS；请求期只剩
+  // 历史重放要用的摘要口径，两者仍同源于 CARD_REPLAY_SPEC（口径见 discovery-tools）
+  replayToolDigest: CARD_REPLAY_SPEC.replayToolDigest,
+
+  conversationKey: (body) => body.conversationId,
+
+  buildJob: ({ userId, session, body }, _ctx, prepared) => ({
+    kind: "agent",
+    conversationId: body.conversationId,
+    userId,
+    locale: body.locale,
+    webSearch: body.webSearch,
+    reasoningEffort: body.reasoningEffort,
+    // 与 tRPC updateProfile 同一口径：mutations 开关打开时 guest 也可写档案
+    isGuest: isReviewGuestReadOnlySession(session),
+    instructions: prepared.instructions,
+    modelMessages: prepared.modelMessages,
+  }),
 
   authorize: async ({
     db,
     userId,
     body,
   }): Promise<AuthorizeResult<AgentCtx>> => {
-    // 归属校验：members 里有本人（将来 channel 复用同一条查询）
-    const [convRow] = await db
-      .select({ conversation: conversations })
-      .from(conversations)
-      .innerJoin(
-        conversationMembers,
-        and(
-          eq(conversationMembers.conversationId, conversations.id),
-          eq(conversationMembers.userId, userId),
-        ),
-      )
-      .where(eq(conversations.id, body.conversationId))
-      .limit(1);
-    if (!convRow) return { ok: false, code: "session_not_found", status: 404 };
-    return { ok: true, ctx: { conversation: convRow.conversation } };
+    const conversation = await loadMemberConversation(
+      db,
+      userId,
+      body.conversationId,
+    );
+    if (!conversation) {
+      return { ok: false, code: "session_not_found", status: 404 };
+    }
+    return { ok: true, ctx: { conversation } };
   },
 
   countMessages: async ({ db, body }) => {
@@ -99,23 +135,45 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
   },
 
   buildInstructions: async ({ db, userId, body }) => {
-    const [profileRow] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, userId))
-      .limit(1);
-    return buildAgentSystemPrompt(profileRow?.content ?? null, body.webSearch);
+    // catalog 查询失败不阻断对话：跳过注入，agent 只是这一轮不知道 skills 存在
+    const loadCatalog = async () => {
+      try {
+        const rows = await db
+          .select({
+            name: assistantSkills.name,
+            description: assistantSkills.description,
+          })
+          .from(assistantSkills)
+          .where(
+            and(
+              eq(assistantSkills.userId, userId),
+              eq(assistantSkills.enabled, true),
+            ),
+          )
+          .orderBy(desc(assistantSkills.updatedAt))
+          .limit(SKILL_LIMITS.catalogMaxEntries + 1);
+        return buildSkillsCatalogSection(
+          rows.slice(0, SKILL_LIMITS.catalogMaxEntries),
+          rows.length > SKILL_LIMITS.catalogMaxEntries,
+        );
+      } catch {
+        return "";
+      }
+    };
+    const [profileRows, skillsCatalog] = await Promise.all([
+      db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, userId))
+        .limit(1),
+      loadCatalog(),
+    ]);
+    return buildAgentSystemPrompt(
+      profileRows[0]?.content ?? null,
+      body.webSearch,
+      skillsCatalog,
+    );
   },
-
-  buildLocalTools: ({ db, env, session, userId, body }) =>
-    buildAgentTools({
-      db,
-      bucket: env.PAPERS_BUCKET,
-      userId,
-      locale: body.locale,
-      // 与 tRPC updateProfile 同一口径：mutations 开关打开时 guest 也可写档案
-      isGuest: isReviewGuestReadOnlySession(session),
-    }),
 
   persistUserMessage: async ({ db, userId, body }, { conversation }) => {
     // 幂等 upsert（客户端提供 id，regenerate 会复用）；setWhere 语义同 /api/chat
@@ -141,33 +199,35 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
     };
     if (!conversation.title) {
       const firstText = body.message.parts[0]?.text;
-      if (firstText) patch.title = firstText.slice(0, 80);
+      if (firstText) {
+        // slash 指令消息落库是 <agent_skill /> 原始标记；标题改用人类可读的 /name args
+        const directive = parseSkillDirective(firstText);
+        const titleText = directive
+          ? `/${directive.name} ${directive.args}`.trim()
+          : firstText;
+        patch.title = titleText.slice(0, 80);
+      }
     }
     await db
       .update(conversations)
       .set(patch)
       .where(eq(conversations.id, body.conversationId));
   },
+});
 
-  persistAssistantMessage: async ({ db, body }, _ctx, message) => {
-    await db.insert(conversationMessages).values({
-      id: message.id,
-      conversationId: body.conversationId,
-      senderType: "assistant",
-      senderId: null,
-      parts: message.parts,
-    });
-    await db
-      .update(conversations)
-      .set({ updatedAt: new Date() })
-      .where(eq(conversations.id, body.conversationId));
-  },
+const resumeHandler = createChatResumeHandler({
+  logTag: "agent",
+  querySchema: z.object({ conversationId: z.string().min(1) }),
+  authorizeResume: async (db, userId, q) =>
+    (await loadMemberConversation(db, userId, q.conversationId)) != null,
+  conversationKey: (q) => q.conversationId,
 });
 
 export const Route = createFileRoute("/api/agent")({
   server: {
     handlers: {
       POST: handler,
+      GET: resumeHandler,
     },
   },
 });

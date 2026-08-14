@@ -1,8 +1,10 @@
 /**
- * URL safety + filename parsing for the Reader "import from URL" feature.
+ * URL safety + filename parsing for the "import from link" upload flow.
  * Pure and framework-free so it can be unit-tested and shared by the route
  * handler and the browser-side input validation.
  */
+
+import { UPLOAD_ERROR, type UploadErrorCode } from "#/lib/upload-errors";
 
 export type UrlCheck =
   | { ok: true; url: URL }
@@ -13,7 +15,7 @@ export type UrlCheck =
  *
  * workerd's `fetch()` sends no User-Agent by default. Many PDF hosts sit behind
  * Cloudflare bot management, which answers a UA-less request with a 403
- * "Just a moment…" challenge page instead of the file — the Reader then reports
+ * "Just a moment…" challenge page instead of the file — the import then reports
  * "Couldn't fetch that URL". A normal browser UA makes those hosts serve the PDF.
  */
 export const PDF_FETCH_HEADERS: Record<string, string> = {
@@ -25,7 +27,7 @@ export const PDF_FETCH_HEADERS: Record<string, string> = {
 /**
  * Map a fetched response's HTTP status to a stable error code, or `null` when
  * the body should be downloaded and inspected (2xx). The client localises the
- * code into a message — see ERR_MESSAGES in routes/reader/index.tsx.
+ * code into a message — see components/papers/upload-error-message.ts.
  *
  * 403/429/503 almost always mean a bot wall / rate limit / anti-DDoS interstitial
  * (e.g. Cloudflare's "Just a moment…" page), so we tell the user to download the
@@ -33,12 +35,12 @@ export const PDF_FETCH_HEADERS: Record<string, string> = {
  */
 export function pdfFetchErrorCode(
   status: number,
-): "blocked" | "fetch_failed" | null {
+): Extract<UploadErrorCode, "blocked" | "fetch_failed"> | null {
   if (status === 403 || status === 429 || status === 503) {
-    return "blocked";
+    return UPLOAD_ERROR.BLOCKED;
   }
   if (status < 200 || status >= 300) {
-    return "fetch_failed";
+    return UPLOAD_ERROR.FETCH_FAILED;
   }
   return null;
 }

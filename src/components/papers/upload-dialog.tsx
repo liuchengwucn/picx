@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { localizeUploadError } from "#/components/papers/upload-error-message";
 import {
   Accordion,
   AccordionContent,
@@ -29,12 +30,15 @@ import {
 import { Switch } from "#/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { useTRPC } from "#/integrations/trpc/react";
+import { canonicalArxivUrl, isArxivLink } from "#/lib/arxiv";
 import { authClient, startGitHubSignIn } from "#/lib/auth-client";
+import { isAllowedPdfUrl } from "#/lib/pdf-url";
 import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
   isReviewGuestReadOnlySession,
 } from "#/lib/review-guest";
+import { UPLOAD_ERROR } from "#/lib/upload-errors";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -257,7 +261,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
-  const [arxivUrl, setArxivUrl] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [generateWhiteboard, setGenerateWhiteboard] = useState(false);
   const [summaryLanguage, setSummaryLanguage] = useState<
@@ -324,32 +328,37 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
 
   const createPaper = useMutation(trpc.paper.create.mutationOptions());
 
-  const handleFileUpload = useCallback(async () => {
-    if (isReadOnlyGuest) {
-      void startGitHubSignIn("/");
-      return;
-    }
-    if (!file) return;
-    setUploading(true);
-    try {
+  // 文件上传与链接导入的公共尾段：字节进 R2 → 建论文记录。
+  // 抛错交给调用方统一 toast，本函数不碰对话框状态。
+  // 约定：本文件所有 throw 抛的都是**稳定错误码**（lib/upload-errors.ts），
+  // 由 catch 里的 localizeUploadError 统一本地化——中途本地化会让两条路径
+  // 一半抛文案一半抛码，混进同一个 catch 后无从分辨。
+  const uploadPdfAndCreate = useCallback(
+    async (pdf: File) => {
       const resp = await fetch(
-        `/api/papers/upload?filename=${encodeURIComponent(file.name)}`,
-        { method: "POST", body: file },
+        `/api/papers/upload?filename=${encodeURIComponent(pdf.name)}`,
+        { method: "POST", body: pdf },
       );
       if (!resp.ok) {
         const err = (await resp.json().catch(() => null)) as {
           error?: string;
         } | null;
-        throw new Error(err?.error ?? "Upload failed");
+        // 拿不到码（网关直接吐了一页 HTML）时给个落 generic 的码占位。
+        throw new Error(err?.error ?? UPLOAD_ERROR.BAD_RESPONSE);
       }
-      const { r2Key, fileSize } = (await resp.json()) as {
+      // 200 也可能带非 JSON 体（网关插了一页 HTML）。不兜底的话，原始的
+      // "Unexpected token …" SyntaxError 会被调用方的 toast 原样甩给用户。
+      const ok = (await resp.json().catch(() => null)) as {
         r2Key: string;
         fileSize: number;
-      };
-
+      } | null;
+      if (!ok) {
+        throw new Error(UPLOAD_ERROR.BAD_RESPONSE);
+      }
+      const { r2Key, fileSize } = ok;
       await createPaper.mutateAsync({
         sourceType: "upload",
-        filename: file.name,
+        filename: pdf.name,
         fileSize,
         r2Key,
         language: summaryLanguage,
@@ -360,65 +369,123 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
           : undefined,
         generateWhiteboard,
       });
+    },
+    [
+      createPaper,
+      summaryLanguage,
+      whiteboardLanguage,
+      apiSource,
+      selectedApiConfigId,
+      selectedPromptId,
+      generateWhiteboard,
+    ],
+  );
+
+  const handleFileUpload = useCallback(async () => {
+    if (isReadOnlyGuest) {
+      void startGitHubSignIn("/");
+      return;
+    }
+    if (!file) return;
+    setUploading(true);
+    try {
+      await uploadPdfAndCreate(file);
       setOpen(false);
       setFile(null);
       onSuccess?.();
     } catch (e) {
       console.error("Upload failed:", e);
+      // 原实现只 console.error，失败时对话框静止不动，用户以为没点上。
+      toast.error(localizeUploadError(e));
     } finally {
       setUploading(false);
     }
-  }, [
-    createPaper,
-    file,
-    isReadOnlyGuest,
-    onSuccess,
-    summaryLanguage,
-    whiteboardLanguage,
-    apiSource,
-    selectedApiConfigId,
-    selectedPromptId,
-    generateWhiteboard,
-  ]);
+  }, [file, isReadOnlyGuest, onSuccess, uploadPdfAndCreate]);
 
-  const handleArxivSubmit = useCallback(async () => {
+  // 通用 PDF 链接：服务端代抓字节（浏览器受 CORS 限制拿不到跨域 PDF），
+  // 再走与本地文件完全相同的上传链路。
+  const importFromLink = useCallback(
+    async (raw: string) => {
+      // https + 非私有 host 的前置校验；本地判得掉的错就不必往返一次服务端。
+      if (!isAllowedPdfUrl(raw).ok) {
+        throw new Error(UPLOAD_ERROR.BAD_URL);
+      }
+      const resp = await fetch("/api/papers/fetch-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: raw }),
+      });
+      if (!resp.ok) {
+        // 非 JSON 响应（网关插了一页 HTML）时给个落 generic 的码占位。
+        let code: string = UPLOAD_ERROR.BAD_RESPONSE;
+        try {
+          const data = (await resp.json()) as { error?: string };
+          code = data?.error ?? code;
+        } catch {
+          // 非 JSON 响应，沿用占位码
+        }
+        throw new Error(code);
+      }
+      const blob = await resp.blob();
+      const headerName = resp.headers.get("X-Filename");
+      const filename = headerName
+        ? decodeURIComponent(headerName)
+        : "document.pdf";
+      await uploadPdfAndCreate(
+        new File([blob], filename, { type: "application/pdf" }),
+      );
+    },
+    [uploadPdfAndCreate],
+  );
+
+  const handleLinkSubmit = useCallback(async () => {
     if (isReadOnlyGuest) {
       void startGitHubSignIn("/");
       return;
     }
-    if (!arxivUrl) return;
+    const raw = linkUrl.trim();
+    if (!raw) return;
     setUploading(true);
     try {
-      const result = await createPaper.mutateAsync({
-        sourceType: "arxiv",
-        arxivUrl,
-        filename: arxivUrl.split("/").pop() || "arxiv-paper",
-        fileSize: 1, // Placeholder size for arxiv, will be updated after download
-        r2Key: `arxiv/${Date.now()}`,
-        language: summaryLanguage,
-        whiteboardLanguage,
-        apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
-        promptId: generateWhiteboard
-          ? (selectedPromptId ?? undefined)
-          : undefined,
-        generateWhiteboard,
-      });
-      // 服务端按 canonical source_url 去重了：这一篇早就在库里，什么也没发生。
-      // 不说一句的话，对话框一关用户会以为在重新处理。
-      if (result.alreadyExists) {
-        toast.info(m.assistant_card_added());
+      if (isArxivLink(raw)) {
+        // canonicalArxivUrl 把裸 id 也补成合法 URL —— paper.create 的 zod
+        // 校验是 z.string().url()，直接传 "2601.13209" 会被拒。
+        const canonical = canonicalArxivUrl(raw);
+        const result = await createPaper.mutateAsync({
+          sourceType: "arxiv",
+          arxivUrl: canonical,
+          filename: canonical.split("/").pop() || "arxiv-paper",
+          fileSize: 1, // arXiv 占位值，下载后由服务端更新
+          r2Key: `arxiv/${Date.now()}`,
+          language: summaryLanguage,
+          whiteboardLanguage,
+          apiConfigId: apiSource === "user" ? selectedApiConfigId : undefined,
+          promptId: generateWhiteboard
+            ? (selectedPromptId ?? undefined)
+            : undefined,
+          generateWhiteboard,
+        });
+        // 服务端按 canonical source_url 去重了：这一篇早就在库里，什么也没发生。
+        // 不说一句的话，对话框一关用户会以为在重新处理。
+        if (result.alreadyExists) {
+          toast.info(m.assistant_card_added());
+        }
+      } else {
+        await importFromLink(raw);
       }
       setOpen(false);
-      setArxivUrl("");
+      setLinkUrl("");
       onSuccess?.();
     } catch (e) {
-      console.error("arXiv submit failed:", e);
+      console.error("Link import failed:", e);
+      toast.error(localizeUploadError(e));
     } finally {
       setUploading(false);
     }
   }, [
-    arxivUrl,
+    linkUrl,
     createPaper,
+    importFromLink,
     isReadOnlyGuest,
     onSuccess,
     summaryLanguage,
@@ -487,9 +554,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               <FileText className="h-4 w-4" />
               {m.upload_file_title()}
             </TabsTrigger>
-            <TabsTrigger value="arxiv" className="flex-1 gap-1.5">
+            <TabsTrigger value="link" className="flex-1 gap-1.5">
               <LinkIcon className="h-4 w-4" />
-              {m.upload_arxiv_title()}
+              {m.upload_link_title()}
             </TabsTrigger>
           </TabsList>
 
@@ -631,15 +698,15 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             )}
           </TabsContent>
 
-          <TabsContent value="arxiv" className="mt-4">
+          <TabsContent value="link" className="mt-4">
             <Input
-              placeholder="https://arxiv.org/abs/2301.12345"
-              value={arxivUrl}
-              onChange={(e) => setArxivUrl(e.target.value)}
+              placeholder={m.upload_link_placeholder()}
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
               className="border-[var(--line)]"
             />
             <p className="mt-2 text-xs text-[var(--ink-soft)]">
-              {m.upload_arxiv_hint()}
+              {m.upload_link_hint()}
             </p>
             <div className="mt-4">
               <WhiteboardToggle
@@ -702,9 +769,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
               </span>
             </div>
             <Button
-              onClick={handleArxivSubmit}
+              onClick={handleLinkSubmit}
               disabled={
-                !arxivUrl ||
+                !linkUrl.trim() ||
                 uploading ||
                 blockedByCredits ||
                 (apiSource === "user" && !selectedApiConfigId)

@@ -84,7 +84,9 @@ async function handler({
       // 公开论文也不放 public：可见性随时可能被作者改回私有，共享缓存会继续
       // 分发已经撤回的正文图片。
       "Cache-Control": "private, max-age=31536000, immutable",
-      ETag: obj.etag,
+      // httpEtag 才是带引号的合法 entity-tag；裸的 etag 发出去是畸形校验器，
+      // 浏览器会干脆不拿它做条件请求。
+      ETag: obj.httpEtag,
     },
   });
 }

@@ -36,8 +36,15 @@
  *
  * Usage (run on the host):
  *   node scripts/backfill-paper-text.mjs [--dry-run] [--limit N] [--local]
+ *                                        [--ids file.json]
  *
  * Defaults: remote (D1 REST + R2 --remote), no limit.
+ *
+ * --ids <file.json>: explicit-target mode (mirrors backfill-tldr.mjs). The
+ * file is a JSON array of paper short_ids; those papers become the target set
+ * and the status='completed' filter is SKIPPED (used to backfill failed
+ * papers whose PDF made it to R2 but whose text was never written). Rows with
+ * deleted_at set are still excluded. Without --ids behavior is unchanged.
  *
  * If the D1 REST fetch() call fails with a network error on the host, retry
  * with NODE_USE_ENV_PROXY=1 (see project memory: X repost proxy).
@@ -61,6 +68,12 @@ const getOpt = (f, def) => {
 const DRY_RUN = hasFlag("--dry-run");
 const REMOTE = !hasFlag("--local");
 const LIMIT = Number(getOpt("--limit", "0"));
+const IDS_FILE = getOpt("--ids", ""); // JSON array of short_ids → explicit-target mode
+if (hasFlag("--ids") && !IDS_FILE) {
+  // Never silently fall back to the default completed-papers sweep on a typo.
+  console.error("[backfill-text] --ids requires a JSON file path");
+  process.exit(1);
+}
 
 function loadDevVars() {
   let raw;
@@ -102,7 +115,7 @@ function wrangler(cmd) {
   });
 }
 
-async function d1Remote(sql) {
+async function d1Remote(sql, params = []) {
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${E.CLOUDFLARE_ACCOUNT_ID}/d1/database/${E.CLOUDFLARE_D1_DATABASE_ID}/query`,
     {
@@ -111,7 +124,7 @@ async function d1Remote(sql) {
         Authorization: `Bearer ${E.CLOUDFLARE_API_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ sql }),
+      body: JSON.stringify({ sql, params }),
     },
   );
   const json = await res.json();
@@ -136,8 +149,16 @@ function d1Local(sql) {
   return parsed[0].results;
 }
 
-async function d1Query(sql) {
-  return REMOTE ? d1Remote(sql) : d1Local(sql);
+async function d1Query(sql, params = []) {
+  if (REMOTE) return d1Remote(sql, params);
+  if (params.length > 0) {
+    // d1Local goes through `wrangler d1 execute --command`, which has no bound
+    // params — inline them as escaped SQL string literals instead. Only used
+    // for the --ids short_id chunks (≤50 small strings per statement).
+    let i = 0;
+    sql = sql.replace(/\?/g, () => `'${String(params[i++]).replace(/'/g, "''")}'`);
+  }
+  return d1Local(sql);
 }
 
 // `--file /dev/null` does not work here: when this script is invoked via the
@@ -247,17 +268,53 @@ async function main() {
 
   const flag = REMOTE ? "--remote" : "--local";
 
-  const [{ total }] = await d1Query(`SELECT COUNT(*) AS total FROM papers WHERE ${WHERE}`);
-  const papers = await d1Query(
-    `SELECT id, pdf_r2_key FROM papers WHERE ${WHERE} ORDER BY created_at${LIMIT > 0 ? ` LIMIT ${LIMIT}` : ""}`,
-  );
-  const expected = LIMIT > 0 ? Math.min(Number(total), LIMIT) : Number(total);
-  if (papers.length !== expected) {
-    throw new Error(
-      `Row count mismatch: COUNT(*)=${total}${LIMIT > 0 ? `, limit=${LIMIT}` : ""}, but SELECT returned ${papers.length} row(s) (expected ${expected}). Possible truncation — aborting instead of backfilling a partial set.`,
+  let papers;
+  if (IDS_FILE) {
+    // --ids mode: explicit short_id target set. status='completed' is
+    // intentionally NOT required here (the point is to backfill failed papers
+    // whose PDF is in R2); deleted rows are still excluded.
+    const parsed = JSON.parse(readFileSync(IDS_FILE, "utf8"));
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error("--ids file must be a non-empty JSON array of short_ids");
+    }
+    // Dedupe so a repeated short_id can't be fetched/processed twice.
+    const shortIds = [...new Set(parsed)];
+    // Chunked IN() lookups: D1 caps bound params at 100 per query.
+    papers = [];
+    for (let i = 0; i < shortIds.length; i += 50) {
+      const chunk = shortIds.slice(i, i + 50);
+      papers.push(
+        ...(await d1Query(
+          `SELECT id, pdf_r2_key, short_id AS shortId FROM papers WHERE short_id IN (${chunk.map(() => "?").join(",")}) AND deleted_at IS NULL`,
+          chunk,
+        )),
+      );
+    }
+    const found = new Set(papers.map((p) => p.shortId));
+    for (const sid of shortIds) {
+      if (!found.has(sid)) {
+        console.warn(`WARN ${sid}: no paper row found (missing or deleted)`);
+      }
+    }
+    if (LIMIT > 0) papers = papers.slice(0, LIMIT);
+    // The COUNT(*) row-count guard of the default sweep is skipped in --ids
+    // mode: the target set is the explicit list itself, and any short_id that
+    // didn't resolve to a row is warned individually above, so silent
+    // truncation is already surfaced.
+    console.log(`Found ${papers.length} papers from --ids list`);
+  } else {
+    const [{ total }] = await d1Query(`SELECT COUNT(*) AS total FROM papers WHERE ${WHERE}`);
+    papers = await d1Query(
+      `SELECT id, pdf_r2_key FROM papers WHERE ${WHERE} ORDER BY created_at${LIMIT > 0 ? ` LIMIT ${LIMIT}` : ""}`,
     );
+    const expected = LIMIT > 0 ? Math.min(Number(total), LIMIT) : Number(total);
+    if (papers.length !== expected) {
+      throw new Error(
+        `Row count mismatch: COUNT(*)=${total}${LIMIT > 0 ? `, limit=${LIMIT}` : ""}, but SELECT returned ${papers.length} row(s) (expected ${expected}). Possible truncation — aborting instead of backfilling a partial set.`,
+      );
+    }
+    console.log(`Found ${papers.length} completed papers`);
   }
-  console.log(`Found ${papers.length} completed papers`);
 
   let done = 0;
   let skipped = 0;

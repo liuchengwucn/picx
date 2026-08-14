@@ -1,6 +1,45 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AIConfig } from "#/lib/ai";
 import { extractFirstJsonObject } from "#/lib/json-extract";
-import { embedTexts, NewsAiError, normalizeKeyFacts } from "./ai";
+import {
+  embedTexts,
+  generateStoryContent,
+  judgeAssignment,
+  NewsAiError,
+  normalizeKeyFacts,
+  scoreRelevance,
+} from "./ai";
+
+const TEST_CONFIG: AIConfig = {
+  openaiApiKey: "test-key",
+  openaiBaseUrl: "https://llm.test/v1",
+  openaiModel: "test-model",
+  geminiApiKey: "unused",
+};
+
+/** mock chat completions：返回给定 JSON，捕获发出的 user prompt */
+function stubChat(payload: unknown) {
+  const calls: { user: string }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      calls.push({ user: body.messages[1].content });
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: { content: JSON.stringify(payload) },
+              finish_reason: "stop",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }),
+  );
+  return calls;
+}
 
 describe("extractFirstJsonObject", () => {
   it("parses clean JSON as-is", () => {
@@ -101,6 +140,118 @@ describe("embedTexts", () => {
     await expect(
       embedTexts({ kind: "binding", ai: { run } as unknown as Ai }, ["a", "b"]),
     ).rejects.toThrow(/unexpected bge-m3 response shape/);
+  });
+});
+
+describe("scoreRelevance", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("parses {items: [{score, gist}]} and clamps scores", async () => {
+    stubChat({
+      items: [
+        { score: 85, gist: "  OpenAI releases a new model.  " },
+        { score: 120, gist: 42 },
+        { score: "nope", gist: "" },
+      ],
+    });
+    const out = await scoreRelevance(
+      [{ title: "a" }, { title: "b" }, { title: "c" }],
+      TEST_CONFIG,
+    );
+    expect(out).toEqual([
+      { score: 85, gist: "OpenAI releases a new model." },
+      { score: 100, gist: null },
+      { score: 0, gist: null },
+    ]);
+  });
+
+  it("sends up to 800 excerpt chars per item", async () => {
+    const calls = stubChat({ items: [{ score: 70, gist: "g" }] });
+    const excerpt = `${"x".repeat(790)}MARKER${"y".repeat(200)}`;
+    await scoreRelevance([{ title: "t", excerpt }], TEST_CONFIG);
+    expect(calls[0].user).toContain("MARKER");
+    expect(calls[0].user).not.toContain("y".repeat(10));
+  });
+
+  it("throws NewsAiError on items length mismatch", async () => {
+    stubChat({ items: [{ score: 50, gist: "g" }] });
+    await expect(
+      scoreRelevance([{ title: "a" }, { title: "b" }], TEST_CONFIG),
+    ).rejects.toThrowError(NewsAiError);
+  });
+});
+
+describe("judgeAssignment", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const candidates = [{ title: "Story", summary: "Summary" }];
+
+  it("uses gist as the item body when present", async () => {
+    const calls = stubChat({ assign: 1 });
+    const out = await judgeAssignment(
+      {
+        title: "对谈某人",
+        excerpt: "背景铺垫".repeat(100),
+        gist: "LatePost interviews X about RSI",
+      },
+      candidates,
+      TEST_CONFIG,
+    );
+    expect(out).toBe(0);
+    expect(calls[0].user).toContain("LatePost interviews X about RSI");
+    expect(calls[0].user).not.toContain("背景铺垫");
+  });
+
+  it("falls back to excerpt when gist is null", async () => {
+    const calls = stubChat({ assign: null });
+    await judgeAssignment(
+      { title: "t", excerpt: "some excerpt body", gist: null },
+      candidates,
+      TEST_CONFIG,
+    );
+    expect(calls[0].user).toContain("some excerpt body");
+  });
+});
+
+describe("generateStoryContent", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const locales = (v: string) => ({
+    en: v,
+    "zh-cn": v,
+    "zh-tw": v,
+    ja: v,
+  });
+  const payload = {
+    title: locales("t"),
+    summary: locales("s"),
+    keyFacts: { en: [], "zh-cn": [], "zh-tw": [], ja: [] },
+    tags: ["ai"],
+  };
+
+  it("adds a TOPIC line for items with a gist, omits it otherwise", async () => {
+    const calls = stubChat(payload);
+    await generateStoryContent(
+      [
+        {
+          title: "对谈某人",
+          excerpt: "正文",
+          gist: "LatePost interviews X",
+          sourceName: "晚点",
+          publishedAt: new Date("2026-08-10"),
+        },
+        {
+          title: "另一条",
+          excerpt: "正文2",
+          sourceName: "别处",
+          publishedAt: new Date("2026-08-10"),
+        },
+      ],
+      TEST_CONFIG,
+    );
+    const blocks = calls[0].user.split("\n---\n");
+    expect(blocks[0]).toContain("TOPIC: LatePost interviews X");
+    expect(blocks[1]).not.toContain("TOPIC:");
   });
 });
 

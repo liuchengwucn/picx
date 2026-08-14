@@ -73,6 +73,12 @@
     }
   ],
 
+  // 聊天生成宿主 DO：生成寿命与客户端连接解耦（断连不丢回复 + resume）
+  "durable_objects": {
+    "bindings": [{ "name": "CHAT_RUNNER", "class_name": "ChatRunner" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatRunner"] }],
+
   // 本地开发配置
   "dev": {
     "port": 3000,

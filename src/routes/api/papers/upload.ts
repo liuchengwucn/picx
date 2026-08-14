@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "#/lib/auth";
 import { isPdfBuffer } from "#/lib/pdf-bytes";
+import { UPLOAD_ERROR, type UploadErrorCode } from "#/lib/upload-errors";
 
 /**
  * 论文 PDF 二进制直传：替代旧的 tRPC base64 中转（50MB 上限 + 双重编码内存压力）。
@@ -16,8 +17,12 @@ interface AppEnvBindings {
   PAPERS_BUCKET: R2Bucket;
 }
 
-function jsonError(message: string, status: number): Response {
-  return new Response(JSON.stringify({ error: message }), {
+/**
+ * `error` 是稳定 CODE 而非人类可读串——客户端按码映射本地化文案，
+ * 见 components/papers/upload-error-message.ts。
+ */
+function jsonError(code: UploadErrorCode, status: number): Response {
+  return new Response(JSON.stringify({ error: code }), {
     status,
     headers: { "Content-Type": "application/json" },
   });
@@ -32,30 +37,30 @@ function sanitizeFilename(filename: string): string {
 async function handler({ request }: { request: Request }) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
-    return jsonError("You must be logged in to upload", 401);
+    return jsonError(UPLOAD_ERROR.UNAUTHORIZED, 401);
   }
 
   const filename = new URL(request.url).searchParams.get("filename")?.trim();
   if (!filename) {
-    return jsonError("Missing filename", 400);
+    return jsonError(UPLOAD_ERROR.MISSING_FILENAME, 400);
   }
 
   let body: ArrayBuffer;
   try {
     body = await request.arrayBuffer();
   } catch {
-    return jsonError("Failed to read upload body", 400);
+    return jsonError(UPLOAD_ERROR.READ_FAILED, 400);
   }
   const buffer = new Uint8Array(body);
 
   if (buffer.byteLength === 0) {
-    return jsonError("Empty file", 400);
+    return jsonError(UPLOAD_ERROR.EMPTY_FILE, 400);
   }
   if (buffer.byteLength > MAX_PDF_BYTES) {
-    return jsonError("File exceeds the 100MB limit", 413);
+    return jsonError(UPLOAD_ERROR.TOO_LARGE, 413);
   }
   if (!isPdfBuffer(buffer)) {
-    return jsonError("Uploaded file is not a valid PDF", 400);
+    return jsonError(UPLOAD_ERROR.NOT_PDF_FILE, 400);
   }
 
   const r2Key = `papers/${session.user.id}/${Date.now()}-${sanitizeFilename(filename)}`;

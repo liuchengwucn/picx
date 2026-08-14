@@ -1,3 +1,4 @@
+import { m } from "#/paraglide/messages";
 import {
   blocksOf,
   type NormalizedBlock,
@@ -33,8 +34,13 @@ const ELLIPSIS = "…";
 export interface CardContent {
   /** 已打好标记、裁剪完的块克隆，按顺序渲染进卡片正文 */
   blocks: HTMLElement[];
-  /** 章节名：起始块往前最近的 h1/h2/h3，没有则 null */
-  section: string | null;
+  /**
+   * 卡片头部副标题，**已格式化好、已本地化**：markdown 侧是 `§ 章节名`，PDF 侧是
+   * 本地化的页码。格式化放在生产侧而不是 QuoteCard 的 JSX 里，两种来源才能共用同一个
+   * 位置；刻意不做成 `{kind:"section"|"page"}` 的联合，否则 QuoteCard 得 switch 一遍
+   * 再吐出同样这两个字符串，等于把决定又推回 JSX。
+   */
+  subtitle: string | null;
   truncated: boolean;
 }
 
@@ -362,9 +368,49 @@ export function buildCardContent(
     out.push(clone);
   }
 
+  const heading = sectionOf(blocks, anchor.startBlock);
   return {
     blocks: out,
-    section: sectionOf(blocks, anchor.startBlock),
+    subtitle: heading ? `§ ${heading}` : null,
+    truncated,
+  };
+}
+
+/**
+ * 纯文本卡片正文。PDF 文本层上选中的东西没有块结构、没有锚点，只有一段文字，所以
+ * 合成一个 <p> 交给 QuoteCard——它消费的就是 HTMLElement[]，整套预览/截图/二维码
+ * 因此原样复用，不需要第二种卡片。
+ *
+ * 上限沿用 MAX_QUOTE：卡片高度的观感与 markdown 侧一致，也不多引入一个要调的常数。
+ * 因此传进来的文本必须是**未按长度裁过的**原始选区（折过空白即可），否则这里量不出
+ * 真实长度，`truncated` 会恒为 false、卡片底部的截断提示随之静默消失。
+ * 全段都是引文，所以刻意**不**加高亮（markdown 侧是「引文高亮 + 压灰前后文」，PDF 侧
+ * 没有可靠的前后文可取，高亮 100% 覆盖就不承载信息了）——理由详见下面 block 那几行。
+ *
+ * 副标题在这里就地本地化而不是由调用方传字符串：卡片头部的文案（`§`、页码、截断提示）
+ * 归拥有卡片的这一层管，散到 1500 行的路由文件里就没人找得到了。
+ */
+export function plainCardContent(
+  text: string,
+  page: number,
+): CardContent | null {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const truncated = trimmed.length > MAX_QUOTE;
+  const body = truncated
+    ? `${trimmed.slice(0, MAX_QUOTE).trimEnd()}${ELLIPSIS}`
+    : trimmed;
+  // 刻意不加 MARK_CLASS 高亮：markdown 侧那个金色底的意思是「这一段才是引文，周围是
+  // 前后文」，而这里整张卡片正文就是引文，高亮 100% 覆盖等于不承载任何信息，只剩重量
+  // ——1900 字的选区实测是一整块金色板砖（浏览器验证时截图对比过短/长两种引文）。
+  // 「这是引文」已经由弹窗标题、卡片头部的标题+页码、以及二维码那一行交代清楚了。
+  const block = document.createElement("p");
+  block.textContent = body;
+  return {
+    blocks: [block],
+    subtitle: m.quote_card_page({ page: String(page) }),
     truncated,
   };
 }

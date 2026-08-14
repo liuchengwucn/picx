@@ -62,7 +62,7 @@ function CategoryPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[var(--bg)] py-8">
+    <main className="min-h-dvh bg-[var(--bg)] py-8">
       <div className="page-wrap">
         {/* Header */}
         <div className="rise-in mb-8 text-center">

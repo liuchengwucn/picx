@@ -77,10 +77,10 @@ describe("buildLlmsTxt", () => {
     expect(txt).not.toContain("def456.md): ");
   });
 
-  it("links the gallery and about pages", () => {
+  it("links the gallery page and not the retired about page", () => {
     const txt = buildLlmsTxt({ siteUrl, papers });
     expect(txt).toContain("(https://picx.dev/gallery)");
-    expect(txt).toContain("(https://picx.dev/about)");
+    expect(txt).not.toContain("/about");
   });
 
   it("always links the news page, regardless of stories", () => {

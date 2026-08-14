@@ -10,10 +10,10 @@
  */
 
 const SITE_DESCRIPTION =
-  "AI-generated visual whiteboard summaries of research papers from arXiv and HuggingFace Daily Papers.";
+  "An all-in-one workstation for academic papers: track AI news, discover papers with an AI assistant, read full text, discuss with AI, and generate visual whiteboard summaries.";
 
 const SITE_INTRO =
-  "PicX turns academic papers into one-glance visual whiteboards plus concise summaries. Each paper links to a clean Markdown view intended for AI consumption.";
+  "PicX helps knowledge workers go from discovery to deep reading: a live AI news feed, AI-assisted paper discovery, a full-text reader with AI discussion, and one-glance visual whiteboards. Each paper links to a clean Markdown view intended for AI consumption.";
 
 interface LlmsTxtPaper {
   title: string;
@@ -74,7 +74,6 @@ function header(siteUrl: string): string {
     "",
     `- [Gallery](${siteUrl}/gallery): Browse every visual paper summary, updated daily.`,
     `- [AI News](${siteUrl}/news): Hourly-aggregated frontier AI/LLM news stories.`,
-    `- [About](${siteUrl}/about): What PicX is and how it works.`,
   ].join("\n");
 }
 

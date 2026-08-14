@@ -15,6 +15,7 @@ import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 import Footer from "../components/Footer";
 import Header from "../components/Header";
+import MobileTabBar from "../components/MobileTabBar";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import TanStackQueryProvider from "../integrations/tanstack-query/root-provider";
 import appCss from "../styles.css?url";
@@ -25,7 +26,7 @@ interface MyRouterContext {
   trpc: TRPCOptionsProxy<TRPCRouter>;
 }
 
-const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
+const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;var tc=document.getElementById('theme-color');if(tc){tc.setAttribute('content',resolved==='dark'?'#1a1816':'#faf8f3')}}catch(e){}})();`;
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
   beforeLoad: async () => {
@@ -63,7 +64,11 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      {
+        name: "viewport",
+        content:
+          "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content",
+      },
       { title: "PicX - Paper Whiteboard" },
       {
         name: "description",
@@ -75,10 +80,19 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       { property: "og:image", content: "https://picx.dev/logo512.png" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:image", content: "https://picx.dev/logo512.png" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      {
+        name: "apple-mobile-web-app-status-bar-style",
+        content: "black-translucent",
+      },
+      { name: "apple-mobile-web-app-title", content: "PicX" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/manifest.json" },
+      { rel: "icon", href: "/favicon.ico" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
     scripts: [
       {
@@ -97,28 +111,40 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang={getLocale()} suppressHydrationWarning>
       <head>
+        {/* 单条 theme-color, 交给 THEME_INIT_SCRIPT 按已解析主题(而非系统偏好)
+            同步 content, 让手动切换的站内主题也能驱动 OS 状态栏/地址栏着色。
+            不能挪回 head() 的 meta 数组: TanStack Router 的 HeadContent 按 name
+            去重, 两条同 name 不同 media 的 theme-color 会被丢掉一条(c4a1f7e 修的
+            就是这个)。meta 先于脚本执行, 是 React hoistable 元素的 flush 顺序保证
+            的, 脚本里的 if(tc) 守卫兜底以防万一。 */}
+        {/* biome-ignore lint/correctness/useUniqueElementIds: RootDocument renders once per
+            document, and THEME_INIT_SCRIPT looks this up by literal id before React boots. */}
+        <meta name="theme-color" id="theme-color" content="#faf8f3" />
         <script suppressHydrationWarning>{THEME_INIT_SCRIPT}</script>
         <HeadContent />
       </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
+      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         <TanStackQueryProvider>
           <DailyBonusClaim />
           <Header />
           {children}
           <Footer />
+          <MobileTabBar />
           <Toaster />
-          <TanStackDevtools
-            config={{
-              position: "bottom-right",
-            }}
-            plugins={[
-              {
-                name: "Tanstack Router",
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-              TanStackQueryDevtools,
-            ]}
-          />
+          {import.meta.env.DEV && (
+            <TanStackDevtools
+              config={{
+                position: "bottom-right",
+              }}
+              plugins={[
+                {
+                  name: "Tanstack Router",
+                  render: <TanStackRouterDevtoolsPanel />,
+                },
+                TanStackQueryDevtools,
+              ]}
+            />
+          )}
         </TanStackQueryProvider>
         <Scripts />
       </body>

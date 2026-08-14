@@ -1,7 +1,18 @@
 import handler from "@tanstack/react-start/server-entry";
 import { drizzle } from "drizzle-orm/d1";
+
+// DO class 必须从 worker 入口导出，wrangler 才能按 class_name 找到它
+export { ChatRunner } from "#/lib/chat-runner-do";
+
 import { prefersMarkdown } from "#/lib/content-negotiation";
+import { negotiateFromAcceptLanguage } from "#/lib/locale-negotiation";
 import { loadPaperMarkdown } from "#/lib/paper-markdown";
+import {
+  cookieName,
+  defineCustomServerStrategy,
+  isLocale,
+} from "#/paraglide/runtime";
+import { paraglideMiddleware } from "#/paraglide/server.js";
 import type { Env } from "#/types/env";
 import arxivCron from "#/workers/arxiv-cron";
 import digestCron from "#/workers/digest-cron";
@@ -10,6 +21,27 @@ import queueConsumer from "#/workers/queue-consumer";
 import tweetPosterCron from "#/workers/tweet-poster-cron";
 
 export { DigestWorkflow } from "#/workflows/digest-workflow";
+
+// SSR locale 的 Accept-Language 兜底协商（cookie 没命中时走到这里）。
+// 不能用 paraglide 内置的 preferredLanguage 策略：它的服务端实现会把语言标签
+// toLowerCase 后原样返回（如 "zh-cn"），而 message 分发是 locale === "zh-CN"
+// 精确比较、else 兜底是 ja → 中文用户会被渲染成日文。
+// 注意：extractLocaleFromRequestAsync 会把 custom 策略排在所有内置策略之前执行
+// （无视 strategy 数组里的顺序），所以这里必须先看 cookie——有合法 locale cookie
+// 时返回 undefined 让位，内置 cookie 策略才能按预期优先生效。
+defineCustomServerStrategy("custom-negotiate", {
+  getLocale: (request?: Request) => {
+    const cookieLocale = request?.headers
+      .get("cookie")
+      ?.split("; ")
+      .find((c) => c.startsWith(`${cookieName}=`))
+      ?.split("=")[1];
+    if (isLocale(cookieLocale)) {
+      return undefined;
+    }
+    return negotiateFromAcceptLanguage(request?.headers.get("accept-language"));
+  },
+});
 
 const MARKDOWN_HEADERS = {
   "Content-Type": "text/markdown; charset=utf-8",
@@ -115,6 +147,11 @@ export default {
       });
     }
 
+    // /about 已下线(2026-08 首页重构): 301 保外链权重
+    if (pathname === "/about" || pathname === "/about/") {
+      return Response.redirect(new URL("/", request.url).toString(), 301);
+    }
+
     // 公开论文的 Markdown 视图 (扩展名 / 内容协商), 命中则直接返回。
     if (pathname.startsWith("/p/")) {
       const md = await tryServePaperMarkdown(request, env);
@@ -123,7 +160,11 @@ export default {
 
     // env/ctx 由 @cloudflare/vite-plugin 的 cloudflare:workers async context 注入，
     // handler.fetch 只接收 (request, opts?)。
-    return handler.fetch(request);
+    // paraglideMiddleware 决定 SSR locale：cookie → Accept-Language(上面的
+    // custom-negotiate 自实现协商) → baseLocale(en)，并把结果放进
+    // AsyncLocalStorage 供渲染期 getLocale() 读取，消除 hydration mismatch。
+    // TanStack Router 自己管 URL，按 server.js 文档示例传原始 request。
+    return paraglideMiddleware(request, () => handler.fetch(request));
   },
   queue: queueConsumer.queue,
   scheduled: dispatchScheduled,

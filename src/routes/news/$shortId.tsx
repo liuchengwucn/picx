@@ -251,7 +251,7 @@ function NewsStoryPage() {
   const hasAside = facts.length > 0 || related.length > 0;
 
   return (
-    <main className="min-h-screen bg-[var(--bg)] py-8">
+    <main className="min-h-dvh bg-[var(--bg)] py-8">
       <div className={hasAside ? "page-wrap max-w-5xl" : "page-wrap max-w-3xl"}>
         <div className="rise-in">
           <Link
@@ -462,7 +462,7 @@ function NewsStoryPage() {
 
 function StoryNotFound() {
   return (
-    <main className="min-h-screen bg-[var(--bg)] py-8">
+    <main className="min-h-dvh bg-[var(--bg)] py-8">
       <div className="page-wrap max-w-3xl">
         <div className="rise-in mx-auto max-w-md py-16 text-center">
           <h1 className="font-serif text-2xl font-bold text-[var(--ink)]">
@@ -486,7 +486,7 @@ function StoryNotFound() {
 
 function StoryDetailSkeleton() {
   return (
-    <main className="min-h-screen bg-[var(--bg)] py-8">
+    <main className="min-h-dvh bg-[var(--bg)] py-8">
       <div className="page-wrap max-w-5xl">
         <Skeleton className="h-4 w-28" />
         <Skeleton className="mt-6 h-9 w-4/5" />

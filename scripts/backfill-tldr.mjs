@@ -145,7 +145,50 @@ async function dbQuery(sql, params = []) {
 }
 
 // ---------- OpenAI ----------
-async function openai(systemPrompt, userContent, { temperature, maxTokens }) {
+// Wrong-language guard: with reasoning disabled, DeepSeek occasionally answers
+// a ja / zh-tw request in (Simplified) Chinese. Charset heuristics: real
+// Japanese prose always contains kana; real Traditional text uses
+// traditional-only variants of common characters.
+const SIMP_ONLY =
+  "们与学训练过这为后华语说证观询议记读见问题动态发经将应对样师权术处别构马网络图书区队伤听欢乐东传边远运连迟错优标准确释单纯变现实获难备";
+const TRAD_ONLY =
+  "們與學訓練過這為後華語說證觀詢議記讀見問題動態發經將應對樣師權術處別構馬網絡圖書區隊傷聽歡樂東傳邊遠運連遲錯優標準確釋單純變現實獲難備";
+function countChars(text, set) {
+  let n = 0;
+  for (const c of text) if (set.includes(c)) n++;
+  return n;
+}
+function wrongLanguage(text, lang) {
+  if (lang === "ja") {
+    const kana = (text.match(/[぀-ヿ]/g) || []).length;
+    if (kana < Math.max(2, text.length / 500))
+      return `expected Japanese but output has no kana`;
+  } else if (lang === "zh-tw") {
+    if (countChars(text, SIMP_ONLY) > countChars(text, TRAD_ONLY))
+      return `expected Traditional Chinese but output looks Simplified`;
+  } else if (lang === "zh-cn") {
+    if (countChars(text, TRAD_ONLY) > countChars(text, SIMP_ONLY))
+      return `expected Simplified Chinese but output looks Traditional`;
+  }
+  return null;
+}
+
+// The wrong-language failure is stochastic, so re-generate up to 2 extra times
+// before giving the paper up to the per-paper failure path.
+async function openai(systemPrompt, userContent, opts) {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const text = await openaiOnce(systemPrompt, userContent, opts);
+    const problem = opts.expectLanguage
+      ? wrongLanguage(text, opts.expectLanguage)
+      : null;
+    if (!problem) return text;
+    lastErr = new Error(problem);
+  }
+  throw lastErr;
+}
+
+async function openaiOnce(systemPrompt, userContent, { temperature, maxTokens }) {
   const headers = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -203,7 +246,8 @@ STRICT OUTPUT RULES:
   // so the head is enough and keeps input cost down.
   return openai(sys, summaryText.slice(0, 3500), {
     temperature: 0.5,
-    maxTokens: 200,
+    maxTokens: 400,
+    expectLanguage: language,
   });
 }
 
@@ -215,7 +259,11 @@ STRICT OUTPUT RULES:
 - Plain text only: NO Markdown, NO LaTeX, NO added quotes.
 - Keep technical terms and named methods accurate.
 - Preserve the concise, single-sentence form.`;
-  return openai(sys, tldrText, { temperature: 0.3, maxTokens: 200 });
+  return openai(sys, tldrText, {
+    temperature: 0.3,
+    maxTokens: 400,
+    expectLanguage: targetLanguage,
+  });
 }
 
 // ---------- per-paper ----------

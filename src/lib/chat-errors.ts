@@ -9,8 +9,8 @@
 /**
  * `/api/chat` 下发的稳定错误码（不是给人看的文案，前端按码映射 i18n）。
  *
- * - `stream_failed` 与其他不同：它不走 HTTP 状态码，而是流已经开始之后以
- *   error part 下发，因此同样属于这张表。
+ * - `stream_failed` 有两种出现形态：流已经开始之后以流内 error part 下发；
+ *   或 DO dispatch 失败时以 HTTP 500 + JSON body 返回。两种都走这张表。
  */
 export const CHAT_ERROR_CODES = [
   "unauthorized",

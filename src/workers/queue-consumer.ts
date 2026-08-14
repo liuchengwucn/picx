@@ -1107,9 +1107,15 @@ async function persistMineruContent(
   let markdown: string;
   let title: string | null;
   let images: MineruZipImage[];
+  let zipPageCount: number | null;
   try {
     // zip 损坏/截断时 unzipSync 会抛错，同样降级而不是打成 failed。
-    ({ markdown, title, images } = parseMineruZip(zipBytes));
+    ({
+      markdown,
+      title,
+      images,
+      pageCount: zipPageCount,
+    } = parseMineruZip(zipBytes));
   } catch (error) {
     logWarn(
       "mineru-persist",
@@ -1228,7 +1234,9 @@ async function persistMineruContent(
   );
 
   return {
-    pageCount: result.totalPages ?? null,
+    // 批次结果 API 的 extract_progress 只在 running 期间返回（done 响应没有），
+    // result.totalPages 实践中恒为 undefined —— 页数以 zip 内元数据为准。
+    pageCount: zipPageCount ?? result.totalPages ?? null,
     rawText: plainText,
     text: mainText,
     pdfMetadataTitle: title ?? undefined,

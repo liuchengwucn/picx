@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "88da26a0-5715-47f5-8b00-073be5910055",
-  "prevId": "f2293376-8458-4057-a1c4-b9221b5f2fba",
+  "id": "6313b085-b084-44c7-afef-d0f5831a46f3",
+  "prevId": "b076475f-81e0-4838-82d0-28aa0107f1ca",
   "tables": {
     "account": {
       "name": "account",
@@ -107,6 +107,104 @@
           "tableTo": "user",
           "columnsFrom": [
             "userId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "assistant_skills": {
+      "name": "assistant_skills",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "assistant_skills_user_name_uq": {
+          "name": "assistant_skills_user_name_uq",
+          "columns": [
+            "user_id",
+            "name"
+          ],
+          "isUnique": true
+        },
+        "assistant_skills_user_idx": {
+          "name": "assistant_skills_user_idx",
+          "columns": [
+            "user_id",
+            "updated_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "assistant_skills_user_id_user_id_fk": {
+          "name": "assistant_skills_user_id_user_id_fk",
+          "tableFrom": "assistant_skills",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
           ],
           "columnsTo": [
             "id"
@@ -655,580 +753,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "digest_papers": {
-      "name": "digest_papers",
-      "columns": {
-        "digest_id": {
-          "name": "digest_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "paper_id": {
-          "name": "paper_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "rank": {
-          "name": "rank",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "recommendation_note": {
-          "name": "recommendation_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "digest_papers_paper_idx": {
-          "name": "digest_papers_paper_idx",
-          "columns": [
-            "paper_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "digest_papers_digest_id_digests_id_fk": {
-          "name": "digest_papers_digest_id_digests_id_fk",
-          "tableFrom": "digest_papers",
-          "tableTo": "digests",
-          "columnsFrom": [
-            "digest_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "digest_papers_paper_id_papers_id_fk": {
-          "name": "digest_papers_paper_id_papers_id_fk",
-          "tableFrom": "digest_papers",
-          "tableTo": "papers",
-          "columnsFrom": [
-            "paper_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "digest_papers_digest_id_paper_id_pk": {
-          "columns": [
-            "digest_id",
-            "paper_id"
-          ],
-          "name": "digest_papers_digest_id_paper_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "digests": {
-      "name": "digests",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "direction_id": {
-          "name": "direction_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "issue_number": {
-          "name": "issue_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "period_start": {
-          "name": "period_start",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "period_end": {
-          "name": "period_end",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'generating'"
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "proposed_focus_update": {
-          "name": "proposed_focus_update",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "proposed_focus_update_status": {
-          "name": "proposed_focus_update_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "workflow_instance_id": {
-          "name": "workflow_instance_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "digests_workflow_instance_id_unique": {
-          "name": "digests_workflow_instance_id_unique",
-          "columns": [
-            "workflow_instance_id"
-          ],
-          "isUnique": true
-        },
-        "digests_direction_issue_unique": {
-          "name": "digests_direction_issue_unique",
-          "columns": [
-            "direction_id",
-            "issue_number"
-          ],
-          "isUnique": true
-        },
-        "digests_direction_published_idx": {
-          "name": "digests_direction_published_idx",
-          "columns": [
-            "direction_id",
-            "published_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "digests_direction_id_directions_id_fk": {
-          "name": "digests_direction_id_directions_id_fk",
-          "tableFrom": "digests",
-          "tableTo": "directions",
-          "columnsFrom": [
-            "direction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "direction_candidates": {
-      "name": "direction_candidates",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "direction_id": {
-          "name": "direction_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "canonical_url": {
-          "name": "canonical_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'paper'"
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'seen'"
-        },
-        "score": {
-          "name": "score",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_meta": {
-          "name": "source_meta",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "first_seen_at": {
-          "name": "first_seen_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_seen_at": {
-          "name": "last_seen_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "direction_candidates_url_unique": {
-          "name": "direction_candidates_url_unique",
-          "columns": [
-            "direction_id",
-            "canonical_url"
-          ],
-          "isUnique": true
-        },
-        "direction_candidates_status_idx": {
-          "name": "direction_candidates_status_idx",
-          "columns": [
-            "direction_id",
-            "status"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "direction_candidates_direction_id_directions_id_fk": {
-          "name": "direction_candidates_direction_id_directions_id_fk",
-          "tableFrom": "direction_candidates",
-          "tableTo": "directions",
-          "columnsFrom": [
-            "direction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "direction_sources": {
-      "name": "direction_sources",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "direction_id": {
-          "name": "direction_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "adapter_type": {
-          "name": "adapter_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "config": {
-          "name": "config",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "last_fetched_at": {
-          "name": "last_fetched_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_attempt_at": {
-          "name": "last_attempt_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "consecutive_failures": {
-          "name": "consecutive_failures",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "direction_sources_direction_idx": {
-          "name": "direction_sources_direction_idx",
-          "columns": [
-            "direction_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "direction_sources_direction_id_directions_id_fk": {
-          "name": "direction_sources_direction_id_directions_id_fk",
-          "tableFrom": "direction_sources",
-          "tableTo": "directions",
-          "columnsFrom": [
-            "direction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "directions": {
-      "name": "directions",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "focus_brief": {
-          "name": "focus_brief",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "intro": {
-          "name": "intro",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "directions_slug_unique": {
-          "name": "directions_slug_unique",
-          "columns": [
-            "slug"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "hf_signals": {
-      "name": "hf_signals",
-      "columns": {
-        "arxiv_id": {
-          "name": "arxiv_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "upvotes": {
-          "name": "upvotes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "date": {
-          "name": "date",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "hf_signals_date_idx": {
-          "name": "hf_signals_date_idx",
-          "columns": [
-            "date"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "news_items": {
       "name": "news_items",
       "columns": {
@@ -1269,6 +793,13 @@
         },
         "excerpt": {
           "name": "excerpt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "gist": {
+          "name": "gist",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1771,108 +1302,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "paper_feedback": {
-      "name": "paper_feedback",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "paper_id": {
-          "name": "paper_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "vote": {
-          "name": "vote",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reason_preset": {
-          "name": "reason_preset",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "reason_text": {
-          "name": "reason_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "paper_feedback_paper_user_unique": {
-          "name": "paper_feedback_paper_user_unique",
-          "columns": [
-            "paper_id",
-            "user_id"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "paper_feedback_paper_id_papers_id_fk": {
-          "name": "paper_feedback_paper_id_papers_id_fk",
-          "tableFrom": "paper_feedback",
-          "tableTo": "papers",
-          "columnsFrom": [
-            "paper_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "paper_feedback_user_id_user_id_fk": {
-          "name": "paper_feedback_user_id_user_id_fk",
-          "tableFrom": "paper_feedback",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "paper_results": {
       "name": "paper_results",
       "columns": {
@@ -2056,13 +1485,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "direction_id": {
-          "name": "direction_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "status": {
           "name": "status",
           "type": "text",
@@ -2194,19 +1616,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "papers_direction_id_directions_id_fk": {
-          "name": "papers_direction_id_directions_id_fk",
-          "tableFrom": "papers",
-          "tableTo": "directions",
-          "columnsFrom": [
-            "direction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2260,13 +1669,6 @@
         },
         "userAgent": {
           "name": "userAgent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "impersonatedBy": {
-          "name": "impersonatedBy",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -2452,34 +1854,6 @@
         "last_daily_bonus_date": {
           "name": "last_daily_bonus_date",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "banned": {
-          "name": "banned",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "banReason": {
-          "name": "banReason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "banExpires": {
-          "name": "banExpires",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
