@@ -329,6 +329,11 @@ function AssistantPage() {
         <div className="z-30">
           {activeConversation && (
             <ConversationHeader
+              // 换会话必须重挂：isRenaming/isConfirmingDelete 是组件内部 state，
+              // 没有 key 时切会话不重挂，确认删除态会跟着漂到下一个会话头上
+              // （对着新会话再点一下确认键，就把它删了）。用 id 不用整个对象，
+              // 后台 invalidate 换引用时不会误触发重挂。
+              key={activeConversation.id}
               title={activeConversation.title}
               messageCount={activeConversation.messageCount}
               updatedAt={activeConversation.updatedAt}
