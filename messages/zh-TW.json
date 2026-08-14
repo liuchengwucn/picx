@@ -528,5 +528,16 @@
   "assistant_skills_error_limit": "技能數量已達上限（50），請先刪除一個。",
   "assistant_skills_error_readonly": "示範模式為唯讀。",
   "assistant_skills_error_generic": "發生錯誤，請再試一次。",
-  "assistant_skills_back": "返回助手"
+  "assistant_skills_back": "返回助手",
+  "assistant_skills_search_placeholder": "搜尋技能…",
+  "assistant_skills_filter_enabled": "已啟用",
+  "assistant_skills_filter_disabled": "已停用",
+  "assistant_skills_body_chars": "{count} 字",
+  "assistant_skills_new_title": "新增技能",
+  "assistant_skills_copy": "複製",
+  "assistant_skills_copied": "已複製",
+  "assistant_skills_unsaved": "未儲存",
+  "assistant_skills_open_chat": "用它開一段對話",
+  "assistant_skills_invalid": "檢查一下標示的欄位。",
+  "assistant_skills_updated_at": "更新於 {date}"
 }

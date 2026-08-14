@@ -528,5 +528,16 @@
   "assistant_skills_error_limit": "スキル数の上限（50）に達しました。先に削除してください。",
   "assistant_skills_error_readonly": "デモモードでは読み取り専用です。",
   "assistant_skills_error_generic": "エラーが発生しました。もう一度お試しください。",
-  "assistant_skills_back": "アシスタントに戻る"
+  "assistant_skills_back": "アシスタントに戻る",
+  "assistant_skills_search_placeholder": "スキルを検索…",
+  "assistant_skills_filter_enabled": "有効",
+  "assistant_skills_filter_disabled": "無効",
+  "assistant_skills_body_chars": "{count} 文字",
+  "assistant_skills_new_title": "新しいスキル",
+  "assistant_skills_copy": "コピー",
+  "assistant_skills_copied": "コピーしました",
+  "assistant_skills_unsaved": "未保存",
+  "assistant_skills_open_chat": "これで会話を始める",
+  "assistant_skills_invalid": "ハイライトされた項目を確認してください。",
+  "assistant_skills_updated_at": "更新 {date}"
 }

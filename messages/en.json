@@ -528,5 +528,16 @@
   "assistant_skills_error_limit": "Skill limit reached (50). Delete one first.",
   "assistant_skills_error_readonly": "Demo mode is read-only.",
   "assistant_skills_error_generic": "Something went wrong. Please try again.",
-  "assistant_skills_back": "Back to assistant"
+  "assistant_skills_back": "Back to assistant",
+  "assistant_skills_search_placeholder": "Search skills…",
+  "assistant_skills_filter_enabled": "Enabled",
+  "assistant_skills_filter_disabled": "Disabled",
+  "assistant_skills_body_chars": "{count} chars",
+  "assistant_skills_new_title": "New skill",
+  "assistant_skills_copy": "Copy",
+  "assistant_skills_copied": "Copied",
+  "assistant_skills_unsaved": "Unsaved",
+  "assistant_skills_open_chat": "Start a chat with it",
+  "assistant_skills_invalid": "Check the highlighted fields.",
+  "assistant_skills_updated_at": "Updated {date}"
 }

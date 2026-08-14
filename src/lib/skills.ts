@@ -1,4 +1,4 @@
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
 
 /**
@@ -80,6 +80,19 @@ export function parseSkillImport(source: string): SkillImportResult {
   });
   if (!parsed.success) return { ok: false, error: "invalid_fields" };
   return { ok: true, value: parsed.data };
+}
+
+/**
+ * parseSkillImport 的逆向：把一条技能还原成可粘贴的 SKILL.md。
+ * frontmatter 交给 yaml.stringify —— description 里的冒号、井号、引号、换行
+ * 都必须被正确转义，手拼字符串出来的东西 parseSkillImport 读不回来。
+ */
+export function formatSkillMarkdown(input: SkillInput): string {
+  const frontmatter = stringifyYaml({
+    name: input.name,
+    description: input.description,
+  }).trimEnd();
+  return `---\n${frontmatter}\n---\n\n${input.body}\n`;
 }
 
 /**
