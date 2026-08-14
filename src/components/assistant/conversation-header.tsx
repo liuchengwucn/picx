@@ -84,7 +84,12 @@ export function ConversationHeader({
               event.preventDefault();
               submitRename(event.currentTarget.value);
             }
-            if (event.key === "Escape") setIsRenaming(false);
+            if (event.key === "Escape") {
+              // 最内层先吃掉这次 Esc：页面级监听器（关窄屏面板）不该被
+              // 同一次按键顺带触发——嵌套交互应该是内层响应且吞掉按键。
+              event.stopPropagation();
+              setIsRenaming(false);
+            }
           }}
           onBlur={(event) => submitRename(event.currentTarget.value)}
           className="min-w-0 flex-1 border-b border-[var(--academic-brown)]/50 bg-transparent px-1 font-serif text-[15px] text-[var(--ink)] outline-none"
@@ -93,8 +98,11 @@ export function ConversationHeader({
         <button
           type="button"
           onClick={() => setIsRenaming(true)}
+          // 删除请求飞行中改名会拿到一个针对已删会话的报错 toast——禁用比让
+          // 用户撞见这个报错更直接。⌄ 不受影响：删除期间切去看别的会话是合理操作。
+          disabled={isDeleting}
           title={m.assistant_rename()}
-          className="min-w-0 truncate rounded-sm px-1 font-serif text-[15px] text-[var(--ink)] transition-colors hover:text-[var(--academic-brown)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
+          className="min-w-0 truncate rounded-sm px-1 font-serif text-[15px] text-[var(--ink)] transition-colors hover:text-[var(--academic-brown)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60"
         >
           {displayTitle}
         </button>
