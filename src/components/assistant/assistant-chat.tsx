@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import { BookOpen, Library, Newspaper, Sparkles, UserPen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { AssistantEmptyState } from "#/components/assistant/assistant-empty-state";
 import {
   ChatInputArea,
   type SlashCommandItem,
@@ -113,6 +114,8 @@ export function AssistantChat({
   const [selectedSkill, setSelectedSkill] = useState<SlashCommandItem | null>(
     null,
   );
+  // 芯片点完要把光标送回输入框，否则用户还得再点一次才能打字
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   /** 本会话的首条用户消息已发出、还没通知父层 */
   const pendingFirstMessageRef = useRef(false);
@@ -233,21 +236,17 @@ export function AssistantChat({
         className="min-h-0 flex-1 overflow-y-auto"
       >
         {messages.length === 0 ? (
-          // 开场白：整页居中，标题用衬线体——空会话是这页唯一的「封面」时刻
-          <div className="flex h-full items-center justify-center px-6 py-10">
-            <div className="max-w-[46ch] text-center">
-              <span
-                aria-hidden="true"
-                className="mx-auto block h-px w-10 bg-[var(--academic-brown)]/45"
-              />
-              <h2 className="mt-5 font-serif text-2xl font-semibold text-balance text-[var(--ink)] sm:text-[1.75rem]">
-                {m.assistant_empty_title()}
-              </h2>
-              <p className="mt-3 text-sm leading-relaxed text-[var(--ink-soft)]">
-                {m.assistant_empty_hint()}
-              </p>
-            </div>
-          </div>
+          <AssistantEmptyState
+            skills={slashCommands}
+            onPickSkill={(item) => {
+              setSelectedSkill(item);
+              inputRef.current?.focus();
+            }}
+            onPickSample={(text) => {
+              onInputChange(text);
+              inputRef.current?.focus();
+            }}
+          />
         ) : (
           <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-6 sm:px-6">
             {messages.map((message) => (
@@ -281,6 +280,7 @@ export function AssistantChat({
             slashCommands={slashCommands}
             selectedSlashCommand={selectedSkill}
             onSelectSlashCommand={setSelectedSkill}
+            inputRef={inputRef}
           />
         </div>
       </div>
