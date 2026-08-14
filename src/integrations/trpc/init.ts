@@ -73,17 +73,23 @@ export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
  * 取自 cause），统一换成固定文案；各 router 有意抛的 ISE（手写安全 message，或
  * 未挂 cause）不受影响。真实错误由 api.trpc.$ 的 onError 落服务端日志。
  */
-export function sanitizeErrorShape<TShape extends { message: string }>(
-  shape: TShape,
-  error: TRPCError,
-): TShape {
+export function sanitizeErrorShape<
+  TShape extends { message: string; data: { stack?: string } },
+>(shape: TShape, error: TRPCError): TShape {
   if (
     error.code === "INTERNAL_SERVER_ERROR" &&
     error.cause instanceof Error &&
     !(error.cause instanceof TRPCError) &&
     error.message === error.cause.message
   ) {
-    return { ...shape, message: "Internal server error" };
+    // stack 首行就是 "DrizzleQueryError: Failed query: <SQL>..."，与 message 同源
+    // 泄漏，必须一起剥（isDev:false 下 tRPC 本就不会放 stack，这里是双保险）。
+    const { stack: _stack, ...data } = shape.data;
+    return {
+      ...shape,
+      message: "Internal server error",
+      data: data as TShape["data"],
+    };
   }
   return shape;
 }
@@ -91,6 +97,11 @@ export function sanitizeErrorShape<TShape extends { message: string }>(
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
   errorFormatter: ({ shape, error }) => sanitizeErrorShape(shape, error),
+  // tRPC 默认的 isDev 是运行时读 globalThis.process.env.NODE_ENV，且经 babel 降级
+  // 后的访问形式逃过了 @cloudflare/vite-plugin 的静态替换——生产 Worker 里没有
+  // NODE_ENV 变量时它恒为 true，错误响应会携带完整 stack（含上面说的 SQL 泄漏）。
+  // 这里用可被静态替换的字面量形式显式钉死：生产编译为 false，本地 dev 保留 stack。
+  isDev: process.env.NODE_ENV !== "production",
 });
 
 export const router = t.router;
