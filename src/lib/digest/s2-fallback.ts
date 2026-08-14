@@ -65,9 +65,11 @@ const S2_SEARCH_BULK_API =
 export function arxivQueryToS2Query(query: string): string {
   let q = query;
   // 1. 整段丢弃 ANDNOT 子句：ANDNOT 后跟一个带可选字段前缀的带引号短语 /
-  // 字段:值 token / 单层括号组 / 裸词，四选一，取最长匹配优先
+  // 字段:值 token / 单层括号组 / 裸词，四选一，取最长匹配优先。token 分支的
+  // 值字符集排除 ")"（与下面 cat: 剥除同理）：否则 "(... ANDNOT ti:survey)"
+  // 这类紧贴右括号的写法会连右括号一起吞掉，破坏括号平衡
   q = q.replace(
-    /\bANDNOT\s+(?:\([^()]*\)|(?:[A-Za-z]+:)?"[^"]*"|[A-Za-z]+:\S+|\S+)/gi,
+    /\bANDNOT\s+(?:\([^()]*\)|(?:[A-Za-z]+:)?"[^"]*"|[A-Za-z]+:[^\s)]+|[^\s)]+)/gi,
     "",
   );
   // 2. 剥掉 cat:xxx 项。值字符集排除 ")"：否则 "(cat:cs.LG)" 这类紧贴右括号
