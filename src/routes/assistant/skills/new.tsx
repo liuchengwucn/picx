@@ -79,6 +79,7 @@ function AssistantSkillNewPage() {
           initial={draft ?? EMPTY_FORM}
           isSaving={createMutation.isPending}
           onSave={(values) => createMutation.mutate(values)}
+          allowPristineSave
         />
       </div>
     </main>

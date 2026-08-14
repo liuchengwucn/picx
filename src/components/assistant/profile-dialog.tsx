@@ -89,9 +89,20 @@ export function ProfileDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" aria-label={m.assistant_profile()}>
-          <UserPen className="h-4 w-4" />
-          <span className="max-md:sr-only">{m.assistant_profile()}</span>
+        {/* min-w-0 + shrink 覆盖 Button 默认的 shrink-0，配 span 的 truncate：
+            与技能入口同款——较长的本地化文案（日语等）加上技能数到两位数时，
+            这一行会比侧栏可用宽度还宽，不许收缩就会溢出边框。
+            文字不再 max-md:sr-only：这个触发器同时用在桌面侧栏（本来就一直
+            显示文字）和窄屏会话面板（面板本身够宽，图标旁边空着一截更奇怪，
+            且技能入口在同一行从来就没有隐藏过文字）。 */}
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={m.assistant_profile()}
+          className="min-w-0 shrink"
+        >
+          <UserPen className="h-4 w-4 shrink-0" />
+          <span className="truncate">{m.assistant_profile()}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="border-[var(--line)] bg-[var(--parchment)] sm:max-w-[520px]">

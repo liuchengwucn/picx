@@ -8,6 +8,3 @@ declare module "@tanstack/react-router" {
     pendingSkillName?: string;
   }
 }
-
-// 纯类型增强，没有运行时导出；空 export 让它保持为一个模块
-export {};

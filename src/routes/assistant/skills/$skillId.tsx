@@ -232,14 +232,18 @@ function AssistantSkillEditPage() {
               })}
             </span>
           }
+          // 停用的技能不会出现在 slash 候选里，链接过去也匹配不到任何东西——
+          // 点了会静默无事发生，不如干脆不渲染
           footerAction={
-            <Link
-              to="/assistant"
-              state={{ pendingSkillName: skill.name }}
-              className="text-[var(--academic-brown)] transition-colors hover:text-[var(--academic-brown-deep)]"
-            >
-              {m.assistant_skills_open_chat()} →
-            </Link>
+            skill.enabled && (
+              <Link
+                to="/assistant"
+                state={{ pendingSkillName: skill.name }}
+                className="text-[var(--academic-brown)] transition-colors hover:text-[var(--academic-brown-deep)]"
+              >
+                {m.assistant_skills_open_chat()} →
+              </Link>
+            )
           }
         />
       </div>

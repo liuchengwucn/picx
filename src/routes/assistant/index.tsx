@@ -28,12 +28,21 @@ function AssistantPage() {
   const { session, isSessionPending } = useRequireAuth("/assistant");
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const navigate = Route.useNavigate();
   // 窄屏展开区的列表要被开关的 aria-controls 指向（桌面那份不需要 id）
   const mobileListId = useId();
   // 技能编辑页「用它开一段对话」带来的预选技能名
   const pendingSkillName = useLocation({
     select: (location) => location.state.pendingSkillName,
   });
+  // 预选生效后把它从路由 state 里清掉：不清的话它会一直挂在 location.state
+  // 上，用户之后点的每一个会话都会被重新预选上同一条技能
+  const clearPendingSkillName = useCallback(() => {
+    void navigate({
+      replace: true,
+      state: (prev) => ({ ...prev, pendingSkillName: undefined }),
+    });
+  }, [navigate]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   /** 选中当前会话的时刻，用来判断历史缓存是否已在这次选中之后刷新过 */
@@ -230,12 +239,17 @@ function AssistantPage() {
     </Button>
   );
 
-  // 技能管理入口：与个人档案同级同分量（ghost），样式沿用 ProfileDialog 的触发按钮
+  // 技能管理入口：与个人档案同级同分量（ghost），样式沿用 ProfileDialog 的触发按钮。
+  // min-w-0 + shrink 覆盖 Button 默认的 shrink-0：技能数到两位数、日语这类
+  // 较长的字符集会把这一行撑到 244.6px，比 w-64 侧栏刨去 padding 后的 240px
+  // 还宽——不许它收缩就只能眼睁睁溢出边框；文字 span 配 truncate 兜底省略号。
   const skillsLink = (
-    <Button asChild variant="ghost" size="sm">
+    <Button asChild variant="ghost" size="sm" className="min-w-0 shrink">
       <Link to="/assistant/skills" title={m.assistant_skills_title()}>
-        <Sparkles className="h-4 w-4" />
-        <span>{m.assistant_skills_count({ count: enabledSkillCount })}</span>
+        <Sparkles className="h-4 w-4 shrink-0" />
+        <span className="truncate">
+          {m.assistant_skills_count({ count: enabledSkillCount })}
+        </span>
       </Link>
     </Button>
   );
@@ -319,9 +333,9 @@ function AssistantPage() {
           />
         )}
         {/* 技能与档案：不是每天点的东西，降到细线之下，并带上状态 */}
-        <div className="mt-2 flex items-center gap-1 border-t border-[var(--line)] px-2 pt-2">
+        <div className="mt-2 flex min-w-0 items-center gap-1 border-t border-[var(--line)] px-2 pt-2">
           {skillsLink}
-          <span className="h-3 w-px bg-[var(--line)]" />
+          <span className="h-3 w-px shrink-0 bg-[var(--line)]" />
           <ProfileDialog />
         </div>
       </aside>
@@ -372,9 +386,9 @@ function AssistantPage() {
                 listId={mobileListId}
               />
             )}
-            <div className="flex items-center gap-1 border-t border-[var(--line)] px-2 py-1.5">
+            <div className="flex min-w-0 items-center gap-1 border-t border-[var(--line)] px-2 py-1.5">
               {skillsLink}
-              <span className="h-3 w-px bg-[var(--line)]" />
+              <span className="h-3 w-px shrink-0 bg-[var(--line)]" />
               <ProfileDialog />
             </div>
           </div>
@@ -404,6 +418,7 @@ function AssistantPage() {
               }
               onFirstMessage={invalidateList}
               pendingSkillName={pendingSkillName}
+              onPendingSkillApplied={clearPendingSkillName}
             />
           </div>
         ) : (

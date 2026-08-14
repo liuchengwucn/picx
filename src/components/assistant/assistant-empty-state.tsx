@@ -40,8 +40,13 @@ export function AssistantEmptyState({
   const visibleSkills = skills.slice(0, MAX_SKILL_CHIPS);
 
   return (
-    <div className="flex h-full items-center justify-center px-6 py-10">
-      <div className="min-w-0 max-w-[52ch] text-center">
+    // min-h-full 而非 h-full + items-center：这个容器坐在 overflow-y-auto 的
+    // 对话区里，align-items:center 对着一个比容器还高的子项时，多出来的部分会
+    // 溢到容器顶部之外——这段溢出不计入 scrollHeight，永远滚不到。改成
+    // min-h-full 撑起容器、内容块自己 my-auto，矮内容仍然居中，高内容从顶部
+    // 正常起排、可以滚动到。
+    <div className="flex min-h-full justify-center px-6 py-10">
+      <div className="my-auto min-w-0 max-w-[52ch] text-center">
         <span
           aria-hidden="true"
           className="mx-auto block h-px w-10 bg-[var(--academic-brown)]/45"

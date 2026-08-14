@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
+import { Skeleton } from "#/components/ui/skeleton";
 import { Switch } from "#/components/ui/switch";
 import type { TRPCRouter } from "#/integrations/trpc/router";
 import { shortMonthDay } from "#/lib/short-date";
@@ -10,7 +11,7 @@ import { getLocale } from "#/paraglide/runtime";
 export type SkillSummary =
   inferRouterOutputs<TRPCRouter>["skills"]["list"][number];
 
-/** 上万字的技能显示成 "12.3k"：52px 的列放不下五位数 */
+/** 上万字的技能显示成 "12.3k"：按最长的 en 形态 "65.5k chars" 量的（65536 上限） */
 function formatChars(count: number): string {
   return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
 }
@@ -53,7 +54,7 @@ export function SkillRow({ skill, isToggling, onToggle }: SkillRowProps) {
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--ink-soft)]">
             {skill.description}
           </span>
-          <span className="w-[52px] shrink-0 text-right text-[10.5px] tabular-nums text-[var(--ink-soft)]">
+          <span className="w-[60px] shrink-0 text-right text-[10.5px] whitespace-nowrap tabular-nums text-[var(--ink-soft)]">
             {chars}
           </span>
           <span
@@ -94,5 +95,25 @@ export function SkillRow({ skill, isToggling, onToggle }: SkillRowProps) {
         />
       </span>
     </article>
+  );
+}
+
+export function SkillRowSkeleton() {
+  return (
+    <div className="border-b border-[var(--line)]">
+      <div className="hidden items-center gap-2.5 py-1.5 pl-2 sm:flex">
+        <Skeleton className="h-3.5 w-[150px] shrink-0" />
+        <Skeleton className="h-3 flex-1" />
+        <Skeleton className="h-3 w-[60px] shrink-0" />
+        <Skeleton className="h-3 w-[46px] shrink-0" />
+        <span className="flex size-11 shrink-0 items-center justify-center">
+          <Skeleton className="h-3.5 w-6 rounded-full" />
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5 py-2 pl-2 sm:hidden">
+        <Skeleton className="h-3.5 w-2/5" />
+        <Skeleton className="h-3 w-4/5" />
+      </div>
+    </div>
   );
 }

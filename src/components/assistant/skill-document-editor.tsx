@@ -19,6 +19,12 @@ interface SkillDocumentEditorProps {
   initial: SkillInput;
   isSaving: boolean;
   onSave: (values: SkillInput) => void;
+  /**
+   * 新建页需要即使表单等于 initial（比如导入草稿原样落地、或压根没动过）也能点保存：
+   * zod 会拦下真正的问题并标红对应字段，这比一个说不清为什么点不动的灰按钮更清楚。
+   * 编辑页不传（默认 false）——已保存的技能没改动时点保存没有意义。
+   */
+  allowPristineSave?: boolean;
   /** 复制屏幕上这份（而不是磁盘上已保存的那份）；不传则不渲染复制按钮（新建页没有可复制的东西） */
   onCopy?: (values: SkillInput) => void;
   /** 报头右侧的额外操作（开关 / 删除），由路由页提供 */
@@ -39,6 +45,7 @@ export function SkillDocumentEditor({
   initial,
   isSaving,
   onSave,
+  allowPristineSave = false,
   onCopy,
   headerActions,
   footerMeta,
@@ -135,7 +142,11 @@ export function SkillDocumentEditor({
               {m.assistant_skills_copy()}
             </Button>
           )}
-          <Button type="submit" size="sm" disabled={isSaving || !dirty}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={isSaving || (!dirty && !allowPristineSave)}
+          >
             {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
             {m.assistant_skills_save()}
           </Button>

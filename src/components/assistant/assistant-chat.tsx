@@ -75,6 +75,10 @@ export interface AssistantChatProps {
   onFirstMessage?: () => void;
   /** 挂载后按名字预选一个技能（来自技能编辑页的「用它开一段对话」） */
   pendingSkillName?: string;
+  /** 预选生效后回调——父层要借此把路由 state 里的 pendingSkillName 清掉，
+   * 否则它会在下一次真实导航前一直挂在 location.state 上，把用户之后点的
+   * 每一个会话都重新预选上这条技能 */
+  onPendingSkillApplied?: () => void;
 }
 
 /**
@@ -88,6 +92,7 @@ export function AssistantChat({
   onInputChange,
   onFirstMessage,
   pendingSkillName,
+  onPendingSkillApplied,
 }: AssistantChatProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -126,7 +131,10 @@ export function AssistantChat({
     if (!match) return;
     appliedPendingSkillRef.current = true;
     setSelectedSkill(match);
-  }, [pendingSkillName, slashCommands]);
+    // 让父层清掉路由 state 里的 pendingSkillName：这个 state 会在下一次真实
+    // 导航前一直挂着，不清掉的话切到的下一个会话也会被重新预选上这条技能
+    onPendingSkillApplied?.();
+  }, [pendingSkillName, slashCommands, onPendingSkillApplied]);
   // 芯片点完要把光标送回输入框，否则用户还得再点一次才能打字
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
