@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { assistantSkills } from "#/db/schema";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
@@ -55,6 +55,9 @@ export const skillsRouter = router({
         description: assistantSkills.description,
         enabled: assistantSkills.enabled,
         updatedAt: assistantSkills.updatedAt,
+        // 单表查询，插值 Column 会被渲染成裸列名 `length("body")`——正是想要的。
+        // 清单页只显示规模，正文本身仍然只有 get 才拉。
+        bodyChars: sql<number>`length(${assistantSkills.body})`.mapWith(Number),
       })
       .from(assistantSkills)
       .where(eq(assistantSkills.userId, ctx.session.user.id))
