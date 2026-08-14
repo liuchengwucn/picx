@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { z } from "zod";
 import type * as schema from "#/db/schema";
@@ -54,6 +54,31 @@ export const assistantRouter = router({
         title: conversations.title,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
+        // 关联子查询里的表名一律手写：插值 drizzle 的 Column 会被剥掉表限定符，
+        // 相关性条件退化成自比较，结果静默恒 NULL 且不报错。
+        messageCount: sql<number>`(
+          select count(*) from conversation_messages
+          where conversation_messages.conversation_id = conversations.id
+        )`.mapWith(Number),
+        // 末条「说了话的」消息的第一段正文，库内截到 120 字符。
+        // parts 是 AI SDK UIMessage 的 JSON 数组，一条长回答就有几 KB，
+        // 整段拉回前端只为显示一行截断文本是纯浪费。
+        // 末条若是纯工具调用 / 推理块（没有 text part）就自动往前找一条，
+        // 否则侧栏第二行会空着。
+        // json_each(m.parts) 要求 parts 是合法 JSON，否则整条 select 直接抛错——
+        // 写入路径唯一（chat-generation.ts 走 drizzle typed json 列，没有从旧
+        // chat_messages 回填 conversation_messages 的历史路径），脏数据风险很低，
+        // 故不加 json_valid() 兜底；代价是一旦真出现脏 parts，挂的是整张会话
+        // 列表而不是单个会话（改动前一条脏数据只会让那一个会话的 getMessages 出问题）。
+        lastMessageText: sql<string | null>`(
+          select substr(json_extract(p.value, '$.text'), 1, 120)
+          from conversation_messages m, json_each(m.parts) p
+          where m.conversation_id = conversations.id
+            and json_extract(p.value, '$.type') = 'text'
+            and trim(coalesce(json_extract(p.value, '$.text'), '')) <> ''
+          order by m.created_at desc, p.key asc
+          limit 1
+        )`,
       })
       .from(conversations)
       .innerJoin(

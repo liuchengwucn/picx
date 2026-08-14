@@ -1,4 +1,4 @@
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
 
 /**
@@ -80,6 +80,26 @@ export function parseSkillImport(source: string): SkillImportResult {
   });
   if (!parsed.success) return { ok: false, error: "invalid_fields" };
   return { ok: true, value: parsed.data };
+}
+
+/**
+ * parseSkillImport 的逆向：把一条技能还原成可粘贴的 SKILL.md。
+ * frontmatter 交给 yaml.stringify —— description 里的冒号、井号、引号、换行
+ * 都必须被正确转义，手拼字符串出来的东西 parseSkillImport 读不回来。
+ *
+ * SkillInput 同时也是编辑器表单的原始状态类型，用户粘贴/输入的
+ * description、body 未必已 trim。parseSkillImport 内部会 trim，所以这里必须
+ * 显式同步 trim，否则 format→parse 只在“输入恰好已 trim 过”时才是恒等，
+ * 带前导/尾随空白的输入会在往返后悄悄变短。
+ */
+export function formatSkillMarkdown(input: SkillInput): string {
+  const description = input.description.trim();
+  const body = input.body.trim();
+  const frontmatter = stringifyYaml({
+    name: input.name,
+    description,
+  }).trimEnd();
+  return `---\n${frontmatter}\n---\n\n${body}\n`;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   resolveRowSecondary,
 } from "#/components/papers/paper-status-dot";
 import { Skeleton } from "#/components/ui/skeleton";
+import { shortMonthDay } from "#/lib/short-date";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
@@ -26,15 +27,6 @@ export interface PaperRowPaper {
 // 一行只放一个 tag。118px 里塞两个的实测结果是两个都被截成 4-6 个字符
 // (#diffu… #gener…),等于什么都没说;只放一个则绝大多数能完整显示。
 const MAX_ROW_TAGS = 1;
-
-/**
- * 日期列固定 46px,所以只显示 MM-DD。年份由月份分组标题给出;搜索/筛选时分组
- * 关闭、年份丢失,用 title 属性兜底(hover 显示完整本地化日期)。
- */
-function shortDate(input: Date | string): string {
-  const d = input instanceof Date ? input : new Date(input);
-  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 interface PaperRowProps {
   paper: PaperRowPaper;
@@ -125,7 +117,7 @@ export function PaperRow({ paper, onTagClick }: PaperRowProps) {
               className="size-2.5 shrink-0"
             />
           )}
-          {shortDate(created)}
+          {shortMonthDay(created)}
         </span>
       </Link>
 

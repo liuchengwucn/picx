@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import { BookOpen, Library, Newspaper, Sparkles, UserPen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { AssistantEmptyState } from "#/components/assistant/assistant-empty-state";
 import {
   ChatInputArea,
   type SlashCommandItem,
@@ -72,6 +73,12 @@ export interface AssistantChatProps {
   onInputChange: (value: string) => void;
   /** 本会话第一条用户消息发出后回调：服务端此时已写好标题，父层可刷新会话列表 */
   onFirstMessage?: () => void;
+  /** 挂载后按名字预选一个技能（来自技能编辑页的「用它开一段对话」） */
+  pendingSkillName?: string;
+  /** 预选生效后回调——父层要借此把路由 state 里的 pendingSkillName 清掉，
+   * 否则它会在下一次真实导航前一直挂在 location.state 上，把用户之后点的
+   * 每一个会话都重新预选上这条技能 */
+  onPendingSkillApplied?: () => void;
 }
 
 /**
@@ -84,6 +91,8 @@ export function AssistantChat({
   input,
   onInputChange,
   onFirstMessage,
+  pendingSkillName,
+  onPendingSkillApplied,
 }: AssistantChatProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -113,6 +122,21 @@ export function AssistantChat({
   const [selectedSkill, setSelectedSkill] = useState<SlashCommandItem | null>(
     null,
   );
+  /** 预选只做一次：用户之后手动清掉技能，不该被这个 effect 重新塞回去 */
+  const appliedPendingSkillRef = useRef(false);
+  useEffect(() => {
+    if (appliedPendingSkillRef.current || !pendingSkillName) return;
+    // skills.list 可能比本组件晚落地，所以这里等 slashCommands 出来再匹配
+    const match = slashCommands.find((item) => item.name === pendingSkillName);
+    if (!match) return;
+    appliedPendingSkillRef.current = true;
+    setSelectedSkill(match);
+    // 让父层清掉路由 state 里的 pendingSkillName：这个 state 会在下一次真实
+    // 导航前一直挂着，不清掉的话切到的下一个会话也会被重新预选上这条技能
+    onPendingSkillApplied?.();
+  }, [pendingSkillName, slashCommands, onPendingSkillApplied]);
+  // 芯片点完要把光标送回输入框，否则用户还得再点一次才能打字
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   /** 本会话的首条用户消息已发出、还没通知父层 */
   const pendingFirstMessageRef = useRef(false);
@@ -233,21 +257,17 @@ export function AssistantChat({
         className="min-h-0 flex-1 overflow-y-auto"
       >
         {messages.length === 0 ? (
-          // 开场白：整页居中，标题用衬线体——空会话是这页唯一的「封面」时刻
-          <div className="flex h-full items-center justify-center px-6 py-10">
-            <div className="max-w-[46ch] text-center">
-              <span
-                aria-hidden="true"
-                className="mx-auto block h-px w-10 bg-[var(--academic-brown)]/45"
-              />
-              <h2 className="mt-5 font-serif text-2xl font-semibold text-balance text-[var(--ink)] sm:text-[1.75rem]">
-                {m.assistant_empty_title()}
-              </h2>
-              <p className="mt-3 text-sm leading-relaxed text-[var(--ink-soft)]">
-                {m.assistant_empty_hint()}
-              </p>
-            </div>
-          </div>
+          <AssistantEmptyState
+            skills={slashCommands}
+            onPickSkill={(item) => {
+              setSelectedSkill(item);
+              inputRef.current?.focus();
+            }}
+            onPickSample={(text) => {
+              onInputChange(text);
+              inputRef.current?.focus();
+            }}
+          />
         ) : (
           <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-6 sm:px-6">
             {messages.map((message) => (
@@ -281,6 +301,7 @@ export function AssistantChat({
             slashCommands={slashCommands}
             selectedSlashCommand={selectedSkill}
             onSelectSlashCommand={setSelectedSkill}
+            inputRef={inputRef}
           />
         </div>
       </div>
