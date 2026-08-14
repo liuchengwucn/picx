@@ -35,10 +35,25 @@ describe("arxivQueryToS2Query", () => {
     );
   });
 
-  it("maps ANDNOT to -", () => {
+  it("drops an ANDNOT clause (single field:value token) entirely instead of mapping to a space-separated dash", () => {
+    // space-separated "- term" was found to make S2 bulk search silently
+    // return 0 results (200 OK, no error) — dropping the whole clause is
+    // the safer downgrade, negative filtering is left to downstream prescore
     expect(arxivQueryToS2Query("abs:kernel ANDNOT abs:transformer")).toBe(
-      "kernel - transformer",
+      "kernel",
     );
+  });
+
+  it("drops an ANDNOT clause (parenthesized group) entirely", () => {
+    expect(
+      arxivQueryToS2Query("abs:kernel ANDNOT (ti:survey OR ti:review)"),
+    ).toBe("kernel");
+  });
+
+  it("normalizes to an empty string when the whole query is a dropped ANDNOT clause plus a cat: term", () => {
+    expect(
+      arxivQueryToS2Query("cat:cs.LG ANDNOT (ti:survey OR ti:review)"),
+    ).toBe("");
   });
 
   it("preserves quoted phrases", () => {
@@ -82,6 +97,23 @@ describe("s2RowsToCandidates", () => {
       },
     ];
     expect(s2RowsToCandidates(rows, "test-source", windowStart)).toEqual([]);
+  });
+
+  it("keeps rows published on windowStart's calendar day even when windowStart carries a time-of-day", () => {
+    // windowStart is derived from a cron timestamp (e.g. 12:00 UTC), but S2
+    // publicationDate is day-granularity — comparing against the raw
+    // windowStart instant would drop every paper published that same day
+    // and permanently lose them (next week's window won't cover them either)
+    const cronWindowStart = new Date("2026-08-01T12:00:00.000Z");
+    const rows: S2SearchRow[] = [
+      {
+        title: "published on window start day",
+        externalIds: { ArXiv: "2608.00005" },
+        publicationDate: "2026-08-01",
+      },
+    ];
+    const result = s2RowsToCandidates(rows, "test-source", cronWindowStart);
+    expect(result).toHaveLength(1);
   });
 
   it("keeps rows with a null publicationDate and omits publishedAt", () => {
@@ -135,13 +167,23 @@ describe("fetchS2Fallback", () => {
     ).rejects.toThrow("missing config.query");
   });
 
-  it("throws when the mapped query is empty (category-only source)", async () => {
+  it("throws when the mapped query has no searchable text (category-only source)", async () => {
     await expect(
       fetchS2Fallback({ query: "cat:cs.AI" }, windowStart, "test-source"),
-    ).rejects.toThrow("mapped query is empty");
+    ).rejects.toThrow("no searchable text after mapping");
   });
 
-  it("parses a 200 response into candidates", async () => {
+  it("throws when the mapped query has no searchable text (fully-negated ANDNOT source)", async () => {
+    await expect(
+      fetchS2Fallback(
+        { query: "cat:cs.LG ANDNOT (ti:survey OR ti:review)" },
+        windowStart,
+        "test-source",
+      ),
+    ).rejects.toThrow("no searchable text after mapping");
+  });
+
+  it("parses a 200 response into candidates and builds the request URL correctly", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -167,8 +209,29 @@ describe("fetchS2Fallback", () => {
     );
     expect(result).toHaveLength(1);
     expect(result[0].title).toBe("A Paper");
-    const [, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(init.headers["x-api-key"]).toBe("test-key");
+    expect(url).toContain("query=kernel");
+    expect(url).toContain("publicationDateOrYear=2026-08-01:");
+    expect(url).toContain("sort=publicationDate:desc");
+    expect(url).toContain("limit=10");
+  });
+
+  it("returns an empty array when data is an empty array", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ total: 0, token: null, data: [] }),
+      }),
+    );
+    const result = await fetchS2Fallback(
+      { query: "abs:kernel" },
+      windowStart,
+      "test-source",
+    );
+    expect(result).toEqual([]);
   });
 
   it("rejects on a non-2xx response", async () => {
