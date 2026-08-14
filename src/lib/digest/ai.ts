@@ -399,6 +399,7 @@ export async function synthesizeDigest(
     "5. usedIntelUrls: the canonicalUrl of every intel item you actually cited in content (exact URLs from the list below).",
     "Respect user feedback below when judging taste.",
     UNTRUSTED_NOTE,
+    "Final check before returning: content must contain ZERO internal/positional item codes (P1, I3, Paper 2, Item 4 三类式样都算) — every item reference must be an inline markdown link [标题](URL).",
     'Return JSON only: {"title":"...","content":"...","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"usedIntelUrls":["..."],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
   ].join("\n");
   const paperBlock = input.papers
@@ -434,8 +435,8 @@ export async function synthesizeDigest(
     `## Focus brief\n${input.focusBrief}`,
     ...historySections,
     `## User feedback\n${feedbackBlock(input.feedback)}`,
-    `## Paper candidates (passed adversarial verification unless marked otherwise)\n${paperBlock || "(none)"}`,
-    `## Intel items\n${intelBlock || "(none)"}`,
+    `## Paper candidates (passed adversarial verification unless marked otherwise; cite in content only as inline [标题](URL), never by position or code)\n${paperBlock || "(none)"}`,
+    `## Intel items (cite in content only as inline [标题](URL), never by position or code)\n${intelBlock || "(none)"}`,
   ].join("\n\n");
   const provider = createChatProvider({
     OPENAI_API_KEY: env.OPENAI_API_KEY,

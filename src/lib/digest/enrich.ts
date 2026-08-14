@@ -64,7 +64,12 @@ export async function enrichAuthorSignals(
   let targets = candidateUrls
     .map((url) => ({ url, id: canonicalArxivId(url) }))
     .filter((t): t is { url: string; id: string } => t.id !== null);
-  if (targets.length === 0) return {};
+  if (targets.length === 0) {
+    console.log(
+      `[Digest] enrich: 0/${candidateUrls.length} candidates have arXiv ids, skipping`,
+    );
+    return {};
+  }
   if (targets.length > S2_BATCH_LIMIT) {
     console.warn(
       `[Digest] enrich: ${targets.length} ids exceed S2 batch limit, truncating to ${S2_BATCH_LIMIT}`,
@@ -89,8 +94,12 @@ export async function enrichAuthorSignals(
   if (!Array.isArray(rows)) {
     throw new Error("semantic scholar batch: non-array response");
   }
-  return buildAuthorSignals(
+  const signals = buildAuthorSignals(
     targets.map((t) => t.url),
     rows,
   );
+  console.log(
+    `[Digest] enrich: ${candidateUrls.length} candidates, ${targets.length} with arXiv id, ${Object.keys(signals).length} with S2 signal`,
+  );
+  return signals;
 }

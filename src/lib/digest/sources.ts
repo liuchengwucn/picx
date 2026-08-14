@@ -58,6 +58,13 @@ export function parseAtomAuthors(entry: Record<string, unknown>): {
   return { authors, authorCount: names.length };
 }
 
+// arXiv Atom 标题偶带换行连字（"ATTEN-\n TION"）：连字符紧跟换行才视为断词伪影，
+// 去掉连字符与换行拼回整词。悬垂连字（"intra- and inter-…"，换行后是 and/or）
+// 是正当写法，必须保留连字符原样；普通连字词（Test-Time，无换行）不受影响。
+export function dehyphenateWrappedTitle(raw: string): string {
+  return raw.replace(/(\p{L})-\n\s*(?!(?:and|or)\b)(\p{L})/gu, "$1$2");
+}
+
 /** arXiv Atom API：按查询式取窗口内新论文 */
 export async function fetchArxivQuery(
   config: DirectionSourceConfig,
@@ -90,7 +97,7 @@ export async function fetchArxivQuery(
     if (Number.isNaN(published.getTime()) || published < windowStart) continue;
     items.push({
       canonicalUrl: canonicalArxivUrl(arxivId),
-      title: textOf(e.title).replace(/\s+/g, " ").trim(),
+      title: dehyphenateWrappedTitle(textOf(e.title)).replace(/\s+/g, " ").trim(),
       kind: "paper",
       excerpt: textOf(e.summary)
         .replace(/\s+/g, " ")

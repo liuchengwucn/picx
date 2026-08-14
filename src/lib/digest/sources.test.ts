@@ -1,9 +1,40 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ArxivRateLimitError,
+  dehyphenateWrappedTitle,
   fetchArxivQuery,
   parseAtomAuthors,
 } from "./sources";
+
+describe("dehyphenateWrappedTitle", () => {
+  it("rejoins a hyphen immediately followed by a line break", () => {
+    expect(dehyphenateWrappedTitle("ATTEN-\n TION mechanisms")).toBe(
+      "ATTENTION mechanisms",
+    );
+  });
+
+  it("keeps a suspended hyphen unchanged when the break is followed by and/or", () => {
+    expect(dehyphenateWrappedTitle("Intra-\n and Inter-Layer Attention")).toBe(
+      "Intra-\n and Inter-Layer Attention",
+    );
+  });
+
+  it("leaves a plain hyphenated word (no line break) unchanged", () => {
+    expect(dehyphenateWrappedTitle("Test-Time Training")).toBe(
+      "Test-Time Training",
+    );
+  });
+
+  it("leaves a plain wrap without a hyphen unchanged", () => {
+    expect(dehyphenateWrappedTitle("Sparse\n Attention")).toBe(
+      "Sparse\n Attention",
+    );
+  });
+
+  it("leaves a hyphen followed by a plain space (no line break) unchanged", () => {
+    expect(dehyphenateWrappedTitle("ATTEN- TION")).toBe("ATTEN- TION");
+  });
+});
 
 describe("parseAtomAuthors", () => {
   it("returns empty object when entry has no authors", () => {
