@@ -1,5 +1,4 @@
-import { TRPCError } from "@trpc/server";
-import { getTRPCErrorFromUnknown } from "@trpc/server/unstable-core-do-not-import";
+import { getTRPCErrorFromUnknown, TRPCError } from "@trpc/server";
 import { describe, expect, it } from "vitest";
 import { sanitizeErrorShape } from "./init";
 
