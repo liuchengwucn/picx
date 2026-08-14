@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   type ConversationGroupKind,
@@ -86,8 +86,18 @@ export function ConversationList({
             placeholder={m.assistant_search_placeholder()}
             aria-label={m.assistant_search_placeholder()}
             maxLength={100}
-            className="w-full rounded-md border border-[var(--line)] bg-[var(--parchment-warm)]/40 py-1 pr-2 pl-6 text-xs text-[var(--ink)] transition-colors outline-none placeholder:text-[var(--ink-soft)] focus:border-[var(--academic-brown)]/60"
+            className="w-full rounded-md border border-[var(--line)] bg-[var(--parchment-warm)]/40 py-1 pr-6 pl-6 text-xs text-[var(--ink)] transition-colors outline-none placeholder:text-[var(--ink-soft)] focus:border-[var(--academic-brown)]/60"
           />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label={m.assistant_search_clear()}
+              className="absolute top-1/2 right-5 -translate-y-1/2 text-[var(--ink-soft)] transition-colors hover:text-[var(--ink)]"
+            >
+              <X className="size-3" />
+            </button>
+          )}
         </div>
       )}
 

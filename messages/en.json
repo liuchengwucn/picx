@@ -455,6 +455,7 @@
   "assistant_new_conversation": "New chat",
   "assistant_conversations": "Conversations",
   "assistant_search_placeholder": "Search conversations…",
+  "assistant_search_clear": "Clear search",
   "assistant_search_no_match": "No conversations match.",
   "assistant_group_today": "Today",
   "assistant_group_yesterday": "Yesterday",

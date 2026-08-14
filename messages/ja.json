@@ -455,6 +455,7 @@
   "assistant_new_conversation": "新しいチャット",
   "assistant_conversations": "会話",
   "assistant_search_placeholder": "会話を検索…",
+  "assistant_search_clear": "検索をクリア",
   "assistant_search_no_match": "一致する会話はありません。",
   "assistant_group_today": "今日",
   "assistant_group_yesterday": "昨日",
