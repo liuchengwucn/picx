@@ -66,8 +66,31 @@ export async function createTRPCContext(opts: FetchCreateContextFnOptions) {
 
 export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
 
+/**
+ * 未处理的非 TRPCError（如 DrizzleQueryError，message 里拼着整条 SQL 与全部绑定
+ * 参数）会被 tRPC 包装成 INTERNAL_SERVER_ERROR 后把 message 原样回传客户端。
+ * 判别式「ISE 且 message === cause.message」= 透传包装（tRPC 包装时 message 直接
+ * 取自 cause），统一换成固定文案；各 router 有意抛的 ISE（手写安全 message，或
+ * 未挂 cause）不受影响。真实错误由 api.trpc.$ 的 onError 落服务端日志。
+ */
+export function sanitizeErrorShape<TShape extends { message: string }>(
+  shape: TShape,
+  error: TRPCError,
+): TShape {
+  if (
+    error.code === "INTERNAL_SERVER_ERROR" &&
+    error.cause instanceof Error &&
+    !(error.cause instanceof TRPCError) &&
+    error.message === error.cause.message
+  ) {
+    return { ...shape, message: "Internal server error" };
+  }
+  return shape;
+}
+
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
+  errorFormatter: ({ shape, error }) => sanitizeErrorShape(shape, error),
 });
 
 export const router = t.router;

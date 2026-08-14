@@ -9,6 +9,16 @@ function handler({ request }: { request: Request }) {
     router: trpcRouter,
     endpoint: "/api/trpc",
     createContext: createTRPCContext,
+    // errorFormatter 把未处理异常的 message 脱敏成固定文案，真实错误只能从这里出：
+    // cause 才是原始异常（DrizzleQueryError 等），error 本身可能已是包装壳。
+    onError({ error, path, type }) {
+      if (error.code === "INTERNAL_SERVER_ERROR") {
+        console.error(
+          `[trpc] ${type} ${path ?? "<unknown>"} failed:`,
+          error.cause ?? error,
+        );
+      }
+    },
   });
 }
 
