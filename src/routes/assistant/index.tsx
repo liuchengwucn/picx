@@ -323,8 +323,10 @@ function AssistantPage() {
       </aside>
 
       <div className="relative flex min-w-0 flex-1 flex-col md:pl-5">
-        {/* 报头与窄屏面板同处一个定位上下文：面板挂在报头的 top-full 上 */}
-        <div className="relative z-30">
+        {/* 报头本身不再是面板的定位上下文（面板改锚在外层列上，见下），
+            z-30 留着只为压过遮罩——它是这一列的 flex item，z-index 不需要
+            额外的 position 就能生效。 */}
+        <div className="z-30">
           {activeConversation && (
             <ConversationHeader
               title={activeConversation.title}
@@ -343,26 +345,31 @@ function AssistantPage() {
               }
             />
           )}
-          {isListOpen && (
-            <div className="absolute inset-x-0 top-full flex max-h-[60vh] flex-col border-b border-[var(--line)] bg-[var(--parchment)] shadow-lg md:hidden">
-              <div className="px-3 pt-2">{newConversationButtonWide}</div>
-              {conversationListPane ?? (
-                <ConversationList
-                  conversations={conversations ?? []}
-                  activeId={activeId}
-                  onSelect={selectConversation}
-                  now={now}
-                  listId={mobileListId}
-                />
-              )}
-              <div className="flex items-center gap-1 border-t border-[var(--line)] px-2 py-1.5">
-                {skillsLink}
-                <span className="h-3 w-px bg-[var(--line)]" />
-                <ProfileDialog />
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* 面板锚在外层列（有 h-[calc(100dvh-...)]）上，用 top-10（=报头高度）
+            与 bottom-0 双向卡住：可用高度不够 60vh 时，浏览器按 CSS2.1 10.6.4
+            的「top/height 优先、bottom 被忽略」规则，把面板钉在顶端、按剩余空间
+            收缩，永远不会探出这一列的底边、被下面 z-50 的 MobileTabBar 盖住。 */}
+        {isListOpen && (
+          <div className="absolute inset-x-0 top-10 bottom-0 z-30 flex max-h-[60vh] flex-col border-b border-[var(--line)] bg-[var(--parchment)] shadow-lg md:hidden">
+            <div className="px-3 pt-2">{newConversationButtonWide}</div>
+            {conversationListPane ?? (
+              <ConversationList
+                conversations={conversations ?? []}
+                activeId={activeId}
+                onSelect={selectConversation}
+                now={now}
+                listId={mobileListId}
+              />
+            )}
+            <div className="flex items-center gap-1 border-t border-[var(--line)] px-2 py-1.5">
+              {skillsLink}
+              <span className="h-3 w-px bg-[var(--line)]" />
+              <ProfileDialog />
+            </div>
+          </div>
+        )}
 
         {/* 遮罩：盖住对话区，点它关面板。z 低于面板容器 */}
         {isListOpen && (
