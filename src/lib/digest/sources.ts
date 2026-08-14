@@ -6,7 +6,8 @@ import { fetchFeed } from "#/lib/news/adapters/rss";
 import type { CandidateItem } from "./types";
 
 const ARXIV_API = "https://export.arxiv.org/api/query";
-const MAX_EXCERPT = 1200;
+/** excerpt 截断上限；s2-fallback.ts 的 S2 兜底路径复用同一常量保持口径一致 */
+export const MAX_EXCERPT = 1200;
 /** 超长作者团队截断：保留前 AUTHORS_HEAD 位 + 末位 */
 const AUTHORS_HEAD = 5;
 

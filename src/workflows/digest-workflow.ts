@@ -27,6 +27,7 @@ import {
 } from "#/lib/digest/candidates";
 import { enrichAuthorSignals } from "#/lib/digest/enrich";
 import { cheapModel, strongModel } from "#/lib/digest/llm";
+import { fetchS2Fallback } from "#/lib/digest/s2-fallback";
 import {
   ArxivRateLimitError,
   fetchDirectionSource,
@@ -230,11 +231,50 @@ export class DigestWorkflow extends WorkflowEntrypoint<
               msg.includes("429");
             if (isRateLimit) {
               // 429 退避耗尽（分钟级退避 × 2 次仍失败）：不计熔断（是我们自己的
-              // 速率问题，不是源死了），丢弃本期该源，绝不失败整个方向的 digest
+              // 速率问题，不是源死了）。先试 S2 bulk search 文本兜底再丢弃——
+              // 只对 arxiv_query 源有意义（rss 源无 query 可映射；msg.includes
+              // ("429") 是已知的宽匹配，rss 源理论上也可能落进这个分支，此时
+              // 保持原有的直接丢弃语义）。S2 收录 arXiv 有几天延迟，最新 1-2 天
+              // 的论文本周可能兜不到，欠的下周会从 seen 池自然回补，是接受的取舍。
               console.warn(
-                `[Digest] scan-source-${source.id}: rate-limit retries exhausted, dropping this source for this issue`,
+                `[Digest] scan-source-${source.id}: rate-limit retries exhausted, trying S2 fallback`,
               );
-              return [] as CandidateItem[];
+              if (source.adapterType !== "arxiv_query") {
+                return [] as CandidateItem[];
+              }
+              return step
+                .do(
+                  `scan-source-${source.id}-s2-fallback`,
+                  LLM_RETRIES,
+                  async () => {
+                    const items = await fetchS2Fallback(
+                      source.config,
+                      periodStart,
+                      `${source.id}:s2-fallback`,
+                      env.SEMANTIC_SCHOLAR_API_KEY,
+                    );
+                    const scores = await scoreSourceItems(
+                      cheapModel(env),
+                      ctx.direction.focusBrief,
+                      items.map((i) => ({
+                        title: i.title,
+                        excerpt: i.excerpt,
+                      })),
+                    );
+                    return items
+                      .map((it, i) => ({ ...it, prescore: scores[i] }))
+                      .filter(
+                        (it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD,
+                      );
+                  },
+                )
+                .catch((e2): CandidateItem[] => {
+                  console.warn(
+                    `[Digest] scan-source-${source.id}: S2 fallback also failed, dropping this source for this issue:`,
+                    e2,
+                  );
+                  return [] as CandidateItem[];
+                });
             }
             // 非 429 的 step 级失败（fetch 挂死超时、D1 写失败等）：计熔断后降级，
             // 让永久挂死的源最终走熔断+探活，而不是每周静默消失
