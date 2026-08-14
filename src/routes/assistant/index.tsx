@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AssistantChat } from "#/components/assistant/assistant-chat";
+import { ConversationList } from "#/components/assistant/conversation-list";
 import { ProfileDialog } from "#/components/assistant/profile-dialog";
 import { resolveChatErrorMessage } from "#/components/chat/chat-message";
 import { Button } from "#/components/ui/button";
@@ -227,6 +228,15 @@ function AssistantPage() {
   });
   const conversations = conversationsQuery.data;
 
+  // 与 AssistantChat 里 slash 选择器用的是同一个 queryKey，react-query 会去重，
+  // 不产生额外请求
+  const skillsQuery = useQuery({
+    ...trpc.skills.list.queryOptions(),
+    enabled: !!session,
+  });
+  const enabledSkillCount =
+    skillsQuery.data?.filter((row) => row.enabled).length ?? 0;
+
   const messagesQuery = useQuery({
     ...trpc.assistant.getMessages.queryOptions({
       conversationId: activeId ?? "",
@@ -398,8 +408,39 @@ function AssistantPage() {
     </Button>
   );
 
+  // 桌面侧栏头部的整宽变体：与上面共享同一个 mutation，只是撑满整行。
+  // 不复用 newConversationButton 本体是因为它还被窄屏头栏与空态兜底共用，
+  // 那两处不能被 w-full 撑开。
+  const newConversationButtonWide = (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => createMutation.mutate(undefined)}
+      disabled={createMutation.isPending}
+      className="w-full"
+    >
+      {createMutation.isPending ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <Plus className="h-4 w-4" />
+      )}
+      {m.assistant_new_conversation()}
+    </Button>
+  );
+
   // 技能管理入口：与个人档案同级同分量（ghost），样式沿用 ProfileDialog 的触发按钮
   const skillsLink = (
+    <Button asChild variant="ghost" size="sm">
+      <Link to="/assistant/skills" title={m.assistant_skills_title()}>
+        <Sparkles className="h-4 w-4" />
+        <span>{m.assistant_skills_count({ count: enabledSkillCount })}</span>
+      </Link>
+    </Button>
+  );
+
+  // 窄屏头栏沿用旧的图标 + sr-only 标签，桌面侧栏底部改用带计数的版本，
+  // 两处宽度、可视文案都不一样，不能共用一个 JSX。
+  const skillsLinkCompact = (
     <Button
       asChild
       variant="ghost"
@@ -455,29 +496,31 @@ function AssistantPage() {
     // 对话区自己滚，输入框吸在底部
     <main className="page-wrap flex h-[calc(100dvh-3.75rem-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-4.25rem-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] md:h-[calc(100dvh-4.25rem-env(safe-area-inset-top))]">
       <h1 className="sr-only">{m.assistant_page_title()}</h1>
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-[var(--line)] py-4 pr-4 md:flex">
-        <h2 className="text-[11px] tracking-[0.18em] text-[var(--ink-soft)] uppercase">
-          {m.assistant_conversations()}
-        </h2>
-        {/* 新对话是主动作，个人档案挨着它但降一级（ghost）——同一层工具，不同分量 */}
-        {/* 按钮不换行也不收缩：日文标签比侧栏还宽时靠 flex-wrap 落到第二行 */}
-        <div className="mt-3 flex flex-wrap items-center gap-1">
-          {newConversationButton}
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-[var(--line)] py-4 md:flex">
+        <div className="px-3">
+          <h2 className="text-[11px] tracking-[0.18em] text-[var(--ink-soft)] uppercase">
+            {m.assistant_conversations()}
+          </h2>
+          <div className="mt-2">{newConversationButtonWide}</div>
+        </div>
+        {conversationsQuery.isPending ? (
+          <div className="flex flex-1 justify-center py-4">
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
+          </div>
+        ) : (
+          <ConversationList
+            conversations={conversations ?? []}
+            activeId={activeId}
+            onSelect={selectConversation}
+            now={now}
+          />
+        )}
+        {/* 技能与档案：不是每天点的东西，降到细线之下，并带上状态 */}
+        <div className="mt-2 flex items-center gap-1 border-t border-[var(--line)] px-2 pt-2">
           {skillsLink}
+          <span className="h-3 w-px bg-[var(--line)]" />
           <ProfileDialog />
         </div>
-        <nav
-          aria-label={m.assistant_conversations()}
-          className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1"
-        >
-          {conversationsQuery.isPending ? (
-            <div className="flex justify-center py-4">
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
-            </div>
-          ) : (
-            renderConversationList()
-          )}
-        </nav>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col md:pl-5">
@@ -500,7 +543,7 @@ function AssistantPage() {
               )}
             />
           </button>
-          {skillsLink}
+          {skillsLinkCompact}
           <ProfileDialog />
           {newConversationButton}
         </div>
