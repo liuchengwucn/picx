@@ -178,10 +178,10 @@ function DigestIssuePage() {
   /**
    * 服务端刻意不看 react-query 的缓存, 只认 loader 刚从 D1 读出来的那份。
    *
-   * 那个 queryClient 是 root-provider 里的模块级单例, 在 Worker isolate 内跨请求共享;
-   * 而服务端渲染既不会触发 refetch(没有 effect)也不会 gc(observer 永不卸载), 于是
-   * 第一次 SSR 用 initialData 写进去的那一版正文会一直被后续所有请求读到 —— 实测改库
-   * 后必须重启进程才变。读缓存等于把「本进程第一次见到的内容」当永久答案。
+   * 历史上 root-provider 的 queryClient 是模块级单例, 在 Worker isolate 内跨请求
+   * 共享, 曾导致第一次 SSR 写进去的 initialData 被后续所有请求读到(改库后必须重启
+   * 进程才变)。单例已改为每请求新建, 这里保留直读 loader 作为第二道防线, 并保证
+   * 两侧第一帧同源。
    *
    * 客户端第一帧走的是同一份数据(initialData 就是 loader 那份, 且这个查询没有被
    * dehydrate 到 HTML 里), 所以两侧结构一致, 不会 hydration 不匹配。
