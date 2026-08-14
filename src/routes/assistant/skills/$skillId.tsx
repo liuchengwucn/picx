@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, Copy, Loader2, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { SkillDocumentEditor } from "#/components/assistant/skill-document-editor";
@@ -67,10 +67,17 @@ function AssistantSkillEditPage() {
     }),
   );
 
-  const handleCopy = (skill: SkillInput) => {
-    void navigator.clipboard.writeText(formatSkillMarkdown(skill)).then(() => {
+  const handleCopy = async (values: SkillInput) => {
+    try {
+      await navigator.clipboard.writeText(formatSkillMarkdown(values));
       toast.success(m.assistant_skills_copied());
-    });
+    } catch (err) {
+      // 非安全上下文（非 localhost 的 http）下 clipboard API 不存在，或用户拒绝了
+      // 权限，都会走到这里——不 catch 的话既没有失败提示，控制台还会多一条
+      // 未处理的 promise rejection
+      console.error("Failed to copy skill:", err);
+      toast.error(m.assistant_skills_error_generic());
+    }
   };
 
   if (isSessionPending) {
@@ -154,6 +161,7 @@ function AssistantSkillEditPage() {
           initial={initial}
           isSaving={isSaving}
           onSave={(values) => updateMutation.mutate({ id: skillId, ...values })}
+          onCopy={handleCopy}
           headerActions={
             <div className="flex items-center gap-3">
               <span className="flex items-center gap-1.5">
@@ -170,17 +178,6 @@ function AssistantSkillEditPage() {
                   {m.assistant_skills_enabled()}
                 </span>
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => handleCopy(initial)}
-              >
-                <Copy className="h-4 w-4" />
-                <span className="max-sm:sr-only">
-                  {m.assistant_skills_copy()}
-                </span>
-              </Button>
               {isConfirmingDelete ? (
                 <span className="flex items-center gap-1 rounded-md bg-[var(--parchment-warm)] px-2 py-1">
                   <span className="text-xs text-[var(--ink-soft)]">

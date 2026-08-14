@@ -1,5 +1,5 @@
-import { Loader2 } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Copy, Loader2 } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "#/components/ui/button";
 import { SKILL_LIMITS, type SkillInput, skillInputSchema } from "#/lib/skills";
 import { cn } from "#/lib/utils";
@@ -7,13 +7,21 @@ import { m } from "#/paraglide/messages";
 
 type SkillFormField = keyof SkillInput;
 
+/** description textarea 的自增高。定义在组件外：不捕获任何渲染态，不进依赖表 */
+function autoResizeTextarea(node: HTMLTextAreaElement | null) {
+  if (!node) return;
+  node.style.height = "auto";
+  node.style.height = `${node.scrollHeight}px`;
+}
+
 interface SkillDocumentEditorProps {
   /** 编辑态与新建态共用同一份表单；差异全部由 headerActions / footer* 注入 */
   initial: SkillInput;
   isSaving: boolean;
   onSave: (values: SkillInput) => void;
-  onDirtyChange?: (dirty: boolean) => void;
-  /** 报头右侧的额外操作（开关 / 复制 / 删除），由路由页提供 */
+  /** 复制屏幕上这份（而不是磁盘上已保存的那份）；不传则不渲染复制按钮（新建页没有可复制的东西） */
+  onCopy?: (values: SkillInput) => void;
+  /** 报头右侧的额外操作（开关 / 删除），由路由页提供 */
   headerActions?: React.ReactNode;
   /** 底部左侧的额外信息（更新时间等） */
   footerMeta?: React.ReactNode;
@@ -31,7 +39,7 @@ export function SkillDocumentEditor({
   initial,
   isSaving,
   onSave,
-  onDirtyChange,
+  onCopy,
   headerActions,
   footerMeta,
   footerAction,
@@ -48,17 +56,23 @@ export function SkillDocumentEditor({
     values.description !== initial.description ||
     values.body !== initial.body;
 
-  useEffect(() => {
-    onDirtyChange?.(dirty);
-  }, [dirty, onDirtyChange]);
-
   // description 随内容增高：它是 frontmatter 里的一行，但上限有 1024 字，
-  // 固定单行会把长说明藏进横向滚动里
-  useLayoutEffect(() => {
+  // 固定单行会把长说明藏进横向滚动里。keyed by 内容本身，不是挂载一次——
+  // 否则导入草稿、切换技能之类的非用户输入触发的内容变化不会重算。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: values.description 是有意保留的「内容变了」信号，节点走 ref 不在依赖表里，autofix 会删掉它并悄悄废掉自动增高
+  useEffect(() => {
+    autoResizeTextarea(descriptionRef.current);
+  }, [values.description]);
+
+  // 上面那个 effect 只在内容变化时重算；窗口变窄、侧栏展开这类不改内容只改
+  // 可用宽度的情况不会触发它。这块是 resize-none overflow-hidden，没有滚动条
+  // 兜底——不补这个观察器，换行数变多时多出来的内容会被无声裁掉。
+  useEffect(() => {
     const node = descriptionRef.current;
-    if (!node) return;
-    node.style.height = "auto";
-    node.style.height = `${node.scrollHeight}px`;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => autoResizeTextarea(node));
+    observer.observe(node);
+    return () => observer.disconnect();
   }, []);
 
   const setField = (field: SkillFormField, value: string) => {
@@ -107,15 +121,25 @@ export function SkillDocumentEditor({
             {m.assistant_skills_unsaved()}
           </span>
         )}
-        <Button
-          type="submit"
-          size="sm"
-          disabled={isSaving || !dirty}
-          className="ml-auto"
-        >
-          {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-          {m.assistant_skills_save()}
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {/* 复制的是 values（屏幕上这份），不是 initial（磁盘上已保存的那份）——
+              未保存的改动点复制也该拿到用户正在看的内容 */}
+          {onCopy && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onCopy(values)}
+            >
+              <Copy className="h-4 w-4" />
+              {m.assistant_skills_copy()}
+            </Button>
+          )}
+          <Button type="submit" size="sm" disabled={isSaving || !dirty}>
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {m.assistant_skills_save()}
+          </Button>
+        </div>
       </div>
 
       {/* 纸张：比页面底色略亮一档，发丝线包边 */}
@@ -155,12 +179,7 @@ export function SkillDocumentEditor({
               ref={descriptionRef}
               rows={1}
               value={values.description}
-              onChange={(event) => {
-                setField("description", event.target.value);
-                const node = event.currentTarget;
-                node.style.height = "auto";
-                node.style.height = `${node.scrollHeight}px`;
-              }}
+              onChange={(event) => setField("description", event.target.value)}
               maxLength={SKILL_LIMITS.descriptionMax}
               aria-invalid={invalidFields.has("description") || undefined}
               placeholder={m.assistant_skills_description_hint()}
