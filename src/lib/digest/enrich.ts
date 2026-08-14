@@ -7,7 +7,7 @@ import { canonicalArxivId } from "#/lib/arxiv";
 import type { AuthorMetric, AuthorSignal } from "./types";
 
 const S2_BATCH_API = "https://api.semanticscholar.org/graph/v1/paper/batch";
-/** S2 batch 单次上限。正常预算 ≤40，触达上限说明上游预算约束坏了——截断并留痕，别打爆 API */
+/** S2 batch 单次上限。正常预算 ≤100（PAPER_REVIEW_BUDGET），触达上限说明上游预算约束坏了——截断并留痕，别打爆 API */
 const S2_BATCH_LIMIT = 500;
 
 /** S2 batch 响应里的单篇形状（未收录的位置整个是 null） */
