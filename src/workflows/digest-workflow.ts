@@ -236,12 +236,15 @@ export class DigestWorkflow extends WorkflowEntrypoint<
               // ("429") 是已知的宽匹配，rss 源理论上也可能落进这个分支，此时
               // 保持原有的直接丢弃语义）。S2 收录 arXiv 有几天延迟，最新 1-2 天
               // 的论文本周可能兜不到，欠的下周会从 seen 池自然回补，是接受的取舍。
+              if (source.adapterType !== "arxiv_query") {
+                console.warn(
+                  `[Digest] scan-source-${source.id}: rate-limit retries exhausted, dropping this source for this issue`,
+                );
+                return [] as CandidateItem[];
+              }
               console.warn(
                 `[Digest] scan-source-${source.id}: rate-limit retries exhausted, trying S2 fallback`,
               );
-              if (source.adapterType !== "arxiv_query") {
-                return [] as CandidateItem[];
-              }
               return step
                 .do(
                   `scan-source-${source.id}-s2-fallback`,
