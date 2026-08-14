@@ -19,6 +19,12 @@ describe("dehyphenateWrappedTitle", () => {
     );
   });
 
+  it("keeps an ALL-CAPS suspended hyphen unchanged (case-insensitive and/or)", () => {
+    expect(dehyphenateWrappedTitle("INTRA-\n AND INTER-LAYER")).toBe(
+      "INTRA-\n AND INTER-LAYER",
+    );
+  });
+
   it("leaves a plain hyphenated word (no line break) unchanged", () => {
     expect(dehyphenateWrappedTitle("Test-Time Training")).toBe(
       "Test-Time Training",

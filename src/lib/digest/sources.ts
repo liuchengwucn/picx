@@ -59,10 +59,13 @@ export function parseAtomAuthors(entry: Record<string, unknown>): {
 }
 
 // arXiv Atom 标题偶带换行连字（"ATTEN-\n TION"）：连字符紧跟换行才视为断词伪影，
-// 去掉连字符与换行拼回整词。悬垂连字（"intra- and inter-…"，换行后是 and/or）
-// 是正当写法，必须保留连字符原样；普通连字词（Test-Time，无换行）不受影响。
+// 去掉连字符与换行拼回整词。悬垂连字（"intra- and inter-…"，换行后是 and/or，
+// 大小写不限）是正当写法，必须保留连字符原样；普通连字词（Test-Time，无换行）
+// 不受影响。已知局限：真连字复合词恰在自身连字符处被换行（"state-\nof-the-art"）
+// 无法从文本区分，会被拼成 "stateof-the-art"——标题仅作展示、去重键是 canonicalUrl，
+// 接受此风险。
 export function dehyphenateWrappedTitle(raw: string): string {
-  return raw.replace(/(\p{L})-\n\s*(?!(?:and|or)\b)(\p{L})/gu, "$1$2");
+  return raw.replace(/(\p{L})-\n\s*(?!(?:and|or)\b)(\p{L})/giu, "$1$2");
 }
 
 /** arXiv Atom API：按查询式取窗口内新论文 */
