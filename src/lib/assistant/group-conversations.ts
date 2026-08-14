@@ -15,13 +15,19 @@ export interface ConversationGroup<T> {
   items: T[];
 }
 
-function startOfLocalDay(ts: number): number {
-  const d = new Date(ts);
+/**
+ * now 所在本地日往前 daysAgo 天的本地零点。
+ * 必须走日历减法而不是减固定的 24h——夏令时切换日只有 23 或 25 小时，
+ * 用毫秒减会让「昨天」的起点偏离昨天零点约 1 小时，那一小时的会话就会被错分到
+ * 相邻的桶（比如该属于「昨天」的落进「本周」）。
+ * 顺序不能反：先 setDate 再归零，否则跨 DST 边界仍会落到 23:00 / 01:00。
+ */
+function startOfLocalDayAgo(now: number, daysAgo: number): number {
+  const d = new Date(now);
+  d.setDate(d.getDate() - daysAgo);
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 }
-
-const DAY_MS = 86_400_000;
 
 /**
  * 按 updatedAt 分组。输入必须已按 updatedAt 倒序（listConversations 就是），
@@ -32,10 +38,10 @@ export function groupConversations<T extends { updatedAt: Date }>(
   list: T[],
   now: number,
 ): ConversationGroup<T>[] {
-  const todayStart = startOfLocalDay(now);
-  const yesterdayStart = todayStart - DAY_MS;
+  const todayStart = startOfLocalDayAgo(now, 0);
+  const yesterdayStart = startOfLocalDayAgo(now, 1);
   // 「本周」= 最近 7 个自然日，今天与昨天已被前面两桶吃掉
-  const weekStart = todayStart - 6 * DAY_MS;
+  const weekStart = startOfLocalDayAgo(now, 6);
 
   const groups: ConversationGroup<T>[] = [];
   for (const item of list) {

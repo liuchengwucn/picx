@@ -73,6 +73,40 @@ describe("groupConversations", () => {
     const groups = groupConversations([at(weekStart), at(weekStart - 1)], NOW);
     expect(groups.map((g) => g.kind)).toEqual(["week", "month"]);
   });
+
+  it("跨夏令时回拨（25 小时的一天）仍把「昨天」的会话分进 yesterday", () => {
+    // process.env.TZ 在本 Node 版本下对之后新建的 Date 是即时生效的（已用
+    // `node -e` 验证过），且 vitest 默认给每个测试文件独立的 worker/进程，
+    // 不会污染其他文件；这里仍用 try/finally 显式复位，避免影响同文件里
+    // 后续用例（它们依赖运行机器的本地时区，本机是 Asia/Shanghai，不实行 DST）。
+    const originalTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      // 2026-11-01 美东实行冬令时回拨（DST 结束），当天有 25 小时。
+      // "今天" 定在次日 2026-11-02，用真实的月历日期减法算出的 yesterdayStart
+      // 应该正好是 11-01 00:00 本地零点；如果退化成「减固定 24 小时」，
+      // yesterdayStart 会晚 1 小时落在 11-01 01:00，导致 11-01 00:30 的会话
+      // 被误判成不属于「昨天」（掉进下一档 week）。
+      const dstNow = new Date(2026, 10, 2, 15, 0, 0).getTime();
+      const justAfterFallBackMidnight = new Date(
+        2026,
+        10,
+        1,
+        0,
+        30,
+        0,
+      ).getTime();
+
+      const groups = groupConversations(
+        [at(justAfterFallBackMidnight)],
+        dstNow,
+      );
+
+      expect(groups[0]?.kind).toBe("yesterday");
+    } finally {
+      process.env.TZ = originalTz;
+    }
+  });
 });
 
 describe("conversationTimeLabel", () => {
