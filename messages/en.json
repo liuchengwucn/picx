@@ -460,6 +460,7 @@
   "assistant_group_today": "Today",
   "assistant_group_yesterday": "Yesterday",
   "assistant_group_this_week": "This week",
+  "assistant_message_count": "{count} messages",
   "assistant_skills_count": "Skills · {count}",
   "assistant_empty_title": "What shall we explore today?",
   "assistant_empty_hint": "I can search your paper library, explore arXiv and trending papers, browse site news, and discuss research ideas with you.",

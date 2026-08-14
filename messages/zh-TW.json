@@ -460,6 +460,7 @@
   "assistant_group_today": "今天",
   "assistant_group_yesterday": "昨天",
   "assistant_group_this_week": "本週",
+  "assistant_message_count": "{count} 則",
   "assistant_skills_count": "技能 · {count}",
   "assistant_empty_title": "今天想探索什麼？",
   "assistant_empty_hint": "我可以檢索你的論文庫、探索 arXiv 與熱門論文、瀏覽站內資訊，並與你討論研究想法。",

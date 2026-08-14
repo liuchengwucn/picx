@@ -460,6 +460,7 @@
   "assistant_group_today": "今日",
   "assistant_group_yesterday": "昨日",
   "assistant_group_this_week": "今週",
+  "assistant_message_count": "{count} 件",
   "assistant_skills_count": "スキル · {count}",
   "assistant_empty_title": "今日は何を探しますか？",
   "assistant_empty_hint": "論文ライブラリの検索、arXiv や注目論文の探索、サイト内ニュースの閲覧、研究アイデアの議論ができます。",

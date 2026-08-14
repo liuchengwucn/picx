@@ -1,38 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import type { inferRouterOutputs } from "@trpc/server";
 import type { UIMessage } from "ai";
-import {
-  Check,
-  ChevronDown,
-  Loader2,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Sparkles,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Loader2, Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AssistantChat } from "#/components/assistant/assistant-chat";
+import { ConversationHeader } from "#/components/assistant/conversation-header";
 import { ConversationList } from "#/components/assistant/conversation-list";
 import { ProfileDialog } from "#/components/assistant/profile-dialog";
 import { resolveChatErrorMessage } from "#/components/chat/chat-message";
 import { Button } from "#/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu";
 import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
-import type { TRPCRouter } from "#/integrations/trpc/router";
-import { formatRelative } from "#/lib/relative-time";
-import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
-import { getLocale } from "#/paraglide/runtime";
 
 export const Route = createFileRoute("/assistant/")({
   component: AssistantPage,
@@ -43,166 +23,6 @@ export const Route = createFileRoute("/assistant/")({
 
 /** 服务端标题上限 80，输入框跟着卡同一个值，避免提交后被 tRPC 拒掉 */
 const TITLE_MAX_CHARS = 80;
-
-type ConversationSummary =
-  inferRouterOutputs<TRPCRouter>["assistant"]["listConversations"][number];
-
-interface ConversationRowProps {
-  conversation: ConversationSummary;
-  isActive: boolean;
-  isRenaming: boolean;
-  /** 已点过删除、正在等第二次确认（就地两步确认，不弹系统对话框） */
-  isConfirmingDelete: boolean;
-  isDeleting: boolean;
-  now: number;
-  onSelect: () => void;
-  onStartRename: () => void;
-  onSubmitRename: (title: string) => void;
-  onCancelRename: () => void;
-  onRequestDelete: () => void;
-  onConfirmDelete: () => void;
-  onCancelDelete: () => void;
-}
-
-/**
- * 会话行。选中态用左侧棕色细线标记——与助手回答的左边线同一个记号，
- * 「当前这条线索」在侧栏和正文里说的是同一句话。
- */
-function ConversationRow({
-  conversation,
-  isActive,
-  isRenaming,
-  isConfirmingDelete,
-  isDeleting,
-  now,
-  onSelect,
-  onStartRename,
-  onSubmitRename,
-  onCancelRename,
-  onRequestDelete,
-  onConfirmDelete,
-  onCancelDelete,
-}: ConversationRowProps) {
-  const title = conversation.title ?? m.assistant_untitled();
-
-  if (isConfirmingDelete) {
-    return (
-      <li className="flex items-start gap-1 rounded-md bg-[var(--parchment-warm)] px-2 py-1.5">
-        <span className="min-w-0 flex-1 text-xs leading-snug text-[var(--ink-soft)]">
-          {m.assistant_delete_confirm()}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={onConfirmDelete}
-          disabled={isDeleting}
-          aria-label={m.assistant_delete()}
-          title={m.assistant_delete()}
-        >
-          {isDeleting ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Check className="h-3.5 w-3.5 text-[var(--sienna)]" />
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={onCancelDelete}
-          aria-label={m.cancel()}
-          title={m.cancel()}
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </li>
-    );
-  }
-
-  if (isRenaming) {
-    return (
-      <li className="rounded-md bg-[var(--parchment-warm)] px-2 py-1.5">
-        <input
-          // biome-ignore lint/a11y/noAutofocus: 重命名是用户点菜单显式发起的，光标必须落进来
-          autoFocus
-          // 空标题会话不能拿 i18n 兜底串当初值：直接失焦就会把「新会话」写死进库
-          defaultValue={conversation.title ?? ""}
-          placeholder={m.assistant_untitled()}
-          maxLength={TITLE_MAX_CHARS}
-          aria-label={m.assistant_rename()}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onSubmitRename(event.currentTarget.value);
-            }
-            if (event.key === "Escape") onCancelRename();
-          }}
-          onBlur={(event) => onSubmitRename(event.currentTarget.value)}
-          className="w-full rounded-sm border-b border-[var(--academic-brown)]/50 bg-transparent text-sm text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]"
-        />
-      </li>
-    );
-  }
-
-  return (
-    <li
-      className={cn(
-        "group flex items-center gap-1 rounded-md border-l-2 pr-1 pl-2 transition-colors",
-        isActive
-          ? "border-[var(--academic-brown)]/70 bg-[var(--parchment-warm)]"
-          : "border-transparent hover:bg-[var(--parchment-warm)]/60",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-current={isActive ? "true" : undefined}
-        className="min-w-0 flex-1 rounded-sm py-1.5 text-left focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
-      >
-        <span className="block truncate text-sm text-[var(--ink)]">
-          {title}
-        </span>
-        <span className="block text-[11px] text-[var(--ink-soft)]">
-          {/* now 每分钟才走一针：刚更新的会话会比它「新」，不夹住就显示成
-              「30 秒钟后」。夹到 now 上即「刚刚」。 */}
-          {formatRelative(
-            Math.min(conversation.updatedAt.getTime(), now),
-            now,
-            getLocale(),
-          )}
-        </span>
-      </button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            // 每行一个同样的菜单按钮，标签里带上会话名读屏才分得清是哪一条
-            aria-label={`${m.edit()}: ${title}`}
-            // 触屏没有 hover：窄屏常驻，md 起才藏进 hover/焦点
-            className="opacity-70 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100 md:data-[state=open]:opacity-100"
-          >
-            <MoreHorizontal className="h-3.5 w-3.5 text-[var(--ink-soft)]" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={onStartRename}>
-            <Pencil className="h-3.5 w-3.5" />
-            {m.assistant_rename()}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            disabled={isDeleting}
-            onSelect={onRequestDelete}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {m.assistant_delete()}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </li>
-  );
-}
 
 function AssistantPage() {
   const { session, isSessionPending } = useRequireAuth("/assistant");
@@ -215,8 +35,6 @@ function AssistantPage() {
   /** 选中当前会话的时刻，用来判断历史缓存是否已在这次选中之后刷新过 */
   const [selectedAt, setSelectedAt] = useState(0);
   const [isListOpen, setIsListOpen] = useState(false);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   /** 按会话存草稿：换会话会卸载整个对话组件，输入框内容得由页面替它保管 */
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   /** 「空列表就自动建一个会话」只做一次，否则删光会话会陷入无限新建 */
@@ -259,8 +77,6 @@ function AssistantPage() {
     // 把回答落库，旧快照可能缺最后一条，而 useChat 只在挂载时读一次 initialMessages）
     setSelectedAt(Date.now());
     setIsListOpen(false);
-    setRenamingId(null);
-    setPendingDeleteId(null);
   }, []);
 
   const createMutation = useMutation(
@@ -298,7 +114,6 @@ function AssistantPage() {
         }
       },
       onError: (error) => toast.error(resolveChatErrorMessage(error)),
-      onSettled: () => setPendingDeleteId(null),
     }),
   );
 
@@ -325,6 +140,16 @@ function AssistantPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  // 窄屏面板是 overlay，Esc 要能关掉它（点遮罩与选中会话另有出口）
+  useEffect(() => {
+    if (!isListOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsListOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isListOpen]);
+
   const handleDelete = (conversationId: string) => {
     // 一次只删一个：pending 期间再点会重复发同一个请求
     if (deleteMutation.isPending) return;
@@ -332,7 +157,6 @@ function AssistantPage() {
   };
 
   const handleRename = (conversationId: string, rawTitle: string) => {
-    setRenamingId(null);
     const title = rawTitle.trim().slice(0, TITLE_MAX_CHARS);
     const current = conversations?.find((row) => row.id === conversationId);
     // 空标题（服务端也不收）或原样提交一律当取消：直接失焦不该写任何东西
@@ -364,32 +188,6 @@ function AssistantPage() {
 
   // 未登录会被 useRequireAuth 送去登录页，这里不渲染任何东西
   if (!session) return null;
-
-  const renderConversationList = (id?: string) => (
-    <ul id={id} className="space-y-0.5">
-      {conversations?.map((conversation) => (
-        <ConversationRow
-          key={conversation.id}
-          conversation={conversation}
-          isActive={conversation.id === activeId}
-          isRenaming={renamingId === conversation.id}
-          isConfirmingDelete={pendingDeleteId === conversation.id}
-          isDeleting={
-            deleteMutation.isPending &&
-            deleteMutation.variables?.conversationId === conversation.id
-          }
-          now={now}
-          onSelect={() => selectConversation(conversation.id)}
-          onStartRename={() => setRenamingId(conversation.id)}
-          onSubmitRename={(title) => handleRename(conversation.id, title)}
-          onCancelRename={() => setRenamingId(null)}
-          onRequestDelete={() => setPendingDeleteId(conversation.id)}
-          onConfirmDelete={() => handleDelete(conversation.id)}
-          onCancelDelete={() => setPendingDeleteId(null)}
-        />
-      ))}
-    </ul>
-  );
 
   const newConversationButton = (
     <Button
@@ -438,21 +236,26 @@ function AssistantPage() {
     </Button>
   );
 
-  // 窄屏头栏沿用旧的图标 + sr-only 标签，桌面侧栏底部改用带计数的版本，
-  // 两处宽度、可视文案都不一样，不能共用一个 JSX。
-  const skillsLinkCompact = (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      aria-label={m.assistant_skills_title()}
-    >
-      <Link to="/assistant/skills" title={m.assistant_skills_title()}>
-        <Sparkles className="h-4 w-4" />
-        <span className="max-md:sr-only">{m.assistant_skills_title()}</span>
-      </Link>
-    </Button>
-  );
+  // 三态：加载中 / 加载失败（带重试）/ 列表。失败时绝不能落到 ConversationList
+  // 的空态去——那句文案说的是「没搜到」，不是「没拉到」。
+  const conversationListPane = conversationsQuery.isPending ? (
+    <div className="flex flex-1 justify-center py-4">
+      <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
+    </div>
+  ) : conversationsQuery.isError ? (
+    <div className="flex flex-col items-start gap-2 px-3 py-4">
+      <p className="text-xs leading-relaxed text-[var(--ink-soft)]">
+        {resolveChatErrorMessage(conversationsQuery.error)}
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void conversationsQuery.refetch()}
+      >
+        {m.assistant_history_retry()}
+      </Button>
+    </div>
+  ) : null;
 
   // 会话未就绪时的三种落点：拉历史失败、一条会话都没有、正在拉取
   const chatFallback = (() => {
@@ -503,11 +306,7 @@ function AssistantPage() {
           </h2>
           <div className="mt-2">{newConversationButtonWide}</div>
         </div>
-        {conversationsQuery.isPending ? (
-          <div className="flex flex-1 justify-center py-4">
-            <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
-          </div>
-        ) : (
+        {conversationListPane ?? (
           <ConversationList
             conversations={conversations ?? []}
             activeId={activeId}
@@ -523,42 +322,63 @@ function AssistantPage() {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col md:pl-5">
-        {/* 窄屏：侧栏收成一行「当前会话」开关，展开后就地列出全部会话 */}
-        <div className="flex items-center gap-2 border-b border-[var(--line)] py-2 md:hidden">
+      <div className="relative flex min-w-0 flex-1 flex-col md:pl-5">
+        {/* 报头与窄屏面板同处一个定位上下文：面板挂在报头的 top-full 上 */}
+        <div className="relative z-30">
+          {activeConversation && (
+            <ConversationHeader
+              title={activeConversation.title}
+              messageCount={activeConversation.messageCount}
+              updatedAt={activeConversation.updatedAt}
+              now={now}
+              isListOpen={isListOpen}
+              onToggleList={() => setIsListOpen((open) => !open)}
+              listId={mobileListId}
+              onRename={(value) => handleRename(activeConversation.id, value)}
+              onDelete={() => handleDelete(activeConversation.id)}
+              isDeleting={
+                deleteMutation.isPending &&
+                deleteMutation.variables?.conversationId ===
+                  activeConversation.id
+              }
+            />
+          )}
+          {isListOpen && (
+            <div className="absolute inset-x-0 top-full flex max-h-[60vh] flex-col border-b border-[var(--line)] bg-[var(--parchment)] shadow-lg md:hidden">
+              <div className="px-3 pt-2">{newConversationButtonWide}</div>
+              {conversationListPane ?? (
+                <ConversationList
+                  conversations={conversations ?? []}
+                  activeId={activeId}
+                  onSelect={selectConversation}
+                  now={now}
+                  listId={mobileListId}
+                />
+              )}
+              <div className="flex items-center gap-1 border-t border-[var(--line)] px-2 py-1.5">
+                {skillsLink}
+                <span className="h-3 w-px bg-[var(--line)]" />
+                <ProfileDialog />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 遮罩：盖住对话区，点它关面板。z 低于面板容器 */}
+        {isListOpen && (
           <button
             type="button"
-            onClick={() => setIsListOpen((open) => !open)}
-            aria-expanded={isListOpen}
-            aria-controls={mobileListId}
-            className="flex min-w-0 flex-1 items-center gap-1 rounded-sm text-left text-sm text-[var(--ink)] focus-visible:ring-2 focus-visible:ring-[var(--academic-brown)]/40 focus-visible:outline-none"
-          >
-            <span className="truncate">
-              {activeConversation?.title ?? m.assistant_untitled()}
-            </span>
-            <ChevronDown
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 text-[var(--ink-soft)] transition-transform",
-                isListOpen && "rotate-180",
-              )}
-            />
-          </button>
-          {skillsLinkCompact}
-          <ProfileDialog />
-          {newConversationButton}
-        </div>
-        {isListOpen && (
-          <div className="max-h-64 overflow-y-auto border-b border-[var(--line)] py-2 md:hidden">
-            {renderConversationList(mobileListId)}
-          </div>
+            aria-label={m.cancel()}
+            onClick={() => setIsListOpen(false)}
+            className="absolute inset-0 z-20 bg-[var(--ink)]/15 md:hidden"
+          />
         )}
 
         {/* min-h-0 flex-1 包一层：AssistantChat 内部按 h-full 撑满，直接当 flex
-            item 会连同上面的窄屏会话条一起算进 100%，把输入区挤出视口 */}
+            item 会连同报头一起算进 100%，把输入区挤出视口 */}
         {activeId && isHistoryReady && messagesQuery.data ? (
           <div className="min-h-0 flex-1">
             <AssistantChat
-              // 换会话必须重建 Chat：useChat 只在挂载时读一次 initialMessages
               key={activeId}
               conversationId={activeId}
               initialMessages={messagesQuery.data as unknown as UIMessage[]}

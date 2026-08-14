@@ -460,6 +460,7 @@
   "assistant_group_today": "今天",
   "assistant_group_yesterday": "昨天",
   "assistant_group_this_week": "本周",
+  "assistant_message_count": "{count} 条",
   "assistant_skills_count": "技能 · {count}",
   "assistant_empty_title": "今天想探索什么？",
   "assistant_empty_hint": "我可以检索你的论文库、探索 arXiv 与热门论文、浏览站内资讯，并与你讨论研究想法。",
