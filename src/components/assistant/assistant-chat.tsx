@@ -73,6 +73,8 @@ export interface AssistantChatProps {
   onInputChange: (value: string) => void;
   /** 本会话第一条用户消息发出后回调：服务端此时已写好标题，父层可刷新会话列表 */
   onFirstMessage?: () => void;
+  /** 挂载后按名字预选一个技能（来自技能编辑页的「用它开一段对话」） */
+  pendingSkillName?: string;
 }
 
 /**
@@ -85,6 +87,7 @@ export function AssistantChat({
   input,
   onInputChange,
   onFirstMessage,
+  pendingSkillName,
 }: AssistantChatProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -114,6 +117,16 @@ export function AssistantChat({
   const [selectedSkill, setSelectedSkill] = useState<SlashCommandItem | null>(
     null,
   );
+  /** 预选只做一次：用户之后手动清掉技能，不该被这个 effect 重新塞回去 */
+  const appliedPendingSkillRef = useRef(false);
+  useEffect(() => {
+    if (appliedPendingSkillRef.current || !pendingSkillName) return;
+    // skills.list 可能比本组件晚落地，所以这里等 slashCommands 出来再匹配
+    const match = slashCommands.find((item) => item.name === pendingSkillName);
+    if (!match) return;
+    appliedPendingSkillRef.current = true;
+    setSelectedSkill(match);
+  }, [pendingSkillName, slashCommands]);
   // 芯片点完要把光标送回输入框，否则用户还得再点一次才能打字
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 

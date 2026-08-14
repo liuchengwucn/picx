@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useLocation } from "@tanstack/react-router";
 import type { UIMessage } from "ai";
 import { Loader2, Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -30,6 +30,10 @@ function AssistantPage() {
   const queryClient = useQueryClient();
   // 窄屏展开区的列表要被开关的 aria-controls 指向（桌面那份不需要 id）
   const mobileListId = useId();
+  // 技能编辑页「用它开一段对话」带来的预选技能名
+  const pendingSkillName = useLocation({
+    select: (location) => location.state.pendingSkillName,
+  });
 
   const [activeId, setActiveId] = useState<string | null>(null);
   /** 选中当前会话的时刻，用来判断历史缓存是否已在这次选中之后刷新过 */
@@ -399,6 +403,7 @@ function AssistantPage() {
                 setDrafts((previous) => ({ ...previous, [activeId]: value }))
               }
               onFirstMessage={invalidateList}
+              pendingSkillName={pendingSkillName}
             />
           </div>
         ) : (
