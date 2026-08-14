@@ -77,6 +77,7 @@ async function chat(
   if (cfg.cfApiToken)
     headers["cf-aig-authorization"] = `Bearer ${cfg.cfApiToken}`;
 
+  const started = Date.now();
   let response: Response;
   for (let attempt = 0; ; attempt++) {
     response = await fetch(`${cfg.baseUrl}/chat/completions`, {
@@ -120,7 +121,12 @@ async function chat(
       message?: { content?: string };
       finish_reason?: string;
     }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
+  // 运维观测：逐次 LLM 调用的耗时与 token 用量；sys 头 60 字符足以人肉归类所属阶段
+  console.log(
+    `[digest-llm] ${cfg.model} ${Date.now() - started}ms in=${data.usage?.prompt_tokens ?? "?"} out=${data.usage?.completion_tokens ?? "?"} sys="${system.slice(0, 60).replace(/\n/g, " ")}"`,
+  );
   if (data.choices?.[0]?.finish_reason === "length") {
     throw new DigestAiError(
       "digest-ai: response truncated (finish_reason=length)",

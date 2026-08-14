@@ -170,6 +170,18 @@ export async function scoreSourceItems(
   });
 }
 
+/** 运维观测：agent 调用（多步工具循环）的耗时与累计 token 用量。totalUsage 是
+ * AI SDK 多步累计值，旧版本类型上没有该字段时回退单步 usage。 */
+function logAgentUsage(
+  label: string,
+  startedMs: number,
+  result: { usage?: unknown; totalUsage?: unknown },
+): void {
+  console.log(
+    `[digest-agent] ${label} ${Date.now() - startedMs}ms usage=${JSON.stringify(result.totalUsage ?? result.usage)}`,
+  );
+}
+
 /**
  * 角度搜索（廉价模型 + OpenRouter server-side web_search）。
  * 复用 chat.ts 的 provider（系统通道固定 OpenRouter，模型 id 带 vendor 前缀）。
@@ -187,7 +199,8 @@ export async function searchAngle(
     OPENAI_MODEL: modelId,
     CF_API_TOKEN: env.CF_API_TOKEN,
   });
-  const { text } = await generateText({
+  const angleStarted = Date.now();
+  const angleResult = await generateText({
     model: provider.chat(modelId),
     tools: { web_search: provider.tools.webSearch({ maxResults: 10 }) },
     stopWhen: isStepCount(12),
@@ -206,6 +219,8 @@ export async function searchAngle(
       'kind="paper" ONLY for arXiv papers (arxiv.org/abs/...); everything else — including OpenReview, exa.ai library pages, personal sites, conference pages, and PDFs on university domains — is "intel", even if it is itself a preprint.',
     ].join("\n\n"),
   });
+  const { text } = angleResult;
+  logAgentUsage(`angle "${angle.label}"`, angleStarted, angleResult);
   const json = extractFirstJsonObject(text);
   if (!json) return []; // 角度搜索失败不致命，返回空由其他角度兜底
   let parsed: {
@@ -429,7 +444,8 @@ export async function synthesizeDigest(
     CF_API_TOKEN: env.CF_API_TOKEN,
   });
   const runAgent = async (extraSystem?: string): Promise<SynthesisResult> => {
-    const { text } = await generateText({
+    const synthStarted = Date.now();
+    const synthResult = await generateText({
       model: provider.chat(modelId),
       tools: { web_search: provider.tools.webSearch({ maxResults: 5 }) },
       stopWhen: isStepCount(8),
@@ -440,6 +456,8 @@ export async function synthesizeDigest(
       prompt: user,
       temperature: 0.4,
     });
+    const { text } = synthResult;
+    logAgentUsage("synthesize", synthStarted, synthResult);
     const json = extractFirstJsonObject(text);
     if (!json) throw new DigestAiError("synthesize: no JSON in response");
     try {
