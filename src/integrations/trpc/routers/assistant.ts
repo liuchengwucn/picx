@@ -65,6 +65,11 @@ export const assistantRouter = router({
         // 整段拉回前端只为显示一行截断文本是纯浪费。
         // 末条若是纯工具调用 / 推理块（没有 text part）就自动往前找一条，
         // 否则侧栏第二行会空着。
+        // json_each(m.parts) 要求 parts 是合法 JSON，否则整条 select 直接抛错——
+        // 写入路径唯一（chat-generation.ts 走 drizzle typed json 列，没有从旧
+        // chat_messages 回填 conversation_messages 的历史路径），脏数据风险很低，
+        // 故不加 json_valid() 兜底；代价是一旦真出现脏 parts，挂的是整张会话
+        // 列表而不是单个会话（改动前一条脏数据只会让那一个会话的 getMessages 出问题）。
         lastMessageText: sql<string | null>`(
           select substr(json_extract(p.value, '$.text'), 1, 120)
           from conversation_messages m, json_each(m.parts) p

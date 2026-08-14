@@ -3,6 +3,7 @@
  * json_each / json_extract 的行为与关联子查询的相关性只有真引擎跑一遍才算数，
  * mock 链看不见「末条是纯工具调用时要往前找」这类语义。
  */
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   conversationMembers,
@@ -119,5 +120,53 @@ describe("listConversations 派生字段", () => {
     const [row] = await makeCaller(db, "u1").listConversations();
 
     expect(row?.lastMessageText).toHaveLength(120);
+  });
+
+  it("两个会话的计数与末条正文互不串台", async () => {
+    // 关联子查询丢失相关性（`where ... = conversations.id` 退化成恒真）这类 bug，
+    // 单会话场景结构上测不出来：只有一个会话时结果照样是对的。必须两个会话对照。
+    const now = new Date();
+    await seedConversation(db, "c1", "u1");
+    await seedConversation(db, "c2", "u1");
+    // 给两个会话不同的 updatedAt，让 listConversations 的排序确定，避免依赖数组下标。
+    await db
+      .update(conversations)
+      .set({ updatedAt: new Date(now.getTime() - 60_000) })
+      .where(eq(conversations.id, "c1"));
+    await db
+      .update(conversations)
+      .set({ updatedAt: now })
+      .where(eq(conversations.id, "c2"));
+
+    await seedMessage(db, "c1", "user", [{ type: "text", text: "c1 第一条" }], new Date(1000));
+    await seedMessage(db, "c1", "assistant", [{ type: "text", text: "X" }], new Date(2000));
+    await seedMessage(db, "c2", "user", [{ type: "text", text: "Y" }], new Date(1500));
+
+    const rows = await makeCaller(db, "u1").listConversations();
+    const row1 = rows.find((r) => r.id === "c1");
+    const row2 = rows.find((r) => r.id === "c2");
+
+    expect(row1?.messageCount).toBe(2);
+    expect(row1?.lastMessageText).toBe("X");
+    expect(row2?.messageCount).toBe(1);
+    expect(row2?.lastMessageText).toBe("Y");
+  });
+
+  it("一条消息含多个 text part 时取第一段", async () => {
+    await seedConversation(db, "c1", "u1");
+    await seedMessage(
+      db,
+      "c1",
+      "assistant",
+      [
+        { type: "text", text: "第一段" },
+        { type: "text", text: "第二段" },
+      ],
+      new Date(1000),
+    );
+
+    const [row] = await makeCaller(db, "u1").listConversations();
+
+    expect(row?.lastMessageText).toBe("第一段");
   });
 });
