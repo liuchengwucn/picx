@@ -1,5 +1,6 @@
 /**
- * 密集行右端那 46px 只放得下 MM-DD。年份由分组标题或 title 属性补足。
+ * 日期列固定 46px,所以只显示 MM-DD。年份由月份分组标题给出;搜索/筛选时分组
+ * 关闭、年份丢失,用 title 属性兜底(hover 显示完整本地化日期)。
  * 用本地时区：这个串是给人看的，不是给机器对齐时间轴。
  */
 export function shortMonthDay(input: Date | string): string {

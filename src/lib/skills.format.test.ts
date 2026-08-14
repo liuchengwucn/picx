@@ -47,4 +47,28 @@ describe("formatSkillMarkdown", () => {
       expect(result).toEqual({ ok: true, value: input });
     }
   });
+
+  it("未 trim 的表单原始值会被 trim 到期望值，且再次往返幂等", () => {
+    // SkillInput 同时是编辑器表单状态类型，用户输入未必已 trim；
+    // formatSkillMarkdown 必须自己 trim，不能指望调用方或 parseSkillImport 兜底。
+    const raw = {
+      name: "edge-case",
+      description: "  spaced  ",
+      body: "line1\nline2\n",
+    };
+    const trimmed = {
+      name: "edge-case",
+      description: "spaced",
+      body: "line1\nline2",
+    };
+
+    const firstPass = parseSkillImport(formatSkillMarkdown(raw));
+    expect(firstPass).toEqual({ ok: true, value: trimmed });
+
+    // 幂等：把第一轮的输出再走一遍 format→parse，结果不再变化。
+    if (firstPass.ok) {
+      const secondPass = parseSkillImport(formatSkillMarkdown(firstPass.value));
+      expect(secondPass).toEqual({ ok: true, value: trimmed });
+    }
+  });
 });
