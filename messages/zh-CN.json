@@ -530,6 +530,7 @@
   "assistant_skills_error_generic": "出错了，请重试。",
   "assistant_skills_back": "返回助手",
   "assistant_skills_search_placeholder": "搜索技能…",
+  "assistant_skills_search_no_match": "没有匹配的技能。",
   "assistant_skills_filter_enabled": "已启用",
   "assistant_skills_filter_disabled": "已停用",
   "assistant_skills_body_chars": "{count} 字",

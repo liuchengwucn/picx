@@ -530,6 +530,7 @@
   "assistant_skills_error_generic": "發生錯誤，請再試一次。",
   "assistant_skills_back": "返回助手",
   "assistant_skills_search_placeholder": "搜尋技能…",
+  "assistant_skills_search_no_match": "沒有符合的技能。",
   "assistant_skills_filter_enabled": "已啟用",
   "assistant_skills_filter_disabled": "已停用",
   "assistant_skills_body_chars": "{count} 字",

@@ -530,6 +530,7 @@
   "assistant_skills_error_generic": "Something went wrong. Please try again.",
   "assistant_skills_back": "Back to assistant",
   "assistant_skills_search_placeholder": "Search skills…",
+  "assistant_skills_search_no_match": "No skills match.",
   "assistant_skills_filter_enabled": "Enabled",
   "assistant_skills_filter_disabled": "Disabled",
   "assistant_skills_body_chars": "{count} chars",

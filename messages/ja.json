@@ -530,6 +530,7 @@
   "assistant_skills_error_generic": "エラーが発生しました。もう一度お試しください。",
   "assistant_skills_back": "アシスタントに戻る",
   "assistant_skills_search_placeholder": "スキルを検索…",
+  "assistant_skills_search_no_match": "一致するスキルはありません。",
   "assistant_skills_filter_enabled": "有効",
   "assistant_skills_filter_disabled": "無効",
   "assistant_skills_body_chars": "{count} 文字",

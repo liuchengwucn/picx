@@ -217,7 +217,7 @@ function AssistantSkillsListPage() {
     </p>
   ) : visible.length === 0 ? (
     <p className="py-12 text-center text-sm leading-relaxed text-[var(--ink-soft)]">
-      {m.assistant_search_no_match()}
+      {m.assistant_skills_search_no_match()}
     </p>
   ) : (
     <div className="[&>article:last-child]:border-b-0">
