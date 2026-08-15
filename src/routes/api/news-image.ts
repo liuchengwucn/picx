@@ -16,7 +16,7 @@ import {
 
 // 单张封面图的体积上限。带 content-length 时提前判失败（一个字节都不用下）；
 // 不带时靠 limitBytes 在流中途 error 掉——此时客户端只能拿到半张坏图，
-// 但 cache.put 会随之失败，坏图不会被缓存住 24h，下次重试仍有机会拿到好图。
+// 而缓存的干净由 cacheImage() 的 delete 兜底（别指望 put 失败就等于没写进去，见那里的实测）。
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const RESPONSE_HEADERS = {
@@ -27,13 +27,19 @@ const RESPONSE_HEADERS = {
   "Content-Security-Policy": "default-src 'none'; sandbox",
 } as const;
 
-// 上游非图/取不到时一律 404（而不是 200 空体）：前端 <img> 靠 onError 隐藏图位，
-// 200 空体会让它停在「加载中」的空框上，也就是这次要修的那个 bug 的观感。
+// 上游非图/取不到时一律 404（而不是 200 空体）：前端 StoryImage 据此整块 unmount
+// （主路径是挂载时补检 img.complete && naturalWidth === 0，onError 只是补充，
+// 因为错误常常发生在 hydration 之前、事件根本没人听）。回 200 空体就会留下
+// 一个「加载中」的空框——正是这次要修的那个 bug 的观感。
 function notFound() {
   return new Response("Image not found", { status: 404 });
 }
 
-/** 流式字节数上限：超限就 error 整条流（两个分支——客户端与 cache.put——同时失败）。 */
+/**
+ * 流式字节数上限：超限就 error 整条流（客户端与 cache.put 两个分支同时失败）。
+ * 注意 controller.error() 会让每个分支各自产生一条 uncaught error 报告，
+ * 线上日志里看到它属正常——是 TransformStream 的固有行为，不是有别的东西坏了。
+ */
 function limitBytes(max: number): TransformStream<Uint8Array, Uint8Array> {
   let seen = 0;
   return new TransformStream({
@@ -48,6 +54,21 @@ function limitBytes(max: number): TransformStream<Uint8Array, Uint8Array> {
   });
 }
 
+/**
+ * 写边缘缓存。put 失败后必须顺手 delete：miniflare 实测 put reject 之后
+ * **被 limitBytes 截断的那 2048 字节仍然留在缓存里**，还带着 24h 的 max-age
+ * （生产边缘会不会同样提交部分条目无从验证——所以由构造保证，不靠猜运行时）。
+ * 全程吞异常：waitUntil 里的 rejection 会变成 Worker 的 uncaught error，
+ * 每次缓存写失败都往错误率里刷一条，不值得。
+ */
+async function cacheImage(cache: Cache, key: Request, entry: Response) {
+  try {
+    await cache.put(key, entry);
+  } catch {
+    await cache.delete(key).catch(() => {});
+  }
+}
+
 async function handler({ request }: { request: Request }) {
   const target = new URL(request.url).searchParams.get("u");
   try {
@@ -59,6 +80,9 @@ async function handler({ request }: { request: Request }) {
     // 缓存键用规范化后的 URL 而不是原始 request.url：否则 ?u=X&junk=1、&junk=2……
     // 每个都是独立 miss、每个都真回源一次，等于替人放大对上游图床的请求。
     // 直接复用 displayImageUrl，保证键与前端真正请求的那个 URL 逐字节一致。
+    //
+    // 运维注意：键里没有版本段，所以改 RESPONSE_HEADERS（比如收紧 CSP）之后，
+    // 已缓存的条目会带着旧头继续服务满 24h。要立刻生效就得给键加一段版本号。
     const cacheKey = new Request(
       new URL(displayImageUrl(target), request.url),
       {
@@ -98,7 +122,7 @@ async function handler({ request }: { request: Request }) {
     // 迫使运行时整份缓冲 body，线上会撞 "ReadableStream.tee() buffer limit exceeded"
     // （该上限本地宽松、生产严格，所以本地 preview 试不出来）。
     // 顺带把 cache.put 的失败挡在响应之外——不该让缓存写失败把已取到的好图变成 404。
-    if (cache) waitUntil(cache.put(cacheKey, response.clone()));
+    if (cache) waitUntil(cacheImage(cache, cacheKey, response.clone()));
     return response;
   } catch (error) {
     console.error(

@@ -122,6 +122,17 @@ function chunkedImageResponse(chunkSizes: number[], onCancel: () => void) {
   return new Response(stream, { headers: { "content-type": "image/png" } });
 }
 
+/** 带 body 的 302（中间跳的 body 必须被 cancel 掉，onCancel 是那条断言的探针）。 */
+function redirectResponse(location: string, onCancel = () => {}) {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(8));
+    },
+    cancel: onCancel,
+  });
+  return new Response(stream, { status: 302, headers: { location } });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -172,6 +183,48 @@ describe("fetchNewsImage", () => {
     const res = await fetchNewsImage(QBITAI, 1000);
     expect(res.status).toBe(302);
     expect(calls).toHaveLength(1);
+  });
+
+  it("resolves a relative Location against the current url", async () => {
+    const calls = stubFetch([
+      redirectResponse("/wp-content/real.png"),
+      imageResponse(4096, "image/png"),
+    ]);
+    await fetchNewsImage(QBITAI, 1000);
+    expect(calls[1].url).toBe("https://i.qbitai.com/wp-content/real.png");
+  });
+
+  it("cancels the body of an intermediate redirect", async () => {
+    const onCancel = vi.fn();
+    stubFetch([
+      redirectResponse("https://i.qbitai.com/real.png", onCancel),
+      imageResponse(4096, "image/png"),
+    ]);
+    await fetchNewsImage(QBITAI, 1000);
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  // hop < MAX_REDIRECTS 是典型 off-by-one 面：3 跳之后必须停手，
+  // 第 4 个响应（还是个 302）原样交回调用方 → !ok → 404 / 探活判死。
+  it("stops after the redirect budget instead of looping", async () => {
+    const calls = stubFetch(
+      Array.from({ length: 6 }, () =>
+        redirectResponse("https://i.qbitai.com/next.png"),
+      ),
+    );
+    const res = await fetchNewsImage(QBITAI, 1000);
+    expect(res.status).toBe(302);
+    expect(calls).toHaveLength(4);
+  });
+
+  it("terminates on a self-referential redirect", async () => {
+    const calls = stubFetch(
+      Array.from({ length: 6 }, () => redirectResponse(QBITAI)),
+    );
+    const res = await fetchNewsImage(QBITAI, 1000);
+    expect(res.status).toBe(302);
+    expect(calls).toHaveLength(4);
+    expect(calls.every((c) => c.url === QBITAI)).toBe(true);
   });
 
   it("passes redirect: manual so the runtime cannot follow behind our back", async () => {
