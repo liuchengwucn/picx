@@ -25,18 +25,6 @@ export default function MobileTabBar() {
             {m.nav_home()}
           </span>
         </Link>
-        {/* 刻意用短版 nav_gallery 而非 Header 用的 nav_explore("公开画廊"):
-            Tab 宽度受限, 长文案会挤压相邻 Tab, 不是疏漏。 */}
-        <Link
-          to="/gallery"
-          className={ITEM_CLASS}
-          activeProps={{ className: `${ITEM_CLASS} is-active` }}
-        >
-          <Globe className="h-5 w-5" />
-          <span className="text-[10px] font-medium leading-none whitespace-nowrap">
-            {m.nav_gallery()}
-          </span>
-        </Link>
         <Link
           to="/news"
           className={ITEM_CLASS}
@@ -45,6 +33,16 @@ export default function MobileTabBar() {
           <Newspaper className="h-5 w-5" />
           <span className="text-[10px] font-medium leading-none whitespace-nowrap">
             {m.nav_news()}
+          </span>
+        </Link>
+        <Link
+          to="/gallery"
+          className={ITEM_CLASS}
+          activeProps={{ className: `${ITEM_CLASS} is-active` }}
+        >
+          <Globe className="h-5 w-5" />
+          <span className="text-[10px] font-medium leading-none whitespace-nowrap">
+            {m.nav_gallery()}
           </span>
         </Link>
         <Link

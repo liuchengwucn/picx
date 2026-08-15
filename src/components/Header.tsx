@@ -31,20 +31,20 @@ export default function Header() {
 
         <div className="hidden md:flex items-center gap-x-4 text-sm font-semibold">
           <Link
-            to="/gallery"
-            className="nav-link inline-flex items-center gap-1.5"
-            activeProps={{ className: "nav-link is-active" }}
-          >
-            <Globe className="h-4 w-4" />
-            <span>{m.nav_explore()}</span>
-          </Link>
-          <Link
             to="/news"
             className="nav-link inline-flex items-center gap-1.5"
             activeProps={{ className: "nav-link is-active" }}
           >
             <Newspaper className="h-4 w-4" />
             <span>{m.nav_news()}</span>
+          </Link>
+          <Link
+            to="/gallery"
+            className="nav-link inline-flex items-center gap-1.5"
+            activeProps={{ className: "nav-link is-active" }}
+          >
+            <Globe className="h-4 w-4" />
+            <span>{m.nav_gallery()}</span>
           </Link>
           <Link
             to="/papers"
