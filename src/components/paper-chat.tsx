@@ -39,6 +39,7 @@ import {
 } from "#/components/chat/discovery-ui";
 import { useChatSettings } from "#/components/chat/use-chat-settings";
 import { useStickToBottom } from "#/components/chat/use-stick-to-bottom";
+import { PaperPanelSkeleton } from "#/components/papers/paper-panel-skeleton";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
@@ -659,6 +660,12 @@ function PanelResizeHandle({
 export interface PaperChatProps {
   paperShortId: string;
   isSignedIn: boolean;
+  /**
+   * 登录态是否已确定（页面组件的 useHydrated() && !isSessionPending）。better-auth
+   * 的 session SSR / 客户端首帧拿不到：服务端只能按未登录渲染，若首帧就按 isSignedIn
+   * 分化，已登录用户会撞出结构 mismatch（React #418）。未确定时两端都渲染中性骨架。
+   */
+  isSessionResolved: boolean;
   onSignIn: () => void;
   /** xl 三栏形态的当前栏宽（px）。仅用作拖拽起点，布局由页面的 CSS 变量驱动 */
   panelWidth?: number;
@@ -688,6 +695,7 @@ export interface PaperChatProps {
 export function PaperChat({
   paperShortId,
   isSignedIn,
+  isSessionResolved,
   onSignIn,
   panelWidth,
   onPanelWidthChange,
@@ -841,7 +849,9 @@ export function PaperChat({
       <aside
         className={cn(
           "paper-card relative hidden overflow-hidden p-0 xl:sticky xl:top-24 xl:block",
-          isSignedIn && "h-[calc(100dvh-8rem)]",
+          // 骨架期按已登录的整栏高度撑开：这条 mismatch 只有已登录用户能撞上，
+          // resolved 后多数情况是原地换成真实面板，登录提示才收矮
+          (!isSessionResolved || isSignedIn) && "h-[calc(100dvh-8rem)]",
         )}
       >
         {onPanelWidthChange && (
@@ -852,7 +862,9 @@ export function PaperChat({
             onResizeEnd={onPanelResizeEnd}
           />
         )}
-        {isSignedIn ? (
+        {!isSessionResolved ? (
+          <PaperPanelSkeleton className="h-full p-5" />
+        ) : isSignedIn ? (
           <PaperChatConversation
             // 换论文必须卸载重建：路由没配 remountDeps，/p/$shortId 之间跳转
             // （卡片里的「查看」、相关论文列表）不会重挂这棵子树，selectedSessionId
@@ -907,7 +919,7 @@ export function PaperChat({
           showCloseButton={false}
           className={cn(
             "top-auto bottom-0 left-1/2 flex w-full max-w-none translate-y-0 flex-col gap-0 overflow-hidden rounded-t-2xl rounded-b-none border-[var(--line)] bg-[var(--parchment)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-b-2xl",
-            isSignedIn && "h-[86dvh]",
+            (!isSessionResolved || isSignedIn) && "h-[86dvh]",
           )}
           aria-describedby={sheetDescriptionId}
           onOpenAutoFocus={(event) => {
@@ -938,7 +950,11 @@ export function PaperChat({
             {m.chat_empty_hint()}
           </DialogDescription>
           <div className="min-h-0 flex-1">
-            {isSignedIn ? (
+            {/* 抽屉只在客户端打开，正常到不了骨架分支；留着它是为了 session 极慢
+                时点开抽屉不闪登录提示 */}
+            {!isSessionResolved ? (
+              <PaperPanelSkeleton className="h-full p-5" />
+            ) : isSignedIn ? (
               <PaperChatConversation
                 // 理由同宽屏形态那处：换论文必须卸载重建，否则会话状态串到上一篇
                 key={paperShortId}

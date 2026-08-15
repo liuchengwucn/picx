@@ -51,6 +51,7 @@ import {
 } from "#/components/paper-chat";
 import { FeedbackButtons } from "#/components/papers/feedback-buttons";
 import { paperCompletedBadgeToneClassName } from "#/components/papers/paper-badge-styles";
+import { PaperPanelSkeleton } from "#/components/papers/paper-panel-skeleton";
 import {
   type PaperReaderState,
   PaperReaderView,
@@ -623,6 +624,10 @@ function PaperDetailPage() {
   // 本组件是否已过 hydration：所有「客户端才知道」的渲染差异（本地时区时间、
   // 登录态）都必须以它为门，保证 SSR 与客户端首帧逐字节同构（见 use-hydrated.ts）。
   const hydrated = useHydrated();
+  // 登录态是否已确定。光看 isSessionPending 不够：服务端渲染时它是 true（出占位/
+  // 登录提示），而客户端首帧 useSession 可能已从缓存同步解析出 session，两边渲染
+  // 出不同结构 → React #418。必须同时过了 hydration 这一帧才算「确定」。
+  const isSessionResolved = hydrated && !isSessionPending;
   const ssrData = loaderData.ssrData;
   const relatedPapers = loaderData.relatedPapers ?? [];
   const relatedHeadingId = useId();
@@ -691,10 +696,11 @@ function PaperDetailPage() {
         : "summary";
   // 与 ReaderPane 的分诊完全一致：公开论文不看登录态直接取；私有论文在 session
   // 未定/未登录时 ReaderPane 根本不会渲染 <PaperReaderView>，查询也绝不能发出去
-  // （否则是一个注定 401 的请求）。
+  // （否则是一个注定 401 的请求）。用 isSessionResolved 而不是 !isSessionPending：
+  // 它还驱动左栏在信息卡/目录卡之间切换，首帧提前分化同样会撞 #418。
   const isReaderViewReady =
     activeView === "reader" &&
-    (!!data?.paper?.isPublic || (!isSessionPending && !!effectiveSession));
+    (!!data?.paper?.isPublic || (isSessionResolved && !!effectiveSession));
   const paperReader = usePaperReader(paperId, isReaderViewReady);
 
   // 中栏是 minmax(0,1fr)：收起聊天栏后它直接吃掉第三列的宽度，正文行宽从「被容器
@@ -1340,7 +1346,7 @@ function PaperDetailPage() {
                 shortId={paper.shortId ?? shortId}
                 onShare={quoteShare.openShare}
                 onAskSelection={handleAskSelection}
-                isSessionPending={isSessionPending}
+                isSessionResolved={isSessionResolved}
                 isSignedIn={!!effectiveSession}
                 onSignIn={startReaderSignIn}
               />
@@ -1514,6 +1520,7 @@ function PaperDetailPage() {
               // 用 effectiveSession：review-guest 有意豁免，后端 chat router /
               // api 都允许 guest 发消息，入口不能反倒把它挡在登录提示后面
               isSignedIn={!!effectiveSession}
+              isSessionResolved={isSessionResolved}
               onSignIn={startGitHubSignIn}
               panelWidth={chatPanelWidth}
               onPanelWidthChange={setChatPanelWidth}
@@ -1665,7 +1672,7 @@ function ReaderPane({
   shortId,
   onShare,
   onAskSelection,
-  isSessionPending,
+  isSessionResolved,
   isSignedIn,
   onSignIn,
 }: {
@@ -1674,7 +1681,8 @@ function ReaderPane({
   shortId: string;
   onShare: (payload: QuoteSharePayload) => void;
   onAskSelection: (text: string) => void;
-  isSessionPending: boolean;
+  /** hydration 完成且 useSession 已解析（见页面组件的推导注释） */
+  isSessionResolved: boolean;
   isSignedIn: boolean;
   onSignIn: () => void;
 }) {
@@ -1691,9 +1699,12 @@ function ReaderPane({
     );
   }
 
-  // SSR / 首帧 session 还没解析出来，先占位，别把已登录用户闪一下登录墙
-  if (isSessionPending) {
-    return <PaperStateCard icon={Loader2} spinning />;
+  // SSR / 客户端首帧 session 还没确定：两端都渲染这份中性骨架（结构必须逐字节
+  // 同构，否则 #418），也顺带避免把已登录用户闪一下登录墙。
+  if (!isSessionResolved) {
+    return (
+      <PaperPanelSkeleton className="paper-card paper-card-static min-h-80 p-4 sm:p-6" />
+    );
   }
 
   if (!isSignedIn) {
