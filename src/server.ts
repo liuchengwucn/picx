@@ -92,8 +92,10 @@ const ARXIV_CRON = "0 0 * * *";
 const POSTER_CRONS = new Set(["0 14 * * *", "30 14 * * *", "0 15 * * *"]);
 // 每小时整点: news-cron 新闻聚合流水线（与 ARXIV_CRON 在 00:00 各自独立触发）
 const NEWS_CRON = "0 * * * *";
-// 东京周六 21:00: digest-cron 方向周报挖掘
-const DIGEST_CRON = "0 12 * * 6";
+// 东京周六 21:00: digest-cron 方向周报挖掘。
+// 必须与 wrangler.jsonc 的 cron 字符串逐字一致（controller.cron 按原文匹配）；
+// CF cron 星期字段是 1=周日..7=周六，数字 6 是周五，所以统一用 SAT 缩写。
+const DIGEST_CRON = "0 12 * * SAT";
 
 async function dispatchScheduled(
   controller: ScheduledController,
