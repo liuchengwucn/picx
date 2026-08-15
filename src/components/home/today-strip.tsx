@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { ModuleKicker } from "#/components/home/module-kicker";
+import { StoryImage } from "#/components/news/story-image";
 import {
   assembleTodayCards,
   type HomePaper,
@@ -136,19 +137,12 @@ function HeadlineCard({
         className="group mt-3 block no-underline"
       >
         {leadImage ? (
-          // 首屏内容, 不挂 loading="lazy"。key 强制换图重挂载: onError 的
-          // display:none 是命令式内联样式, React 复用节点时不会自行清除。
-          <img
+          // 首屏内容走 eager; key 保证换图时重挂载, 让 StoryImage 的失败态跟着重置
+          <StoryImage
             key={leadImage.url}
-            src={leadImage.url}
-            alt=""
-            referrerPolicy="no-referrer"
-            width={leadImage.width}
-            height={leadImage.height}
+            media={leadImage}
+            eager
             className="mb-3 aspect-video w-full rounded-xl border border-[var(--line)] object-cover"
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
           />
         ) : null}
         <h3 className="font-serif text-[15px] font-bold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)] sm:text-base">
