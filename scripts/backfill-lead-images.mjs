@@ -247,6 +247,12 @@ for (const [i, story] of targets.entries()) {
     if (currentVerdict === "unreachable") {
       verdict = "skip";
       stats.skipped++;
+    } else if (currentVerdict === "ok") {
+      // 库里那张自己探得通，只是没进新算出的前 4 个候选（成员事后加入让排序前移、
+      // 或某成员的 media JSON 变脏被吞成 null 都会造成这种错位）。置 NULL 是不可逆的
+      // 信息丢失，而这张图刚刚被证实能加载——留着它，别拿"它不在候选里"当处决理由。
+      verdict = "keep";
+      stats.kept++;
     } else {
       chosen = unreachable[0] ?? null;
     }
