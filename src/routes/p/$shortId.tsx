@@ -92,6 +92,7 @@ import {
 } from "#/components/ui/select";
 import { Skeleton } from "#/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import { useHydrated } from "#/hooks/use-hydrated";
 import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
@@ -619,6 +620,9 @@ function PaperDetailPage() {
   const effectiveSession =
     session ??
     (isReviewGuestModeEnabled() ? getReviewGuestClientSession() : null);
+  // 本组件是否已过 hydration：所有「客户端才知道」的渲染差异（本地时区时间、
+  // 登录态）都必须以它为门，保证 SSR 与客户端首帧逐字节同构（见 use-hydrated.ts）。
+  const hydrated = useHydrated();
   const ssrData = loaderData.ssrData;
   const relatedPapers = loaderData.relatedPapers ?? [];
   const relatedHeadingId = useId();
@@ -987,7 +991,13 @@ function PaperDetailPage() {
                           {paper.title}
                         </h1>
                         <p className="text-xs text-[var(--ink-soft)]">
-                          {new Date(paper.createdAt).toLocaleString()}
+                          {/* 不能在首帧渲染：服务端 Worker 跑在 UTC、浏览器在本地
+                              时区，Intl 对同一时刻输出不同文本，SSR 与客户端首帧
+                              必然不一致 → React #418。首帧用 nbsp 占住行高，
+                              挂载后再填本地时间。 */}
+                          {hydrated
+                            ? new Date(paper.createdAt).toLocaleString()
+                            : "\u00A0"}
                         </p>
                       </div>
                     </div>
