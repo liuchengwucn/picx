@@ -95,22 +95,37 @@ const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
  * 服务端取图。代理端点与 cron 探活共用，保证「探活说能取到」和「用户真去取」行为一致。
  * 只有白名单主机才发 Referer——默认不发是有意的，见 {@link HOTLINK_REFERERS} 里微信图床那条。
  * URL 非法时 fetch 自身抛 TypeError，由调用方兜。
- *
- * 重定向手动跟：白名单只管住了初始 URL，若上游存在开放重定向，`redirect: "follow"`
- * 会让我们跟到任意公网地址、并把结果当成「白名单主机的图」缓存下来。
- * 跳到非白名单主机时直接把那个 3xx 响应交回调用方（!ok → 404 / 探活失败）。
  * 超时预算是整趟的，不是每跳一次——signal 只创建一次。
  *
- * 这是有意的安全取舍，代价要认：现有两个主机实测都是直接 200、零跳转，但哪天图床
- * 改成 302 到自家 OSS 子域，那批图会整体变成 404（表现为 leadImage 覆盖率下降而不是
- * 花屏——探活走同一条路径，会一致地把它们判死）。覆盖率掉了，这里是第一嫌疑人，
- * 补一条白名单即可。
+ * **重定向策略按「这张图最终由谁来取」分流**，因为探活的唯一价值就是逐字镜像线上取图口径：
+ *
+ * - 白名单主机：线上由 /api/news-image 下发字节 ⇒ 必须镜像代理行为，`redirect: "manual"`
+ *   自己跟，每一跳都重新过白名单。白名单只管得住初始 URL，若上游存在开放重定向，
+ *   `follow` 会让我们跟到任意公网地址、还把结果当成「白名单主机的图」缓存下来。
+ *   跳出白名单时直接把那个 3xx 交回调用方（!ok → 404 / 探活 rejected）。这条 SSRF 边界不能松。
+ * - 非白名单主机：线上是**浏览器直连**取图 ⇒ 镜像浏览器，交给运行时 `redirect: "follow"`。
+ *   这里没有 SSRF 顾虑：我们只判断这张图能不能用，不把字节回传给任何人，跳到哪儿都
+ *   不会变成开放代理。若这里也用 manual，图床一个「302 到自家 CDN」就会被判 rejected，
+ *   而浏览器跟得动、图在页面上好好显示着——等于亲手抹掉一张好图（假阴性，不可逆）。
+ *
+ * 分流之后「探活口径 = 实际取图口径」在两类主机上都成立，而不是只在白名单上成立。
+ *
+ * 白名单侧的取舍代价仍要认：现有两个主机实测都是直接 200、零跳转，但哪天它们改成 302 到
+ * 自家 OSS 子域，那批图会整体变成 404（表现为 leadImage 覆盖率下降而不是花屏——探活走
+ * 同一条路径，会一致地把它们判死）。覆盖率掉了，这里是第一嫌疑人，补一条白名单即可。
  */
 export async function fetchNewsImage(
   url: string,
   timeoutMs: number,
 ): Promise<Response> {
   const signal = AbortSignal.timeout(timeoutMs);
+  if (!needsImageProxy(url)) {
+    return fetch(url, {
+      headers: BROWSER_HEADERS,
+      redirect: "follow",
+      signal,
+    });
+  }
   let current = url;
   for (let hop = 0; ; hop++) {
     const referer = hotlinkReferer(current);

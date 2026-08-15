@@ -158,6 +158,15 @@ describe("fetchNewsImage", () => {
     expect(headerOf(calls[0], "User-Agent")).toMatch(/Mozilla\/5\.0/);
   });
 
+  // 非白名单主机线上是浏览器直连取图，探活必须镜像浏览器：跳转交给运行时 follow。
+  // 若这里也 manual，图床一个「302 到自家 CDN」就会被判死，而浏览器跟得动。
+  it("delegates redirects to the runtime for non-whitelisted hosts", async () => {
+    const calls = stubFetch([imageResponse(4096)]);
+    await fetchNewsImage("https://static.example/cover.jpg", 1000);
+    expect(calls[0].init.redirect).toBe("follow");
+    expect(calls).toHaveLength(1);
+  });
+
   it("follows redirects that stay inside the whitelist", async () => {
     const calls = stubFetch([
       new Response(null, {
@@ -293,6 +302,27 @@ describe("probeNewsImage", () => {
       }),
     );
     await expect(probeNewsImage(QBITAI)).resolves.toBe("unreachable");
+  });
+
+  // 通道 B：非白名单图床 302 到自家 CDN。运行时已按 redirect: "follow" 跟完，
+  // 交回来的是最终那张图 ⇒ ok。旧的 manual 策略在这里会拿到 302 判 rejected，抹掉好图。
+  it("accepts a non-whitelisted image whose host redirected to its CDN", async () => {
+    const calls = stubFetch([imageResponse(120_000)]);
+    await expect(
+      probeNewsImage("https://static.example/cover.jpg"),
+    ).resolves.toBe("ok");
+    expect(calls[0].init.redirect).toBe("follow");
+  });
+
+  // 白名单侧不能松：跳出白名单的 3xx 原样交回 ⇒ !ok ⇒ rejected（SSRF 边界）
+  it("still rejects a whitelisted host that redirects off the whitelist", async () => {
+    stubFetch([
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://attacker.example/internal" },
+      }),
+    ]);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("rejected");
   });
 
   it("treats an unparseable url as rejected — nothing to fail open to", async () => {

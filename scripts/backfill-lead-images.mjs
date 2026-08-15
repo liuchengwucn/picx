@@ -18,11 +18,10 @@
  *     不要 dry-run 完直接全量 --apply：探活打的是外网，单次失败可能是网络抖动而非防盗链，
  *     全量 apply 会把抖动直接写成 NULL。（脚本对「全部候选都挂 → 置 NULL」这一种情况
  *     内置了一次整体重探来压掉抖动，但人工复核仍是必要的一环。）
- *   - 判决 skip = probeNewsImage 判成 unreachable（TLS/DNS/超时，连 HTTP 响应都没拿到）。
+ *   - 判决 skip = **库里当前那张**探成 unreachable（TLS/DNS/超时，连 HTTP 响应都没拿到）。
  *     这类一律不写库：workerd/undici 连不上 ≠ 浏览器加载不了（缺中间证书的 latepost.com
- *     实测就是这样），而库里那张图正在正常显示，动它只有风险没有收益。
- *     注意这跟 cron 的 pickLeadImage **故意不同**——那边只有 unreachable 时会 fail-open
- *     采用它（story 本来没有图，采用是净收益）。
+ *     实测就是这样），那张图正在页面上正常显示，动它只有风险没有收益。
+ *     判据的完整四条与「为什么第 2 条看的是库里那张」见主循环内的注释。
  *
  * 代理陷阱（重要）：**不要**带 NODE_USE_ENV_PROXY=1 跑本脚本。
  * 宿主的 http_proxy 是海外出口，国内图床（jiqizhixin / qbitai）经它出去会返回假 403，
@@ -137,7 +136,7 @@ async function pick(members) {
   for (const media of leadImageCandidates(members)) {
     const verdict = await probeNewsImage(media.url);
     if (verdict === "ok") return { picked: media, unreachable };
-    if (verdict === "unreachable") unreachable.push(media.url);
+    if (verdict === "unreachable") unreachable.push(media);
   }
   return { picked: null, unreachable };
 }
@@ -196,8 +195,9 @@ for (const row of memberRows) {
 
 const stats = {
   total: targets.length,
-  ok: 0,
   changed: 0,
+  // changed 的子集：换上去的那张是 unreachable（判据第 3 条的 fail-open），不是探活 ok
+  failopen: 0,
   cleared: 0,
   kept: 0,
   skipped: 0,
@@ -216,26 +216,43 @@ for (const [i, story] of targets.entries()) {
   }
 
   const before = current?.url ?? null;
-  const after = picked?.url ?? null;
+
+  // 判据四条，顺序即优先级：
+  //   1. 有候选 ok         ⇒ 采用第一个 ok（与库里同一张记 keep，不同则 swap）
+  //   2. 否则，**库里当前那张**探成 unreachable ⇒ skip，不写库
+  //   3. 否则，有候选 unreachable ⇒ 采用第一个（与 cron 同语义：可能显示 > 确证 403）
+  //   4. 否则（全 rejected） ⇒ 置 NULL
+  //
+  // 第 2 条看的是库里那张而不是"候选集里有没有 unreachable"，两者在混合场景会分岔：
+  // 候选 [#1 rejected(403), #2 unreachable] 且库里存的正是 #1 时，按候选集判会 skip，
+  // 等于把一张**已确证 403 的坏图**原样留着。而"不要动它"的理由——它可能正在浏览器里
+  // 好好显示（workerd 连不上 ≠ 浏览器加载不了）——只对 unreachable 的那张成立。
+  // 注意库里那张未必在候选列表里（候选是按新规则重算的），所以这里要单独探一次。
+  let chosen = picked;
   let verdict;
-  if (after && after === before) {
-    verdict = "keep";
-    stats.kept++;
-    stats.ok++;
-  } else if (after) {
-    verdict = "swap";
-    stats.changed++;
-    stats.ok++;
-  } else if (unreachable.length > 0) {
-    // 存量与 cron 新写入的语义**故意不同**：cron 遇到「只有 unreachable」时 fail-open
-    // 采用第一个 unreachable（它还没有图，采用是净收益）；这里则一律不写库。
-    // 因为存量那张图已经在库里、且大概率正在正常显示（workerd 连不上 ≠ 浏览器加载不了），
-    // 动它只有风险没有收益——连"换成另一张 unreachable"都属于无谓扰动。
-    verdict = "skip";
-    stats.skipped++;
-  } else {
-    verdict = "null";
-    stats.cleared++;
+  if (!chosen) {
+    const currentVerdict = before ? await probeNewsImage(before) : "rejected";
+    if (currentVerdict === "unreachable") {
+      verdict = "skip";
+      stats.skipped++;
+    } else {
+      chosen = unreachable[0] ?? null;
+      if (chosen) stats.failopen++;
+    }
+  }
+
+  const after = chosen?.url ?? null;
+  if (!verdict) {
+    if (after && after === before) {
+      verdict = "keep";
+      stats.kept++;
+    } else if (after) {
+      verdict = "swap";
+      stats.changed++;
+    } else {
+      verdict = "null";
+      stats.cleared++;
+    }
   }
   if (verdict === "swap" || verdict === "null") changedIds.push(story.shortId);
 
@@ -244,7 +261,9 @@ for (const [i, story] of targets.entries()) {
       `    before: ${before ?? "(none)"}\n` +
       `    after : ${after ?? (verdict === "skip" ? "(unchanged)" : "(NULL)")}\n` +
       `    title : ${(story.title ?? "").slice(0, 90)}` +
-      unreachable.map((url) => `\n    net   : ${url} → unreachable`).join(""),
+      unreachable
+        .map((media) => `\n    net   : ${media.url} → unreachable`)
+        .join(""),
   );
 
   if (APPLY && (verdict === "swap" || verdict === "null")) {
@@ -252,7 +271,7 @@ for (const [i, story] of targets.entries()) {
       await d1(
         `UPDATE news_stories SET lead_image = ?, updated_at = ? WHERE id = ?`,
         [
-          picked ? JSON.stringify(picked) : null,
+          chosen ? JSON.stringify(chosen) : null,
           Math.floor(Date.now() / 1000), // D1 的时间戳列存 unix 秒
           story.id,
         ],
@@ -268,8 +287,8 @@ for (const [i, story] of targets.entries()) {
 
 console.log(
   `[backfill-lead-images] ${DRY_RUN ? "dry-run" : "applied"}: total=${stats.total} ` +
-    `probe-ok=${stats.ok}（keep=${stats.kept} swap=${stats.changed}） cleared=${stats.cleared} ` +
-    `skipped=${stats.skipped}（本机网络够不着，未改动）`,
+    `keep=${stats.kept} swap=${stats.changed}（其中 fail-open=${stats.failopen}） ` +
+    `cleared=${stats.cleared} skipped=${stats.skipped}（库里那张连不上，未改动）`,
 );
 if (DRY_RUN && changedIds.length > 0) {
   console.log(
