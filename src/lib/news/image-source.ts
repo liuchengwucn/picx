@@ -25,8 +25,36 @@ const HOTLINK_REFERERS: Record<string, string> = {
  */
 const MIN_IMAGE_BYTES = 3072;
 
-// 图床响应慢于此就不值得等：头条封面缺一张不影响页面，cron 探活更不能被单张图拖垮
-const FETCH_TIMEOUT_MS = 8_000;
+/**
+ * 允许下发的图片 MIME 白名单——**必须是枚举而不是 `image/*` 前缀匹配**。
+ * image/svg+xml 是可执行文档：图床（尤其 jiqizhixin 这种 UGC 平台）上传一个 svg，
+ * 用户顶层导航打开 /api/news-image?u=…evil.svg 时脚本就跑在 picx.dev 自己的 origin 上，
+ * 同源 cookie 与 better-auth session 全在射程内。
+ */
+const ALLOWED_IMAGE_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+]);
+
+// 探活可以慢慢来但不能被单张图拖垮（cron 一轮要探几十张）；
+// 代理是用户在等的实时请求，超时会**从中间掐断 body**（实测：signal 在收到
+// headers 之后仍然会切流），给出半张图，所以必须留够慢源下载大图的时间。
+const PROBE_TIMEOUT_MS = 8_000;
+export const PROXY_TIMEOUT_MS = 30_000;
+
+// 跟随重定向的跳数上限。每一跳都要重新过白名单，所以循环必须自己写（见 fetchNewsImage）
+const MAX_REDIRECTS = 3;
+
+// workerd 的 fetch 默认不发 User-Agent，而防盗链 CDN 常把「无 UA」直接判成机器人回 403
+// 挑战页（本仓库在 pdf-url.ts 已经吃过一次这个亏）。伪装成普通浏览器是纯赚。
+const BROWSER_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+};
 
 /** 命中白名单则返回该主机要用的 Referer；URL 非法、非 https、或主机不在表里都返回 undefined。 */
 function hotlinkReferer(url: string): string | undefined {
@@ -53,27 +81,71 @@ export function displayImageUrl(url: string): string {
 }
 
 /**
+ * 归一化并校验 content-type：返回可下发的 MIME，不在白名单（含 svg、html 等）返回 null。
+ * 代理端点与探活共用，保证「探活说能用」＝「代理真的会下发」。
+ */
+export function supportedImageMime(header: string | null): string | null {
+  const mime = header?.split(";")[0]?.trim().toLowerCase();
+  return mime && ALLOWED_IMAGE_MIME.has(mime) ? mime : null;
+}
+
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+
+/**
  * 服务端取图。代理端点与 cron 探活共用，保证「探活说能取到」和「用户真去取」行为一致。
  * 只有白名单主机才发 Referer——默认不发是有意的，见 {@link HOTLINK_REFERERS} 里微信图床那条。
  * URL 非法时 fetch 自身抛 TypeError，由调用方兜。
+ *
+ * 重定向手动跟：白名单只管住了初始 URL，若上游存在开放重定向，`redirect: "follow"`
+ * 会让我们跟到任意公网地址、并把结果当成「白名单主机的图」缓存下来。
+ * 跳到非白名单主机时直接把那个 3xx 响应交回调用方（!ok → 404 / 探活失败）。
+ * 超时预算是整趟的，不是每跳一次——signal 只创建一次。
  */
-export async function fetchNewsImage(url: string): Promise<Response> {
-  const referer = hotlinkReferer(url);
-  return fetch(url, {
-    headers: referer ? { Referer: referer } : {},
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+export async function fetchNewsImage(
+  url: string,
+  timeoutMs: number,
+): Promise<Response> {
+  const signal = AbortSignal.timeout(timeoutMs);
+  let current = url;
+  for (let hop = 0; ; hop++) {
+    const referer = hotlinkReferer(current);
+    const response = await fetch(current, {
+      headers: referer
+        ? { ...BROWSER_HEADERS, Referer: referer }
+        : BROWSER_HEADERS,
+      redirect: "manual",
+      signal,
+    });
+    if (!REDIRECT_STATUS.has(response.status)) return response;
+
+    const location = response.headers.get("location");
+    let next: string | undefined;
+    if (location && hop < MAX_REDIRECTS) {
+      // 相对 Location 要按当前 URL 解析；解析失败等同于不跟
+      try {
+        next = new URL(location, current).toString();
+      } catch {
+        next = undefined;
+      }
+    }
+    if (!next || !needsImageProxy(next)) return response;
+    await response.body?.cancel().catch(() => {});
+    current = next;
+  }
 }
 
 /**
- * 探活：2xx + content-type 为 image/* + 字节数 ≥ {@link MIN_IMAGE_BYTES}。
+ * 探活：2xx + content-type 在 {@link ALLOWED_IMAGE_MIME} 内 + 字节数 ≥ {@link MIN_IMAGE_BYTES}。
  * 任何异常（超时、DNS、非法 URL）都算失败——探活的语义是「确定能用」，存疑即淘汰。
  */
 export async function probeNewsImage(url: string): Promise<boolean> {
   try {
-    const response = await fetchNewsImage(url);
-    if (!response.ok) return false;
-    if (!response.headers.get("content-type")?.startsWith("image/")) {
+    const response = await fetchNewsImage(url, PROBE_TIMEOUT_MS);
+    if (
+      !response.ok ||
+      !supportedImageMime(response.headers.get("content-type"))
+    ) {
+      await response.body?.cancel();
       return false;
     }
 
