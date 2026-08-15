@@ -519,6 +519,11 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         verdicts.push(...results);
       }
       const passedPapers = verdicts.filter((v) => v.outcome === "pass");
+      // 通过率观测：首跑只有 merged= 聚合行，精读/验证各段通过率完全算不出来（#64 盲点）。
+      // 位于 step 外，休眠重放会重复打印——只是观测行，可接受。
+      console.log(
+        `[Digest] ${ctx.direction.slug}: reviewed=${reviewed.length} paperPassedReview=${paperCandidates.length}/${reviewed.length - intelCandidates.length} verifyPass=${passedPapers.length} rejected=${verdicts.filter((v) => v.outcome === "rejected").length} unverified=${verdicts.filter((v) => v.outcome === "unverified").length} intel=${intelCandidates.length}`,
+      );
 
       // ── 8. 定稿（强模型）──
       // 重试上限高于其他 LLM step：实跑网关会间歇吐空白 body（约 40s 截断，

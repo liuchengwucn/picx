@@ -400,7 +400,8 @@ export async function synthesizeDigest(
     "Respect user feedback below when judging taste.",
     UNTRUSTED_NOTE,
     "Final check before returning: content must contain ZERO internal/positional item codes (P1, I3, Paper 2, Item 4 三类式样都算) — every item reference must be an inline markdown link [标题](URL).",
-    'Return JSON only: {"title":"...","content":"...","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"usedIntelUrls":["..."],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
+    // content 示例不能写成 "..."：生产实测模型会把占位符原样回填（首期 self-improvement 事故）
+    'Return JSON only: {"title":"<issue title>","content":"<the FULL issue body in markdown, never a placeholder>","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"usedIntelUrls":["..."],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
   ].join("\n");
   const paperBlock = input.papers
     .map((p) => {
@@ -484,6 +485,14 @@ export async function synthesizeDigest(
   }
   if (!r.title || !r.content || !Array.isArray(r.picks)) {
     throw new DigestAiError("synthesize: malformed result");
+  }
+  // 生产实测（2026-08-15 self-improvement 首期）：模型可能把 content 字面回填成
+  // 返回格式示例里的占位符 "..."（picks/标题正常、耗时极短），truthy 检查拦不住，
+  // 会一路 published 出四语省略号正文。按长度下限拦截，抛错交给 step 重试。
+  if (r.content.trim().length < 500) {
+    throw new DigestAiError(
+      `synthesize: content too short (${r.content.trim().length} chars), likely placeholder echo: ${r.content.slice(0, 80)}`,
+    );
   }
   return r;
 }
