@@ -140,31 +140,50 @@ export async function fetchNewsImage(
 }
 
 /**
- * 探活：2xx + content-type 在 {@link ALLOWED_IMAGE_MIME} 内 + 字节数 ≥ {@link MIN_IMAGE_BYTES}。
- * 任何异常（超时、DNS、非法 URL）都算失败——探活的语义是「确定能用」，存疑即淘汰。
+ * 探活结论。刻意做成三态而不是布尔：调用方对两种失败的处置完全不同。
+ *
+ * - `ok`：上游给了合法图片响应（2xx + MIME 白名单 + ≥ {@link MIN_IMAGE_BYTES}）。
+ * - `rejected`：拿到了 HTTP 响应但不合格——403 防盗链、非图片/svg MIME、
+ *   占位图体积、跳出白名单的重定向、URL 本身非法。**上游明确说了不行**。
+ * - `unreachable`：连 HTTP 响应都没拿到（DNS / TLS / 超时）。
+ *   **这不代表浏览器也加载不了**：workerd 不做 AIA 补链，缺中间证书的站点
+ *   在 curl 和浏览器里 200（浏览器会自己去补中间证书），在 Workers 里却直接
+ *   `internal error`。实测 www.latepost.com 正是这样：图在页面上一直好好的，
+ *   我们的 fetch 却连不上。把这种情况当成「图坏了」会误杀正常封面。
  */
-export async function probeNewsImage(url: string): Promise<boolean> {
+export type ImageProbe = "ok" | "rejected" | "unreachable";
+
+/**
+ * 探活。判定边界：fetch 抛出（TimeoutError / TLS / DNS）⇒ `unreachable`；
+ * 拿到响应但不满足「2xx + MIME 白名单 + 体积」⇒ `rejected`。
+ * 见 {@link ImageProbe} 的注释——这个区分是给调用方决定 fail-open 还是 fail-closed 用的。
+ */
+export async function probeNewsImage(url: string): Promise<ImageProbe> {
+  // 非法 URL 归 rejected 而不是 unreachable：它不是「连不上」，是根本没得连，
+  // 对它 fail-open 只会把一条烂 URL 塞进 <img src>。
+  if (!URL.canParse(url)) return "rejected";
   try {
     const response = await fetchNewsImage(url, PROBE_TIMEOUT_MS);
     if (
       !response.ok ||
       !supportedImageMime(response.headers.get("content-type"))
     ) {
-      await response.body?.cancel();
-      return false;
+      // cancel 的失败不能改写判决（否则「上游拒绝」会被误报成「连不上」），一律吞掉
+      await response.body?.cancel().catch(() => {});
+      return "rejected";
     }
 
     const declared = Number(response.headers.get("content-length"));
     if (Number.isFinite(declared) && declared > 0) {
       // content-length 可信时直接判定，顺手取消 body 免得白下一张图
-      await response.body?.cancel();
-      return declared >= MIN_IMAGE_BYTES;
+      await response.body?.cancel().catch(() => {});
+      return declared >= MIN_IMAGE_BYTES ? "ok" : "rejected";
     }
 
     // 没有 content-length（chunked）时只能数字节，但读够阈值就立刻收手并 cancel：
     // 我们要的只是「够不够大」这一个 bit，没必要为一张 10MB 图付全量下载的时间和出网费。
     const reader = response.body?.getReader();
-    if (!reader) return false;
+    if (!reader) return "rejected";
     let bytes = 0;
     try {
       while (bytes < MIN_IMAGE_BYTES) {
@@ -175,8 +194,8 @@ export async function probeNewsImage(url: string): Promise<boolean> {
     } finally {
       await reader.cancel().catch(() => {});
     }
-    return bytes >= MIN_IMAGE_BYTES;
+    return bytes >= MIN_IMAGE_BYTES ? "ok" : "rejected";
   } catch {
-    return false;
+    return "unreachable";
   }
 }

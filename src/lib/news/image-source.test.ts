@@ -237,25 +237,25 @@ describe("fetchNewsImage", () => {
 describe("probeNewsImage", () => {
   it("accepts a real image with a trustworthy content-length", async () => {
     stubFetch([imageResponse(159_000)]);
-    await expect(probeNewsImage(QBITAI)).resolves.toBe(true);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("ok");
   });
 
   // 微信防盗链占位图：200 + image/jpeg + 2090B。只看状态码会把它当好图。
   it("rejects the 2090-byte hotlink placeholder", async () => {
     stubFetch([imageResponse(2090)]);
-    await expect(probeNewsImage(WECHAT)).resolves.toBe(false);
+    await expect(probeNewsImage(WECHAT)).resolves.toBe("rejected");
   });
 
   it("rejects non-2xx", async () => {
     stubFetch([new Response("nope", { status: 403 })]);
-    await expect(probeNewsImage(QBITAI)).resolves.toBe(false);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("rejected");
   });
 
   it("rejects non-image and svg content types", async () => {
     stubFetch([imageResponse(50_000, "text/html")]);
-    await expect(probeNewsImage(QBITAI)).resolves.toBe(false);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("rejected");
     stubFetch([imageResponse(50_000, "image/svg+xml")]);
-    await expect(probeNewsImage(QBITAI)).resolves.toBe(false);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("rejected");
   });
 
   it("counts bytes when content-length is missing, and stops once past the threshold", async () => {
@@ -264,22 +264,39 @@ describe("probeNewsImage", () => {
     stubFetch([
       chunkedImageResponse([1024, 1024, 1024, 1024, 1024 * 1024], onCancel),
     ]);
-    await expect(probeNewsImage(QBITAI)).resolves.toBe(true);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("ok");
     expect(onCancel).toHaveBeenCalled();
   });
 
   it("rejects a chunked body that never reaches the threshold", async () => {
     stubFetch([chunkedImageResponse([500, 500], () => {})]);
-    await expect(probeNewsImage(QBITAI)).resolves.toBe(false);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("rejected");
   });
 
-  it("treats a thrown fetch (timeout / DNS) as failure", async () => {
+  // 这条区分是整个三态的存在理由：workerd 连不上 ≠ 图坏了（缺中间证书的
+  // www.latepost.com 在浏览器里正常显示），调用方要据此 fail-open。
+  it("reports a thrown fetch (timeout / TLS / DNS) as unreachable, not rejected", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
         throw new DOMException("aborted", "TimeoutError");
       }),
     );
-    await expect(probeNewsImage(QBITAI)).resolves.toBe(false);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("unreachable");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError(
+          "fetch failed: unable to get local issuer certificate",
+        );
+      }),
+    );
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("unreachable");
+  });
+
+  it("treats an unparseable url as rejected — nothing to fail open to", async () => {
+    stubFetch([]);
+    await expect(probeNewsImage("not a url")).resolves.toBe("rejected");
   });
 });

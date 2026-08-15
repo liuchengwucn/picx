@@ -670,23 +670,37 @@ export function leadImageCandidates(
 }
 
 /**
- * 选头条封面图：候选按序探活，取第一张真能加载出来的，全挂则 null。
+ * 选头条封面图：候选按序探活，取第一张 `ok` 的。
  *
  * 为什么必须探活：只做 URL 正则过滤时，线上 84 条带 leadImage 的 story 里
  * 57 条（68%）落在防盗链图床（image.jiqizhixin.com / i.qbitai.com）上，
  * 首页头条于是渲染成一个「加载失败」的空图框。其中 33 条本来就有其它主机的
  * 候选图可以顺延——只是旧逻辑取了第一张就再也不回头。
  *
+ * 一张 `ok` 都没有时 **fail-open**：只要有候选是 `unreachable`，就采用第一个
+ * unreachable，只有候选全是 `rejected` 才存 null。理由是两类错判的代价严重不对称：
+ *   - 假阴性（探活失败但浏览器能显示）⇒ 把一张今天正常显示的好图抹成 NULL，
+ *     用户永久失去这张封面，不可逆的净损失。而 workerd 的 fetch 本来就比浏览器严
+ *     （不做 AIA 补链，实测 www.latepost.com 缺中间证书 ⇒ 浏览器 200、我们连不上）。
+ *   - 假阳性（探活通过但浏览器加载不了）⇒ 前端 StoryImage 挂载时会补检
+ *     `img.complete && naturalWidth === 0` 并整块 unmount，用户看到的是「干净的无图」，
+ *     跟存 NULL 的观感完全一样，零代价。
+ * 而我们真正要挡的防盗链 403 是 HTTP 层拒绝，永远落在 `rejected` 里，不受影响。
+ *
  * 串行而非并发：第一张通常就过，并发探完再选等于每条 story 都付满 4 次出网。
- * probeNewsImage 内部已吞掉所有异常（超时/DNS/非法 URL 一律 false），这里不用再包 try。
+ * probeNewsImage 内部已吞掉所有异常，这里不用再包 try。
  */
-async function pickLeadImage(
+export async function pickLeadImage(
   members: { media: NewsMedia[] | null }[],
 ): Promise<NewsMedia | null> {
+  let firstUnreachable: NewsMedia | null = null;
   for (const media of leadImageCandidates(members)) {
-    if (await probeNewsImage(media.url)) return media;
+    const verdict = await probeNewsImage(media.url);
+    if (verdict === "ok") return media;
+    if (verdict === "unreachable" && !firstUnreachable)
+      firstUnreachable = media;
   }
-  return null;
+  return firstUnreachable;
 }
 
 async function summarizeStage(

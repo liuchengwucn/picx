@@ -17,8 +17,12 @@
  *   - 正确流程是 dry-run → 人工复核输出 → 把要改的 short_id 存成文件 → --ids-file X --apply。
  *     不要 dry-run 完直接全量 --apply：探活打的是外网，单次失败可能是网络抖动而非防盗链，
  *     全量 apply 会把抖动直接写成 NULL。（脚本对「全部候选都挂 → 置 NULL」这一种情况
- *     内置了一次整体重探 + 连通性体检来压掉抖动和本机环境问题，但人工复核仍是必要的一环。）
- *   - 判决 skip = 候选图在本机连都连不上（TLS/DNS/超时），一律不写库（见 reachable）。
+ *     内置了一次整体重探来压掉抖动，但人工复核仍是必要的一环。）
+ *   - 判决 skip = probeNewsImage 判成 unreachable（TLS/DNS/超时，连 HTTP 响应都没拿到）。
+ *     这类一律不写库：workerd/undici 连不上 ≠ 浏览器加载不了（缺中间证书的 latepost.com
+ *     实测就是这样），而库里那张图正在正常显示，动它只有风险没有收益。
+ *     注意这跟 cron 的 pickLeadImage **故意不同**——那边只有 unreachable 时会 fail-open
+ *     采用它（story 本来没有图，采用是净收益）。
  *
  * 代理陷阱（重要）：**不要**带 NODE_USE_ENV_PROXY=1 跑本脚本。
  * 宿主的 http_proxy 是海外出口，国内图床（jiqizhixin / qbitai）经它出去会返回假 403，
@@ -124,35 +128,18 @@ function parseJson(value, fallback) {
   }
 }
 
-/** 复用 cron 的候选筛选（去重 + 上限 4）后逐张探活，返回第一张通过的 media。 */
-async function pick(members) {
-  for (const media of leadImageCandidates(members)) {
-    if (await probeNewsImage(media.url)) return media;
-  }
-  return null;
-}
-
 /**
- * 连通性体检：只区分「上游给出了 HTTP 响应」和「传输层就没连上」，不判断图好不好。
- *
- * 为什么需要它：probeNewsImage 把所有异常都吞成 false（对 cron 是对的——存疑即淘汰，
- * 下轮还能重来），但回填要把「上游真的拒绝」和「本机环境问题」分开，两者的正确处置相反。
- * 实证：www.latepost.com 的证书链缺中间证书，浏览器和 curl 靠 AIA 补链能正常加载，
- * Node 的 undici 不补链，直接抛 "unable to get local issuer certificate"。
- * 若照单全收，这一跑就会把 4 条 latepost 好图误清成 NULL。
- * 所以：只要有候选是「连都连不上」，本条 story 一律跳过不写。
+ * 复用 cron 的候选筛选（去重 + 上限 4）后逐张探活。
+ * 返回第一张 `ok` 的 media，外加所有判成 `unreachable` 的候选（供 skip 判定与打印）。
  */
-async function reachable(url) {
-  try {
-    const res = await fetch(url, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(10_000),
-    });
-    await res.body?.cancel().catch(() => {});
-    return { ok: true, detail: `HTTP ${res.status}` };
-  } catch (error) {
-    return { ok: false, detail: String(error.cause ?? error).slice(0, 160) };
+async function pick(members) {
+  const unreachable = [];
+  for (const media of leadImageCandidates(members)) {
+    const verdict = await probeNewsImage(media.url);
+    if (verdict === "ok") return { picked: media, unreachable };
+    if (verdict === "unreachable") unreachable.push(media.url);
   }
+  return { picked: null, unreachable };
 }
 
 // ---------- main ----------
@@ -220,20 +207,12 @@ for (const [i, story] of targets.entries()) {
   const current = parseJson(story.leadImage, null);
   const members = mediaByStory.get(story.id) ?? [];
   const candidates = leadImageCandidates(members);
-  let picked = await pick(members);
+  let { picked, unreachable } = await pick(members);
   // 一张都没通过 → 整体重探一次再定罪。探活打的是外网，单次全挂很可能只是网络抖动，
   // 而「置 NULL」是不可逆的信息丢失（media 还在，但下次重跑要重新探）。
   if (!picked && candidates.length > 0) {
     await sleep(SLEEP_MS);
-    picked = await pick(members);
-  }
-  // 仍然全挂 → 先做连通性体检，本机连不上的一律跳过（见 reachable 的注释）
-  const transportIssues = [];
-  if (!picked) {
-    for (const media of candidates) {
-      const health = await reachable(media.url);
-      if (!health.ok) transportIssues.push(`${media.url} → ${health.detail}`);
-    }
+    ({ picked, unreachable } = await pick(members));
   }
 
   const before = current?.url ?? null;
@@ -247,7 +226,11 @@ for (const [i, story] of targets.entries()) {
     verdict = "swap";
     stats.changed++;
     stats.ok++;
-  } else if (transportIssues.length > 0) {
+  } else if (unreachable.length > 0) {
+    // 存量与 cron 新写入的语义**故意不同**：cron 遇到「只有 unreachable」时 fail-open
+    // 采用第一个 unreachable（它还没有图，采用是净收益）；这里则一律不写库。
+    // 因为存量那张图已经在库里、且大概率正在正常显示（workerd 连不上 ≠ 浏览器加载不了），
+    // 动它只有风险没有收益——连"换成另一张 unreachable"都属于无谓扰动。
     verdict = "skip";
     stats.skipped++;
   } else {
@@ -261,7 +244,7 @@ for (const [i, story] of targets.entries()) {
       `    before: ${before ?? "(none)"}\n` +
       `    after : ${after ?? (verdict === "skip" ? "(unchanged)" : "(NULL)")}\n` +
       `    title : ${(story.title ?? "").slice(0, 90)}` +
-      transportIssues.map((line) => `\n    net   : ${line}`).join(""),
+      unreachable.map((url) => `\n    net   : ${url} → unreachable`).join(""),
   );
 
   if (APPLY && (verdict === "swap" || verdict === "null")) {
