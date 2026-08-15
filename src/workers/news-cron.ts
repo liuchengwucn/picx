@@ -45,10 +45,14 @@ import type { Env } from "#/types/env";
 
 // 窗口/阈值都是产品参数，集中放这里便于调整（spec：72h 窗口可配置）
 const CLUSTER_WINDOW_HOURS = 72;
-// 打分几乎都落在 5 的倍数上，55 档实测多为擦边内容（营销稿/小版本发布）。
+// 打分几乎都落在 5 的倍数上（50-54 档实测无条目，故 55 与 50 等价）。
 // 2026-08-07 由 60 提到 65：加入 Techmeme/TechCrunch/Verge/晚点 等产业流后
-// 60 档放行量偏大（首日 +14 story/天），提一档收紧首页密度
-const RELEVANCE_THRESHOLD = 65;
+// 60 档放行量偏大（首日 +14 story/天），提一档收紧首页密度。
+// 2026-08-15 由 65 降到 55：08-13 给 FILTER_SYSTEM 加的财经/宣传文降权规则
+// 把整体分布压低了，正常条目（非降权目标）也连带被压 ~5 分。809 条配对重打分
+// （同批构成下新旧 prompt 各打一遍）显示门槛 65 只召回旧标准入选量的 70%，
+// 55 召回 93% 而入选集噪声率仅由 7% 升到 10%。
+const RELEVANCE_THRESHOLD = 55;
 const SIM_CANDIDATE_THRESHOLD = 0.6;
 const TOP_K = 5;
 const FILTER_BATCH_SIZE = 25;
