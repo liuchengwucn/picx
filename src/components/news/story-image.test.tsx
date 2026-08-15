@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { StoryImage } from "./story-image";
 
 // 命中 image-source 防盗链白名单，应改走 /api/news-image 代理
 const HOTLINK_URL = "https://i.qbitai.com/2026/08/cover.jpg";
 const PLAIN_URL = "https://example.com/cover.jpg";
+const OTHER_URL = "https://example.com/another.jpg";
 
 /**
  * 把 `<img>` 的加载结果伪造成浏览器里的某个终态再跑 `run()`。
@@ -60,6 +63,34 @@ describe("StoryImage", () => {
     });
   });
 
+  it("hydrateRoot：SSR 直出的坏图在 hydration 时被摘掉，且不算 hydration mismatch", () => {
+    withImageState({ complete: true, naturalWidth: 0 }, () => {
+      const media = { type: "image", url: PLAIN_URL } as const;
+      // 复刻 bug 现场：img 由服务端直出，浏览器早在 bundle 到达前就开始加载它，
+      // 失败得比 hydration 早 ⇒ onError 永远听不到。RTL 的 render() 走的是
+      // createRoot，钉不住这条路径。
+      const container = document.createElement("div");
+      container.innerHTML = renderToStaticMarkup(<StoryImage media={media} />);
+      document.body.appendChild(container);
+      expect(container.querySelector("img")).not.toBeNull();
+
+      const recoverable: unknown[] = [];
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      act(() => {
+        root = hydrateRoot(container, <StoryImage media={media} />, {
+          onRecoverableError: (error) => recoverable.push(error),
+        });
+      });
+
+      expect(container.querySelector("img")).toBeNull();
+      // 首帧与 SSR 一致、失败态是 hydration 之后才设的，不该触发任何可恢复错误
+      expect(recoverable).toEqual([]);
+
+      act(() => root?.unmount());
+      container.remove();
+    });
+  });
+
   it("挂载补检不误伤已经加载好的图（如命中缓存的图）", () => {
     withImageState({ complete: true, naturalWidth: 640 }, () => {
       const { container } = render(
@@ -79,6 +110,30 @@ describe("StoryImage", () => {
 
     fireEvent.error(img as HTMLImageElement);
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("换 url 时失败态自愈，调用方不必挂 key", () => {
+    const { container, rerender } = render(
+      <StoryImage media={{ type: "image", url: PLAIN_URL }} />,
+    );
+    fireEvent.error(container.querySelector("img") as HTMLImageElement);
+    expect(container.querySelector("img")).toBeNull();
+
+    // 复用同一个组件实例换图。做成裸布尔 + 靠调用方 key 的话，这里会静默地永远不显示
+    rerender(<StoryImage media={{ type: "image", url: OTHER_URL }} />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(OTHER_URL);
+
+    // 切回曾经失败过的那张：失败记忆已在换图时作废，要重新给它一次机会
+    // （瞬时失败不该被永久记住；换 key 重挂载的老写法本来也会重试）
+    rerender(<StoryImage media={{ type: "image", url: PLAIN_URL }} />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(PLAIN_URL);
+  });
+
+  it("非 image 类型（如 video）不渲染", () => {
+    const { container } = render(
+      <StoryImage media={{ type: "video", url: PLAIN_URL }} />,
+    );
+    expect(container.innerHTML).toBe("");
   });
 
   it("白名单主机改走代理，且不再加 referrerPolicy（同源请求，加了没意义）", () => {

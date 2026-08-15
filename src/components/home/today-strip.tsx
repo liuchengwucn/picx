@@ -122,8 +122,8 @@ function HeadlineCard({
   const published = new Date(headline.publishedAt);
   // 基准时间取查询侧捕获的 now, 否则 SSR 与 hydration 会算出不同的「x 小时前」
   const timeAgo = formatRelative(headline.publishedAt, now, locale);
-  const leadImage =
-    headline.leadImage?.type === "image" ? headline.leadImage : null;
+  // 非 image 类型由 StoryImage 内部一并挡掉, 这里不必再过滤一遍
+  const leadImage = headline.leadImage;
 
   return (
     <CardShell className="md:row-span-2">
@@ -137,9 +137,8 @@ function HeadlineCard({
         className="group mt-3 block no-underline"
       >
         {leadImage ? (
-          // 首屏内容走 eager; key 保证换图时重挂载, 让 StoryImage 的失败态跟着重置
+          // 首屏内容走 eager
           <StoryImage
-            key={leadImage.url}
             media={leadImage}
             eager
             className="mb-3 aspect-video w-full rounded-xl border border-[var(--line)] object-cover"

@@ -440,7 +440,6 @@ function NewsStoryPage() {
                         )}
                         {image && (
                           <StoryImage
-                            key={image.url}
                             media={image}
                             className="mt-3 max-h-64 w-auto rounded-xl border border-[var(--line)] object-cover"
                           />

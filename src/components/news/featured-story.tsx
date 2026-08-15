@@ -21,9 +21,7 @@ export function FeaturedStory({
   return (
     <article className="flex flex-col gap-3 border-b border-[var(--line)] pb-5 pt-2 sm:flex-row sm:gap-5">
       {leadImage ? (
-        // key 保证换图时重挂载, 让 StoryImage 的失败态跟着重置
         <StoryImage
-          key={leadImage.url}
           media={leadImage}
           eager={eager}
           className="aspect-video w-full rounded-xl border border-[var(--line)] object-cover sm:order-last sm:aspect-auto sm:h-28 sm:w-44 sm:shrink-0"
@@ -81,7 +79,6 @@ export function SubFeaturedStory({ story, showScores }: SubFeaturedStoryProps) {
       </div>
       {leadImage ? (
         <StoryImage
-          key={leadImage.url}
           media={leadImage}
           className="h-16 w-24 shrink-0 rounded-lg border border-[var(--line)] object-cover sm:h-20 sm:w-32"
         />
