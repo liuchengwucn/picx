@@ -640,7 +640,12 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
 
 // 单个 story 最多探活几张候选图。实测线上每条 story 平均 5.35 张候选，全探是浪费：
 // 第一张通过率很高，探活只是为了在防盗链/死链上顺延。
-// subrequest 预算：MAX_SUMMARIZE_PER_ROUND(30) × 4 = 120 次，远低于 Workers 单次调用上限。
+//
+// subrequest 预算：重定向链上**每一跳都算一次 subrequest**，白名单主机一次探活最多 4 跳，
+// 所以最坏是 MAX_SUMMARIZE_PER_ROUND(30) × 4 张候选 × 4 跳 ≈ 480 次，付费版上限 10,000，安全。
+// 耗时：一次探活封顶 8s（signal 是整趟共享的，不是每跳 8s），单条 story 最多 4 次串行
+// ⇒ 最坏 +32s/条。pastDeadline 在循环顶部判，超出 ROUND_BUDGET_MS(11min) 后最多再溢出
+// 一条（≈32s + LLM），距 cron 的 15min wall-clock 仍有约 3 分钟余量，吃不穿。
 const MAX_LEAD_IMAGE_PROBES = 4;
 
 /**

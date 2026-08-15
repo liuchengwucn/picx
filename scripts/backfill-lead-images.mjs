@@ -36,7 +36,11 @@
  *   --apply             真正写库（不带则 dry-run）
  *   --ids-file <path>   只处理文件里列出的 short_id（每行一个），配合 --apply 使用
  *   --limit N           只取前 N 条 story（按 last_activity_at 倒序）
- *   --sleep MS          每条 story 之间的间隔，默认 300ms（别把图床打挂）
+ *   --sleep MS          每条 story 之间的间隔，默认 300ms（别把图床打挂）。
+ *                       注意它只作用于 story **之间**：单条 story 最坏要探 4（首轮）
+ *                       + 4（全挂重探）+ 1（判据第 2 条探库里那张）= 9 次探活、
+ *                       最多 36 次网络请求，且多半打在同一个图床上。真跑遇到限流时，
+ *                       这里是第一嫌疑人——把 --sleep 调大，或给探活之间也加间隔。
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -116,6 +120,9 @@ async function d1(sql, params = []) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// D1 单查询绑定参数上限 100，story_id IN (...) 每个 id 占一个，留足余量
+const MEMBER_QUERY_CHUNK = 90;
+
 /** D1 的 JSON 列取回来是字符串；脏数据（非法 JSON）当成空值处理而不是让整轮崩掉。 */
 function parseJson(value, fallback) {
   if (value == null) return fallback;
@@ -177,20 +184,25 @@ console.log(
 );
 if (targets.length === 0) process.exit(0);
 
-// 成员 media 一次性载入，按 story 分组。逐条查会多打上百次 D1 REST 往返，
-// 而这批数据总量只有几百行。ORDER BY published_at 与 summarize 阶段的成员顺序一致。
-const memberRows = await d1(
-  `SELECT i.story_id AS storyId, i.media AS media
-   FROM news_items i
-   JOIN news_stories s ON s.id = i.story_id
-   WHERE s.status != 'hidden' AND s.lead_image IS NOT NULL
-   ORDER BY i.story_id, i.published_at`,
-);
+// 成员 media 批量载入，按 story 分组：逐条查会多打上百次 D1 REST 往返。
+// 只取 targets 的成员——media JSON 可达数 KB/行，全量拉会让响应体量随存量线性增长，
+// 而 --limit 2 的试跑本该是廉价的。分批是因为 D1 单查询绑定参数上限 100。
+// ORDER BY published_at 与 summarize 阶段的成员顺序一致。
 const mediaByStory = new Map();
-for (const row of memberRows) {
-  const list = mediaByStory.get(row.storyId) ?? [];
-  list.push({ media: parseJson(row.media, null) });
-  mediaByStory.set(row.storyId, list);
+for (let i = 0; i < targets.length; i += MEMBER_QUERY_CHUNK) {
+  const ids = targets.slice(i, i + MEMBER_QUERY_CHUNK).map((s) => s.id);
+  const memberRows = await d1(
+    `SELECT story_id AS storyId, media
+     FROM news_items
+     WHERE story_id IN (${ids.map(() => "?").join(",")})
+     ORDER BY story_id, published_at`,
+    ids,
+  );
+  for (const row of memberRows) {
+    const list = mediaByStory.get(row.storyId) ?? [];
+    list.push({ media: parseJson(row.media, null) });
+    mediaByStory.set(row.storyId, list);
+  }
 }
 
 const stats = {
@@ -237,7 +249,6 @@ for (const [i, story] of targets.entries()) {
       stats.skipped++;
     } else {
       chosen = unreachable[0] ?? null;
-      if (chosen) stats.failopen++;
     }
   }
 
@@ -249,6 +260,8 @@ for (const [i, story] of targets.entries()) {
     } else if (after) {
       verdict = "swap";
       stats.changed++;
+      // 只在真的换了图时才算 fail-open，否则 failopen 会跑出 changed 的范围
+      if (!picked) stats.failopen++;
     } else {
       verdict = "null";
       stats.cleared++;

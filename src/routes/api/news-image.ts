@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   displayImageUrl,
   fetchNewsImage,
+  MAX_IMAGE_BYTES,
   needsImageProxy,
   PROXY_TIMEOUT_MS,
   supportedImageMime,
@@ -14,10 +15,10 @@ import {
 // 只服务 image-source 白名单里的主机——那份白名单就是本端点的 SSRF 边界，
 // 否则这里等于给全世界开了一个匿名出网跳板。
 
-// 单张封面图的体积上限。带 content-length 时提前判失败（一个字节都不用下）；
-// 不带时靠 limitBytes 在流中途 error 掉——此时客户端只能拿到半张坏图，
-// 而缓存的干净由 cacheImage() 的 delete 兜底（别指望 put 失败就等于没写进去，见那里的实测）。
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+// 体积上限从 image-source 取（那边的探活用同一个门槛，见 MAX_IMAGE_BYTES 的注释）。
+// 带 content-length 时提前判失败（一个字节都不用下）；不带时靠 limitBytes 在流中途
+// error 掉——此时客户端只能拿到半张坏图，而缓存的干净由 cacheImage() 的 delete 兜底
+// （别指望 put 失败就等于没写进去，见那里的实测）。
 
 const RESPONSE_HEADERS = {
   "Cache-Control": "public, max-age=86400",

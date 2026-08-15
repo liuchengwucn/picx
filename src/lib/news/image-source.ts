@@ -26,6 +26,14 @@ const HOTLINK_REFERERS: Record<string, string> = {
 const MIN_IMAGE_BYTES = 3072;
 
 /**
+ * 单张封面图的体积上限。代理端点用它拒绝/截断超大图（见 /api/news-image），
+ * 探活也必须用同一个数：否则一张声明 12MB 的白名单图会被探成 `ok` 写进 leadImage，
+ * 线上却被代理 404——不仅白挂一张图，还白白丢掉本可顺延的下一张候选。
+ * 「探活说能用 ＝ 代理真的会下发」这条不变式是整套设计的地基，两侧的门槛必须一致。
+ */
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/**
  * 允许下发的图片 MIME 白名单——**必须是枚举而不是 `image/*` 前缀匹配**。
  * image/svg+xml 是可执行文档：图床（尤其 jiqizhixin 这种 UGC 平台）上传一个 svg，
  * 用户顶层导航打开 /api/news-image?u=…evil.svg 时脚本就跑在 picx.dev 自己的 origin 上，
@@ -45,7 +53,8 @@ const ALLOWED_IMAGE_MIME = new Set([
 const PROBE_TIMEOUT_MS = 8_000;
 export const PROXY_TIMEOUT_MS = 30_000;
 
-// 跟随重定向的跳数上限。每一跳都要重新过白名单，所以循环必须自己写（见 fetchNewsImage）
+// 跳数上限，**只作用于白名单主机的手动跟随路径**（非白名单交给运行时 follow，
+// 用的是运行时自己的上限）。每一跳都要重新过白名单，所以那条循环必须自己写（见 fetchNewsImage）
 const MAX_REDIRECTS = 3;
 
 // workerd 的 fetch 默认不发 User-Agent，而防盗链 CDN 常把「无 UA」直接判成机器人回 403
@@ -190,9 +199,12 @@ export async function probeNewsImage(url: string): Promise<ImageProbe> {
 
     const declared = Number(response.headers.get("content-length"));
     if (Number.isFinite(declared) && declared > 0) {
-      // content-length 可信时直接判定，顺手取消 body 免得白下一张图
+      // content-length 可信时直接判定，顺手取消 body 免得白下一张图。
+      // 上界与代理端点同一个门槛：代理会 404 掉的图，探活不能说它 ok（见 MAX_IMAGE_BYTES）。
       await response.body?.cancel().catch(() => {});
-      return declared >= MIN_IMAGE_BYTES ? "ok" : "rejected";
+      return declared >= MIN_IMAGE_BYTES && declared <= MAX_IMAGE_BYTES
+        ? "ok"
+        : "rejected";
     }
 
     // 没有 content-length（chunked）时只能数字节，但读够阈值就立刻收手并 cancel：

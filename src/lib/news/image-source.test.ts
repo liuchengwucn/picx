@@ -255,6 +255,15 @@ describe("probeNewsImage", () => {
     await expect(probeNewsImage(WECHAT)).resolves.toBe("rejected");
   });
 
+  // 上界必须和代理端点同一个门槛：代理会 404 掉的图，探活说 ok 等于白挂一张图、
+  // 还白白丢掉本可顺延的下一张候选。
+  it("rejects an image larger than the proxy will serve", async () => {
+    stubFetch([imageResponse(10 * 1024 * 1024 + 1)]);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("rejected");
+    stubFetch([imageResponse(10 * 1024 * 1024)]);
+    await expect(probeNewsImage(QBITAI)).resolves.toBe("ok");
+  });
+
   it("rejects non-2xx", async () => {
     stubFetch([new Response("nope", { status: 403 })]);
     await expect(probeNewsImage(QBITAI)).resolves.toBe("rejected");
