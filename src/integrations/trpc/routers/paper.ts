@@ -1264,6 +1264,8 @@ export const paperRouter = router({
 
       // 方向过滤: slug 用子查询解析成 direction id。子查询不占绑定参数上限,
       // 也绕开 Drizzle 单表插值剥表限定符的坑, 且与下面两处 join 相互独立。
+      // isActive: 已下线方向对外口径是「不存在」(与 getDirection/listDirections/
+      // sitemap/llms 一致), 用已下线方向的 slug 过滤应返回空集而非其论文。
       if (input.direction) {
         baseConditions.push(
           inArray(
@@ -1271,7 +1273,12 @@ export const paperRouter = router({
             ctx.db
               .select({ id: directions.id })
               .from(directions)
-              .where(eq(directions.slug, input.direction)),
+              .where(
+                and(
+                  eq(directions.slug, input.direction),
+                  eq(directions.isActive, true),
+                ),
+              ),
           ),
         );
       }
@@ -1343,7 +1350,16 @@ export const paperRouter = router({
           ),
         )
         .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
-        .leftJoin(directions, eq(papers.directionId, directions.id))
+        // join 里必须带 isActive: 已下线方向的论文照常列出, 但 directionSlug
+        // 置 null, 前端徽标从根上消失。否则任何「把方向名直接从这里带出去」
+        // 的重构都会给已下线方向的论文卡长出指向 404 的 /gallery/d/ 死链。
+        .leftJoin(
+          directions,
+          and(
+            eq(papers.directionId, directions.id),
+            eq(directions.isActive, true),
+          ),
+        )
         .where(and(...baseConditions))
         // 一篇论文可能对应多张默认白板 / 多行 paper_results(历史脏数据或重复处理),
         // 按 papers.id 聚合, 保证每篇论文只返回一行, 避免卡片重复(笛卡尔积扇出)。

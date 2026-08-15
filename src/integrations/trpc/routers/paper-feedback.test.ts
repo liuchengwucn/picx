@@ -370,6 +370,50 @@ describe("paper.listPublic direction filter", () => {
     });
   });
 
+  it("hides retired directions: slug becomes null and filter returns nothing", async () => {
+    // 追加一个已下线方向及其论文(不进共享 seed, 免得动别的用例的计数)
+    await db.insert(directions).values({
+      id: "dir-r",
+      slug: "retired",
+      name: four("Retired"),
+      focusBrief: "已下线",
+      isActive: false,
+      sortOrder: 2,
+    });
+    await db.insert(papers).values({
+      id: "p-r",
+      shortId: "sid-p-r",
+      userId: "u1",
+      title: "Paper p-r",
+      sourceType: "arxiv",
+      pdfR2Key: "papers/p-r.pdf",
+      fileSize: 1,
+      status: "completed",
+      isPublic: true,
+      isListedInGallery: true,
+      directionId: "dir-r",
+      publishedAt: new Date(Date.UTC(2026, 7, 8)),
+    });
+    await db.insert(whiteboardImages).values({
+      id: "wb-p-r",
+      paperId: "p-r",
+      imageR2Key: "wb/p-r.png",
+      isDefault: true,
+    });
+
+    const caller = createCaller(null);
+
+    // 论文照常列出, 但 directionSlug 为 null => 前端不会渲染指向 404 的方向徽标
+    const listed = await caller.listPublic({});
+    expect(listed.total).toBe(5);
+    expect(listed.papers[0]).toMatchObject({ id: "p-r", directionSlug: null });
+
+    // 已下线方向对外口径是「不存在」: 用它的 slug 过滤返回空集
+    await expect(
+      caller.listPublic({ direction: "retired" }),
+    ).resolves.toMatchObject({ total: 0, papers: [] });
+  });
+
   it("still honours the other filters alongside direction", async () => {
     const caller = createCaller(null);
     await expect(
