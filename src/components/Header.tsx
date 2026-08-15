@@ -16,6 +16,10 @@ export default function Header() {
         <h2 className="m-0 flex-shrink-0">
           <Link
             to="/"
+            // 默认是前缀匹配，"/" 会在所有页面上被判为 active 并挂上
+            // aria-current="page"（显式传 aria-current={undefined} 也挡不住），
+            // 读屏在任何页面都会念出两个「当前页」。首页链接必须精确匹配。
+            activeOptions={{ exact: true }}
             className="inline-flex items-center gap-1.5 sm:gap-2 text-[var(--ink)] no-underline transition-opacity hover:opacity-80"
           >
             <img src={logoMark} alt="" className="h-6 w-6" />
