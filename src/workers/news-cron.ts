@@ -14,6 +14,7 @@ import {
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { drizzle } from "drizzle-orm/d1";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
+import type { NewsMedia } from "#/db/schema";
 import { newsItems, newsSources, newsStories } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { fetchHn, fetchHnItemSignals } from "#/lib/news/adapters/hn";
@@ -28,6 +29,7 @@ import {
   scoreRelevance,
 } from "#/lib/news/ai";
 import { EnrichRateLimitError, fetchReadable } from "#/lib/news/enrich";
+import { probeNewsImage } from "#/lib/news/image-source";
 import { mergeRelated, pickRelated } from "#/lib/news/related";
 import { buildSignalsSummary } from "#/lib/news/signals";
 import {
@@ -636,6 +638,57 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
 
 // ---- Stage 6: summarize ----
 
+// 单个 story 最多探活几张候选图。实测线上每条 story 平均 5.35 张候选，全探是浪费：
+// 第一张通过率很高，探活只是为了在防盗链/死链上顺延。
+// subrequest 预算：MAX_SUMMARIZE_PER_ROUND(30) × 4 = 120 次，远低于 Workers 单次调用上限。
+const MAX_LEAD_IMAGE_PROBES = 4;
+
+/**
+ * 候选封面图：成员（已按 publishedAt asc）的 media 按序摊平后过滤 + 去重 + 截断。
+ * 与探活分离成纯函数，便于单测；探活循环见 {@link pickLeadImage}。
+ *
+ * 过滤实测垃圾：非 image、非 https（浏览器混合内容拦截，必然加载失败）、
+ * 站头 logo/头像类 URL（qbitai 等站点的主题图在每篇文章里反复出现）。
+ * 去重的理由：同一张图常同时出现在多个成员的 media 里（转载/聚合源），
+ * 不去重会把 4 张探活名额浪费在同一个 URL 上。
+ */
+export function leadImageCandidates(
+  members: { media: NewsMedia[] | null }[],
+): NewsMedia[] {
+  const seen = new Set<string>();
+  const candidates: NewsMedia[] = [];
+  for (const media of members.flatMap((m) => m.media ?? [])) {
+    if (candidates.length >= MAX_LEAD_IMAGE_PROBES) break;
+    if (media.type !== "image") continue;
+    if (!media.url.startsWith("https://")) continue;
+    if (/logo|head\.(jpg|png)|favicon|avatar/i.test(media.url)) continue;
+    if (seen.has(media.url)) continue;
+    seen.add(media.url);
+    candidates.push(media);
+  }
+  return candidates;
+}
+
+/**
+ * 选头条封面图：候选按序探活，取第一张真能加载出来的，全挂则 null。
+ *
+ * 为什么必须探活：只做 URL 正则过滤时，线上 84 条带 leadImage 的 story 里
+ * 57 条（68%）落在防盗链图床（image.jiqizhixin.com / i.qbitai.com）上，
+ * 首页头条于是渲染成一个「加载失败」的空图框。其中 33 条本来就有其它主机的
+ * 候选图可以顺延——只是旧逻辑取了第一张就再也不回头。
+ *
+ * 串行而非并发：第一张通常就过，并发探完再选等于每条 story 都付满 4 次出网。
+ * probeNewsImage 内部已吞掉所有异常（超时/DNS/非法 URL 一律 false），这里不用再包 try。
+ */
+async function pickLeadImage(
+  members: { media: NewsMedia[] | null }[],
+): Promise<NewsMedia | null> {
+  for (const media of leadImageCandidates(members)) {
+    if (await probeNewsImage(media.url)) return media;
+  }
+  return null;
+}
+
 async function summarizeStage(
   db: Db,
   env: Env,
@@ -745,17 +798,8 @@ async function summarizeStage(
       const memberEmbeddings = members
         .map((m) => m.embedding)
         .filter((e): e is Float32Array => e !== null);
-      // 头条封面图：成员（已按 publishedAt asc）中第一张可用图。
-      // 过滤实测垃圾：非 https（混合内容加载失败）与站头 logo/头像类 URL（qbitai 等主题图反复出现）
-      const leadImage =
-        members
-          .flatMap((m) => m.media ?? [])
-          .find(
-            (media) =>
-              media.type === "image" &&
-              media.url.startsWith("https://") &&
-              !/logo|head\.(jpg|png)|favicon|avatar/i.test(media.url),
-          ) ?? null;
+      // 头条封面图：候选图逐张探活后取第一张真能加载的（见 pickLeadImage）
+      const leadImage = await pickLeadImage(members);
       const centroid =
         memberEmbeddings.length > 0 ? meanVector(memberEmbeddings) : null;
       const related = centroid
