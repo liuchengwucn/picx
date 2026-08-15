@@ -824,8 +824,10 @@ function PaperDetailPage() {
     }
   };
 
-  // Show loading while checking session
-  if (isSessionPending && !ssrData) return <DetailSkeleton />;
+  // session 未定且无 SSR 数据时先出骨架。用 isSessionResolved 而不是裸 isSessionPending:
+  // 后者在客户端首帧可能已同步解析为 false, 与服务端(恒 pending)分叉出不同结构;
+  // 今天靠下一行 isLoading 兜住结构相同纯属巧合, 不能依赖。
+  if (!isSessionResolved && !ssrData) return <DetailSkeleton />;
   if (isLoading && !data) return <DetailSkeleton />;
 
   // Handle errors
@@ -1513,7 +1515,8 @@ function PaperDetailPage() {
             ) : null}
           </section>
 
-          {/* 论文处理完成才有可问的内容；未登录时面板只渲染登录提示 */}
+          {/* 论文处理完成才有可问的内容；session 未定时渲染中性骨架，
+              确定后未登录只渲染登录提示 */}
           {paper.status === "completed" && (
             <PaperChat
               paperShortId={paper.shortId ?? shortId}
