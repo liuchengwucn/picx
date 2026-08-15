@@ -16,7 +16,11 @@ import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { useTRPC, useTRPCClient } from "#/integrations/trpc/react";
-import { directionIntroSource } from "#/lib/digest/present";
+import {
+  directionIntroSource,
+  LOCALE_KEYS,
+  type LocaleKey,
+} from "#/lib/digest/present";
 import { GALLERY_LIST_QUERY_KEY } from "#/lib/gallery-search";
 import { SITE_URL } from "#/lib/site-url";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
@@ -64,9 +68,23 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         // 今天这里恒为 baseLocale en(paraglide 的策略全在客户端解析), 但两个字段必须
         // 用同一个 key: 哪天 SSR 真拿到 locale, 别变成日文标题配英文描述。
         const localeKey = normalizeLocaleKey(getLocale());
+        const introSource = directionIntroSource(row);
         return {
           directionName: pickTldr(row.name, localeKey),
-          intro: pickTldr(directionIntroSource(row), localeKey),
+          intro: pickTldr(introSource, localeKey),
+          // head 专用四语字段(照 /p/$shortId 的 ssrMeta 模式): 上面两个单语字段被
+          // 冻结在 SSR 那次的 locale, 而 head() 在客户端会随语言重算 —— 按 locale
+          // 展开, 让 head 用 getLocale() 自己挑。intro 逐语言先截 160 字符做描述,
+          // 不把四份完整 intro 打进 dehydrate payload。
+          headI18n: {
+            directionName: row.name,
+            intro: Object.fromEntries(
+              LOCALE_KEYS.map((k) => [
+                k,
+                pickTldr(introSource, k)?.slice(0, 160) ?? "",
+              ]),
+            ) as Record<LocaleKey, string>,
+          },
           ssrFailed: false,
         };
       } catch (error) {
@@ -77,7 +95,12 @@ export const Route = createFileRoute("/gallery/d/$slug")({
         console.error("[direction loader] SSR D1 read failed", error);
         // ssrFailed 是给 head() 用的: 这一帧既证明不了 slug 存在、也拿不到方向名,
         // 必须 noindex 且不发 canonical(见 head 里的注释)。
-        return { directionName: null, intro: null, ssrFailed: true };
+        return {
+          directionName: null,
+          intro: null,
+          headI18n: null,
+          ssrFailed: true,
+        };
       }
     }
 
@@ -93,6 +116,8 @@ export const Route = createFileRoute("/gallery/d/$slug")({
     return {
       directionName: direction.name,
       intro: null,
+      // 客户端导航拿到的已经是当前 locale 的方向名, head 直接用 directionName 即可
+      headI18n: null,
       ssrFailed: false,
     };
   },
@@ -111,11 +136,23 @@ export const Route = createFileRoute("/gallery/d/$slug")({
       };
     }
 
-    const name = loaderData?.directionName ?? params.slug;
+    // SSR 分支带 headI18n: directionName/intro 被冻结在 SSR 那次的 locale, 而 head
+    // 在客户端会随语言重算, 用 getLocale() 从四语 Record 里自己挑(回退顺序走
+    // pickTldr, 与 SSR 单语字段同口径)。客户端导航分支没有 headI18n: 那份
+    // directionName 本来就是当前 locale 的, 直接用, 行为与从前一致。
+    const headI18n = loaderData?.headI18n;
+    const localeKey = normalizeLocaleKey(getLocale());
+    const name = headI18n
+      ? (pickTldr(headI18n.directionName, localeKey) ?? params.slug)
+      : (loaderData?.directionName ?? params.slug);
     const title = `${name} | PicX`;
     const url = `${SITE_URL}/gallery/d/${params.slug}`;
-    // intro 就是边栏「当前关注」那段公开文本, 截断做描述
-    const description = loaderData?.intro?.slice(0, 160);
+    // intro 就是边栏「当前关注」那段公开文本, 截断做描述。没有 headI18n 的分支
+    // (客户端导航/降级帧)里 intro 恒为 null, 描述留空 —— 与从前一致(meta 只对爬虫
+    // 有意义, 爬虫拿的永远是 SSR 那份)。
+    const description = headI18n
+      ? headI18n.intro[localeKey] || undefined
+      : (loaderData?.intro ?? undefined);
     const meta: Array<
       | { title: string }
       | { name: string; content: string }

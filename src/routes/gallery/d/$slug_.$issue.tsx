@@ -15,9 +15,13 @@ import { Skeleton } from "#/components/ui/skeleton";
 import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
-import { excerptFromMarkdown, mapIssueToLocale } from "#/lib/digest/present";
+import {
+  excerptByLocale,
+  excerptFromMarkdown,
+  mapIssueToLocale,
+} from "#/lib/digest/present";
 import { SITE_URL } from "#/lib/site-url";
-import { normalizeLocaleKey } from "#/lib/tldr";
+import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -67,7 +71,20 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
         if (!issue) throw notFound();
         // 显式标注类型 = 编译期钉住「与 getIssue 输出同构」这条契约
         const ssrData: IssueOutput = mapIssueToLocale(issue, localeKey);
-        return { ssrData, ssrLocaleKey: localeKey, ssrFailed: false };
+        return {
+          ssrData,
+          // head 专用四语字段(照 /p/$shortId 的 ssrMeta 模式): body 用的 ssrData
+          // 必须保持 SSR 时定死的单语(hydration 首帧一致性), 但 head() 在客户端会
+          // 随语言重算 —— 把标题/方向名/摘要按 locale 展开, 让 head 用 getLocale()
+          // 自己挑。description 逐语言抽好短摘要, 不把四份完整 markdown 带下去。
+          headI18n: {
+            title: issue.title,
+            directionName: issue.directionName,
+            description: excerptByLocale(issue.content),
+          },
+          ssrLocaleKey: localeKey,
+          ssrFailed: false,
+        };
       } catch (error) {
         // notFound 必须穿透
         if (isNotFound(error)) throw error;
@@ -75,7 +92,12 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
         // 故障要留日志, 页面也要照实说「没读出来」, 既不能装成 404, 也不能装成
         // 「简报还没生成」。
         console.error("[digest issue loader] SSR D1 read failed", error);
-        return { ssrData: null, ssrLocaleKey: localeKey, ssrFailed: true };
+        return {
+          ssrData: null,
+          headI18n: null,
+          ssrLocaleKey: localeKey,
+          ssrFailed: true,
+        };
       }
     }
 
@@ -89,6 +111,8 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
     if (!ssrData) throw notFound();
     return {
       ssrData,
+      // 客户端导航拿到的已经是当前 locale 的单语数据, head 直接用 ssrData 即可
+      headI18n: null,
       ssrLocaleKey: normalizeLocaleKey(getLocale()),
       ssrFailed: false,
     };
@@ -110,10 +134,24 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
       };
     }
 
+    // SSR 分支带 headI18n: loaderData 里的 ssrData 被冻结在 SSR 那次的 locale, 而
+    // head 在客户端会随语言重算, 所以要用 getLocale() 从四语 Record 里自己挑(回退
+    // 顺序走 pickTldr, 与 mapIssueToLocale 同口径)。客户端导航分支没有 headI18n:
+    // 那份 ssrData 本来就是当前 locale 的单语数据, 直接用, 行为与从前一致。
+    const headI18n = loaderData?.headI18n;
+    const localeKey = normalizeLocaleKey(getLocale());
+    const titleText = headI18n
+      ? (pickTldr(headI18n.title, localeKey) ?? "")
+      : issue.title;
+    const directionName = headI18n
+      ? (pickTldr(headI18n.directionName, localeKey) ?? params.slug)
+      : issue.directionName;
     const url = `${SITE_URL}/gallery/d/${params.slug}/${issue.issueNumber}`;
-    const title = `${issue.title} | ${issue.directionName} | PicX`;
+    const title = `${titleText} | ${directionName} | PicX`;
     // 正文首段纯文本当描述; 抽不出来(正文只有标题行)就整组略过, 不发空 description
-    const description = excerptFromMarkdown(issue.content);
+    const description = headI18n
+      ? headI18n.description[localeKey]
+      : excerptFromMarkdown(issue.content);
     const meta: Array<
       | { title: string }
       | { name: string; content: string }

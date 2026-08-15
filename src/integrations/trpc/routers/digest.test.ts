@@ -9,7 +9,7 @@ import {
   user,
   whiteboardImages,
 } from "#/db/schema";
-import { excerptFromMarkdown } from "#/lib/digest/present";
+import { excerptByLocale, excerptFromMarkdown } from "#/lib/digest/present";
 import { createTestDb } from "../../../../test/helpers/sqlite-d1";
 import { digestRouter } from "./digest";
 
@@ -466,5 +466,30 @@ describe("excerptFromMarkdown", () => {
     expect(excerptFromMarkdown(null)).toBe("");
     expect(excerptFromMarkdown(undefined)).toBe("");
     expect(excerptFromMarkdown("# only a heading\n\n")).toBe("");
+  });
+});
+
+describe("excerptByLocale", () => {
+  it("excerpts every locale, falling back like pickTldr for missing ones", () => {
+    // ja 缺失 → 回退 en(与 mapIssueToLocale 的 pickTldr 顺序同口径)
+    expect(
+      excerptByLocale({
+        en: "# T\n\nEnglish body.",
+        "zh-cn": "# 题\n\n简体正文。",
+        "zh-tw": "# 題\n\n繁體正文。",
+      }),
+    ).toEqual({
+      en: "English body.",
+      "zh-cn": "简体正文。",
+      "zh-tw": "繁體正文。",
+      ja: "English body.",
+    });
+    // 正文全缺时四个 key 都是空串, head 那边整组略过 description
+    expect(excerptByLocale(null)).toEqual({
+      en: "",
+      "zh-cn": "",
+      "zh-tw": "",
+      ja: "",
+    });
   });
 });

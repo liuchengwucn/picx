@@ -10,7 +10,8 @@
 import type { IssueDetail } from "#/lib/digest/store";
 import { pickTldr } from "#/lib/tldr";
 
-type LocaleKey = "en" | "zh-cn" | "zh-tw" | "ja";
+export const LOCALE_KEYS = ["en", "zh-cn", "zh-tw", "ja"] as const;
+export type LocaleKey = (typeof LOCALE_KEYS)[number];
 
 /** 从简报 markdown 正文抽首段纯文本做摘要（跳过标题行/空行，截 160 字符） */
 export function excerptFromMarkdown(md: string | null | undefined): string {
@@ -26,6 +27,20 @@ export function excerptFromMarkdown(md: string | null | undefined): string {
     if (plain) return plain.length > 160 ? `${plain.slice(0, 160)}…` : plain;
   }
   return "";
+}
+
+/**
+ * head 专用的四语短摘要: head() 在客户端会随 locale 重算, 但 loaderData 被冻结在
+ * SSR 那次的 locale, 所以要把每个语言的首段摘要都展开带给 head 自己挑。逐语言先抽
+ * 短文本, 避免把四份完整 markdown 塞进 loaderData(会进 dehydrate payload 打到客户端)。
+ * 每个 key 的回退顺序走 pickTldr, 与 mapIssueToLocale 同口径。
+ */
+export function excerptByLocale(
+  content: Record<string, string> | null,
+): Record<LocaleKey, string> {
+  return Object.fromEntries(
+    LOCALE_KEYS.map((k) => [k, excerptFromMarkdown(pickTldr(content, k))]),
+  ) as Record<LocaleKey, string>;
 }
 
 /** intro 未生成时把单语中文 focusBrief 伪装成四语对象；intro 全量回填后整个函数删掉即可 */
