@@ -8,6 +8,7 @@ import {
 import type { inferRouterOutputs } from "@trpc/server";
 import { ArrowLeft, Clock, ExternalLink, MessageSquare } from "lucide-react";
 import { ScoreBadge } from "#/components/news/score-badge";
+import { StoryImage } from "#/components/news/story-image";
 import { Badge } from "#/components/ui/badge";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTRPC } from "#/integrations/trpc/react";
@@ -438,12 +439,8 @@ function NewsStoryPage() {
                           </p>
                         )}
                         {image && (
-                          <img
-                            src={image.url}
-                            alt=""
-                            loading="lazy"
-                            width={image.width}
-                            height={image.height}
+                          <StoryImage
+                            media={image}
                             className="mt-3 max-h-64 w-auto rounded-xl border border-[var(--line)] object-cover"
                           />
                         )}

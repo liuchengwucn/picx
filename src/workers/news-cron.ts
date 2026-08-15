@@ -14,6 +14,7 @@ import {
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { drizzle } from "drizzle-orm/d1";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
+import type { NewsMedia } from "#/db/schema";
 import { newsItems, newsSources, newsStories } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
 import { fetchHn, fetchHnItemSignals } from "#/lib/news/adapters/hn";
@@ -28,6 +29,7 @@ import {
   scoreRelevance,
 } from "#/lib/news/ai";
 import { EnrichRateLimitError, fetchReadable } from "#/lib/news/enrich";
+import { probeNewsImage } from "#/lib/news/image-source";
 import { mergeRelated, pickRelated } from "#/lib/news/related";
 import { buildSignalsSummary } from "#/lib/news/signals";
 import {
@@ -636,6 +638,76 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
 
 // ---- Stage 6: summarize ----
 
+// 单个 story 最多探活几张候选图。实测线上每条 story 平均 5.35 张候选，全探是浪费：
+// 第一张通过率很高，探活只是为了在防盗链/死链上顺延。
+//
+// subrequest 预算：重定向链上**每一跳都算一次 subrequest**，白名单主机一次探活最多 4 跳，
+// 所以最坏是 MAX_SUMMARIZE_PER_ROUND(30) × 4 张候选 × 4 跳 ≈ 480 次，付费版上限 10,000，安全。
+// 耗时：一次探活封顶 8s（signal 是整趟共享的，不是每跳 8s），单条 story 最多 4 次串行
+// ⇒ 最坏 +32s/条。pastDeadline 在循环顶部判，超出 ROUND_BUDGET_MS(11min) 后最多再溢出
+// 一条（≈32s + LLM），距 cron 的 15min wall-clock 仍有约 3 分钟余量，吃不穿。
+const MAX_LEAD_IMAGE_PROBES = 4;
+
+/**
+ * 候选封面图：成员（已按 publishedAt asc）的 media 按序摊平后过滤 + 去重 + 截断。
+ * 与探活分离成纯函数，便于单测；探活循环见 {@link pickLeadImage}。
+ *
+ * 过滤实测垃圾：非 image、非 https（浏览器混合内容拦截，必然加载失败）、
+ * 站头 logo/头像类 URL（qbitai 等站点的主题图在每篇文章里反复出现）。
+ * 去重的理由：同一张图常同时出现在多个成员的 media 里（转载/聚合源），
+ * 不去重会把 4 张探活名额浪费在同一个 URL 上。
+ */
+export function leadImageCandidates(
+  members: { media: NewsMedia[] | null }[],
+): NewsMedia[] {
+  const seen = new Set<string>();
+  const candidates: NewsMedia[] = [];
+  for (const media of members.flatMap((m) => m.media ?? [])) {
+    if (candidates.length >= MAX_LEAD_IMAGE_PROBES) break;
+    if (media.type !== "image") continue;
+    if (!media.url.startsWith("https://")) continue;
+    if (/logo|head\.(jpg|png)|favicon|avatar/i.test(media.url)) continue;
+    if (seen.has(media.url)) continue;
+    seen.add(media.url);
+    candidates.push(media);
+  }
+  return candidates;
+}
+
+/**
+ * 选头条封面图：候选按序探活，取第一张 `ok` 的。
+ *
+ * 为什么必须探活：只做 URL 正则过滤时，线上 84 条带 leadImage 的 story 里
+ * 57 条（68%）落在防盗链图床（image.jiqizhixin.com / i.qbitai.com）上，
+ * 首页头条于是渲染成一个「加载失败」的空图框。其中 33 条本来就有其它主机的
+ * 候选图可以顺延——只是旧逻辑取了第一张就再也不回头。
+ *
+ * 一张 `ok` 都没有时 **fail-open**：只要有候选是 `unreachable`，就采用第一个
+ * unreachable，只有候选全是 `rejected` 才存 null。理由是两类错判的代价严重不对称：
+ *   - 假阴性（探活失败但浏览器能显示）⇒ 把一张今天正常显示的好图抹成 NULL，
+ *     用户永久失去这张封面，不可逆的净损失。而 workerd 的 fetch 本来就比浏览器严
+ *     （不做 AIA 补链，实测 www.latepost.com 缺中间证书 ⇒ 浏览器 200、我们连不上）。
+ *   - 假阳性（探活通过但浏览器加载不了）⇒ 前端 StoryImage 挂载时会补检
+ *     `img.complete && naturalWidth === 0` 并整块 unmount，用户看到的是「干净的无图」，
+ *     跟存 NULL 的观感完全一样，零代价。
+ * 而我们真正要挡的防盗链 403 是 HTTP 层拒绝，永远落在 `rejected` 里，不受影响。
+ *
+ * 串行而非并发：第一张通常就过，并发探完再选等于每条 story 都付满 4 次出网。
+ * probeNewsImage 内部已吞掉所有异常，这里不用再包 try。
+ */
+export async function pickLeadImage(
+  members: { media: NewsMedia[] | null }[],
+): Promise<NewsMedia | null> {
+  let firstUnreachable: NewsMedia | null = null;
+  for (const media of leadImageCandidates(members)) {
+    const verdict = await probeNewsImage(media.url);
+    if (verdict === "ok") return media;
+    if (verdict === "unreachable" && !firstUnreachable)
+      firstUnreachable = media;
+  }
+  return firstUnreachable;
+}
+
 async function summarizeStage(
   db: Db,
   env: Env,
@@ -745,17 +817,8 @@ async function summarizeStage(
       const memberEmbeddings = members
         .map((m) => m.embedding)
         .filter((e): e is Float32Array => e !== null);
-      // 头条封面图：成员（已按 publishedAt asc）中第一张可用图。
-      // 过滤实测垃圾：非 https（混合内容加载失败）与站头 logo/头像类 URL（qbitai 等主题图反复出现）
-      const leadImage =
-        members
-          .flatMap((m) => m.media ?? [])
-          .find(
-            (media) =>
-              media.type === "image" &&
-              media.url.startsWith("https://") &&
-              !/logo|head\.(jpg|png)|favicon|avatar/i.test(media.url),
-          ) ?? null;
+      // 头条封面图：候选图逐张探活后取第一张真能加载的（见 pickLeadImage）
+      const leadImage = await pickLeadImage(members);
       const centroid =
         memberEmbeddings.length > 0 ? meanVector(memberEmbeddings) : null;
       const related = centroid

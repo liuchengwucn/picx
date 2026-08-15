@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { StoryImage } from "#/components/news/story-image";
 import { type NewsListStory, StoryMeta } from "#/components/news/story-row";
 
 interface FeaturedStoryProps {
@@ -20,20 +21,10 @@ export function FeaturedStory({
   return (
     <article className="flex flex-col gap-3 border-b border-[var(--line)] pb-5 pt-2 sm:flex-row sm:gap-5">
       {leadImage ? (
-        <img
-          // key 强制换图时重挂载:onError 的 display:none 是命令式内联样式,
-          // React 复用 DOM 节点时不会清除,会把上一张坏图的隐藏带给新图
-          key={leadImage.url}
-          src={leadImage.url}
-          alt=""
-          loading={eager ? "eager" : "lazy"}
-          referrerPolicy="no-referrer"
-          width={leadImage.width}
-          height={leadImage.height}
+        <StoryImage
+          media={leadImage}
+          eager={eager}
           className="aspect-video w-full rounded-xl border border-[var(--line)] object-cover sm:order-last sm:aspect-auto sm:h-28 sm:w-44 sm:shrink-0"
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-          }}
         />
       ) : null}
       <div className="min-w-0 flex-1">
@@ -87,19 +78,9 @@ export function SubFeaturedStory({ story, showScores }: SubFeaturedStoryProps) {
         <StoryMeta story={story} showScores={showScores} className="mt-2" />
       </div>
       {leadImage ? (
-        <img
-          // 同 FeaturedStory：换图重挂载，避免 onError 的内联隐藏残留到新图
-          key={leadImage.url}
-          src={leadImage.url}
-          alt=""
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          width={leadImage.width}
-          height={leadImage.height}
+        <StoryImage
+          media={leadImage}
           className="h-16 w-24 shrink-0 rounded-lg border border-[var(--line)] object-cover sm:h-20 sm:w-32"
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-          }}
         />
       ) : null}
     </article>

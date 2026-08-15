@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { ModuleKicker } from "#/components/home/module-kicker";
+import { StoryImage } from "#/components/news/story-image";
 import {
   assembleTodayCards,
   type HomePaper,
@@ -121,8 +122,8 @@ function HeadlineCard({
   const published = new Date(headline.publishedAt);
   // 基准时间取查询侧捕获的 now, 否则 SSR 与 hydration 会算出不同的「x 小时前」
   const timeAgo = formatRelative(headline.publishedAt, now, locale);
-  const leadImage =
-    headline.leadImage?.type === "image" ? headline.leadImage : null;
+  // 非 image 类型由 StoryImage 内部一并挡掉, 这里不必再过滤一遍
+  const leadImage = headline.leadImage;
 
   return (
     <CardShell className="md:row-span-2">
@@ -136,19 +137,11 @@ function HeadlineCard({
         className="group mt-3 block no-underline"
       >
         {leadImage ? (
-          // 首屏内容, 不挂 loading="lazy"。key 强制换图重挂载: onError 的
-          // display:none 是命令式内联样式, React 复用节点时不会自行清除。
-          <img
-            key={leadImage.url}
-            src={leadImage.url}
-            alt=""
-            referrerPolicy="no-referrer"
-            width={leadImage.width}
-            height={leadImage.height}
+          // 首屏内容走 eager
+          <StoryImage
+            media={leadImage}
+            eager
             className="mb-3 aspect-video w-full rounded-xl border border-[var(--line)] object-cover"
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
           />
         ) : null}
         <h3 className="font-serif text-[15px] font-bold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)] sm:text-base">
