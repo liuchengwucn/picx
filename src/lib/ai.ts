@@ -278,7 +278,14 @@ export async function generateWhiteboardInsights(
   const baseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
   const model = config.openaiModel || "gpt-5.2-instant";
 
-  try {
+  const systemPrompt =
+    "You are an expert at analyzing academic papers and identifying key insights. Extract the most important concepts, findings, and relationships from the paper. Focus on what matters most - the core insights, breakthrough ideas, and critical connections between concepts.";
+
+  // 同 requestSummary：单次请求体抽成内部函数，供截断升级阶梯复用
+  async function requestInsights(
+    maxTokens: number,
+    extraInstruction?: string,
+  ): Promise<string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.openaiApiKey}`,
@@ -297,8 +304,9 @@ export async function generateWhiteboardInsights(
         messages: [
           {
             role: "system",
-            content:
-              "You are an expert at analyzing academic papers and identifying key insights. Extract the most important concepts, findings, and relationships from the paper. Focus on what matters most - the core insights, breakthrough ideas, and critical connections between concepts.",
+            content: extraInstruction
+              ? `${systemPrompt}${extraInstruction}`
+              : systemPrompt,
           },
           {
             role: "user",
@@ -332,7 +340,7 @@ ${paperText}`,
           },
         ],
         temperature: 0.7,
-        max_tokens: 4000,
+        max_tokens: maxTokens,
         ...reasoningParam(baseUrl),
       }),
     });
@@ -366,6 +374,23 @@ ${paperText}`,
     }
 
     return content;
+  }
+
+  try {
+    try {
+      return await requestInsights(4000);
+    } catch (error) {
+      // 只在截断时升级重试（同 generateSummary 的阶梯语义）：长论文 + 逐层
+      // 列表输出偶发超 4000 预算，同参数重试是碰运气；其余错误原样抛出。
+      const isTruncated =
+        error instanceof Error &&
+        error.message.includes("truncated (finish_reason=length)");
+      if (!isTruncated) throw error;
+      return await requestInsights(
+        6000,
+        "\n\nIMPORTANT: Your previous attempt exceeded the output limit. Be terser — fewer supporting points, max 5 words per item.",
+      );
+    }
   } catch (error) {
     console.error("Failed to generate whiteboard insights:", error);
     throw new Error(

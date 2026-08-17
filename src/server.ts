@@ -1,5 +1,7 @@
 import handler from "@tanstack/react-start/server-entry";
+import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
+import { papers } from "#/db/schema";
 
 // DO class 必须从 worker 入口导出，wrangler 才能按 class_name 找到它
 export { ChatRunner } from "#/lib/chat-runner-do";
@@ -147,6 +149,58 @@ export default {
       return new Response(`Scheduled handler triggered: ${cron}`, {
         status: 200,
       });
+    }
+
+    // 运维通道：重投 failed 的 gallery arXiv 论文（与 /__scheduled 同门禁）。
+    // 队列消息只能从 Worker 侧发、CLI 无法补投，这是 failed 论文唯一的正规
+    // 重跑入口；只覆盖 arXiv 来源（用户上传的消息形状含 r2Key 等，不在此复原）。
+    if (pathname === "/__ops/retry-paper") {
+      const params = new URL(request.url).searchParams;
+      if (
+        env.ENVIRONMENT === "production" &&
+        (!env.CRON_TRIGGER_KEY || params.get("key") !== env.CRON_TRIGGER_KEY)
+      ) {
+        return new Response("Not Found", { status: 404 });
+      }
+      const shortId = params.get("shortId");
+      if (!shortId) return new Response("shortId required", { status: 400 });
+      const db = drizzle(env.DB);
+      const [paper] = await db
+        .select({
+          id: papers.id,
+          userId: papers.userId,
+          sourceType: papers.sourceType,
+          sourceUrl: papers.sourceUrl,
+        })
+        .from(papers)
+        .where(
+          and(
+            eq(papers.shortId, shortId),
+            eq(papers.status, "failed"),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (!paper || paper.sourceType !== "arxiv" || !paper.sourceUrl) {
+        return new Response("not a retryable failed arxiv paper", {
+          status: 404,
+        });
+      }
+      await db
+        .update(papers)
+        .set({ status: "pending", errorMessage: null, updatedAt: new Date() })
+        .where(eq(papers.id, paper.id));
+      // 消息形状对齐 createGalleryPaper 的初始入队（gallery 论文四语+白板）
+      await env.PAPER_QUEUE.send({
+        paperId: paper.id,
+        userId: paper.userId,
+        type: "initial",
+        sourceType: "arxiv",
+        arxivUrl: paper.sourceUrl,
+        extraLanguages: ["zh-cn", "zh-tw", "ja"],
+        generateWhiteboard: true,
+      });
+      return new Response(`requeued ${shortId} (${paper.id})`, { status: 200 });
     }
 
     // /about 已下线(2026-08 首页重构): 301 保外链权重

@@ -79,6 +79,10 @@ const CLASSIFY_RETRIES = 3;
 // 重试兜底，而不是让论文直接死掉。
 const SUMMARY_RETRIES = 2;
 
+// 白板洞察是可再生的装饰性产物(前端对无白板 null 安全、事后有 regenerate 流程),
+// 失败降级为「无白板完成」而不是打死整篇论文；重试兜住一次性抖动即可。
+const WHITEBOARD_RETRIES = 2;
+
 // 翻译摘要失败只应丢失该语言(读取侧已有 per-locale 兜底到 summaries.en),
 // 不应牵连整篇论文，因此和 tldr 翻译一样走「语言独立重试」而非全有或全无。
 const TRANSLATE_RETRIES = 2;
@@ -540,10 +544,31 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     );
 
     if (wantWhiteboard) {
-      // 并行执行摘要生成和白板洞察生成
+      // 白板失败不再升级为 StepError：实测截断类失败会让 digest picks 的
+      // 论文页整篇 failed，代价远大于缺一张可事后 regenerate 的白板。
+      const whiteboardTask = withRetry(
+        () => generateWhiteboardInsights(text, aiConfig),
+        {
+          retries: WHITEBOARD_RETRIES,
+          onRetry: (attempt, error) =>
+            log(
+              "generate-whiteboard",
+              `Whiteboard retry ${attempt}/${WHITEBOARD_RETRIES}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            ),
+        },
+      ).catch((error): null => {
+        logWarn(
+          "generate-whiteboard",
+          `Whiteboard insights failed after ${WHITEBOARD_RETRIES} retries, continuing without whiteboard`,
+          error,
+        );
+        return null;
+      });
       [summary, whiteboardInsights, classification] = await Promise.all([
         summaryTask,
-        generateWhiteboardInsights(text, aiConfig),
+        whiteboardTask,
         classifyTask,
       ]);
     } else {
@@ -558,11 +583,8 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       `Summary (${summary.length} chars)${whiteboardInsights ? ` and whiteboard insights (${whiteboardInsights.length} chars)` : ""} generated`,
     );
   } catch (error) {
-    const stepName =
-      error instanceof Error && error.message.includes("Summary")
-        ? "generate-summary"
-        : "generate-whiteboard";
-    throw new StepError(stepName, error);
+    // 白板已就地降级、分类有自兜底，能走到这里的只剩摘要失败
+    throw new StepError("generate-summary", error);
   }
 
   // Step 4.5: 翻译额外语言（如 cron 任务需要多语言）
@@ -1867,6 +1889,12 @@ function isRetryableError(error: unknown): boolean {
 
   // API 限流
   if (message.includes("429") || message.includes("rate limit")) {
+    return true;
+  }
+
+  // D1 瞬时查询失败（drizzle 统一前缀 "Failed query"）：实测重放高峰期出现过
+  // 一次性 D1 抖动直接判不可重试打死论文，这类错误重投一次通常即恢复
+  if (message.includes("Failed query")) {
     return true;
   }
 
