@@ -332,6 +332,28 @@ export async function upsertCandidatesSeen(
   }
 }
 
+/**
+ * pool 重放：把候选池整行还原成 CandidateItem 全量集，跳过搜索直接喂给合并/预算。
+ * excerpt/prescore 等非持久化字段留空——excerpt 缺省会让 intel 精读改走 fetchFullText
+ * 现抓兜底（见 digest-workflow.ts review 步）。
+ */
+export async function listPoolCandidateItems(
+  db: Db,
+  directionId: string,
+): Promise<CandidateItem[]> {
+  const rows = await db
+    .select()
+    .from(directionCandidates)
+    .where(eq(directionCandidates.directionId, directionId));
+  return rows.map((r) => ({
+    canonicalUrl: r.canonicalUrl,
+    title: r.title,
+    kind: r.kind,
+    sourceLabel:
+      (r.sourceMeta?.sourceLabel as string | undefined) ?? "pool-replay",
+  }));
+}
+
 /** 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。 */
 export async function updateCandidateStatus(
   db: Db,

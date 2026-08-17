@@ -39,6 +39,7 @@ import {
   ensureDigestShell,
   finalizeDigestPapers,
   findUnfinishedPaperIds,
+  listPoolCandidateItems,
   loadDirectionContext,
   recordSourceResult,
   saveDigestContent,
@@ -67,6 +68,12 @@ export type DigestWorkflowParams = {
   /** cron 侧按方向下标错峰启动，降低/错开多个实例同时打 arXiv 的概率（非硬保证，
    * 见 digest-cron.ts 注释）；admin 手动触发不传 = 不错峰 */
   staggerMinutes?: number;
+  /**
+   * 候选来源：默认 "search" 走搜索/扫源；"pool" 跳过搜索，直接把
+   * direction_candidates 全量作为 merged 集（修复重放用：搜索是 LLM 生成查询、
+   * 高度非确定，重搜会换一批语料；池子才是上一次真实发现的快照）。
+   */
+  candidateSource?: "search" | "pool";
 };
 
 const WINDOW_DAYS = 7;
@@ -110,6 +117,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
     const env = this.env;
     const db = drizzle(env.DB);
     const { directionId } = event.payload;
+    const candidateSource = event.payload.candidateSource ?? "search";
     const periodEnd = new Date(event.payload.periodEnd);
     const periodStart = new Date(periodEnd.getTime() - WINDOW_DAYS * 86400_000);
     const periodLabel = `${periodStart.toISOString().slice(0, 10)} ~ ${periodEnd.toISOString().slice(0, 10)}`;
@@ -135,241 +143,254 @@ export class DigestWorkflow extends WorkflowEntrypoint<
     );
 
     try {
-      // ── 2. Scope：角度分解（强模型）──
-      const scope = await step.do("scope", LLM_RETRIES, () =>
-        scopeDirection(strongModel(env), {
-          directionName: ctx.direction.name["zh-cn"] ?? ctx.direction.slug,
-          focusBrief: ctx.direction.focusBrief,
-          feedback: ctx.feedback,
-          sourceLabels: ctx.sources.filter((s) => s.enabled).map((s) => s.id),
-        }),
-      );
-
-      // ── 3. 确定性扫源（每源一个 step；熔断源按探活节奏跳过）──
-      // 候选集与 news-cron 一致：enabled 的健康源 ∪ 已达熔断阈值的源（后者才是
-      // shouldProbe 的探活对象——人为停用的源 consecutiveFailures 恒为 0，两个
-      // 条件都不满足，正确地被排除）。
-      // 用 event.timestamp（实例创建时刻，跨重放不变）而非 Date.now()：run() 主体
-      // 在每次 hibernate 唤醒后从头重新求值，本轮 publish-poll 最长跨 3 小时，若用
-      // Date.now() 会让「本轮扫哪些源」在重放间漂移——已缓存的 scan-source-* 步骤
-      // 不受影响，但新落入候选集的源会在重放时真的执行一次（含真实抓取/付费 LLM
-      // 调用），产出却被 merge-and-budget 的缓存结果丢弃。
-      const now = event.timestamp.getTime();
-      const sourceCandidates = ctx.sources.filter(
-        (s) => s.enabled || s.consecutiveFailures >= MAX_SOURCE_FAILURES,
-      );
-      const { targets: activeSources, probes } = selectFetchTargets(
-        sourceCandidates,
-        now,
-      );
-      if (probes.length > 0) {
-        console.log(
-          `[Digest] ${ctx.direction.slug}: probing ${probes.length} tripped source(s): ${probes.map((s) => s.id).join(", ")}`,
-        );
-      }
-      // 源扫描严格串行（不再 chunk(3) 并发）：arXiv 对 export.arxiv.org 要求
-      // 单连接 1 req/3s，且实测还有分钟级窗口配额，并发扫多个 arxiv_query 源
-      // 会直接触发 429。rss 源无此限制，但为保持顺序简单一律走同一条串行链。
       const sourceGroups: CandidateItem[][] = [];
-      for (let i = 0; i < activeSources.length; i++) {
-        const source = activeSources[i];
-        if (source.adapterType === "arxiv_query" && i > 0) {
-          // 仅 arxiv_query 源之间需要限速间隔；step 名用 activeSources 下标
-          // （由 event.timestamp 派生，重放稳定）而非 source.id，保证唯一且可重放
-          await step.sleep(`arxiv-gap-${i}`, "4 seconds");
+      const angleGroups: CandidateItem[][] = [];
+      // pool 重放跳过整段搜索/扫源：候选来自持久化池，scope 唯一消费者是
+      // 角度搜索扇出，因此一并跳过
+      if (candidateSource === "search") {
+        // ── 2. Scope：角度分解（强模型）──
+        const scope = await step.do("scope", LLM_RETRIES, () =>
+          scopeDirection(strongModel(env), {
+            directionName: ctx.direction.name["zh-cn"] ?? ctx.direction.slug,
+            focusBrief: ctx.direction.focusBrief,
+            feedback: ctx.feedback,
+            sourceLabels: ctx.sources.filter((s) => s.enabled).map((s) => s.id),
+          }),
+        );
+
+        // ── 3. 确定性扫源（每源一个 step；熔断源按探活节奏跳过）──
+        // 候选集与 news-cron 一致：enabled 的健康源 ∪ 已达熔断阈值的源（后者才是
+        // shouldProbe 的探活对象——人为停用的源 consecutiveFailures 恒为 0，两个
+        // 条件都不满足，正确地被排除）。
+        // 用 event.timestamp（实例创建时刻，跨重放不变）而非 Date.now()：run() 主体
+        // 在每次 hibernate 唤醒后从头重新求值，本轮 publish-poll 最长跨 3 小时，若用
+        // Date.now() 会让「本轮扫哪些源」在重放间漂移——已缓存的 scan-source-* 步骤
+        // 不受影响，但新落入候选集的源会在重放时真的执行一次（含真实抓取/付费 LLM
+        // 调用），产出却被 merge-and-budget 的缓存结果丢弃。
+        const now = event.timestamp.getTime();
+        const sourceCandidates = ctx.sources.filter(
+          (s) => s.enabled || s.consecutiveFailures >= MAX_SOURCE_FAILURES,
+        );
+        const { targets: activeSources, probes } = selectFetchTargets(
+          sourceCandidates,
+          now,
+        );
+        if (probes.length > 0) {
+          console.log(
+            `[Digest] ${ctx.direction.slug}: probing ${probes.length} tripped source(s): ${probes.map((s) => s.id).join(", ")}`,
+          );
         }
-        const retryConfig =
-          source.adapterType === "arxiv_query"
-            ? ARXIV_SCAN_RETRIES
-            : LLM_RETRIES;
-        const items = await step
-          .do(`scan-source-${source.id}`, retryConfig, async () => {
-            try {
-              const items = await fetchDirectionSource(
-                source.adapterType,
-                source.config,
-                periodStart,
-                source.id,
-              );
-              // 初筛（廉价模型）：只留过线条目
-              const scores = await scoreSourceItems(
-                cheapModel(env),
-                ctx.direction.focusBrief,
-                items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
-              );
-              await recordSourceResult(
-                db,
-                source.id,
-                source.consecutiveFailures,
-                { ok: true },
-              );
-              return items
-                .map((it, i) => ({ ...it, prescore: scores[i] }))
-                .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
-            } catch (e) {
-              // 429 不计熔断（是我们自己的速率问题，不是源死了）：直接重抛，
-              // 交给 step 的分钟级退避重试；其余错误才走熔断记账
-              if (e instanceof ArxivRateLimitError) throw e;
-              // 源失败不失败整期：记熔断，返回空
-              await recordSourceResult(
-                db,
-                source.id,
-                source.consecutiveFailures,
-                {
-                  ok: false,
-                  error: e instanceof Error ? e.message : String(e),
-                },
-              );
-              return [] as CandidateItem[];
-            }
-          })
-          .catch(async (e): Promise<CandidateItem[]> => {
-            // 跨 step 边界后 e 可能已被引擎重建为普通 Error（只保留 name/message），
-            // instanceof ArxivRateLimitError 不可靠，改用 name/message 识别
-            const msg = e instanceof Error ? e.message : String(e);
-            const isRateLimit =
-              (e instanceof Error && e.name === "ArxivRateLimitError") ||
-              msg.includes("429");
-            if (isRateLimit) {
-              // 429 退避耗尽（分钟级退避 × 2 次仍失败）：不计熔断（是我们自己的
-              // 速率问题，不是源死了）。先试 S2 bulk search 文本兜底再丢弃——
-              // 只对 arxiv_query 源有意义（rss 源无 query 可映射；msg.includes
-              // ("429") 是已知的宽匹配，rss 源理论上也可能落进这个分支，此时
-              // 保持原有的直接丢弃语义）。S2 收录 arXiv 有几天延迟，最新 1-2 天
-              // 的论文本周可能兜不到，欠的下周会从 seen 池自然回补，是接受的取舍。
-              if (source.adapterType !== "arxiv_query") {
-                console.warn(
-                  `[Digest] scan-source-${source.id}: rate-limit retries exhausted, dropping this source for this issue`,
+        // 源扫描严格串行（不再 chunk(3) 并发）：arXiv 对 export.arxiv.org 要求
+        // 单连接 1 req/3s，且实测还有分钟级窗口配额，并发扫多个 arxiv_query 源
+        // 会直接触发 429。rss 源无此限制，但为保持顺序简单一律走同一条串行链。
+        for (let i = 0; i < activeSources.length; i++) {
+          const source = activeSources[i];
+          if (source.adapterType === "arxiv_query" && i > 0) {
+            // 仅 arxiv_query 源之间需要限速间隔；step 名用 activeSources 下标
+            // （由 event.timestamp 派生，重放稳定）而非 source.id，保证唯一且可重放
+            await step.sleep(`arxiv-gap-${i}`, "4 seconds");
+          }
+          const retryConfig =
+            source.adapterType === "arxiv_query"
+              ? ARXIV_SCAN_RETRIES
+              : LLM_RETRIES;
+          const items = await step
+            .do(`scan-source-${source.id}`, retryConfig, async () => {
+              try {
+                const items = await fetchDirectionSource(
+                  source.adapterType,
+                  source.config,
+                  periodStart,
+                  source.id,
+                );
+                // 初筛（廉价模型）：只留过线条目
+                const scores = await scoreSourceItems(
+                  cheapModel(env),
+                  ctx.direction.focusBrief,
+                  items.map((i) => ({ title: i.title, excerpt: i.excerpt })),
+                );
+                await recordSourceResult(
+                  db,
+                  source.id,
+                  source.consecutiveFailures,
+                  { ok: true },
+                );
+                return items
+                  .map((it, i) => ({ ...it, prescore: scores[i] }))
+                  .filter((it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD);
+              } catch (e) {
+                // 429 不计熔断（是我们自己的速率问题，不是源死了）：直接重抛，
+                // 交给 step 的分钟级退避重试；其余错误才走熔断记账
+                if (e instanceof ArxivRateLimitError) throw e;
+                // 源失败不失败整期：记熔断，返回空
+                await recordSourceResult(
+                  db,
+                  source.id,
+                  source.consecutiveFailures,
+                  {
+                    ok: false,
+                    error: e instanceof Error ? e.message : String(e),
+                  },
                 );
                 return [] as CandidateItem[];
               }
-              console.warn(
-                `[Digest] scan-source-${source.id}: rate-limit retries exhausted, trying S2 fallback`,
-              );
-              return step
-                .do(
-                  `scan-source-${source.id}-s2-fallback`,
-                  LLM_RETRIES,
-                  async () => {
-                    const items = await fetchS2Fallback(
-                      source.config,
-                      periodStart,
-                      `${source.id}:s2-fallback`,
-                      env.SEMANTIC_SCHOLAR_API_KEY,
-                    );
-                    const scores = await scoreSourceItems(
-                      cheapModel(env),
-                      ctx.direction.focusBrief,
-                      items.map((i) => ({
-                        title: i.title,
-                        excerpt: i.excerpt,
-                      })),
-                    );
-                    return items
-                      .map((it, i) => ({ ...it, prescore: scores[i] }))
-                      .filter(
-                        (it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD,
-                      );
-                  },
-                )
-                .catch((e2): CandidateItem[] => {
+            })
+            .catch(async (e): Promise<CandidateItem[]> => {
+              // 跨 step 边界后 e 可能已被引擎重建为普通 Error（只保留 name/message），
+              // instanceof ArxivRateLimitError 不可靠，改用 name/message 识别
+              const msg = e instanceof Error ? e.message : String(e);
+              const isRateLimit =
+                (e instanceof Error && e.name === "ArxivRateLimitError") ||
+                msg.includes("429");
+              if (isRateLimit) {
+                // 429 退避耗尽（分钟级退避 × 2 次仍失败）：不计熔断（是我们自己的
+                // 速率问题，不是源死了）。先试 S2 bulk search 文本兜底再丢弃——
+                // 只对 arxiv_query 源有意义（rss 源无 query 可映射；msg.includes
+                // ("429") 是已知的宽匹配，rss 源理论上也可能落进这个分支，此时
+                // 保持原有的直接丢弃语义）。S2 收录 arXiv 有几天延迟，最新 1-2 天
+                // 的论文本周可能兜不到，欠的下周会从 seen 池自然回补，是接受的取舍。
+                if (source.adapterType !== "arxiv_query") {
                   console.warn(
-                    `[Digest] scan-source-${source.id}: S2 fallback also failed, dropping this source for this issue:`,
-                    e2,
+                    `[Digest] scan-source-${source.id}: rate-limit retries exhausted, dropping this source for this issue`,
                   );
-                  return [] as CandidateItem[];
-                });
-            }
-            // 非 429 的 step 级失败（fetch 挂死超时、D1 写失败等）：计熔断后降级，
-            // 让永久挂死的源最终走熔断+探活，而不是每周静默消失
-            console.warn(
-              `[Digest] scan-source-${source.id} failed at step level:`,
-              e,
-            );
-            try {
-              await recordSourceResult(
-                db,
-                source.id,
-                source.consecutiveFailures,
-                { ok: false, error: msg },
-              );
-            } catch (recordErr) {
-              // 记账失败不能让整个 workflow 跟着失败——这里已经是降级兜底路径
-              console.warn(
-                `[Digest] scan-source-${source.id}: failed to record breaker failure:`,
-                recordErr,
-              );
-            }
-            return [] as CandidateItem[];
-          });
-        sourceGroups.push(items);
-      }
-
-      // ── 4. 角度搜索扇出（每角度一个 step）──
-      // step 名带全局序号：LLM 可能产出重复 label，裸 label 会撞 step 名导致重放错乱
-      const indexedAngles = scope.angles.map((angle, i) => ({ angle, i }));
-      const angleGroups: CandidateItem[][] = [];
-      // 批 2 并发：每角度 12 轮搜索 + 打分，3 并发实跑触发过网关 429
-      for (const batch of chunk(indexedAngles, 2)) {
-        const results = await Promise.all(
-          batch.map(({ angle, i }) =>
-            step.do(
-              `search-angle-${i}-${angle.label}`,
-              LLM_RETRIES,
-              async () => {
-                try {
-                  const found = await searchAngle(
-                    env,
-                    cheapModel(env).model,
-                    ctx.direction.focusBrief,
-                    angle,
-                    periodLabel,
-                  );
-                  const items = found
-                    .map((it) => canonicalizeCandidate(it, periodEnd))
-                    .filter((it): it is CandidateItem => it !== null);
-                  try {
-                    const scores = await scoreSourceItems(
-                      cheapModel(env),
-                      ctx.direction.focusBrief,
-                      items.map((i) => ({
-                        title: i.title,
-                        excerpt: i.excerpt,
-                      })),
-                    );
-                    return items
-                      .map((it, i) => ({ ...it, prescore: scores[i] }))
-                      .filter(
-                        (it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD,
-                      );
-                  } catch (e) {
-                    // 初筛被限流（429）等瞬时失败时不能丢弃整个角度——昂贵的搜索
-                    // 已经成功，打分只是省精读钱的优化。降级为不打分放行（prescore
-                    // 留空），由精读把关；实跑教训：本 catch 在 step 内，外层的
-                    // step 重试对这里永远不生效。
-                    console.warn(
-                      `[Digest] angle ${angle.label} prescore failed, passing unscored:`,
-                      e,
-                    );
-                    return items;
-                  }
-                } catch (e) {
-                  console.error(`[Digest] angle ${angle.label} failed:`, e);
                   return [] as CandidateItem[];
                 }
-              },
+                console.warn(
+                  `[Digest] scan-source-${source.id}: rate-limit retries exhausted, trying S2 fallback`,
+                );
+                return step
+                  .do(
+                    `scan-source-${source.id}-s2-fallback`,
+                    LLM_RETRIES,
+                    async () => {
+                      const items = await fetchS2Fallback(
+                        source.config,
+                        periodStart,
+                        `${source.id}:s2-fallback`,
+                        env.SEMANTIC_SCHOLAR_API_KEY,
+                      );
+                      const scores = await scoreSourceItems(
+                        cheapModel(env),
+                        ctx.direction.focusBrief,
+                        items.map((i) => ({
+                          title: i.title,
+                          excerpt: i.excerpt,
+                        })),
+                      );
+                      return items
+                        .map((it, i) => ({ ...it, prescore: scores[i] }))
+                        .filter(
+                          (it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD,
+                        );
+                    },
+                  )
+                  .catch((e2): CandidateItem[] => {
+                    console.warn(
+                      `[Digest] scan-source-${source.id}: S2 fallback also failed, dropping this source for this issue:`,
+                      e2,
+                    );
+                    return [] as CandidateItem[];
+                  });
+              }
+              // 非 429 的 step 级失败（fetch 挂死超时、D1 写失败等）：计熔断后降级，
+              // 让永久挂死的源最终走熔断+探活，而不是每周静默消失
+              console.warn(
+                `[Digest] scan-source-${source.id} failed at step level:`,
+                e,
+              );
+              try {
+                await recordSourceResult(
+                  db,
+                  source.id,
+                  source.consecutiveFailures,
+                  { ok: false, error: msg },
+                );
+              } catch (recordErr) {
+                // 记账失败不能让整个 workflow 跟着失败——这里已经是降级兜底路径
+                console.warn(
+                  `[Digest] scan-source-${source.id}: failed to record breaker failure:`,
+                  recordErr,
+                );
+              }
+              return [] as CandidateItem[];
+            });
+          sourceGroups.push(items);
+        }
+
+        // ── 4. 角度搜索扇出（每角度一个 step）──
+        // step 名带全局序号：LLM 可能产出重复 label，裸 label 会撞 step 名导致重放错乱
+        const indexedAngles = scope.angles.map((angle, i) => ({ angle, i }));
+        // 批 2 并发：每角度 12 轮搜索 + 打分，3 并发实跑触发过网关 429
+        for (const batch of chunk(indexedAngles, 2)) {
+          const results = await Promise.all(
+            batch.map(({ angle, i }) =>
+              step.do(
+                `search-angle-${i}-${angle.label}`,
+                LLM_RETRIES,
+                async () => {
+                  try {
+                    const found = await searchAngle(
+                      env,
+                      cheapModel(env).model,
+                      ctx.direction.focusBrief,
+                      angle,
+                      periodLabel,
+                    );
+                    const items = found
+                      .map((it) => canonicalizeCandidate(it, periodEnd))
+                      .filter((it): it is CandidateItem => it !== null);
+                    try {
+                      const scores = await scoreSourceItems(
+                        cheapModel(env),
+                        ctx.direction.focusBrief,
+                        items.map((i) => ({
+                          title: i.title,
+                          excerpt: i.excerpt,
+                        })),
+                      );
+                      return items
+                        .map((it, i) => ({ ...it, prescore: scores[i] }))
+                        .filter(
+                          (it) => (it.prescore ?? 0) >= RELEVANCE_THRESHOLD,
+                        );
+                    } catch (e) {
+                      // 初筛被限流（429）等瞬时失败时不能丢弃整个角度——昂贵的搜索
+                      // 已经成功，打分只是省精读钱的优化。降级为不打分放行（prescore
+                      // 留空），由精读把关；实跑教训：本 catch 在 step 内，外层的
+                      // step 重试对这里永远不生效。
+                      console.warn(
+                        `[Digest] angle ${angle.label} prescore failed, passing unscored:`,
+                        e,
+                      );
+                      return items;
+                    }
+                  } catch (e) {
+                    console.error(`[Digest] angle ${angle.label} failed:`, e);
+                    return [] as CandidateItem[];
+                  }
+                },
+              ),
             ),
-          ),
-        );
-        angleGroups.push(...results);
+          );
+          angleGroups.push(...results);
+        }
       }
+
+      // ── pool 重放：把候选池整行还原为一组候选（自己的 step，行读durable 缓存）──
+      const poolItems =
+        candidateSource === "pool"
+          ? await step.do("load-pool-candidates", () =>
+              listPoolCandidateItems(db, directionId),
+            )
+          : [];
 
       // ── 5. 合并去重 + 候选池对齐 + 预算（纯代码）──
       const partition = await step.do("merge-and-budget", async () => {
-        const merged = mergeCandidates(
-          [...sourceGroups, ...angleGroups],
-          new Map(ctx.hfUpvotesByArxivId),
-        );
+        const groups =
+          candidateSource === "pool"
+            ? [poolItems]
+            : [...sourceGroups, ...angleGroups];
+        const merged = mergeCandidates(groups, new Map(ctx.hfUpvotesByArxivId));
         const result = partitionCandidates(merged, ctx.pool);
         await upsertCandidatesSeen(db, directionId, [
           ...result.toReview,
@@ -378,7 +399,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         // 四个计数是「no silent caps」审计轨迹，必须完整保留——即使 skipped
         // 本身不会进入下面的 return（下游从不读它）。
         console.log(
-          `[Digest] ${ctx.direction.slug}: merged=${merged.length} review=${result.toReview.length} overBudget=${result.overBudget.length} skipped=${result.skipped.length}`,
+          `[Digest] mode=${candidateSource} ${ctx.direction.slug}: merged=${merged.length} review=${result.toReview.length} overBudget=${result.overBudget.length} skipped=${result.skipped.length}`,
         );
         // step 返回值会整份持久化在 workflow state 里：只带下游真正读取的字段
         // （toReview 全量、overBudget 仅 title），skipped 与 overBudget 的其余
@@ -427,8 +448,12 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                 `review-${i}-${item.canonicalUrl.slice(-60)}`,
                 LLM_RETRIES,
                 async (): Promise<ReviewedCandidate> => {
+                  // pool 重放时 excerpt 未持久化，intel 靠 Jina 现抓兜底
+                  // （fetchFullText 对非 arXiv 走 r.jina.ai；失败返回 null 则
+                  // 退化为仅标题评审，可接受）
                   const fullText =
-                    item.kind === "paper"
+                    item.kind === "paper" ||
+                    (candidateSource === "pool" && !item.excerpt)
                       ? await fetchFullText(item.canonicalUrl)
                       : null;
                   const review = await reviewCandidate(
