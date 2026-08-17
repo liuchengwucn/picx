@@ -90,7 +90,7 @@ function LanguageSelectors({
         </Select>
       </div>
       {showWhiteboardLanguage && (
-        <div className="space-y-2 flex flex-col items-end">
+        <div className="space-y-2">
           <Label className="text-sm text-[var(--ink-soft)]">
             {m.upload_whiteboard_language()}
           </Label>
@@ -253,6 +253,106 @@ function WhiteboardToggle({ checked, onCheckedChange }: WhiteboardToggleProps) {
         onCheckedChange={onCheckedChange}
       />
     </div>
+  );
+}
+
+interface UploadOptionsProps
+  extends LanguageSelectorsProps,
+    ApiConfigSelectorProps,
+    PromptSelectorProps {
+  generateWhiteboard: boolean;
+  onGenerateWhiteboardChange: (checked: boolean) => void;
+  credits: number;
+  willCharge: boolean;
+}
+
+/**
+ * 上传选项区。文件 / 链接两个 tab 的选项完全一致,抽出来免得两份 JSX 只改一半。
+ *
+ * 只有「同时生成白板图」留在外层:它是唯一影响计费的开关,也决定折叠区里
+ * 白板图语言、提示词模板还有没有意义。语言选择进折叠区 —— 默认值(摘要跟随
+ * 界面语言、白板图英文)对绝大多数人已经是对的,常驻只是让主界面更长。
+ * 积分与计费文案同理:不出图就不花钱,没勾选时提计费只会让人以为要付费。
+ */
+function UploadOptions({
+  generateWhiteboard,
+  onGenerateWhiteboardChange,
+  credits,
+  willCharge,
+  summaryLanguage,
+  whiteboardLanguage,
+  showWhiteboardLanguage,
+  onSummaryLanguageChange,
+  onWhiteboardLanguageChange,
+  apiSource,
+  selectedApiConfigId,
+  apiConfigs,
+  onApiSourceChange,
+  onApiConfigChange,
+  selectedPromptId,
+  prompts,
+  onPromptChange,
+}: UploadOptionsProps) {
+  return (
+    <>
+      <div className="mt-4">
+        <WhiteboardToggle
+          checked={generateWhiteboard}
+          onCheckedChange={onGenerateWhiteboardChange}
+        />
+      </div>
+      <div className="mt-2">
+        <Accordion type="single" collapsible>
+          <AccordionItem value="advanced" className="border-[var(--line)]">
+            <AccordionTrigger className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:no-underline py-2">
+              {m.upload_advanced_settings()}
+            </AccordionTrigger>
+            <AccordionContent className="space-y-3 pb-1">
+              <div className="space-y-2">
+                <LanguageSelectors
+                  summaryLanguage={summaryLanguage}
+                  whiteboardLanguage={whiteboardLanguage}
+                  showWhiteboardLanguage={showWhiteboardLanguage}
+                  onSummaryLanguageChange={onSummaryLanguageChange}
+                  onWhiteboardLanguageChange={onWhiteboardLanguageChange}
+                />
+                {generateWhiteboard && (
+                  <p className="text-xs text-[var(--ink-soft)]">
+                    {m.upload_english_image_hint()}
+                  </p>
+                )}
+              </div>
+              <ApiConfigSelector
+                apiSource={apiSource}
+                selectedApiConfigId={selectedApiConfigId}
+                apiConfigs={apiConfigs}
+                onApiSourceChange={onApiSourceChange}
+                onApiConfigChange={onApiConfigChange}
+              />
+              {generateWhiteboard && (
+                <PromptSelector
+                  selectedPromptId={selectedPromptId}
+                  prompts={prompts}
+                  onPromptChange={onPromptChange}
+                />
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
+      {generateWhiteboard && (
+        <div className="mt-4 flex items-center justify-between text-sm">
+          <span className="text-[var(--ink-soft)]">
+            {m.credits_balance()}: {credits}
+          </span>
+          <span className="text-[var(--ink-soft)]">
+            {willCharge
+              ? m.upload_whiteboard_toggle_cost()
+              : m.upload_free_hint()}
+          </span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -618,66 +718,25 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
                 {fileError}
               </p>
             )}
-            <div className="mt-4">
-              <WhiteboardToggle
-                checked={generateWhiteboard}
-                onCheckedChange={setGenerateWhiteboard}
-              />
-            </div>
-            <div className="mt-4">
-              <LanguageSelectors
-                summaryLanguage={summaryLanguage}
-                whiteboardLanguage={whiteboardLanguage}
-                showWhiteboardLanguage={generateWhiteboard}
-                onSummaryLanguageChange={(value) => setSummaryLanguage(value)}
-                onWhiteboardLanguageChange={(value) =>
-                  setWhiteboardLanguage(value)
-                }
-              />
-              <p className="mt-2 text-xs text-[var(--ink-soft)]">
-                {m.upload_english_image_hint()}
-              </p>
-            </div>
-            <div className="mt-2">
-              <Accordion type="single" collapsible>
-                <AccordionItem
-                  value="advanced"
-                  className="border-[var(--line)]"
-                >
-                  <AccordionTrigger className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:no-underline py-2">
-                    {m.upload_advanced_settings()}
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-3 pb-1">
-                    <ApiConfigSelector
-                      apiSource={apiSource}
-                      selectedApiConfigId={selectedApiConfigId}
-                      apiConfigs={apiConfigs}
-                      onApiSourceChange={(value) => setApiSource(value)}
-                      onApiConfigChange={(value) =>
-                        setSelectedApiConfigId(value)
-                      }
-                    />
-                    {generateWhiteboard && (
-                      <PromptSelector
-                        selectedPromptId={selectedPromptId}
-                        prompts={prompts}
-                        onPromptChange={(value) => setSelectedPromptId(value)}
-                      />
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </div>
-            <div className="mt-4 flex items-center justify-between text-sm">
-              <span className="text-[var(--ink-soft)]">
-                {m.credits_balance()}: {credits}
-              </span>
-              <span className="text-[var(--ink-soft)]">
-                {willCharge
-                  ? m.upload_whiteboard_toggle_cost()
-                  : m.upload_free_hint()}
-              </span>
-            </div>
+            <UploadOptions
+              generateWhiteboard={generateWhiteboard}
+              onGenerateWhiteboardChange={setGenerateWhiteboard}
+              credits={credits}
+              willCharge={willCharge}
+              summaryLanguage={summaryLanguage}
+              whiteboardLanguage={whiteboardLanguage}
+              showWhiteboardLanguage={generateWhiteboard}
+              onSummaryLanguageChange={setSummaryLanguage}
+              onWhiteboardLanguageChange={setWhiteboardLanguage}
+              apiSource={apiSource}
+              selectedApiConfigId={selectedApiConfigId}
+              apiConfigs={apiConfigs}
+              onApiSourceChange={setApiSource}
+              onApiConfigChange={setSelectedApiConfigId}
+              selectedPromptId={selectedPromptId}
+              prompts={prompts}
+              onPromptChange={setSelectedPromptId}
+            />
             <Button
               onClick={handleFileUpload}
               disabled={
@@ -708,66 +767,25 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             <p className="mt-2 text-xs text-[var(--ink-soft)]">
               {m.upload_link_hint()}
             </p>
-            <div className="mt-4">
-              <WhiteboardToggle
-                checked={generateWhiteboard}
-                onCheckedChange={setGenerateWhiteboard}
-              />
-            </div>
-            <div className="mt-4">
-              <LanguageSelectors
-                summaryLanguage={summaryLanguage}
-                whiteboardLanguage={whiteboardLanguage}
-                showWhiteboardLanguage={generateWhiteboard}
-                onSummaryLanguageChange={(value) => setSummaryLanguage(value)}
-                onWhiteboardLanguageChange={(value) =>
-                  setWhiteboardLanguage(value)
-                }
-              />
-              <p className="mt-2 text-xs text-[var(--ink-soft)]">
-                {m.upload_english_image_hint()}
-              </p>
-            </div>
-            <div className="mt-2">
-              <Accordion type="single" collapsible>
-                <AccordionItem
-                  value="advanced"
-                  className="border-[var(--line)]"
-                >
-                  <AccordionTrigger className="text-sm text-[var(--ink-soft)] hover:text-[var(--ink)] hover:no-underline py-2">
-                    {m.upload_advanced_settings()}
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-3 pb-1">
-                    <ApiConfigSelector
-                      apiSource={apiSource}
-                      selectedApiConfigId={selectedApiConfigId}
-                      apiConfigs={apiConfigs}
-                      onApiSourceChange={(value) => setApiSource(value)}
-                      onApiConfigChange={(value) =>
-                        setSelectedApiConfigId(value)
-                      }
-                    />
-                    {generateWhiteboard && (
-                      <PromptSelector
-                        selectedPromptId={selectedPromptId}
-                        prompts={prompts}
-                        onPromptChange={(value) => setSelectedPromptId(value)}
-                      />
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </div>
-            <div className="mt-4 flex items-center justify-between text-sm">
-              <span className="text-[var(--ink-soft)]">
-                {m.credits_balance()}: {credits}
-              </span>
-              <span className="text-[var(--ink-soft)]">
-                {willCharge
-                  ? m.upload_whiteboard_toggle_cost()
-                  : m.upload_free_hint()}
-              </span>
-            </div>
+            <UploadOptions
+              generateWhiteboard={generateWhiteboard}
+              onGenerateWhiteboardChange={setGenerateWhiteboard}
+              credits={credits}
+              willCharge={willCharge}
+              summaryLanguage={summaryLanguage}
+              whiteboardLanguage={whiteboardLanguage}
+              showWhiteboardLanguage={generateWhiteboard}
+              onSummaryLanguageChange={setSummaryLanguage}
+              onWhiteboardLanguageChange={setWhiteboardLanguage}
+              apiSource={apiSource}
+              selectedApiConfigId={selectedApiConfigId}
+              apiConfigs={apiConfigs}
+              onApiSourceChange={setApiSource}
+              onApiConfigChange={setSelectedApiConfigId}
+              selectedPromptId={selectedPromptId}
+              prompts={prompts}
+              onPromptChange={setSelectedPromptId}
+            />
             <Button
               onClick={handleLinkSubmit}
               disabled={
