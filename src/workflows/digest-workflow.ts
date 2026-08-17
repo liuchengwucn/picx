@@ -92,7 +92,7 @@ const ARXIV_SCAN_RETRIES = {
   timeout: "5 minutes" as const,
 };
 
-/** 简单分批并发（角度搜索/精读/验证的批内 Promise.all，批间串行） */
+/** 简单分批并发（角度搜索/精读/标注的批内 Promise.all，批间串行） */
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -671,7 +671,8 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         });
       });
 
-      return { digestId: shell.digestId, picks: synthesis.picks.length };
+      // finalize.paperIds 才是真正入刊的数量（#70 越界 pick 过滤 + finalize 侧去重之后）
+      return { digestId: shell.digestId, picks: finalize.paperIds.length };
     } catch (e) {
       // 编排级失败：标记 failed 后原样抛出（实例进 errored，便于排查/restart）。
       // mark-failed 自身若失败（默认重试策略耗尽后仍抛出），不能让这个记账错误
