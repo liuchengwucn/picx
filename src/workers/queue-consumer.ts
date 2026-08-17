@@ -74,6 +74,15 @@ const TLDR_RETRIES = 5;
 // API 抖动/截断就会把论文永久误分类成 other。给它和 tldr 同等的重试兜底。
 const CLASSIFY_RETRIES = 3;
 
+// 摘要生成是「关键步骤」(重试耗尽仍会升级为 StepError 使整篇论文失败),
+// 但线上已实测首次调用出现随机截断/语言校验失败——这类一次性抖动值得
+// 重试兜底，而不是让论文直接死掉。
+const SUMMARY_RETRIES = 2;
+
+// 翻译摘要失败只应丢失该语言(读取侧已有 per-locale 兜底到 summaries.en),
+// 不应牵连整篇论文，因此和 tldr 翻译一样走「语言独立重试」而非全有或全无。
+const TRANSLATE_RETRIES = 2;
+
 // MinerU 编排参数：短轮询预算内多数论文可完成；未完成转延迟消息；总超时回退 pdfjs。
 const MINERU_SYNC_POLL_INTERVAL_MS = 10_000;
 const MINERU_SYNC_POLL_BUDGET_MS = 90_000;
@@ -514,16 +523,32 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
       return { categories: ["other"], tags: [] };
     });
 
+    // 摘要是关键步骤：重试耗尽仍抛错升级为 StepError("generate-summary"),
+    // 但先给一次性抖动(随机截断/语言校验失败)重试的机会。
+    const summaryTask = withRetry(
+      () => generateSummary(text, aiConfig, language),
+      {
+        retries: SUMMARY_RETRIES,
+        onRetry: (attempt, error) =>
+          log(
+            "generate-summary",
+            `Summary retry ${attempt}/${SUMMARY_RETRIES}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+      },
+    );
+
     if (wantWhiteboard) {
       // 并行执行摘要生成和白板洞察生成
       [summary, whiteboardInsights, classification] = await Promise.all([
-        generateSummary(text, aiConfig, language),
+        summaryTask,
         generateWhiteboardInsights(text, aiConfig),
         classifyTask,
       ]);
     } else {
       [summary, classification] = await Promise.all([
-        generateSummary(text, aiConfig, language),
+        summaryTask,
         classifyTask,
       ]);
     }
@@ -541,28 +566,46 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   }
 
   // Step 4.5: 翻译额外语言（如 cron 任务需要多语言）
+  // 非关键步骤: 读取侧已按 summaries[currentLanguage] || summaries.en 兜底,
+  // 因此和下面的 tldr 翻译块同一哲学——每个语言独立重试、独立成败, 某个
+  // 语言翻译失败只丢该语言, 不再「全有或全无」拖垮整篇论文。
   const summaries: Record<string, string> = { [language]: summary };
-  if (msg.extraLanguages && msg.extraLanguages.length > 0) {
+  const extraLanguages = msg.extraLanguages ?? [];
+  if (extraLanguages.length > 0) {
+    log("translate-summary", `Translating to: ${extraLanguages.join(", ")}`);
+    const settled = await Promise.allSettled(
+      extraLanguages.map((lang) =>
+        withRetry(() => translateSummary(summary, lang, aiConfig), {
+          retries: TRANSLATE_RETRIES,
+          onRetry: (attempt, error) =>
+            logWarn(
+              "translate-summary",
+              `Translation retry ${attempt}/${TRANSLATE_RETRIES} (${lang})`,
+              error,
+            ),
+        }),
+      ),
+    );
+    const failed: string[] = [];
+    settled.forEach((result, i) => {
+      const lang = extraLanguages[i];
+      if (result.status === "fulfilled") {
+        summaries[lang] = result.value;
+      } else {
+        failed.push(lang);
+        logWarn(
+          "translate-summary",
+          `Translation gave up for ${lang} after ${TRANSLATE_RETRIES} retries`,
+          result.reason,
+        );
+      }
+    });
     log(
       "translate-summary",
-      `Translating to: ${msg.extraLanguages.join(", ")}`,
+      `Translated ${extraLanguages.length - failed.length}/${extraLanguages.length} language(s)${
+        failed.length > 0 ? `, dropped [${failed.join(", ")}]` : ""
+      }`,
     );
-    try {
-      const translations = await Promise.all(
-        msg.extraLanguages.map((lang) =>
-          translateSummary(summary, lang, aiConfig),
-        ),
-      );
-      for (let i = 0; i < msg.extraLanguages.length; i++) {
-        summaries[msg.extraLanguages[i]] = translations[i];
-      }
-      log(
-        "translate-summary",
-        `Translated ${msg.extraLanguages.length} languages`,
-      );
-    } catch (error) {
-      throw new StepError("translate-summary", error);
-    }
   }
 
   // Step 4.6: 生成多语言 TL;DR (用于 gallery 卡片)
