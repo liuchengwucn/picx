@@ -167,7 +167,12 @@ Guidelines:
 - Be comprehensive but clear and well-organized
 - Prioritize preserving quantitative results, formulas, and data tables over prose descriptions`;
 
-  try {
+  // 单次请求体抽成内部函数，供下面的截断升级阶梯复用：同一份请求逻辑，
+  // 只有 max_tokens 和「上次超限」提示语不同。
+  async function requestSummary(
+    maxTokens: number,
+    extraInstruction?: string,
+  ): Promise<string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.openaiApiKey}`,
@@ -186,7 +191,9 @@ Guidelines:
         messages: [
           {
             role: "system",
-            content: systemPrompt,
+            content: extraInstruction
+              ? `${systemPrompt}${extraInstruction}`
+              : systemPrompt,
           },
           {
             role: "user",
@@ -194,7 +201,7 @@ Guidelines:
           },
         ],
         temperature: 0.7,
-        max_tokens: 8000,
+        max_tokens: maxTokens,
         ...reasoningParam(baseUrl),
       }),
     });
@@ -230,6 +237,24 @@ Guidelines:
     assertExpectedLanguage(summary, language, "Summary");
 
     return summary;
+  }
+
+  try {
+    try {
+      return await requestSummary(8000);
+    } catch (error) {
+      // 只在「被 max_tokens 截断」时升级重试：公式/表格保留型 prompt 对长论文
+      // 8000 token 预算确实可能不够，同参数原样重试是碰运气；其余错误（鉴权、
+      // 网关抖动、语言校验失败等）原样抛出，交给上层的函数级重试处理。
+      const isTruncated =
+        error instanceof Error &&
+        error.message.includes("truncated (finish_reason=length)");
+      if (!isTruncated) throw error;
+      return await requestSummary(
+        12000,
+        "\n\nIMPORTANT: Your previous attempt exceeded the output limit. Keep the summary tight — trim less-important sections, but keep all section headers.",
+      );
+    }
   } catch (error) {
     console.error("Failed to generate summary:", error);
     throw new Error(
@@ -689,6 +714,79 @@ Guidelines:
 - Keep technical terms accurate
 - Preserve all formatting, formulas, tables, and code blocks exactly`;
 
+  // 简繁转换兜底：assertExpectedLanguage 对 zh-tw/zh-cn 的失败是 reasoning 关闭后
+  // DeepSeek 偶发无视目标语言、原文简繁不对版这类随机噪声，本质上文本内容是对的，
+  // 只是字形错了。简繁互转是近乎机械的字符/惯用词映射，比整段重新翻译更可靠、
+  // 也更省 token；ja 的假名校验失败没有对应的机械转换手段，只能整段重翻（不在
+  // 本函数处理，交给上层重试）。
+  async function convertScript(
+    text: string,
+    target: "zh-tw" | "zh-cn",
+  ): Promise<string> {
+    const targetName =
+      target === "zh-tw"
+        ? "Traditional Chinese (as used in Taiwan)"
+        : "Simplified Chinese";
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openaiApiKey}`,
+    };
+    if (config.cfApiToken) {
+      headers["cf-aig-authorization"] = `Bearer ${config.cfApiToken}`;
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: `You are a precise script converter. Convert the following text to ${targetName}. Convert characters and regional vocabulary only. Do NOT translate, rephrase, add or remove anything. Keep ALL Markdown syntax, LaTeX math ($...$, $$...$$), code blocks, tables, and URLs byte-identical except for the Chinese script conversion.`,
+          },
+          {
+            role: "user",
+            content: text,
+          },
+        ],
+        temperature: 0,
+        max_tokens: 8000,
+        ...reasoningParam(baseUrl),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `OpenAI API request failed: ${response.status} ${response.statusText} - ${errorText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+        };
+        finish_reason?: string;
+      }>;
+    };
+
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error("No response from OpenAI API");
+    }
+
+    assertNotTruncated(data.choices[0].finish_reason, "Translation");
+
+    const converted = data.choices[0].message?.content?.trim();
+
+    if (!converted) {
+      throw new Error("Empty translation generated");
+    }
+
+    return converted;
+  }
+
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -749,9 +847,23 @@ Guidelines:
       throw new Error("Empty translation generated");
     }
 
-    assertExpectedLanguage(translatedText, targetLanguage, "Translation");
-
-    return translatedText;
+    try {
+      assertExpectedLanguage(translatedText, targetLanguage, "Translation");
+      return translatedText;
+    } catch (langError) {
+      if (targetLanguage !== "zh-tw" && targetLanguage !== "zh-cn") {
+        throw langError;
+      }
+      try {
+        const converted = await convertScript(translatedText, targetLanguage);
+        assertExpectedLanguage(converted, targetLanguage, "Translation");
+        return converted;
+      } catch {
+        // 转换兜底本身失败（网络错误或转换后仍未通过校验）：抛出原始的语言
+        // 校验错误，信息量比转换失败的原因更有用。
+        throw langError;
+      }
+    }
   } catch (error) {
     console.error("Failed to translate summary:", error);
     throw new Error(
