@@ -1,6 +1,6 @@
 // src/lib/digest/candidates.ts
 import { canonicalArxivId } from "#/lib/arxiv";
-import type { CandidateItem, VerifyVerdict } from "./types";
+import type { CandidateItem, ReviewedCandidate } from "./types";
 
 /**
  * 本期精读预算：论文与 intel 分开计。稳态下每周新增候选远小于首跑积压，
@@ -106,17 +106,52 @@ export function partitionCandidates(
   };
 }
 
-export type VoteOutcome = "pass" | "rejected" | "unverified";
+/** 精读后进入 synthesize 的供给集大小（含并列会放宽到 ~10-15） */
+export const TOP_K_PAPERS = 10;
 
 /**
- * 对抗投票计票。infra 失败（null 票）与被否决严格分开：
- * 有效票不足 2 → unverified（候选保持 seen 下期重评）；
- * 反驳票 ≥ 2 → rejected；否则 pass。
+ * 含并列 top-K：取「score ≥ 第 k 名 score」的全部论文。
+ * 必须含并列——实测 review 分大量并列（8 篇挤 88 分），硬 K 切线的 tie-break
+ * 是随机序，会让入选集在重跑间抖动（#72 E6：Jaccard 仅 0.72）。
  */
-export function tallyVotes(votes: Array<VerifyVerdict | null>): VoteOutcome {
-  const valid = votes.filter((v): v is VerifyVerdict => v !== null);
-  const refuted = valid.filter((v) => v.refuted).length;
-  if (refuted >= 2) return "rejected";
-  if (valid.length < 2) return "unverified";
-  return "pass";
+export function selectTopPapers(
+  papers: ReviewedCandidate[],
+  k: number,
+): ReviewedCandidate[] {
+  if (papers.length <= k) return [...papers];
+  const sorted = [...papers].sort((a, b) => b.review.score - a.review.score);
+  const threshold = sorted[k - 1].review.score;
+  return sorted.filter((p) => p.review.score >= threshold);
+}
+
+const normalizeForMatch = (s: string) =>
+  s
+    .toLowerCase()
+    // 直引号用于缩写（don't），保留；弯双引号是包裹引用的装饰符，随其余
+    // 标点一起在下一步被剥离——否则残留的引号字符会让「原文无引号」的
+    // 逐字引用永远不命中。
+    .replace(/[‘’]/g, "'")
+    .replace(/[^a-z0-9' ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * noveltyQuote 是否「逐字」出自全文。规范化后先整段 substring；未中则 8 词滑窗
+ * （步长 4）命中率 ≥70% 判 true——review 合法引文常含省略号拼接或公式转码差异
+ * （#72 实测 74 份：51 精确 + 19 滑窗命中 + 4 公式 miss，零捏造）。
+ */
+export function quoteAppearsInText(quote: string, text: string): boolean {
+  const q = normalizeForMatch(quote);
+  if (!q) return false;
+  const t = normalizeForMatch(text);
+  if (t.includes(q)) return true;
+  const words = q.split(" ");
+  if (words.length < 8) return false;
+  let hit = 0;
+  let total = 0;
+  for (let i = 0; i + 8 <= words.length; i += 4) {
+    total++;
+    if (t.includes(words.slice(i, i + 8).join(" "))) hit++;
+  }
+  return total > 0 && hit / total >= 0.7;
 }

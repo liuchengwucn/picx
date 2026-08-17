@@ -5,9 +5,10 @@ import {
   mergeCandidates,
   PAPER_REVIEW_BUDGET,
   partitionCandidates,
-  tallyVotes,
+  quoteAppearsInText,
+  selectTopPapers,
 } from "./candidates";
-import type { CandidateItem } from "./types";
+import type { CandidateItem, ReviewedCandidate } from "./types";
 
 function paper(url: string, extra: Partial<CandidateItem> = {}): CandidateItem {
   return {
@@ -118,20 +119,63 @@ describe("partitionCandidates", () => {
   });
 });
 
-describe("tallyVotes", () => {
-  const yes = { refuted: false, evidence: "" };
-  const no = { refuted: true, evidence: "" };
-  it("passes with majority non-refuted", () => {
-    expect(tallyVotes([yes, yes, no])).toBe("pass");
+const rc = (url: string, score: number): ReviewedCandidate => ({
+  item: { canonicalUrl: url, title: url, kind: "paper", sourceLabel: "t" },
+  review: {
+    novelty: "",
+    noveltyQuote: "",
+    relevance: 0,
+    recommendation: "",
+    score,
+  },
+});
+
+describe("selectTopPapers", () => {
+  it("returns all when fewer than k", () => {
+    expect(selectTopPapers([rc("a", 90), rc("b", 80)], 10)).toHaveLength(2);
   });
-  it("rejects with 2+ refutations", () => {
-    expect(tallyVotes([no, no, yes])).toBe("rejected");
+  it("includes ties at the boundary", () => {
+    const papers = [rc("a", 90), rc("b", 88), rc("c", 88), rc("d", 85)];
+    const top = selectTopPapers(papers, 2);
+    expect(top.map((p) => p.item.canonicalUrl).sort()).toEqual(["a", "b", "c"]);
   });
-  it("returns unverified when too few valid votes", () => {
-    expect(tallyVotes([yes, null, null])).toBe("unverified");
-    expect(tallyVotes([null, null, null])).toBe("unverified");
+  it("sorts descending by score", () => {
+    const top = selectTopPapers(
+      [rc("low", 60), rc("hi", 90), rc("mid", 70)],
+      2,
+    );
+    expect(top[0].item.canonicalUrl).toBe("hi");
   });
-  it("still rejects on 2 refutations even with errored third vote", () => {
-    expect(tallyVotes([no, no, null])).toBe("rejected");
+});
+
+describe("quoteAppearsInText", () => {
+  const text =
+    "We propose DarwinX, a framework that searches the harness rather than whole-agent code, " +
+    "admits a child only under a preserve-and-extend contract that bounds regression, " +
+    "and recombines complementary specialists across lineages for four benchmarks, " +
+    "evaluated on SWE-bench, AgentBench, WebArena, and a held-out internal suite.";
+  it("matches verbatim quotes despite punctuation and curly quotes", () => {
+    expect(
+      quoteAppearsInText(
+        "searches the “harness” rather than whole-agent code",
+        text,
+      ),
+    ).toBe(true);
+  });
+  it("matches ellipsis-joined segments via sliding windows", () => {
+    const q =
+      "searches the harness rather than whole-agent code, admits a child only under a preserve-and-extend contract ... recombines complementary specialists across lineages for four benchmarks, evaluated on SWE-bench, AgentBench, WebArena, and a held-out internal suite.";
+    expect(quoteAppearsInText(q, text)).toBe(true);
+  });
+  it("rejects fabricated quotes", () => {
+    expect(
+      quoteAppearsInText(
+        "this method achieves state of the art results on every benchmark we tested against",
+        text,
+      ),
+    ).toBe(false);
+  });
+  it("rejects empty quote", () => {
+    expect(quoteAppearsInText("", text)).toBe(false);
   });
 });

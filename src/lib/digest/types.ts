@@ -64,14 +64,22 @@ export interface CandidateReview {
   score: number; // 0-100 综合
 }
 
-export interface VerifyVerdict {
-  refuted: boolean;
-  evidence: string;
+/** 参谋标注（#69/#72 校准实验定稿）：结构化风险检查结果，只供 synthesize 参考，无否决权 */
+export interface RiskAnnotation {
+  /** 引文与 novelty 断言不同主题（逐字存在性由代码另行核验，此处只判主题相关性） */
+  quoteTopicalFail: boolean;
+  marketingFail: boolean;
+  focusFail: boolean;
+  /** 仅当 novelty 明确对位某 prior pick 且对不上号；引用外部文献永不触发 */
+  priorPickFail: boolean;
+  note: string;
 }
 
 export interface ReviewedCandidate {
   item: CandidateItem;
   review: CandidateReview;
+  /** noveltyQuote 是否逐字（规范化+滑窗）出自全文；无全文时 undefined=无法核验 */
+  quoteVerified?: boolean;
 }
 
 export interface SynthesisPick {
