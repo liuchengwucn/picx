@@ -9,6 +9,7 @@ import {
 } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import {
+  annotateCandidate,
   fetchFullText,
   RELEVANCE_THRESHOLD,
   reviewCandidate,
@@ -17,13 +18,13 @@ import {
   searchAngle,
   synthesizeDigest,
   translateDigest,
-  verifyCandidate,
 } from "#/lib/digest/ai";
 import {
   mergeCandidates,
   partitionCandidates,
-  tallyVotes,
-  type VoteOutcome,
+  quoteAppearsInText,
+  selectTopPapers,
+  TOP_K_PAPERS,
 } from "#/lib/digest/candidates";
 import { enrichAuthorSignals } from "#/lib/digest/enrich";
 import { cheapModel, strongModel } from "#/lib/digest/llm";
@@ -48,6 +49,7 @@ import type {
   AuthorSignal,
   CandidateItem,
   ReviewedCandidate,
+  RiskAnnotation,
   SynthesisResult,
 } from "#/lib/digest/types";
 import { submitIndexNow } from "#/lib/indexnow";
@@ -76,8 +78,7 @@ const LLM_RETRIES = {
   },
   timeout: "5 minutes" as const,
 };
-const VOTES = 3;
-/** 精读分数过线才进对抗验证 */
+/** 精读分数过线才进 top-K 选材 */
 const REVIEW_PASS_SCORE = 55;
 /** 论文处理等待：18 轮 × 10 分钟 = 最多 3 小时后兜底发布 */
 const PUBLISH_POLL_ROUNDS = 18;
@@ -425,7 +426,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
               .do(
                 `review-${i}-${item.canonicalUrl.slice(-60)}`,
                 LLM_RETRIES,
-                async () => {
+                async (): Promise<ReviewedCandidate> => {
                   const fullText =
                     item.kind === "paper"
                       ? await fetchFullText(item.canonicalUrl)
@@ -437,6 +438,11 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     fullText,
                     item.kind === "paper" ? ctx.history.pastPicks : [],
                   );
+                  // quote 逐字核验必须在全文仍在作用域时做（fullText 不落库）
+                  const quoteVerified =
+                    item.kind === "paper" && fullText
+                      ? quoteAppearsInText(review.noveltyQuote, fullText)
+                      : undefined;
                   await updateCandidateStatus(
                     db,
                     directionId,
@@ -445,7 +451,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                       score: review.score,
                     },
                   );
-                  return { item, review } satisfies ReviewedCandidate;
+                  return { item, review, quoteVerified };
                 },
               )
               .catch((e) => {
@@ -467,62 +473,48 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       );
       const intelCandidates = reviewed.filter((r) => r.item.kind === "intel");
 
-      // ── 7. 对抗验证（每篇一个 step，step 内 3 票）──
-      // 同上：step 名用全局序号保证唯一，URL 尾 60 字符仅供可读性。
-      const verdicts: Array<{ r: ReviewedCandidate; outcome: VoteOutcome }> =
-        [];
-      const indexedPaperCandidates = paperCandidates.map((r, i) => ({ r, i }));
-      for (const batch of chunk(indexedPaperCandidates, 4)) {
+      // ── 7. top-K 选材 + 参谋标注（#69/#72 校准：标注只参谋，不否决、不写状态）──
+      // 未进 top-K 的论文保持 seen，下期可再战；rejected 不再由本流程写入。
+      const topPapers = selectTopPapers(paperCandidates, TOP_K_PAPERS);
+      const todayIso = periodEnd.toISOString().slice(0, 10);
+      const annotated: Array<
+        ReviewedCandidate & { annotation: RiskAnnotation | null }
+      > = [];
+      const indexedTop = topPapers.map((r, i) => ({ r, i }));
+      for (const batch of chunk(indexedTop, 4)) {
         const results = await Promise.all(
           batch.map(({ r, i }) =>
             step
               .do(
-                `verify-${i}-${r.item.canonicalUrl.slice(-60)}`,
+                `annotate-${i}-${r.item.canonicalUrl.slice(-60)}`,
                 LLM_RETRIES,
-                async () => {
-                  const votes = await Promise.all(
-                    Array.from({ length: VOTES }, (_, v) =>
-                      verifyCandidate(
-                        cheapModel(env),
-                        ctx.direction.focusBrief,
-                        r,
-                        v,
-                        ctx.history.pastPicks,
-                      ).catch(() => null),
-                    ),
-                  );
-                  const outcome = tallyVotes(votes);
-                  if (outcome === "unverified") {
-                    // 有效票 <2 全是 infra 失败（单票 catch 是静默的）——必须留痕，
-                    // 否则限流吃掉高分候选时监控完全看不见（2026-08-10 实跑教训）
-                    console.warn(
-                      `[Digest] verify ${r.item.canonicalUrl}: <2 valid votes (infra failure), kept seen for next issue`,
-                    );
-                  }
-                  if (outcome === "rejected") {
-                    await updateCandidateStatus(
-                      db,
-                      directionId,
-                      r.item.canonicalUrl,
-                      {
-                        status: "rejected",
-                      },
-                    );
-                  }
-                  // unverified 保持 seen，下期重评（infra 失败 ≠ 否决）
-                  return outcome;
-                },
+                () =>
+                  annotateCandidate(
+                    cheapModel(env),
+                    ctx.direction.focusBrief,
+                    r,
+                    ctx.history.pastPicks,
+                    todayIso,
+                  ),
               )
-              .then((outcome) => ({ r, outcome })),
+              .then((annotation) => ({ ...r, annotation }))
+              .catch((e) => {
+                // 标注失败不阻塞出刊：降级为 unchecked
+                console.warn(
+                  `[Digest] annotate failed ${r.item.canonicalUrl}, continuing unchecked:`,
+                  e,
+                );
+                return { ...r, annotation: null };
+              }),
           ),
         );
-        verdicts.push(...results);
+        annotated.push(...results);
       }
-      const passedPapers = verdicts.filter((v) => v.outcome === "pass");
-      // 通过率观测：首跑只有 merged= 聚合行，精读/验证各段通过率完全算不出来（#64 盲点）。
-      // 位于 step 外，休眠重放会重复打印——只是观测行，可接受。
+      // 通过率观测（step 外，休眠重放会重复打印——只是观测行，可接受）
+      const flagCount = (f: (a: RiskAnnotation) => boolean) =>
+        annotated.filter((p) => p.annotation && f(p.annotation)).length;
       console.log(
-        `[Digest] ${ctx.direction.slug}: reviewed=${reviewed.length} paperPassedReview=${paperCandidates.length}/${reviewed.length - intelCandidates.length} verifyPass=${passedPapers.length} rejected=${verdicts.filter((v) => v.outcome === "rejected").length} unverified=${verdicts.filter((v) => v.outcome === "unverified").length} intel=${intelCandidates.length}`,
+        `[Digest] ${ctx.direction.slug}: reviewed=${reviewed.length} paperPassedReview=${paperCandidates.length}/${reviewed.length - intelCandidates.length} topK=${annotated.length} (threshold=${annotated.length ? Math.min(...annotated.map((p) => p.review.score)) : "-"}) flags: quote=${flagCount((a) => a.quoteTopicalFail)} marketing=${flagCount((a) => a.marketingFail)} focus=${flagCount((a) => a.focusFail)} prior=${flagCount((a) => a.priorPickFail)} unchecked=${annotated.filter((p) => !p.annotation).length} intel=${intelCandidates.length}`,
       );
 
       // ── 8. 定稿（强模型）──
@@ -551,10 +543,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     body: ctx.history.lastIssueBody,
                   }
                 : null,
-            papers: passedPapers.map((v) => ({
-              ...v.r,
-              voteOutcome: v.outcome,
-            })),
+            papers: annotated,
             intel: intelCandidates,
           }),
       );
@@ -586,8 +575,18 @@ export class DigestWorkflow extends WorkflowEntrypoint<
 
       // ── 10. 落库：论文入 gallery 管线 + digest 内容 ──
       const finalize = await step.do("finalize", async () => {
+        // #70：picks 必须 ∈ 本期供给集。首期实测 synthesize 在供给枯竭时会把 intel
+        // URL 当 picks（产出 11 条非 arXiv 垃圾 gallery papers），越界一律丢弃并留痕。
+        const suppliedUrls = new Set(annotated.map((p) => p.item.canonicalUrl));
+        const validPicks = synthesis.picks.filter((pick) => {
+          if (suppliedUrls.has(pick.canonicalUrl)) return true;
+          console.warn(
+            `[Digest] pick outside supplied papers, dropped: ${pick.canonicalUrl}`,
+          );
+          return false;
+        });
         const notesByUrl = new Map<string, Record<string, string>>();
-        for (const pick of synthesis.picks) {
+        for (const pick of validPicks) {
           notesByUrl.set(
             pick.canonicalUrl,
             Object.fromEntries(
@@ -605,7 +604,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           directionId,
           directionSlug: ctx.direction.slug,
           issueNumber: shell.issueNumber,
-          picks: synthesis.picks,
+          picks: validPicks,
           reviewedByUrl,
           notesByUrl,
         });
