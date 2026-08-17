@@ -28,7 +28,6 @@ import {
   SelectValue,
 } from "#/components/ui/select";
 import { Switch } from "#/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { useTRPC } from "#/integrations/trpc/react";
 import { canonicalArxivUrl, isArxivLink } from "#/lib/arxiv";
 import { authClient, startGitHubSignIn } from "#/lib/auth-client";
@@ -267,7 +266,7 @@ interface UploadOptionsProps
 }
 
 /**
- * 上传选项区。文件 / 链接两个 tab 的选项完全一致,抽出来免得两份 JSX 只改一半。
+ * 上传选项区。文件与链接两条路径共用同一份选项,与用哪条路径无关。
  *
  * 只有「同时生成白板图」留在外层:它是唯一影响计费的开关,也决定折叠区里
  * 白板图语言、提示词模板还有没有意义。语言选择进折叠区 —— 默认值(摘要跟随
@@ -363,6 +362,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const [fileError, setFileError] = useState<string | null>(null);
   const [linkUrl, setLinkUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [generateWhiteboard, setGenerateWhiteboard] = useState(false);
   const [summaryLanguage, setSummaryLanguage] = useState<
     "en" | "zh-CN" | "zh-TW" | "ja"
@@ -378,6 +378,8 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     string | null | undefined
   >(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // dragleave 在拖过子元素时也会触发,不计数遮罩会频闪。
+  const dragDepth = useRef(0);
   const trpc = useTRPC();
   const { data: session } = authClient.useSession();
   const effectiveSession =
@@ -427,6 +429,14 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   }, [prompts]);
 
   const createPaper = useMutation(trpc.paper.create.mutationOptions());
+
+  // 文件与链接是「这一次要处理什么」,提交成功或关窗都该清掉;
+  // 选项(白板开关 / 语言 / API / 提示词)是偏好,不重置。
+  const resetInputs = useCallback(() => {
+    setFile(null);
+    setFileError(null);
+    setLinkUrl("");
+  }, []);
 
   // 文件上传与链接导入的公共尾段：字节进 R2 → 建论文记录。
   // 抛错交给调用方统一 toast，本函数不碰对话框状态。
@@ -491,7 +501,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     try {
       await uploadPdfAndCreate(file);
       setOpen(false);
-      setFile(null);
+      resetInputs();
       onSuccess?.();
     } catch (e) {
       console.error("Upload failed:", e);
@@ -500,7 +510,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     } finally {
       setUploading(false);
     }
-  }, [file, isReadOnlyGuest, onSuccess, uploadPdfAndCreate]);
+  }, [file, isReadOnlyGuest, onSuccess, resetInputs, uploadPdfAndCreate]);
 
   // 通用 PDF 链接：服务端代抓字节（浏览器受 CORS 限制拿不到跨域 PDF），
   // 再走与本地文件完全相同的上传链路。
@@ -574,7 +584,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
         await importFromLink(raw);
       }
       setOpen(false);
-      setLinkUrl("");
+      resetInputs();
       onSuccess?.();
     } catch (e) {
       console.error("Link import failed:", e);
@@ -588,6 +598,7 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     importFromLink,
     isReadOnlyGuest,
     onSuccess,
+    resetInputs,
     summaryLanguage,
     whiteboardLanguage,
     apiSource,
@@ -600,30 +611,77 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   const willCharge = generateWhiteboard && apiSource === "system";
   const blockedByCredits = willCharge && insufficientCredits;
 
-  const handleDialogOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-  }, []);
+  const handleDialogOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (!nextOpen) {
+        resetInputs();
+        dragDepth.current = 0;
+        setDragActive(false);
+      }
+    },
+    [resetInputs],
+  );
 
+  // 互斥:两条输入路径同屏,谁被填上就清掉另一条。任何时刻至多一侧有值,
+  // 提交时因此不必猜走哪条路,也不用向用户解释「到底会提交哪个」。
   const handleFileSelect = useCallback((selected: File | null) => {
     if (!selected) {
       setFile(null);
       setFileError(null);
       return;
     }
+    // 有些系统给 PDF 的 MIME 是空串,只认 type 会把合法文件挡在门外。
+    const isPdf =
+      selected.type === "application/pdf" ||
+      selected.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) {
+      setFile(null);
+      setFileError(m.upload_err_not_pdf());
+      return;
+    }
     if (selected.size > MAX_FILE_BYTES) {
       setFile(null);
-      setFileError(m.upload_file_size_limit());
+      setFileError(m.upload_err_too_large());
       return;
     }
     setFile(selected);
     setFileError(null);
+    setLinkUrl("");
+  }, []);
+
+  const handleLinkChange = useCallback((value: string) => {
+    setLinkUrl(value);
+    if (value.trim()) {
+      setFile(null);
+      setFileError(null);
+    }
+  }, []);
+
+  // 整个对话框都收 drop:投递框之外还有选项区和按钮区,在那里松手会被浏览器
+  // 接管(直接新开标签打开 PDF),弹窗连同已填的选项一起没了。
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    dragDepth.current += 1;
+    setDragActive(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) {
+      setDragActive(false);
+    }
   }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      dragDepth.current = 0;
+      setDragActive(false);
       const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile?.type === "application/pdf") {
+      // 类型判断交给 handleFileSelect:静默丢弃会让遮罩的「松手以添加」失信。
+      if (droppedFile) {
         handleFileSelect(droppedFile);
       }
     },
@@ -631,8 +689,21 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
   );
 
   const openFilePicker = useCallback(() => {
-    fileInputRef.current?.click();
+    const input = fileInputRef.current;
+    if (!input) return;
+    // 清 value:不清的话再选同一个文件不会触发 change,「更换文件」看着像坏了。
+    input.value = "";
+    input.click();
   }, []);
+
+  const hasLink = linkUrl.trim().length > 0;
+  const handleSubmit = useCallback(() => {
+    if (file) {
+      void handleFileUpload();
+      return;
+    }
+    void handleLinkSubmit();
+  }, [file, handleFileUpload, handleLinkSubmit]);
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
@@ -642,170 +713,141 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
           {m.papers_upload()}
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[480px] rounded-3xl border-[var(--line)] bg-[var(--parchment)]">
+      <DialogContent
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+        className="sm:max-w-[480px] rounded-3xl border-[var(--line)] bg-[var(--parchment)]"
+      >
         <DialogHeader>
           <DialogTitle className="font-serif text-xl">
             {m.papers_upload()}
           </DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="file">
-          <TabsList className="w-full">
-            <TabsTrigger value="file" className="flex-1 gap-1.5">
-              <FileText className="h-4 w-4" />
-              {m.upload_file_title()}
-            </TabsTrigger>
-            <TabsTrigger value="link" className="flex-1 gap-1.5">
-              <LinkIcon className="h-4 w-4" />
-              {m.upload_link_title()}
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="file" className="mt-4">
-            <label
-              htmlFor={fileInputId}
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
-              className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--neutral-mid)] p-8 transition-colors hover:border-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/5"
-            >
-              {file ? (
-                <div className="text-center">
-                  <FileText className="mx-auto h-10 w-10 text-[var(--academic-brown)]" />
-                  <p className="mt-2 text-sm font-medium">{file.name}</p>
-                  <p className="text-xs text-[var(--ink-soft)]">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleFileSelect(null);
-                      openFilePicker();
-                    }}
-                    className="mt-2"
-                  >
-                    {m.upload_change_file()}
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <Upload className="h-10 w-10 text-[var(--neutral-mid)]" />
-                  <p className="mt-3 text-sm text-[var(--ink-soft)]">
-                    {m.upload_drag_hint()}
-                  </p>
-                  <span className="mt-2 cursor-pointer text-sm font-medium text-[var(--academic-brown)] hover:underline">
-                    {m.upload_select_file()}
-                  </span>
-                  <input
-                    ref={fileInputRef}
-                    id={fileInputId}
-                    type="file"
-                    accept=".pdf"
-                    className="hidden"
-                    onChange={(e) =>
-                      handleFileSelect(e.target.files?.[0] || null)
-                    }
-                  />
-                  <p className="mt-1 text-xs text-[var(--neutral-mid)]">
-                    {m.upload_file_size_limit()}
-                  </p>
-                </>
-              )}
-            </label>
-            {fileError && (
-              <p className="mt-2 text-center text-xs text-[var(--sienna)]">
-                {fileError}
-              </p>
+        <div>
+          <label
+            htmlFor={fileInputId}
+            className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--neutral-mid)] p-6 transition-colors hover:border-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/5"
+          >
+            {file ? (
+              <div className="text-center">
+                <FileText className="mx-auto h-10 w-10 text-[var(--academic-brown)]" />
+                <p className="mt-2 text-sm font-medium">{file.name}</p>
+                <p className="text-xs text-[var(--ink-soft)]">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // 不预先清空:选择器一取消,原文件就该还在。
+                    openFilePicker();
+                  }}
+                  className="mt-2"
+                >
+                  {m.upload_change_file()}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <Upload className="h-10 w-10 text-[var(--neutral-mid)]" />
+                <p className="mt-3 text-sm text-[var(--ink-soft)]">
+                  {m.upload_drag_hint()}
+                </p>
+                <p className="mt-1 text-xs text-[var(--neutral-mid)]">
+                  {m.upload_file_size_limit()}
+                </p>
+              </>
             )}
-            <UploadOptions
-              generateWhiteboard={generateWhiteboard}
-              onGenerateWhiteboardChange={setGenerateWhiteboard}
-              credits={credits}
-              willCharge={willCharge}
-              summaryLanguage={summaryLanguage}
-              whiteboardLanguage={whiteboardLanguage}
-              showWhiteboardLanguage={generateWhiteboard}
-              onSummaryLanguageChange={setSummaryLanguage}
-              onWhiteboardLanguageChange={setWhiteboardLanguage}
-              apiSource={apiSource}
-              selectedApiConfigId={selectedApiConfigId}
-              apiConfigs={apiConfigs}
-              onApiSourceChange={setApiSource}
-              onApiConfigChange={setSelectedApiConfigId}
-              selectedPromptId={selectedPromptId}
-              prompts={prompts}
-              onPromptChange={setSelectedPromptId}
+            {/* 常驻渲染:塞进空态分支的话,「更换文件」点下去时它已经卸载,
+                openFilePicker 拿到 null,文件选择器根本不弹。 */}
+            <input
+              ref={fileInputRef}
+              id={fileInputId}
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
             />
-            <Button
-              onClick={handleFileUpload}
-              disabled={
-                !file ||
-                uploading ||
-                blockedByCredits ||
-                (apiSource === "user" && !selectedApiConfigId)
-              }
-              className="mt-3 w-full bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
-            >
-              {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {m.upload_start()}
-            </Button>
-            {blockedByCredits && (
-              <p className="mt-2 text-center text-xs text-[var(--sienna)]">
-                {m.error_insufficient_credits()}
-              </p>
-            )}
-          </TabsContent>
+          </label>
+          {fileError && (
+            <p className="mt-2 text-center text-xs text-[var(--sienna)]">
+              {fileError}
+            </p>
+          )}
 
-          <TabsContent value="link" className="mt-4">
+          <div className="my-3 flex items-center gap-3">
+            <span className="h-px flex-1 bg-[var(--line)]" />
+            <span className="text-xs text-[var(--ink-soft)]">
+              {m.upload_or()}
+            </span>
+            <span className="h-px flex-1 bg-[var(--line)]" />
+          </div>
+
+          <div className="relative">
+            <LinkIcon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[var(--neutral-mid)]" />
             <Input
+              aria-label={m.upload_link_label()}
               placeholder={m.upload_link_placeholder()}
               value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
-              className="border-[var(--line)]"
+              onChange={(e) => handleLinkChange(e.target.value)}
+              className="border-[var(--line)] pl-9"
             />
-            <p className="mt-2 text-xs text-[var(--ink-soft)]">
-              {m.upload_link_hint()}
+          </div>
+          <p className="mt-2 text-xs text-[var(--ink-soft)]">
+            {m.upload_link_hint()}
+          </p>
+
+          <UploadOptions
+            generateWhiteboard={generateWhiteboard}
+            onGenerateWhiteboardChange={setGenerateWhiteboard}
+            credits={credits}
+            willCharge={willCharge}
+            summaryLanguage={summaryLanguage}
+            whiteboardLanguage={whiteboardLanguage}
+            showWhiteboardLanguage={generateWhiteboard}
+            onSummaryLanguageChange={setSummaryLanguage}
+            onWhiteboardLanguageChange={setWhiteboardLanguage}
+            apiSource={apiSource}
+            selectedApiConfigId={selectedApiConfigId}
+            apiConfigs={apiConfigs}
+            onApiSourceChange={setApiSource}
+            onApiConfigChange={setSelectedApiConfigId}
+            selectedPromptId={selectedPromptId}
+            prompts={prompts}
+            onPromptChange={setSelectedPromptId}
+          />
+          <Button
+            onClick={handleSubmit}
+            disabled={
+              (!file && !hasLink) ||
+              uploading ||
+              blockedByCredits ||
+              (apiSource === "user" && !selectedApiConfigId)
+            }
+            className="mt-3 w-full bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
+          >
+            {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {m.upload_start()}
+          </Button>
+          {blockedByCredits && (
+            <p className="mt-2 text-center text-xs text-[var(--sienna)]">
+              {m.error_insufficient_credits()}
             </p>
-            <UploadOptions
-              generateWhiteboard={generateWhiteboard}
-              onGenerateWhiteboardChange={setGenerateWhiteboard}
-              credits={credits}
-              willCharge={willCharge}
-              summaryLanguage={summaryLanguage}
-              whiteboardLanguage={whiteboardLanguage}
-              showWhiteboardLanguage={generateWhiteboard}
-              onSummaryLanguageChange={setSummaryLanguage}
-              onWhiteboardLanguageChange={setWhiteboardLanguage}
-              apiSource={apiSource}
-              selectedApiConfigId={selectedApiConfigId}
-              apiConfigs={apiConfigs}
-              onApiSourceChange={setApiSource}
-              onApiConfigChange={setSelectedApiConfigId}
-              selectedPromptId={selectedPromptId}
-              prompts={prompts}
-              onPromptChange={setSelectedPromptId}
-            />
-            <Button
-              onClick={handleLinkSubmit}
-              disabled={
-                !linkUrl.trim() ||
-                uploading ||
-                blockedByCredits ||
-                (apiSource === "user" && !selectedApiConfigId)
-              }
-              className="mt-3 w-full bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
-            >
-              {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {m.upload_start()}
-            </Button>
-            {blockedByCredits && (
-              <p className="mt-2 text-center text-xs text-[var(--sienna)]">
-                {m.error_insufficient_credits()}
-              </p>
-            )}
-          </TabsContent>
-        </Tabs>
+          )}
+        </div>
+
+        {dragActive && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-3xl border-2 border-[var(--academic-brown)] bg-[var(--parchment)]/95">
+            <Upload className="h-8 w-8 text-[var(--academic-brown)]" />
+            <p className="text-sm font-medium text-[var(--academic-brown)]">
+              {m.upload_drop_overlay()}
+            </p>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
