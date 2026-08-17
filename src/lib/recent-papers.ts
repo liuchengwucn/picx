@@ -1,5 +1,9 @@
 /**
- * 「最近打开」的本地记录。刻意不落库:
+ * 「最近打开」的本地记录。只收自己的论文 —— 这三张卡是 /papers(自己的论文列表)
+ * 的快捷入口,画廊里别人的论文混进来会让它变成一份来路不明的浏览历史。
+ * 归属判断在写入侧(见 routes/p/$shortId.tsx),这里只管存取。
+ *
+ * 刻意不落库:
  * 让用户维护阅读进度是额外心智负担,而「我刚才在这台机器上读什么」这个场景
  * 本来也不需要跨设备同步。
  *
@@ -8,7 +12,12 @@
  * 不变,可接受。
  */
 
-export const RECENT_PAPERS_KEY = "picx:recent-papers";
+export const RECENT_PAPERS_KEY = "picx:recent-papers:v2";
+/**
+ * v1 记过任何打开过的论文（含画廊里别人的）。那些记录里没有归属信息，事后没法
+ * 筛；而改成只记自己的论文之后，也不再有新记录去把它们挤掉。整体作废最干净。
+ */
+const RECENT_PAPERS_LEGACY_KEY = "picx:recent-papers";
 export const RECENT_PAPERS_LIMIT = 3;
 
 export interface RecentPaper {
@@ -71,6 +80,7 @@ export function pushRecentPaper(entry: RecentPaper): void {
   try {
     const next = addRecentPaper(readRecentPapers(), entry);
     window.localStorage.setItem(RECENT_PAPERS_KEY, JSON.stringify(next));
+    window.localStorage.removeItem(RECENT_PAPERS_LEGACY_KEY);
   } catch {
     // 写不进去就算了,这是纯增强功能
   }

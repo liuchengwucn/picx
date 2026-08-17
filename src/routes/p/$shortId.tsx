@@ -801,9 +801,14 @@ function PaperDetailPage() {
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
 
-  // 「最近打开」只在论文真的取到了才记；失败 / 404 不该污染列表页那三张卡。
-  const recentShortId = data?.paper?.shortId;
-  const recentTitle = data?.paper?.title;
+  // 「最近打开」只记自己的论文：那三张卡是 /papers 列表的快捷入口，画廊里别人的
+  // 论文混进去会把它变成一份来路不明的浏览历史。profile 是异步的，首帧还没拿到
+  // id 时先不记，等它到达后这个 effect 会自己重跑补上。
+  // 也只在论文真的取到了才记；失败 / 404 同样不该污染那三张卡。
+  const viewerId = profile.data?.id;
+  const isOwnPaper = !!viewerId && data?.paper?.userId === viewerId;
+  const recentShortId = isOwnPaper ? data?.paper?.shortId : undefined;
+  const recentTitle = isOwnPaper ? data?.paper?.title : undefined;
   useEffect(() => {
     if (!recentShortId || !recentTitle) return;
     pushRecentPaper({
