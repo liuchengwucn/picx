@@ -1,6 +1,8 @@
 import { and, desc, eq, gte, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
+  digestPapers,
+  digests,
   paperResults,
   papers,
   tweetQueue,
@@ -14,7 +16,12 @@ import {
 } from "#/lib/telegram-client";
 import { pickTldr } from "#/lib/tldr";
 import { renderWhiteboardImage } from "#/lib/whiteboard-render";
-import { capCandidates, RECENT_WINDOW_HOURS } from "#/lib/x-candidate";
+import {
+  capCandidates,
+  DIGEST_WINDOW_DAYS,
+  RECENT_WINDOW_HOURS,
+  selectDigestCandidates,
+} from "#/lib/x-candidate";
 import {
   buildReplyText,
   buildTweetCaption,
@@ -91,10 +98,12 @@ export default {
       return;
     }
 
-    // 取全表投递记录仅用于统计今日已发数；去重放在候选查询的子查询里。
+    // 取全表投递记录：用于统计今日已发数，也用于 digest 候选的 JS 侧去重
+    // （error 行 sentAt 为 NULL 但同样占用 paperId，Set 包含它们正是现状语义）。
     const seen = await db
-      .select({ sentAt: tweetQueue.sentAt })
+      .select({ paperId: tweetQueue.paperId, sentAt: tweetQueue.sentAt })
       .from(tweetQueue);
+    const sentPaperIds = new Set(seen.map((r) => r.paperId));
 
     const sinceMs = recentSinceMs(now, RECENT_WINDOW_HOURS);
 
@@ -150,10 +159,91 @@ export default {
       .orderBy(desc(papers.upvotes));
 
     const normalized = rows.map((r) => ({ ...r, upvotes: r.upvotes ?? 0 }));
-    const [selected] = capCandidates(normalized); // 防洪护栏三：cap=1，取 top-1
+    const [hfTop] = capCandidates(normalized); // 防洪护栏三：cap=1，取 top-1
+
+    // 候选统一形状：note 为编辑推荐语，仅 digest 来源有；HF 来源恒 undefined。
+    let selected:
+      | {
+          id: string;
+          shortId: string;
+          tldr: (typeof normalized)[number]["tldr"];
+          summaries: (typeof normalized)[number]["summaries"];
+          categories: (typeof normalized)[number]["categories"];
+          note?: string;
+        }
+      | undefined = hfTop;
+
+    // 第二级回退：HF 无候选时取近 DIGEST_WINDOW_DAYS 天 published 期的 picks。
+    // 去重不用 SQL 子查询而在 JS 过 sentPaperIds：tweet_queue 全表本来就已读入。
+    let digestCounts: { picksInWindow: number; unsent: number } | undefined;
+    if (!selected) {
+      const windowStart = new Date(now - DIGEST_WINDOW_DAYS * 86_400_000);
+      const pickRows = await db
+        .select({
+          id: papers.id,
+          shortId: papers.shortId,
+          rank: digestPapers.rank,
+          digestPublishedAt: digests.publishedAt,
+          recommendationNote: digestPapers.recommendationNote,
+          tldr: paperResults.tldr,
+          summaries: paperResults.summaries,
+          categories: paperResults.categories,
+        })
+        .from(digestPapers)
+        .innerJoin(digests, eq(digestPapers.digestId, digests.id))
+        .innerJoin(papers, eq(digestPapers.paperId, papers.id))
+        .innerJoin(
+          whiteboardImages,
+          and(
+            eq(papers.id, whiteboardImages.paperId),
+            eq(whiteboardImages.isDefault, true),
+          ),
+        )
+        .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
+        .where(
+          and(
+            eq(digests.status, "published"),
+            gte(digests.publishedAt, windowStart),
+            eq(papers.userId, GUEST_USER_ID),
+            eq(papers.isPublic, true),
+            eq(papers.isListedInGallery, true),
+            eq(papers.status, "completed"),
+            isNull(papers.deletedAt),
+          ),
+        );
+
+      const unsent = selectDigestCandidates(
+        pickRows
+          .filter((r) => !sentPaperIds.has(r.id))
+          .map((r) => ({
+            ...r,
+            paperId: r.id,
+            // where 里的 gte 已滤掉 NULL，?? 0 仅为类型收窄
+            digestPublishedAtMs: r.digestPublishedAt?.getTime() ?? 0,
+          })),
+      );
+      digestCounts = { picksInWindow: pickRows.length, unsent: unsent.length };
+
+      const top = unsent[0]; // 排序后取 top-1，护栏三对两级统一
+      if (top) {
+        selected = {
+          id: top.id,
+          shortId: top.shortId,
+          tldr: top.tldr,
+          summaries: top.summaries,
+          categories: top.categories,
+          note: top.recommendationNote?.en,
+        };
+      }
+    }
 
     if (!selected) {
       console.log("[TweetPoster] no candidate");
+      await notify(
+        tg,
+        null,
+        `⚠️ 今日无发推候选：HF=0，digest 窗口 picks=${digestCounts?.picksInWindow ?? 0}，未发=${digestCounts?.unsent ?? 0}`,
+      );
       return;
     }
 
@@ -161,8 +251,13 @@ export default {
     // 避免发出空正文推文——与 gallery 的读时兜底保持一致。
     const tldrText = pickTldr(selected.tldr, "en");
     const summaryText = pickTldr(selected.summaries, "en");
+    // digest 候选优先用编辑推荐语（过一遍 summaryToTweetText 防 markdown 记号），
+    // 缺失回退论文自身 tldr → summary 链；HF 候选 note 恒空，路径不变。
+    const noteText = selected.note ? summaryToTweetText(selected.note) : "";
     const body =
-      tldrText ?? (summaryText ? summaryToTweetText(summaryText) : "");
+      noteText ||
+      tldrText ||
+      (summaryText ? summaryToTweetText(summaryText) : "");
     const categories = selected.categories ?? [];
     const caption = buildTweetCaption({ tldr: body, categories });
 
