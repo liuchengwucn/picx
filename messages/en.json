@@ -201,8 +201,6 @@
   "pdf_search_no_results": "No matches",
   "pdf_search_count": "{current} of {total}",
   "pdf_page_total": "of {total} pages",
-  "paper_share_title": "Share Publicly",
-  "paper_share_description": "Let other people access this paper, too.",
   "paper_share_button": "Share Publicly",
   "paper_share_requirement": "Paper must finish processing before public sharing",
   "paper_private_notice": "Only you can see this",
