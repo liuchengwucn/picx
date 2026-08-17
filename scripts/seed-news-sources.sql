@@ -93,3 +93,17 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   ('src-tri-dao',       'rss', 'Tri Dao',                      '{"url":"https://tridao.me/feed.xml"}', 1, 0, strftime('%s','now')),
   -- Import AI 是 Jack Clark 的周报（周更，20 篇/180 天），HN 漏抓 100%
   ('src-import-ai',     'rss', 'Import AI (Jack Clark)',       '{"url":"https://importai.substack.com/feed"}', 1, 0, strftime('%s','now'));
+
+-- 独立实验室第二批（2026-08-17）：这 4 家无官方 feed，走自建 RSSHub 自定义路由。
+-- 路由规格与实现坑见 docs/rsshub-routes-handoff-labs-2026-08.md，交付报告见
+-- docs/rsshub-routes-delivery-labs-2026-08.md。四条路由已用 fetchRsshub 实测通过
+-- （条目 20/20/20/10、配图 100%、链接全绝对、严格倒序、pubDate 非回退），verified 2026-08-17。
+-- 注意 Liquid AI 的 pubDate 取自文章页 datePublished 而非 sitemap lastmod——后者是「最后修改」，
+-- 用它会让老文被改动一次就重新掉回 72h 摄入窗口反复灌入（实测偏差 3-4 天）。
+INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive_failures, created_at) VALUES
+  ('src-prime-intellect', 'rsshub', 'Prime Intellect',  '{"route":"/primeintellect/blog"}', 1, 0, strftime('%s','now')),
+  ('src-goodfire',        'rsshub', 'Goodfire',         '{"route":"/goodfire/research"}', 1, 0, strftime('%s','now')),
+  ('src-liquid-ai',       'rsshub', 'Liquid AI',        '{"route":"/liquidai/blog"}', 1, 0, strftime('%s','now')),
+  -- Epoch 只做 /gradient-updates（长文分析）；/data-insights 是碎片数据卡片，/blog 与 /latest 是重复聚合页。
+  -- 该栏目分页无效（?page=2 返回首页内容），条目数上限 10，对 72h 窗口足够
+  ('src-epoch-ai',        'rsshub', 'Epoch AI',         '{"route":"/epochai/gradient-updates"}', 1, 0, strftime('%s','now'));
