@@ -67,3 +67,29 @@ INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive
   ('src-verge-ai',       'rss',    'The Verge AI',    '{"url":"https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"}', 1, 0, strftime('%s','now')),
   -- 晚点：RSSHub 官方路由（非自建自定义路由），feed 仅 5 条、日更 2-5 篇，小时级 cron 足够覆盖
   ('src-latepost',       'rsshub', '晚点 LatePost',   '{"route":"/latepost"}', 1, 0, strftime('%s','now'));
+
+-- 独立 AI 实验室 / 研究机构（2026-08-17 补）。立项背景见 docs/rsshub-routes-handoff-labs-2026-08.md：
+-- 起因是 Prime Intellect 的 measuring-autonomous-research 零捕获。调研 60+ 候选后的核心结论是
+-- 这类实验室的技术文章在 HN 上分数中位数只有 2-3 分，现有 HN 源（minPoints=40）对它们的漏抓率
+-- 达 85-100%（连已收录的 Interconnects 都漏 97%），只能靠直接订阅源站覆盖。
+-- 以下 10 个均有官方 feed，已用 src/lib/news/adapters/rss.ts 的 fetchFeed 实测通过
+-- （解析成功、条目数 >0、pubDate 真实且非「全部为今天」的回退症状），verified 2026-08-17。
+-- 无官方 feed 的另 4 个（Prime Intellect / Goodfire / Liquid AI / Epoch AI）走自建 RSSHub 路由，
+-- 见上述 handoff 文档，路由交付后再补种子。
+INSERT OR IGNORE INTO news_sources (id, type, name, config, enabled, consecutive_failures, created_at) VALUES
+  -- 开放模型/开源研究：Ai2 是 OLMo/Molmo 的家；EleutherAI 低频（近 180 天 2 篇）但每篇有分量
+  ('src-ai2-blog',      'rss', 'Ai2 (Allen Institute for AI)', '{"url":"https://allenai.org/rss.xml"}', 1, 0, strftime('%s','now')),
+  ('src-eleutherai',    'rss', 'EleutherAI',                   '{"url":"https://blog.eleuther.ai/index.xml"}', 1, 0, strftime('%s','now')),
+  -- 评测/安全/可解释性：这批在 HN 上几乎完全沉底（METR 漏 89%、Palisade/ARC 近 100%）
+  ('src-metr',          'rss', 'METR',                         '{"url":"https://metr.org/feed.xml"}', 1, 0, strftime('%s','now')),
+  ('src-redwood',       'rss', 'Redwood Research',             '{"url":"https://blog.redwoodresearch.org/feed"}', 1, 0, strftime('%s','now')),
+  ('src-arc-prize',     'rss', 'ARC Prize',                    '{"url":"https://arcprize.org/feed.xml"}', 1, 0, strftime('%s','now')),
+  ('src-arc-alignment', 'rss', 'Alignment Research Center',    '{"url":"https://www.alignment.org/blog/rss/"}', 1, 0, strftime('%s','now')),
+  -- Palisade 的 feed 混有播客/募捐条目，靠相关性打分层过滤
+  ('src-palisade',      'rss', 'Palisade Research',            '{"url":"https://palisaderesearch.org/feed.xml"}', 1, 0, strftime('%s','now')),
+  -- 系统/推理：vLLM 是推理引擎事实标准；Tri Dao 个人博客首发 FlashAttention-4 / Mamba-3，
+  -- 近 24 个月只有 1 篇上过 HN（30 分），是「有影响力但流量小」的最典型样本
+  ('src-vllm',          'rss', 'vLLM Blog',                    '{"url":"https://vllm.ai/blog/rss.xml"}', 1, 0, strftime('%s','now')),
+  ('src-tri-dao',       'rss', 'Tri Dao',                      '{"url":"https://tridao.me/feed.xml"}', 1, 0, strftime('%s','now')),
+  -- Import AI 是 Jack Clark 的周报（周更，20 篇/180 天），HN 漏抓 100%
+  ('src-import-ai',     'rss', 'Import AI (Jack Clark)',       '{"url":"https://importai.substack.com/feed"}', 1, 0, strftime('%s','now'));

@@ -225,6 +225,13 @@
       "when": 1786717369649,
       "tag": "0031_graceful_wildside",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1786954636792,
+      "tag": "0032_add_lab_news_sources",
+      "breakpoints": true
     }
   ]
 }
