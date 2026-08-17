@@ -222,7 +222,11 @@ export default {
             digestPublishedAtMs: r.digestPublishedAt?.getTime() ?? 0,
           })),
       );
-      digestCounts = { picksInWindow: pickRows.length, unsent: unsent.length };
+      // 两个计数统一按论文数：join 行数会把入选多期的论文算多次，排障时误导。
+      digestCounts = {
+        picksInWindow: new Set(pickRows.map((r) => r.id)).size,
+        unsent: unsent.length,
+      };
 
       const top = unsent[0]; // 排序后取 top-1，护栏三对两级统一
       if (top) {

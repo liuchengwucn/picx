@@ -59,6 +59,18 @@ describe("selectDigestCandidates", () => {
     expect(selectDigestCandidates([])).toEqual([]);
   });
 
+  it("dedups then orders across mixed papers and issues", () => {
+    // worker 实际输入形状：多论文 × 多期（跨方向重复入选）混在一起。
+    const out = selectDigestCandidates([
+      row("a", 3, 100), // a 同时入选两期：rank 3 应被 rank 1 行淘汰
+      row("b", 1, 200),
+      row("a", 1, 100),
+      row("c", 2, 300),
+      row("b", 1, 100), // b 的旧刊行：同 rank 应被新刊行淘汰
+    ]);
+    expect(out).toEqual([row("b", 1, 200), row("a", 1, 100), row("c", 2, 300)]);
+  });
+
   it("preserves extra fields on rows", () => {
     const out = selectDigestCandidates([
       { ...row("a", 1, 100), note: "why it matters" },

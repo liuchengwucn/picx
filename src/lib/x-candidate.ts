@@ -22,7 +22,8 @@ export interface DigestCandidateRow {
 
 /**
  * digest picks 候选的去重与排序：
- * 同一论文被多期/多方向选中时保留 rank 最小的行（rank 相同保留出刊更新的行）；
+ * 同一论文被多期/多方向选中时保留 rank 最小的行（rank 相同保留出刊更新的行，
+ * 双双相同时保留任一行——只影响哪条推荐语存活，不作保证）；
  * 全序 rank ASC → 出刊时间 DESC → paperId ASC，保证确定性。
  * rank 是每期编辑排名：各方向的 rank-1 先发完才轮到 rank-2，天然做到方向轮转公平。
  */
