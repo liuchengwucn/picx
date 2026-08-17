@@ -205,6 +205,7 @@
   "paper_share_description": "Let other people access this paper, too.",
   "paper_share_button": "Share Publicly",
   "paper_share_requirement": "Paper must finish processing before public sharing",
+  "paper_private_notice": "Only you can see this",
   "paper_shared_notice": "This paper is publicly shared",
   "paper_copy_link": "Copy Link",
   "paper_link_copied": "Link Copied",

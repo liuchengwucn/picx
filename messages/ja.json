@@ -204,6 +204,7 @@
   "paper_share_description": "ほかの人もアクセスできるようにします。",
   "paper_share_button": "公開する",
   "paper_share_requirement": "公開共有するには処理が完了している必要があります",
+  "paper_private_notice": "自分のみ表示",
   "paper_shared_notice": "この論文は公開共有されています",
   "paper_copy_link": "リンクをコピー",
   "paper_link_copied": "リンクをコピーしました",

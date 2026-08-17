@@ -60,7 +60,7 @@ import {
 import { PaperStateCard } from "#/components/papers/paper-state-card";
 import { PublicBadge } from "#/components/papers/public-badge";
 import { RegenerateWhiteboardDialog } from "#/components/papers/regenerate-whiteboard-dialog";
-import { ShareBanner } from "#/components/papers/share-banner";
+import { ShareControls } from "#/components/papers/share-controls";
 import { ShareDialog } from "#/components/papers/share-dialog";
 import { WhiteboardGalleryDialog } from "#/components/papers/whiteboard-gallery-dialog";
 import {
@@ -954,20 +954,67 @@ function PaperDetailPage() {
           </span>
         </nav>
 
-        {/* Share Banner - only show to owner */}
-        {isOwner && (
-          <div>
-            <ShareBanner
-              paperId={paper.id}
-              shortId={paper.shortId ?? shortId}
-              isPublic={paper.isPublic}
-              // 白板是可选产物：没有白板也能公开（上架画廊才要求白板，见
-              // paper.toggleGalleryListing）。生成中时先不放行，避免公开的瞬间
-              // 白板还在替换。
-              canShare={
-                paper.status === "completed" && !paper.whiteboardRegenerating
-              }
-            />
+        {/* 页头工具条：左端视图切换、右端公开开关。两者都是页面级动作，放在
+            三栏之外横跨全宽——中间那栏第一个元素因此直接是内容卡，三栏顶边齐平。 */}
+        {(showViewSwitch || isOwner) && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              {showViewSwitch && (
+                <Tabs
+                  value={activeView}
+                  onValueChange={(v) =>
+                    showView(v as "summary" | "reader" | "pdf")
+                  }
+                >
+                  <TabsList>
+                    <TabsTrigger value="summary">
+                      {m.paper_view_summary()}
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="reader"
+                      disabled={!isReaderAvailable}
+                      title={
+                        isReaderAvailable
+                          ? undefined
+                          : m.paper_content_unavailable()
+                      }
+                    >
+                      {m.paper_view_reader()}
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="pdf"
+                      disabled={!isPdfAvailable}
+                      title={
+                        isPdfAvailable ? undefined : m.paper_processing_hint()
+                      }
+                    >
+                      {m.paper_view_pdf()}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              )}
+              {/* 置灰的 tab 自己解释不了原因，而 title 在禁用元素上并非处处可见：
+                  论文已完成却没有解析产物时，旁边补一句可见的说明。 */}
+              {paper.status === "completed" && !hasContent && (
+                <p className="text-xs text-[var(--ink-soft)]">
+                  {m.paper_content_unavailable()}
+                </p>
+              )}
+            </div>
+
+            {isOwner && (
+              <ShareControls
+                paperId={paper.id}
+                shortId={paper.shortId ?? shortId}
+                isPublic={paper.isPublic}
+                // 白板是可选产物：没有白板也能公开（上架画廊才要求白板，见
+                // paper.toggleGalleryListing）。生成中时先不放行，避免公开的瞬间
+                // 白板还在替换。
+                canShare={
+                  paper.status === "completed" && !paper.whiteboardRegenerating
+                }
+              />
+            )}
           </div>
         )}
 
@@ -990,15 +1037,18 @@ function PaperDetailPage() {
               ) : (
                 <>
                   <div className="paper-card p-6">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
-                        <FileText className="h-6 w-6 text-[var(--academic-brown)]" />
+                    {/* 标题字号与图标尺寸跟原文阅读态的 ReaderAsidePanel 对齐：
+                        侧栏在 xl 下只有 300px，18px 衬线标题会换到四五行。
+                        完整标题在面包屑里始终可见，这里截断是安全的。 */}
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--parchment-warm)]">
+                        <FileText className="h-5 w-5 text-[var(--academic-brown)]" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h1 className="font-serif text-lg font-bold text-[var(--ink)] break-words">
+                        <h1 className="line-clamp-3 font-serif text-sm font-bold leading-snug text-[var(--ink)] break-words">
                           {paper.title}
                         </h1>
-                        <p className="text-xs text-[var(--ink-soft)]">
+                        <p className="mt-1 text-xs text-[var(--ink-soft)]">
                           {/* 不能在首帧渲染：服务端 Worker 跑在 UTC、浏览器在本地
                               时区，Intl 对同一时刻输出不同文本，SSR 与客户端首帧
                               必然不一致 → React #418。首帧用 nbsp 占住行高，
@@ -1268,50 +1318,6 @@ function PaperDetailPage() {
           )}
 
           <section className="space-y-4 min-w-0">
-            {showViewSwitch && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <Tabs
-                  value={activeView}
-                  onValueChange={(v) =>
-                    showView(v as "summary" | "reader" | "pdf")
-                  }
-                >
-                  <TabsList>
-                    <TabsTrigger value="summary">
-                      {m.paper_view_summary()}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="reader"
-                      disabled={!isReaderAvailable}
-                      title={
-                        isReaderAvailable
-                          ? undefined
-                          : m.paper_content_unavailable()
-                      }
-                    >
-                      {m.paper_view_reader()}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="pdf"
-                      disabled={!isPdfAvailable}
-                      title={
-                        isPdfAvailable ? undefined : m.paper_processing_hint()
-                      }
-                    >
-                      {m.paper_view_pdf()}
-                    </TabsTrigger>
-                  </TabsList>
-                </Tabs>
-                {/* 置灰的 tab 自己解释不了原因，而 title 在禁用元素上并非处处可见：
-                    论文已完成却没有解析产物时，旁边补一句可见的说明。 */}
-                {paper.status === "completed" && !hasContent && (
-                  <p className="text-xs text-[var(--ink-soft)]">
-                    {m.paper_content_unavailable()}
-                  </p>
-                )}
-              </div>
-            )}
-
             {activeView === "pdf" ? (
               <Suspense
                 fallback={
