@@ -376,7 +376,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         }
       }
 
-      // ── pool 重放：把候选池整行还原为一组候选（自己的 step，行读durable 缓存）──
+      // ── pool 重放：把候选池整行还原为一组候选（独立 step，池子读取享受 durable 缓存）──
       const poolItems =
         candidateSource === "pool"
           ? await step.do("load-pool-candidates", () =>
