@@ -13,10 +13,10 @@ import {
   type FeedbackSample,
   type PastPick,
   type ReviewedCandidate,
+  type RiskAnnotation,
   type ScopeAngle,
   type ScopeResult,
   type SynthesisResult,
-  type VerifyVerdict,
 } from "./types";
 
 /** 初筛过线阈值（0-100），对齐 news 的经验值再略松（宁多进精读，由精读把关） */
@@ -333,26 +333,30 @@ export async function reviewCandidate(
   };
 }
 
-/** 对抗验证单票（廉价模型）：尽力反驳，不确定即反驳 */
-export async function verifyCandidate(
+/**
+ * 参谋标注（廉价模型，单次调用）：结构化四检查，只标注不否决。
+ * 取代旧对抗 verify（单票拒绝率 92.6% 的确定性绞肉机，#69）；E5 校准实测
+ * any-fail 14.7%、掷硬币 0/25、corr(review分,p)=-0.711（#72）。
+ */
+export async function annotateCandidate(
   cfg: DigestModelConfig,
   focusBrief: string,
   reviewed: ReviewedCandidate,
-  voterIndex: number,
   pastPicks: PastPick[],
-): Promise<VerifyVerdict> {
+  todayIso: string, // periodEnd 的 YYYY-MM-DD；模型会把 26xx arXiv ID 当未来日期，必须注入当前日期消解
+): Promise<RiskAnnotation> {
   const system = [
-    `You are adversarial verifier #${voterIndex + 1}/3. Be SKEPTICAL: try to REFUTE this recommendation.`,
-    "Checklist:",
-    "1. Is the novelty claim actually supported by the quote — or, for claims comparing against prior picks, by the prior-picks list below? Unsupported either way = overreach.",
-    "2. Is this marketing fluff / press release / cherry-picked benchmark / incremental tweak?",
-    "3. Does it actually fit the research focus, or is it adjacent-but-noise?",
-    "4. If the novelty claims similarity to or an increment over a prior pick, check that the pick actually appears in the list below and that the comparison holds. A named prior pick missing from the list = refuted.",
-    "refuted=true if any check fails. Default to refuted=true if uncertain.",
+    `You are an independent risk annotator for a weekly research digest. Today is ${todayIso}; arXiv IDs like 26xx.xxxxx are current papers, not future dates.`,
+    "A reviewer has read the full paper and produced the claim below. Your job is to flag concrete risks for the editor — you are an advisor, not a gatekeeper. Judge each check independently; flag a check ONLY with a concrete reason.",
+    "Checks:",
+    "1. quote_topical_fail: the supporting quote is off-topic w.r.t. the novelty claim (its verbatim presence in the paper is machine-verified separately — do NOT judge whether it 'proves' the claim, only whether it is about the same mechanism/result).",
+    "2. marketing_fail: reads like marketing fluff / press release / cherry-picked benchmark with no substantive method.",
+    "3. focus_fail: clearly outside the research focus below (adjacent-but-noise). Fitting a sub-area of the focus is NOT a fail.",
+    "4. prior_pick_fail: ONLY applies if the novelty claim explicitly positions against a specific prior PICK from the list below and that pick is missing or the comparison is wrong. Citing external literature (papers not in the list) is normal scholarly practice and NEVER a fail. If the prior-picks list is empty, this check is always false.",
     `Research focus:\n${focusBrief}`,
-    `Prior picks (reference for comparative claims):\n${pastPicksBlock(pastPicks)}`,
+    `Prior picks:\n${pastPicksBlock(pastPicks)}`,
     UNTRUSTED_NOTE,
-    'Return JSON only: {"refuted":bool,"evidence":"specific reason"}',
+    'Return JSON only: {"quote_topical_fail":bool,"marketing_fail":bool,"focus_fail":bool,"prior_pick_fail":bool,"note":"<=2 sentences, only for flagged checks"}',
   ].join("\n");
   const user = [
     `Candidate: ${clean(reviewed.item.title)} (${reviewed.item.canonicalUrl})`,
@@ -361,8 +365,14 @@ export async function verifyCandidate(
     `Reviewer recommendation: ${reviewed.review.recommendation}`,
     `Reviewer score: ${reviewed.review.score}`,
   ].join("\n");
-  const v = await chatJson<VerifyVerdict>(cfg, system, user, 400);
-  return { refuted: Boolean(v.refuted), evidence: v.evidence ?? "" };
+  const r = await chatJson<Record<string, unknown>>(cfg, system, user, 800);
+  return {
+    quoteTopicalFail: Boolean(r.quote_topical_fail),
+    marketingFail: Boolean(r.marketing_fail),
+    focusFail: Boolean(r.focus_fail),
+    priorPickFail: Boolean(r.prior_pick_fail),
+    note: typeof r.note === "string" ? r.note : "",
+  };
 }
 
 /** 定稿（强模型 + web_search agent）：终选 + 推荐语 + 简报正文 + focus 提案 */
@@ -378,7 +388,7 @@ export async function synthesizeDigest(
     pastPicks: PastPick[];
     /** 上一期 published 正文（防复读对照物）；首期为 null */
     lastIssue: { issueNumber: number; body: string } | null;
-    papers: Array<ReviewedCandidate & { voteOutcome: string }>;
+    papers: Array<ReviewedCandidate & { annotation: RiskAnnotation | null }>;
     intel: ReviewedCandidate[];
   },
 ): Promise<SynthesisResult> {
@@ -406,13 +416,33 @@ export async function synthesizeDigest(
   const paperBlock = input.papers
     .map((p) => {
       const authorLines = authorSignalBlock(p.item);
+      const flags = p.annotation
+        ? ([
+            p.annotation.quoteTopicalFail && "quote-off-topic",
+            p.annotation.marketingFail && "marketing",
+            p.annotation.focusFail && "focus-mismatch",
+            p.annotation.priorPickFail && "prior-pick-claim",
+          ].filter(Boolean) as string[])
+        : null;
+      const flagLine = !flags
+        ? "Risk flags: (unchecked)"
+        : flags.length
+          ? `Risk flags: ${flags.join(", ")} — ${clean(p.annotation?.note ?? "")}`
+          : "Risk flags: none";
+      const verified =
+        p.quoteVerified === undefined
+          ? "unchecked"
+          : p.quoteVerified
+            ? "yes"
+            : "no";
       return [
-        `### [vote:${p.voteOutcome}] ${clean(p.item.title)}`,
+        `### ${clean(p.item.title)}`,
         `URL: ${p.item.canonicalUrl}`,
         `Score: ${p.review.score} · Relevance: ${p.review.relevance}${p.item.hfUpvotes ? ` · HF: ${p.item.hfUpvotes}` : ""}`,
         ...(authorLines ? [authorLines] : []),
         `Novelty: ${p.review.novelty}`,
-        `Quote: "${p.review.noveltyQuote}"`,
+        `Quote: "${p.review.noveltyQuote}" (verified in source: ${verified})`,
+        flagLine,
         `Draft note: ${p.review.recommendation}`,
       ].join("\n");
     })
@@ -436,7 +466,7 @@ export async function synthesizeDigest(
     `## Focus brief\n${input.focusBrief}`,
     ...historySections,
     `## User feedback\n${feedbackBlock(input.feedback)}`,
-    `## Paper candidates (passed adversarial verification unless marked otherwise; cite in content only as inline [标题](URL), never by position or code)\n${paperBlock || "(none)"}`,
+    `## Paper candidates (top papers by review score, with advisory risk flags from independent checkers — weigh flags in your judgment, they are not vetoes; cite in content only as inline [标题](URL), never by position or code)\n${paperBlock || "(none)"}`,
     `## Intel items (cite in content only as inline [标题](URL), never by position or code)\n${intelBlock || "(none)"}`,
   ].join("\n\n");
   const provider = createChatProvider({
