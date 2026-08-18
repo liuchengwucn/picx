@@ -5,6 +5,7 @@ import {
   countDistinct,
   desc,
   eq,
+  exists,
   gte,
   inArray,
   isNull,
@@ -15,6 +16,8 @@ import {
 import { z } from "zod";
 import {
   creditTransactions,
+  digestPapers,
+  digests,
   directions,
   paperContents,
   paperFeedback,
@@ -1262,21 +1265,28 @@ export const paperRouter = router({
         isNull(papers.deletedAt),
       ];
 
-      // 方向过滤: slug 用子查询解析成 direction id。子查询不占绑定参数上限,
-      // 也绕开 Drizzle 单表插值剥表限定符的坑, 且与下面两处 join 相互独立。
+      // 方向过滤: 方向页论文流 = 该方向已出刊(published)各期实际引用过的论文,
+      // 用关联 EXISTS 走 digest_papers → digests → directions。不能用
+      // papers.direction_id: 它只记录建行来源, pool 重放会删除重建 digests
+      // (digest_papers 级联清空), papers 行却保留, 按它过滤会把不属于任何一期的
+      // 孤儿论文残留在方向页。status='published' 是刻意的: generating/failed
+      // 期的 picks 不该提前出现在公开方向页。
       // isActive: 已下线方向对外口径是「不存在」(与 getDirection/listDirections/
       // sitemap/llms 一致), 用已下线方向的 slug 过滤应返回空集而非其论文。
       if (input.direction) {
         baseConditions.push(
-          inArray(
-            papers.directionId,
+          exists(
             ctx.db
-              .select({ id: directions.id })
-              .from(directions)
+              .select({ one: sql`1` })
+              .from(digestPapers)
+              .innerJoin(digests, eq(digestPapers.digestId, digests.id))
+              .innerJoin(directions, eq(digests.directionId, directions.id))
               .where(
                 and(
+                  eq(digestPapers.paperId, papers.id),
                   eq(directions.slug, input.direction),
                   eq(directions.isActive, true),
+                  eq(digests.status, "published"),
                 ),
               ),
           ),

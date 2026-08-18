@@ -2,13 +2,16 @@
  * paper 路由的方向筛选 / 赞数 / 反馈三件套。
  *
  * 跑在真 SQLite 上(见 test/helpers/sqlite-d1)而非 mock 链: 改票要验的是 upsert
- * 真走了 onConflictDoUpdate(表里只剩一行), 方向筛选要验的是 WHERE 子查询,
- * likeCount 要验的是关联子查询只数 vote = 1 —— 这些都只有 SQL 真跑一遍才看得见。
+ * 真走了 onConflictDoUpdate(表里只剩一行), 方向筛选要验的是关联 EXISTS 子查询
+ * (digest_papers.paper_id = papers.id 的表限定符是否真在), likeCount 要验的是
+ * 关联子查询只数 vote = 1 —— 这些都只有 SQL 真跑一遍才看得见。
  */
 
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  digestPapers,
+  digests,
   directions,
   paperFeedback,
   paperResults,
@@ -113,6 +116,40 @@ async function seed(db: Db) {
     });
   }
 
+  // 方向页论文流的口径是「被该方向已出刊(published)各期引用过」, 不是
+  // papers.direction_id: 给两个方向各出一期已发布刊, 把上面的论文都挂进去
+  // (p-private/p-unlisted/p-deleted 也挂, 让它们被挡是因为可见性而非缺引用)
+  await db.insert(digests).values([
+    {
+      id: "dg-a-1",
+      directionId: "dir-a",
+      issueNumber: 1,
+      periodStart: new Date(Date.UTC(2026, 7, 1)),
+      periodEnd: new Date(Date.UTC(2026, 7, 8)),
+      status: "published",
+      workflowInstanceId: "wf-a-1",
+      publishedAt: now,
+    },
+    {
+      id: "dg-b-1",
+      directionId: "dir-b",
+      issueNumber: 1,
+      periodStart: new Date(Date.UTC(2026, 7, 1)),
+      periodEnd: new Date(Date.UTC(2026, 7, 8)),
+      status: "published",
+      workflowInstanceId: "wf-b-1",
+      publishedAt: now,
+    },
+  ]);
+  await db.insert(digestPapers).values([
+    { digestId: "dg-a-1", paperId: "p-a1", rank: 1 },
+    { digestId: "dg-a-1", paperId: "p-a2", rank: 2 },
+    { digestId: "dg-a-1", paperId: "p-private", rank: 3 },
+    { digestId: "dg-a-1", paperId: "p-unlisted", rank: 4 },
+    { digestId: "dg-a-1", paperId: "p-deleted", rank: 5 },
+    { digestId: "dg-b-1", paperId: "p-b1", rank: 1 },
+  ]);
+
   await db.insert(paperResults).values({
     id: "pr-a1",
     paperId: "p-a1",
@@ -125,6 +162,35 @@ async function seed(db: Db) {
     { id: "fb-1", paperId: "p-a1", userId: "u2", vote: 1 },
     { id: "fb-2", paperId: "p-a1", userId: REVIEW_GUEST_USER_ID, vote: -1 },
   ]);
+}
+
+/** 共享 seed 之外追加一篇画廊可见论文(卡片必须有默认白板才会被列出) */
+async function insertGalleryPaper(
+  db: Db,
+  id: string,
+  directionId: string | null,
+  day: number,
+) {
+  await db.insert(papers).values({
+    id,
+    shortId: `sid-${id}`,
+    userId: "u1",
+    title: `Paper ${id}`,
+    sourceType: "arxiv",
+    pdfR2Key: `papers/${id}.pdf`,
+    fileSize: 1,
+    status: "completed",
+    isPublic: true,
+    isListedInGallery: true,
+    directionId,
+    publishedAt: new Date(Date.UTC(2026, 7, day)),
+  });
+  await db.insert(whiteboardImages).values({
+    id: `wb-${id}`,
+    paperId: id,
+    imageR2Key: `wb/${id}.png`,
+    isDefault: true,
+  });
 }
 
 let db: Db;
@@ -371,7 +437,8 @@ describe("paper.listPublic direction filter", () => {
   });
 
   it("hides retired directions: slug becomes null and filter returns nothing", async () => {
-    // 追加一个已下线方向及其论文(不进共享 seed, 免得动别的用例的计数)
+    // 追加一个已下线方向及其论文(不进共享 seed, 免得动别的用例的计数)。
+    // 论文挂在一期 published 刊上: 空结果只能是 isActive 闸的功劳
     await db.insert(directions).values({
       id: "dir-r",
       slug: "retired",
@@ -380,25 +447,21 @@ describe("paper.listPublic direction filter", () => {
       isActive: false,
       sortOrder: 2,
     });
-    await db.insert(papers).values({
-      id: "p-r",
-      shortId: "sid-p-r",
-      userId: "u1",
-      title: "Paper p-r",
-      sourceType: "arxiv",
-      pdfR2Key: "papers/p-r.pdf",
-      fileSize: 1,
-      status: "completed",
-      isPublic: true,
-      isListedInGallery: true,
+    await insertGalleryPaper(db, "p-r", "dir-r", 8);
+    await db.insert(digests).values({
+      id: "dg-r-1",
       directionId: "dir-r",
-      publishedAt: new Date(Date.UTC(2026, 7, 8)),
+      issueNumber: 1,
+      periodStart: new Date(Date.UTC(2026, 7, 1)),
+      periodEnd: new Date(Date.UTC(2026, 7, 8)),
+      status: "published",
+      workflowInstanceId: "wf-r-1",
+      publishedAt: new Date(),
     });
-    await db.insert(whiteboardImages).values({
-      id: "wb-p-r",
+    await db.insert(digestPapers).values({
+      digestId: "dg-r-1",
       paperId: "p-r",
-      imageR2Key: "wb/p-r.png",
-      isDefault: true,
+      rank: 1,
     });
 
     const caller = createCaller(null);
@@ -412,6 +475,51 @@ describe("paper.listPublic direction filter", () => {
     await expect(
       caller.listPublic({ direction: "retired" }),
     ).resolves.toMatchObject({ total: 0, papers: [] });
+  });
+
+  it("excludes orphans: direction_id without any digest citation is not enough", async () => {
+    // 本次修的 bug: pool 重放删除重建 digests 后, digest_papers 级联清空而
+    // papers 行保留 => 论文带着 direction_id 却不属于任何一期。方向页不该列它
+    await insertGalleryPaper(db, "p-orphan", "dir-a", 9);
+
+    const caller = createCaller(null);
+    const filtered = await caller.listPublic({ direction: "ai4formath" });
+    expect(filtered.papers.map((p) => p.id)).toEqual(["p-a2", "p-a1"]);
+    expect(filtered.total).toBe(2);
+
+    // 不传 direction 的总流口径不变: 孤儿论文照常可见
+    const unfiltered = await caller.listPublic({});
+    expect(unfiltered.total).toBe(5);
+    expect(unfiltered.papers[0]).toMatchObject({
+      id: "p-orphan",
+      directionSlug: "ai4formath",
+    });
+  });
+
+  it("ignores citations from digests that are not published", async () => {
+    // generating/failed 期的 picks 不该提前出现在公开方向页
+    await insertGalleryPaper(db, "p-draft", "dir-a", 9);
+    await db.insert(digests).values({
+      id: "dg-a-2",
+      directionId: "dir-a",
+      issueNumber: 2,
+      periodStart: new Date(Date.UTC(2026, 7, 8)),
+      periodEnd: new Date(Date.UTC(2026, 7, 15)),
+      status: "generating",
+      workflowInstanceId: "wf-a-2",
+    });
+    await db.insert(digestPapers).values({
+      digestId: "dg-a-2",
+      paperId: "p-draft",
+      rank: 1,
+    });
+
+    await expect(
+      createCaller(null).listPublic({ direction: "ai4formath" }),
+    ).resolves.toMatchObject({
+      total: 2,
+      papers: [{ id: "p-a2" }, { id: "p-a1" }],
+    });
   });
 
   it("still honours the other filters alongside direction", async () => {
