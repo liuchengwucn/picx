@@ -517,8 +517,44 @@ export async function saveDigestContent(
     .where(eq(digests.id, digestId));
 }
 
-/** 论文候选允许的最大月龄：只报近 6 个月的工作（老论文可晚受关注，但两年前的旧闻不报） */
-export const MAX_PAPER_AGE_MONTHS = 6;
+/** 候选允许的最大月龄（paper 与 intel 共用）：只报近 3 个月的工作（老成果可晚受关注，但会期早已过去的会议论文不再是"动态"） */
+export const MAX_CANDIDATE_AGE_MONTHS = 3;
+
+// aclanthology collection 中常见主会的近似会期月份。按数组顺序做子串匹配，
+// acl 是 naacl/eacl 的子串必须放最后；findings-emnlp 等复合 collection 靠
+// 子串命中主会。未知 venue（workshop 等）fail-open 取 12 月——只有年份明显
+// 过时才拦得住。表值是近年会期的近似，月历粒度下不追求精确。
+const ACL_VENUE_MONTHS: Array<[string, number]> = [
+  ["emnlp", 11],
+  ["naacl", 6],
+  ["eacl", 3],
+  ["coling", 1],
+  ["acl", 7],
+];
+
+/** 从 aclanthology URL 提取近似发表年月；非 aclanthology 或解析失败返回 null */
+function aclAnthologyYearMonth(
+  url: string,
+): { year: number; month: number } | null {
+  const m = url.match(
+    /aclanthology\.org\/(?:volumes\/)?(\d{4})\.([a-z0-9-]+)\./i,
+  );
+  if (!m) return null;
+  const collection = m[2].toLowerCase();
+  const hit = ACL_VENUE_MONTHS.find(([venue]) => collection.includes(venue));
+  return { year: Number(m[1]), month: hit ? hit[1] : 12 };
+}
+
+/** periodEnd 与给定年月的月历差（正数=过去）；与 arXiv yymm 裁定同一口径 */
+function monthsBefore(
+  periodEnd: Date,
+  ym: { year: number; month: number },
+): number {
+  return (
+    (periodEnd.getUTCFullYear() - ym.year) * 12 +
+    (periodEnd.getUTCMonth() + 1 - ym.month)
+  );
+}
 
 /**
  * 供 workflow 里把角度搜索产出的候选按 URL 权威定性 kind：gallery 入库路径
@@ -526,25 +562,41 @@ export const MAX_PAPER_AGE_MONTHS = 6;
  * 承诺，而不是模型的主观判断——命中 arXiv 才规范化 URL 并置 kind:"paper"；
  * 否则无论模型标了什么，强制降级为 "intel"，避免 OpenReview/exa.ai 等无法
  * 处理的来源被当作论文建卡后永远处理失败。
- * 同时做新鲜度硬裁定（prompt 约束模型不可靠）：arXiv ID 自带 yymm，超过
- * MAX_PAPER_AGE_MONTHS 直接返回 null 丢弃——旧论文降级成 intel 报出来也还是旧闻。
- * 旧式 ID（math/0601001）全部早于 2008 年，一律丢弃。
+ * 同时做新鲜度硬裁定（prompt 约束模型不可靠）：arXiv ID 自带 yymm；非 arXiv
+ * 的 intel 优先解析 aclanthology URL 编码的年份+会议，其次用模型自述的
+ * publishedAt，两者皆无才 fail-open 放行（由 review 层 staleness 软闸兜底）。
+ * 超过 MAX_CANDIDATE_AGE_MONTHS 一律返回 null 丢弃——旧论文降级成 intel
+ * 报出来也还是旧闻。旧式 arXiv ID（math/0601001）全部早于 2008 年，一律丢弃。
  */
 export function canonicalizeCandidate(
   item: CandidateItem,
   periodEnd: Date,
 ): CandidateItem | null {
   const id = canonicalArxivId(item.canonicalUrl);
-  if (!id) return { ...item, kind: "intel" };
+  if (!id) {
+    let ym = aclAnthologyYearMonth(item.canonicalUrl);
+    if (!ym && item.publishedAt) {
+      const d = new Date(item.publishedAt);
+      if (!Number.isNaN(d.getTime())) {
+        ym = { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
+      }
+    }
+    if (ym && monthsBefore(periodEnd, ym) > MAX_CANDIDATE_AGE_MONTHS) {
+      return null;
+    }
+    return { ...item, kind: "intel" };
+  }
   const m = id.match(/^(\d{2})(\d{2})\./);
   if (!m) return null; // 旧式 arXiv ID，必然超龄
   const paperYear = 2000 + Number(m[1]);
   const paperMonth = Number(m[2]);
   if (paperMonth < 1 || paperMonth > 12) return null; // 伪 arXiv ID（canonicalArxivId 未锚定正则的误匹配）
-  const monthsDiff =
-    (periodEnd.getUTCFullYear() - paperYear) * 12 +
-    (periodEnd.getUTCMonth() + 1 - paperMonth);
-  if (monthsDiff > MAX_PAPER_AGE_MONTHS) return null;
+  if (
+    monthsBefore(periodEnd, { year: paperYear, month: paperMonth }) >
+    MAX_CANDIDATE_AGE_MONTHS
+  ) {
+    return null;
+  }
   return { ...item, canonicalUrl: canonicalArxivUrl(id), kind: "paper" };
 }
 

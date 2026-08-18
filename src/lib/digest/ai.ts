@@ -212,10 +212,11 @@ export async function searchAngle(
       `Research focus:\n${focusBrief}`,
       `Your angle: ${angle.label} — ${angle.rationale ?? ""}`,
       `Start from this query (refine as needed, multiple searches allowed): ${angle.query}`,
-      "Find up to 15 items relevant to the focus. News/community items should be from the time window; papers up to 6 months old are acceptable when they are only now gaining attention. Prefer primary sources (papers, official posts, repos) over SEO farms and reposts.",
+      "Find up to 15 items relevant to the focus. Freshness is enforced in code: anything older than 3 months (papers included) is discarded, so do not return older items — a paper up to 3 months old is acceptable when it is only now gaining attention. News/community items should be from the time window. Prefer primary sources (papers, official posts, repos) over SEO farms and reposts.",
       UNTRUSTED_NOTE,
       "When done, output JSON only (no prose):",
       '{"items":[{"url":"...","title":"...","kind":"paper"|"intel","excerpt":"one-sentence why relevant","publishedAt":"YYYY-MM-DD or empty"}]}',
+      "Always fill publishedAt when the source shows a publication date; leave it empty ONLY when no date is visible anywhere.",
       'kind="paper" ONLY for arXiv papers (arxiv.org/abs/...); everything else — including OpenReview, exa.ai library pages, personal sites, conference pages, and PDFs on university domains — is "intel", even if it is itself a preprint.',
     ].join("\n\n"),
   });
@@ -302,6 +303,7 @@ export async function reviewCandidate(
     "- relevance: 0-100 fit to the research focus.",
     "- recommendation: 2-3 sentences: why a researcher in this direction should (or should not) read it.",
     "- score: 0-100 overall (novelty x relevance x rigor). Marketing fluff and incremental work score low. Work that merely re-does a prior pick's method without a concrete increment must score low.",
+    "- Staleness: this digest covers current work. If the item is clearly more than 3 months old (from its Published line, its venue/proceedings year, or the text itself) and is not just now becoming relevant, score it low and say so in recommendation.",
     "- Author signal / author list (when present) are a WEAK prior on report credibility (the rigor axis) ONLY: extraordinary claims from a low-track-record team with no code and no independent evals deserve extra skepticism; a strong track record slightly raises benefit-of-the-doubt for borderline scores. If the full text reveals a well-known lab or research group, weigh that the same way.",
     "- NEVER use author signal to judge novelty, and never let reputation substitute for reading the content. Missing or unknown author data is NOT a negative signal.",
     UNTRUSTED_NOTE,
@@ -315,6 +317,7 @@ export async function reviewCandidate(
     `URL: ${item.canonicalUrl}`,
     `Kind: ${item.kind} · Found via: ${item.sourceLabel}` +
       (item.hfUpvotes ? ` · HF upvotes: ${item.hfUpvotes}` : ""),
+    ...(item.publishedAt ? [`Published: ${item.publishedAt}`] : []),
     ...(authorLines ? [authorLines] : []),
     "",
     fullText ??
