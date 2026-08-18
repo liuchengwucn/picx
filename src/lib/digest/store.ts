@@ -312,6 +312,10 @@ export async function upsertCandidatesSeen(
 ): Promise<void> {
   const now = new Date();
   for (const item of items) {
+    const sourceMeta = {
+      sourceLabel: item.sourceLabel,
+      ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
+    };
     await db
       .insert(directionCandidates)
       .values({
@@ -320,10 +324,7 @@ export async function upsertCandidatesSeen(
         title: item.title.slice(0, 500),
         kind: item.kind,
         status: "seen",
-        sourceMeta: {
-          sourceLabel: item.sourceLabel,
-          ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
-        },
+        sourceMeta,
         firstSeenAt: now,
         lastSeenAt: now,
       })
@@ -332,7 +333,10 @@ export async function upsertCandidatesSeen(
           directionCandidates.directionId,
           directionCandidates.canonicalUrl,
         ],
-        set: { lastSeenAt: now },
+        // sourceMeta 也要刷：否则 4b 日期解析补出来的 publishedAt 对已存在的行
+        // 永远落不了库，每次 pool 重放都要为同一批无日期行重付一次 Jina+LLM
+        // 成本（listPoolCandidateItems 靠 sourceMeta.publishedAt 还原日期）。
+        set: { lastSeenAt: now, sourceMeta },
       });
   }
 }
@@ -542,6 +546,8 @@ export const MAX_CANDIDATE_AGE_MONTHS = 3;
 // acl 是 naacl/eacl 的子串必须放最后；findings-emnlp 等复合 collection 靠
 // 子串命中主会。未知 venue（workshop 等）fail-open 取 12 月——只有年份明显
 // 过时才拦得住。表值是近年会期的近似，月历粒度下不追求精确。
+// 反向指针：scripts/date-stale-intel.mjs 镜像了本表与 monthsBefore（离线一次性
+// 存量清理脚本，无法直接 import 这个 TS 模块），改动需同步。
 const ACL_VENUE_MONTHS: Array<[string, number]> = [
   ["emnlp", 11],
   ["naacl", 6],

@@ -82,6 +82,12 @@ const getOpt = (f, def) => {
 const APPLY = hasFlag("--apply");
 const DRY_RUN = !APPLY;
 const LIMIT = Number(getOpt("--limit", "0"));
+if (hasFlag("--limit") && !(Number.isInteger(LIMIT) && LIMIT > 0)) {
+  console.error(
+    `[date-stale-intel] --limit must be a positive integer, got: ${getOpt("--limit", "")}`,
+  );
+  process.exit(1);
+}
 const IDS_FILE = getOpt("--ids-file", "");
 const REPORT_PATH = getOpt(
   "--report",
@@ -295,8 +301,23 @@ function loadReport(path) {
   return map;
 }
 
+// 断点续跑防护：只在进程首次 append 前检查一次，避免每条记录都重读整个文件。
+let reportNewlineChecked = false;
+
 function appendReport(path, record) {
   mkdirSync(dirname(path), { recursive: true });
+  if (!reportNewlineChecked) {
+    reportNewlineChecked = true;
+    // 上一次运行若中途被杀死，可能留下一行没有换行符结尾的半截 JSON。不补
+    // 一个 \n 就直接 append，新记录会跟这行半死不活的 JSON 粘在同一行——不仅
+    // 这条新记录本身解析失败，还会连带扯坏下次 loadReport 对这一整行的解析。
+    if (existsSync(path)) {
+      const raw = readFileSync(path, "utf8");
+      if (raw.length > 0 && !raw.endsWith("\n")) {
+        appendFileSync(path, "\n");
+      }
+    }
+  }
   appendFileSync(path, `${JSON.stringify(record)}\n`);
 }
 

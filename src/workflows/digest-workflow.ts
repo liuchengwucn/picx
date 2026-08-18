@@ -421,8 +421,14 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         }
       }
       if (undated.length > 0) {
+        // merge-and-budget 的跨组去重发生在 4b 之后，这里必须自己先去重：
+        // 同一 URL 可能被多个角度各自命中一次，扇出前不去重会为同一条目重复
+        // 付 Jina 抓取 + LLM 解析成本。按 canonicalUrl 收敛，保留首见行。
+        const dedupedUndated = [
+          ...new Map(undated.map((it) => [it.canonicalUrl, it])).values(),
+        ];
         const dateResolved: CandidateItem[] = [];
-        const indexedUndated = undated.map((item, i) => ({ item, i }));
+        const indexedUndated = dedupedUndated.map((item, i) => ({ item, i }));
         for (const batch of chunk(indexedUndated, 2)) {
           const results = await Promise.all(
             batch.map(({ item, i }) =>
@@ -458,7 +464,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           );
         }
         console.log(
-          `[Digest] ${ctx.direction.slug}: date-resolved kept ${dateResolved.length}/${undated.length} undated intel`,
+          `[Digest] ${ctx.direction.slug}: date-resolved kept ${dateResolved.length}/${dedupedUndated.length} undated intel (${undated.length} before dedup)`,
         );
         if (candidateSource === "pool") {
           poolItems.push(...dateResolved);

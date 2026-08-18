@@ -256,7 +256,7 @@ export default {
       await notify(
         tg,
         null,
-        `⚠️ 今日无发推候选：HF=0，digest 窗口 picks=${digestCounts?.picksInWindow ?? 0}，未发=${digestCounts?.unsent ?? 0}`,
+        `⚠️ 今日无发推候选：HF=0，digest 窗口 picks=${digestCounts?.picksInWindow ?? 0}，未发(未超龄)=${digestCounts?.unsent ?? 0}`,
       );
       return;
     }
