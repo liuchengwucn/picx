@@ -522,6 +522,52 @@ describe("paper.listPublic direction filter", () => {
     });
   });
 
+  it("lists a paper cited by multiple published issues exactly once", async () => {
+    // EXISTS + groupBy(papers.id) 结构上不会重复; 钉住这一点, 防未来重构
+    // (比如有人把 EXISTS 改成 innerJoin digest_papers)把多期引用扇出成多行
+    await db.insert(digests).values({
+      id: "dg-a-3",
+      directionId: "dir-a",
+      issueNumber: 3,
+      periodStart: new Date(Date.UTC(2026, 7, 15)),
+      periodEnd: new Date(Date.UTC(2026, 7, 22)),
+      status: "published",
+      workflowInstanceId: "wf-a-3",
+      publishedAt: new Date(),
+    });
+    await db.insert(digestPapers).values({
+      digestId: "dg-a-3",
+      paperId: "p-a1",
+      rank: 1,
+    });
+
+    const result = await createCaller(null).listPublic({
+      direction: "ai4formath",
+    });
+    expect(result.papers.map((p) => p.id)).toEqual(["p-a2", "p-a1"]);
+    expect(result.total).toBe(2);
+  });
+
+  it("lists papers cited across directions regardless of direction_id", async () => {
+    // 有意语义: 方向页 = 该方向刊物引用过的论文, 与建行来源(direction_id)
+    // 无关。direction_id 为 NULL(HF 兜底)或指向别的方向, 只要被 dir-a 的
+    // published 期引用就出现在 dir-a 方向页
+    await insertGalleryPaper(db, "p-cross", null, 9);
+    await db.insert(digestPapers).values({
+      digestId: "dg-a-1",
+      paperId: "p-cross",
+      rank: 6,
+    });
+
+    const result = await createCaller(null).listPublic({
+      direction: "ai4formath",
+    });
+    expect(result.papers.map((p) => p.id)).toEqual(["p-cross", "p-a2", "p-a1"]);
+    expect(result.total).toBe(3);
+    // 徽章 slug 仍来自 direction_id 的 leftJoin, 与过滤口径无关
+    expect(result.papers[0]).toMatchObject({ directionSlug: null });
+  });
+
   it("still honours the other filters alongside direction", async () => {
     const caller = createCaller(null);
     await expect(
