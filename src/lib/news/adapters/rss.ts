@@ -123,6 +123,7 @@ export function parseFeed(xml: string): NormalizedItem[] {
     ) {
       media.unshift({ type: "image", url: enclosureUrl });
     }
+    const parsedPubDate = parseDate(item.pubDate);
     items.push({
       url,
       title: stripHtml(textOf(item.title)) || url,
@@ -130,7 +131,8 @@ export function parseFeed(xml: string): NormalizedItem[] {
       author:
         stripHtml(textOf(item["dc:creator"]) || textOf(item.author)) ||
         undefined,
-      publishedAt: parseDate(item.pubDate) ?? new Date(),
+      publishedAt: parsedPubDate ?? new Date(),
+      publishedAtInferred: parsedPubDate ? undefined : true,
       media: media.length > 0 ? media.slice(0, 4) : undefined,
     });
   }
@@ -150,12 +152,14 @@ export function parseFeed(xml: string): NormalizedItem[] {
     const rawContent = textOf(entry.content) || textOf(entry.summary);
     const media = extractImages(rawContent);
     const author = entry.author as Record<string, unknown> | undefined;
+    const parsedPubDate = parseDate(entry.published ?? entry.updated);
     items.push({
       url,
       title: stripHtml(textOf(entry.title)) || url,
       excerpt: stripHtml(rawContent).slice(0, MAX_EXCERPT) || undefined,
       author: stripHtml(textOf(author?.name)) || undefined,
-      publishedAt: parseDate(entry.published ?? entry.updated) ?? new Date(),
+      publishedAt: parsedPubDate ?? new Date(),
+      publishedAtInferred: parsedPubDate ? undefined : true,
       media: media.length > 0 ? media : undefined,
     });
   }

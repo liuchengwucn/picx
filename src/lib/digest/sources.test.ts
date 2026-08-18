@@ -3,6 +3,7 @@ import {
   ArxivRateLimitError,
   dehyphenateWrappedTitle,
   fetchArxivQuery,
+  fetchDirectionRss,
   parseAtomAuthors,
 } from "./sources";
 
@@ -120,5 +121,43 @@ describe("fetchArxivQuery", () => {
     );
     await expect(promise).rejects.toBeInstanceOf(Error);
     await expect(promise).rejects.not.toBeInstanceOf(ArxivRateLimitError);
+  });
+});
+
+describe("fetchDirectionRss", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("drops items with an inferred (missing pubDate) date even if fetched within the window", async () => {
+    // 一条有真实近期 pubDate、一条缺 pubDate（news 侧兜底为 now，落进任何窗口）——
+    // digest 侧必须 fail-closed 丢弃后者，否则老文章会伪装成本周新内容。
+    const xml = `<?xml version="1.0"?><rss version="2.0">
+<channel><title>Blog</title>
+<item>
+  <title>Dated post</title>
+  <link>https://blog.example.com/dated</link>
+  <pubDate>Wed, 29 Jul 2026 10:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>Undated post</title>
+  <link>https://blog.example.com/undated</link>
+</item>
+</channel></rss>`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => xml,
+      }),
+    );
+    const items = await fetchDirectionRss(
+      { url: "https://blog.example.com/feed.xml" },
+      new Date("2026-07-01T00:00:00Z"),
+      "test-blog",
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].canonicalUrl).toBe("https://blog.example.com/dated");
   });
 });

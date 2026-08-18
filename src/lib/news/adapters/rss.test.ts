@@ -22,6 +22,21 @@ const ATOM = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
   <summary>Sparse experts.</summary>
 </entry></feed>`;
 
+const RSS2_NO_PUBDATE = `<?xml version="1.0"?><rss version="2.0">
+<channel><title>Blog</title>
+<item>
+  <title>Undated post</title>
+  <link>https://blog.example.com/undated</link>
+</item></channel></rss>`;
+
+const ATOM_NO_DATE = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+<title>Lab</title>
+<entry>
+  <title>Undated entry</title>
+  <link rel="alternate" href="https://lab.example.com/undated"/>
+  <summary>No date fields at all.</summary>
+</entry></feed>`;
+
 describe("parseFeed", () => {
   it("parses RSS 2.0 with CDATA, drops linkless items, extracts images", () => {
     const items = parseFeed(RSS2);
@@ -51,6 +66,24 @@ describe("parseFeed", () => {
     expect(() => parseFeed("<html></html>")).toThrow(
       /unrecognized feed format/,
     );
+  });
+
+  it("flags RSS items missing pubDate as publishedAtInferred (falls back to now)", () => {
+    const items = parseFeed(RSS2_NO_PUBDATE);
+    expect(items).toHaveLength(1);
+    expect(items[0].publishedAtInferred).toBe(true);
+  });
+
+  it("flags Atom entries missing published/updated as publishedAtInferred", () => {
+    const items = parseFeed(ATOM_NO_DATE);
+    expect(items).toHaveLength(1);
+    expect(items[0].publishedAtInferred).toBe(true);
+  });
+
+  it("does not flag items with a real (even future-skew-clamped) date", () => {
+    const items = parseFeed(RSS2);
+    expect(items).toHaveLength(1);
+    expect(items[0].publishedAtInferred).toBeUndefined();
   });
 
   it("returns [] for a recognized feed with zero items", () => {

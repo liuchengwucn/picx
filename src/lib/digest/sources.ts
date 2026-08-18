@@ -100,7 +100,9 @@ export async function fetchArxivQuery(
     if (Number.isNaN(published.getTime()) || published < windowStart) continue;
     items.push({
       canonicalUrl: canonicalArxivUrl(arxivId),
-      title: dehyphenateWrappedTitle(textOf(e.title)).replace(/\s+/g, " ").trim(),
+      title: dehyphenateWrappedTitle(textOf(e.title))
+        .replace(/\s+/g, " ")
+        .trim(),
       kind: "paper",
       excerpt: textOf(e.summary)
         .replace(/\s+/g, " ")
@@ -122,16 +124,21 @@ export async function fetchDirectionRss(
 ): Promise<CandidateItem[]> {
   if (!config.url) throw new Error("rss source missing config.url");
   const feedItems = await fetchFeed(config.url);
-  return feedItems
-    .filter((i) => i.publishedAt >= windowStart)
-    .map((i) => ({
-      canonicalUrl: i.url.trim(),
-      title: i.title,
-      kind: "intel" as const,
-      excerpt: i.excerpt?.slice(0, MAX_EXCERPT),
-      publishedAt: i.publishedAt.toISOString(),
-      sourceLabel,
-    }));
+  return (
+    feedItems
+      // publishedAtInferred: 源缺 pubDate/发布日期时 news 侧摄入把 publishedAt 兜底为
+      // now（fail-open，供人工浏览排序用），digest 这里必须 fail-closed 丢弃——否则
+      // 老文章会被伪装成本周新内容，击穿 7 天窗。
+      .filter((i) => !i.publishedAtInferred && i.publishedAt >= windowStart)
+      .map((i) => ({
+        canonicalUrl: i.url.trim(),
+        title: i.title,
+        kind: "intel" as const,
+        excerpt: i.excerpt?.slice(0, MAX_EXCERPT),
+        publishedAt: i.publishedAt.toISOString(),
+        sourceLabel,
+      }))
+  );
 }
 
 /** 按 adapterType 分发 */

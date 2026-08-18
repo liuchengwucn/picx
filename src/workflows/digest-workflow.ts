@@ -264,12 +264,20 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     `scan-source-${source.id}-s2-fallback`,
                     LLM_RETRIES,
                     async () => {
-                      const items = await fetchS2Fallback(
+                      const fetched = await fetchS2Fallback(
                         source.config,
                         periodStart,
                         `${source.id}:s2-fallback`,
                         env.SEMANTIC_SCHOLAR_API_KEY,
                       );
+                      // S2 兜底是 MAX_CANDIDATE_AGE_MONTHS 唯一会被绕过的 paper
+                      // 入口：s2RowsToCandidates 保留的 publishedAt 是 S2 的
+                      // publicationDate（常是会期收录日，不是 arXiv 首发日）。
+                      // 过一遍 canonicalizeCandidate，让它改用 arXiv ID 里的
+                      // yymm 首发时间重新裁定（与角度搜索分支同样写法）。
+                      const items = fetched
+                        .map((it) => canonicalizeCandidate(it, periodEnd))
+                        .filter((it): it is CandidateItem => it !== null);
                       const scores = await scoreSourceItems(
                         cheapModel(env),
                         ctx.direction.focusBrief,

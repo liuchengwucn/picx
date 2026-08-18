@@ -120,9 +120,12 @@ interface S2BulkSearchResponse {
  *   时刻，如当日 12:00 UTC）去比较，会把窗口起点当天发表的论文全部误判为
  *   「早于窗口」丢弃，且这批论文不会在下周窗口里补回（已经不在下周窗口范围
  *   内），是永久丢失——故按日粒度对齐，与请求时用的 publicationDateOrYear
- *   口径一致。publicationDate 为 null（或畸形无法解析）的行保留且省略
- *   publishedAt——S2 兜底宁多勿漏，下游 scoreSourceItems 初筛与后续精读会
- *   再过滤一轮
+ *   口径一致。publicationDate 为 null（或畸形无法解析）的行直接丢弃（不再
+ *   保留且省略 publishedAt）：日期在这里必须宁缺勿旧，而不是宁多勿漏——S2 的
+ *   publicationDate 常是期刊/会议正式收录日而非 arXiv 首发日（一篇旧预印本
+ *   被会议收录，S2 日期会写成收录当年），既不可靠也不可省略；无日期行连
+ *   windowStart 这道最基本的窗口判断都做不了，放行它就是放行一条完全没有
+ *   时间依据的候选，宁可在这里漏召回，也不能让旧闻绕过窗口直接进精读。
  */
 export function s2RowsToCandidates(
   rows: S2SearchRow[],
@@ -136,14 +139,10 @@ export function s2RowsToCandidates(
   for (const row of rows) {
     const arxivId = row.externalIds?.ArXiv;
     if (!arxivId) continue;
-    let publishedAt: string | undefined;
-    if (row.publicationDate) {
-      const d = new Date(row.publicationDate);
-      if (!Number.isNaN(d.getTime())) {
-        if (d < windowStartDay) continue;
-        publishedAt = d.toISOString();
-      }
-    }
+    if (!row.publicationDate) continue; // 无日期：宁缺勿旧，直接丢弃
+    const d = new Date(row.publicationDate);
+    if (Number.isNaN(d.getTime())) continue; // 畸形日期同样丢弃
+    if (d < windowStartDay) continue;
     items.push({
       canonicalUrl: canonicalArxivUrl(arxivId),
       title: (row.title ?? "").trim(),
@@ -151,7 +150,7 @@ export function s2RowsToCandidates(
       ...(row.abstract
         ? { excerpt: row.abstract.trim().slice(0, MAX_EXCERPT) }
         : {}),
-      ...(publishedAt ? { publishedAt } : {}),
+      publishedAt: d.toISOString(),
       sourceLabel,
     });
   }

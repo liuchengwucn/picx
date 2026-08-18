@@ -116,14 +116,22 @@ describe("s2RowsToCandidates", () => {
     expect(result).toHaveLength(1);
   });
 
-  it("keeps rows with a null publicationDate and omits publishedAt", () => {
+  it("drops rows with a null publicationDate (dates must fail-closed, not fail-open)", () => {
     const rows: S2SearchRow[] = [
       { title: "no date", externalIds: { ArXiv: "2608.00001" } },
     ];
-    const result = s2RowsToCandidates(rows, "test-source", windowStart);
-    expect(result).toHaveLength(1);
-    expect(result[0].publishedAt).toBeUndefined();
-    expect(result[0]).not.toHaveProperty("publishedAt");
+    expect(s2RowsToCandidates(rows, "test-source", windowStart)).toEqual([]);
+  });
+
+  it("drops rows with an unparseable publicationDate", () => {
+    const rows: S2SearchRow[] = [
+      {
+        title: "garbled date",
+        externalIds: { ArXiv: "2608.00006" },
+        publicationDate: "not-a-date",
+      },
+    ];
+    expect(s2RowsToCandidates(rows, "test-source", windowStart)).toEqual([]);
   });
 
   it("truncates the excerpt to MAX_EXCERPT (1200) chars", () => {
@@ -133,6 +141,7 @@ describe("s2RowsToCandidates", () => {
         title: "long abstract",
         externalIds: { ArXiv: "2608.00002" },
         abstract: longAbstract,
+        publicationDate: "2026-08-10",
       },
     ];
     const result = s2RowsToCandidates(rows, "test-source", windowStart);

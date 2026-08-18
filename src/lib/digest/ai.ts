@@ -1,5 +1,6 @@
 // src/lib/digest/ai.ts
 import { generateText, isStepCount } from "ai";
+import { canonicalArxivId } from "#/lib/arxiv";
 import { createChatProvider } from "#/lib/chat";
 import { extractFirstJsonObject } from "#/lib/json-extract";
 import type { Env } from "#/types/env";
@@ -438,6 +439,20 @@ export async function annotateCandidate(
   };
 }
 
+/**
+ * synthesize 素材块的 "Published: ..." 行：优先 item.publishedAt（截前 10 位
+ * 取日期部分）；paper 类若无 publishedAt，从 canonicalUrl 里的 arXiv ID 推
+ * "20YY-MM"（与 store.ts 的 yymm 裁定同一口径）；都没有则 "unknown"——喂给
+ * synthesize 的时间措辞防线用，配合 system prompt 的新旧措辞规则。
+ */
+function publishedLabel(item: CandidateItem): string {
+  if (item.publishedAt) return item.publishedAt.slice(0, 10);
+  const id = canonicalArxivId(item.canonicalUrl);
+  const m = id?.match(/^(\d{2})(\d{2})\./);
+  if (m) return `20${m[1]}-${m[2]}`;
+  return "unknown";
+}
+
 /** 定稿（强模型 + web_search agent）：终选 + 推荐语 + 简报正文 + focus 提案 */
 export async function synthesizeDigest(
   env: Env,
@@ -466,6 +481,7 @@ export async function synthesizeDigest(
     "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them.",
     "   Every named team/system/dataset/benchmark/result claim in content MUST carry an inline markdown link [标题](URL) to its source. If the provided material has no URL for a claim and web_search cannot find an authoritative one, omit the claim entirely — 宁可不写, never leave a named claim unlinked.",
     "   Do NOT repeat the previous issue's themes or open questions (its body is provided below when available). A carried-over open question may appear only when framed as progress since last issue (e.g. 「上期提出的X，本周有了…」), never restated as-is.",
+    `   Never describe an item as "new", "this week", "just released" or similar unless its Published date falls inside the issue window (${input.periodLabel}); for items whose Published date is unknown or older than the window, present them without temporal claims (e.g. "X provides…" not "X was released this week").`,
     "You have a web_search tool. Its ONLY purpose is to find or verify the canonical URL / details for claims you want to mention in content (official announcement, repo, blog post). NEVER use it to discover new candidate papers or expand coverage beyond the material provided below.",
     "3. title: issue title (zh-cn), concrete not clickbait, e.g. 「第N期：<本期最重要主题>」.",
     "4. proposedFocusUpdate: if this week's findings or feedback suggest the focus brief should evolve (new sub-topic emerging, stale sub-topic), propose the FULL revised focus brief text (zh-cn); otherwise omit.",
@@ -501,6 +517,7 @@ export async function synthesizeDigest(
       return [
         `### ${clean(p.item.title)}`,
         `URL: ${p.item.canonicalUrl}`,
+        `Published: ${publishedLabel(p.item)}`,
         `Score: ${p.review.score} · Relevance: ${p.review.relevance}${p.item.hfUpvotes ? ` · HF: ${p.item.hfUpvotes}` : ""}`,
         ...(authorLines ? [authorLines] : []),
         `Novelty: ${p.review.novelty}`,
@@ -513,7 +530,7 @@ export async function synthesizeDigest(
   const intelBlock = input.intel
     .map(
       (p) =>
-        `### ${clean(p.item.title)}\nURL: ${p.item.canonicalUrl}\nSummary: ${p.review.novelty}\nNote: ${p.review.recommendation}`,
+        `### ${clean(p.item.title)}\nURL: ${p.item.canonicalUrl}\nPublished: ${publishedLabel(p.item)}\nSummary: ${p.review.novelty}\nNote: ${p.review.recommendation}`,
     )
     .join("\n\n");
   const historySections = [
