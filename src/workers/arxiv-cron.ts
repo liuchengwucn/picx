@@ -88,7 +88,7 @@ export async function sweepStalePapers<TSchema extends Record<string, unknown>>(
       .update(papers)
       .set({
         status: "failed",
-        // 措辞刻意与人工清扫的 'stale sweep ...' 不同，便于区分来源
+        // 人工批量清扫时请用别的措辞(如 'stale sweep <日期>')写 error_message，便于区分来源
         errorMessage: "stale watchdog: stuck in processing >24h",
         updatedAt: now,
       })
