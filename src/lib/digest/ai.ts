@@ -287,6 +287,66 @@ export async function fetchFullText(
   return null;
 }
 
+/** 校验并规范化解析出的年月："YYYY-MM" 或 "YYYY-MM-DD" → "YYYY-MM-01"；无效返回 null */
+export function normalizeResolvedMonth(s: string | undefined): string | null {
+  const m = (s ?? "").trim().match(/^(\d{4})-(\d{2})(?:-\d{2})?$/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) return null;
+  return `${m[1]}-${m[2]}-01`;
+}
+
+/**
+ * 无日期 intel 的日期解析（廉价模型 + Jina 全文 + web_search 兜底）：
+ * 尽力判定条目的**原始发布**年月；精确到月都判不出返回 null（调用方丢弃）。
+ * 返回 "YYYY-MM-01"，可直接写入 CandidateItem.publishedAt 重过 3 个月硬闸。
+ */
+export async function resolveIntelDate(
+  env: Env,
+  modelId: string, // cheapModel(env).model
+  item: Pick<CandidateItem, "canonicalUrl" | "title">,
+): Promise<string | null> {
+  const fullText = await fetchFullText(item.canonicalUrl).catch(() => null);
+  const provider = createChatProvider({
+    OPENAI_API_KEY: env.OPENAI_API_KEY,
+    OPENAI_BASE_URL: env.OPENAI_BASE_URL,
+    OPENAI_MODEL: modelId,
+    CF_API_TOKEN: env.CF_API_TOKEN,
+  });
+  const started = Date.now();
+  const result = await generateText({
+    model: provider.chat(modelId),
+    tools: { web_search: provider.tools.webSearch({ maxResults: 5 }) },
+    stopWhen: isStepCount(4),
+    providerOptions: { openrouter: { reasoning: { enabled: false } } },
+    prompt: [
+      "Determine the ORIGINAL publication date (month precision) of this web item. Ignore updated/revised/crawled dates — you want when it was FIRST published.",
+      `Title: ${clean(item.title)}`,
+      `URL: ${item.canonicalUrl}`,
+      fullText
+        ? `Page content (may contain the date):\n${fullText.slice(0, 4000)}`
+        : "(page fetch failed — rely on web_search)",
+      "If the content does not show the original publication date, use web_search (e.g. the exact title in quotes) to find it.",
+      UNTRUSTED_NOTE,
+      'Output JSON only: {"publishedAt":"YYYY-MM"}. If you cannot determine it to month precision, output {"publishedAt":""}. NEVER guess a date.',
+    ].join("\n\n"),
+  });
+  logAgentUsage(
+    `resolve-date "${item.canonicalUrl.slice(-40)}"`,
+    started,
+    result,
+  );
+  const json = extractFirstJsonObject(result.text);
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json) as { publishedAt?: string };
+    return normalizeResolvedMonth(parsed.publishedAt);
+  } catch {
+    return null;
+  }
+}
+
 /** 精读评审（廉价模型）：新意必须有原文引用支撑 */
 export async function reviewCandidate(
   cfg: DigestModelConfig,

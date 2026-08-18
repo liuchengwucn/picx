@@ -12,6 +12,7 @@ import {
   annotateCandidate,
   fetchFullText,
   RELEVANCE_THRESHOLD,
+  resolveIntelDate,
   reviewCandidate,
   scopeDirection,
   scoreSourceItems,
@@ -374,6 +375,58 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           );
           angleGroups.push(...results);
         }
+      }
+
+      // ── 4b. 无日期 intel 的日期解析（每条一个 step；月份都判不出的丢弃）──
+      // canonicalizeCandidate 对 URL/自述日期都判不出龄的 intel 打 dateUnknown 标，
+      // 这里补日期后重过同一道 3 个月硬闸。宁缺勿旧：解析失败也丢弃。
+      const undated = angleGroups.flatMap((g) =>
+        g.filter((it) => it.dateUnknown),
+      );
+      for (let gi = 0; gi < angleGroups.length; gi++) {
+        angleGroups[gi] = angleGroups[gi].filter((it) => !it.dateUnknown);
+      }
+      if (undated.length > 0) {
+        const dateResolved: CandidateItem[] = [];
+        const indexedUndated = undated.map((item, i) => ({ item, i }));
+        for (const batch of chunk(indexedUndated, 2)) {
+          const results = await Promise.all(
+            batch.map(({ item, i }) =>
+              step
+                .do(
+                  `resolve-date-${i}-${item.canonicalUrl.slice(-60)}`,
+                  LLM_RETRIES,
+                  async (): Promise<CandidateItem | null> => {
+                    const publishedAt = await resolveIntelDate(
+                      env,
+                      cheapModel(env).model,
+                      item,
+                    );
+                    if (!publishedAt) return null;
+                    const gated = canonicalizeCandidate(
+                      { ...item, publishedAt },
+                      periodEnd,
+                    );
+                    return gated && !gated.dateUnknown ? gated : null;
+                  },
+                )
+                .catch((e) => {
+                  console.warn(
+                    `[Digest] date resolve failed ${item.canonicalUrl}, dropping:`,
+                    e,
+                  );
+                  return null;
+                }),
+            ),
+          );
+          dateResolved.push(
+            ...results.filter((r): r is CandidateItem => r !== null),
+          );
+        }
+        console.log(
+          `[Digest] ${ctx.direction.slug}: date-resolved kept ${dateResolved.length}/${undated.length} undated intel`,
+        );
+        angleGroups.push(dateResolved);
       }
 
       // ── pool 重放：把候选池整行还原为一组候选（独立 step，池子读取享受 durable 缓存）──

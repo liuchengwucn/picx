@@ -564,7 +564,8 @@ function monthsBefore(
  * 处理的来源被当作论文建卡后永远处理失败。
  * 同时做新鲜度硬裁定（prompt 约束模型不可靠）：arXiv ID 自带 yymm；非 arXiv
  * 的 intel 优先解析 aclanthology URL 编码的年份+会议，其次用模型自述的
- * publishedAt，两者皆无才 fail-open 放行（由 review 层 staleness 软闸兜底）。
+ * publishedAt，两者皆无则打 dateUnknown 标，由 workflow 日期解析 step 补日期
+ * 重过闸，补不出即丢弃。
  * 超过 MAX_CANDIDATE_AGE_MONTHS 一律返回 null 丢弃——旧论文降级成 intel
  * 报出来也还是旧闻。旧式 arXiv ID（math/0601001）全部早于 2008 年，一律丢弃。
  */
@@ -581,10 +582,16 @@ export function canonicalizeCandidate(
         ym = { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
       }
     }
-    if (ym && monthsBefore(periodEnd, ym) > MAX_CANDIDATE_AGE_MONTHS) {
+    if (!ym) {
+      // URL 与自述日期都判不出龄：打标交给 workflow 的日期解析 step 补日期后
+      // 重过本闸（补不出精确到月的在那一步丢弃，不 fail-open——博客类来源
+      // LLM 漏填日期时曾直通 10 个月前的旧文）。
+      return { ...item, kind: "intel", dateUnknown: true };
+    }
+    if (monthsBefore(periodEnd, ym) > MAX_CANDIDATE_AGE_MONTHS) {
       return null;
     }
-    return { ...item, kind: "intel" };
+    return { ...item, kind: "intel", dateUnknown: undefined };
   }
   const m = id.match(/^(\d{2})(\d{2})\./);
   if (!m) return null; // 旧式 arXiv ID，必然超龄

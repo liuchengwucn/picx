@@ -41,6 +41,8 @@ export interface CandidateItem {
   /** 摘要/首帖内容等，喂给初筛与精读 */
   excerpt?: string;
   publishedAt?: string; // ISO
+  /** canonicalizeCandidate 判不出日期的 intel：待 workflow 日期解析 step 补日期重过闸（transient，不落库） */
+  dateUnknown?: boolean;
   /** 来源标注：源 id 或角度 label，进 sourceMeta 与简报日志 */
   sourceLabel: string;
   /** HF daily papers 热度（有则加权），来自 hf_signals */

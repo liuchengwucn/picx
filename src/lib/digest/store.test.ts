@@ -67,13 +67,14 @@ describe("canonicalizeCandidate", () => {
     expect(out).toBeNull();
   });
 
-  it("demotes undated non-arXiv URLs to intel (fail-open)", () => {
+  it("flags undated non-arXiv URLs for date resolution", () => {
     const out = canonicalizeCandidate(
       makeItem("https://openreview.net/forum?id=abc", "paper"),
       periodEnd,
     );
     expect(out).not.toBeNull();
     expect(out?.kind).toBe("intel");
+    expect(out?.dateUnknown).toBe(true);
     expect(out?.canonicalUrl).toBe("https://openreview.net/forum?id=abc");
   });
 
@@ -154,12 +155,36 @@ describe("canonicalizeCandidate", () => {
     expect(out?.kind).toBe("intel");
   });
 
-  it("fails open on unparseable publishedAt", () => {
+  it("flags unparseable publishedAt for date resolution", () => {
     const out = canonicalizeCandidate(
       makeItem("https://example.com/blog/post", "intel", "unknown"),
       periodEnd,
     );
     expect(out).not.toBeNull();
     expect(out?.kind).toBe("intel");
+    expect(out?.dateUnknown).toBe(true);
+  });
+
+  it("re-gates a flagged item once publishedAt is resolved fresh", () => {
+    const out = canonicalizeCandidate(
+      {
+        ...makeItem("https://example.com/blog/post", "intel", "2026-07-01"),
+        dateUnknown: true,
+      },
+      periodEnd,
+    );
+    expect(out).not.toBeNull();
+    expect(out?.dateUnknown).toBeFalsy();
+  });
+
+  it("drops a flagged item once publishedAt is resolved stale", () => {
+    const out = canonicalizeCandidate(
+      {
+        ...makeItem("https://example.com/blog/post", "intel", "2025-10-01"),
+        dateUnknown: true,
+      },
+      periodEnd,
+    );
+    expect(out).toBeNull();
   });
 });

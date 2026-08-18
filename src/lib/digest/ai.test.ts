@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { authorSignalBlock, pastPicksBlock } from "./ai";
+import {
+  authorSignalBlock,
+  normalizeResolvedMonth,
+  pastPicksBlock,
+} from "./ai";
 import type { CandidateItem } from "./types";
 
 describe("pastPicksBlock", () => {
@@ -120,5 +124,21 @@ describe("authorSignalBlock", () => {
     expect(out).toBe(
       "Author signal: not yet indexed by Semantic Scholar (common for very fresh papers — do NOT penalize).",
     );
+  });
+});
+
+describe("normalizeResolvedMonth", () => {
+  it("normalizes YYYY-MM to first-of-month", () => {
+    expect(normalizeResolvedMonth("2026-07")).toBe("2026-07-01");
+  });
+  it("accepts YYYY-MM-DD and truncates to month", () => {
+    expect(normalizeResolvedMonth("2025-10-14")).toBe("2025-10-01");
+  });
+  it("rejects garbage, empty, and out-of-range months", () => {
+    expect(normalizeResolvedMonth("")).toBeNull();
+    expect(normalizeResolvedMonth(undefined)).toBeNull();
+    expect(normalizeResolvedMonth("October 2025")).toBeNull();
+    expect(normalizeResolvedMonth("2026-13")).toBeNull();
+    expect(normalizeResolvedMonth("1999-05")).toBeNull();
   });
 });
