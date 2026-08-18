@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  arxivAgeMonths,
   capCandidates,
   MAX_PER_DAY,
   selectDigestCandidates,
@@ -76,5 +77,29 @@ describe("selectDigestCandidates", () => {
       { ...row("a", 1, 100), note: "why it matters" },
     ]);
     expect(out[0].note).toBe("why it matters");
+  });
+});
+
+describe("arxivAgeMonths", () => {
+  const at = new Date("2026-08-08T00:00:00Z");
+
+  it("computes month age for a fresh arXiv paper", () => {
+    expect(arxivAgeMonths("https://arxiv.org/abs/2606.29493", at)).toBe(2);
+  });
+
+  it("returns 0 for a paper published this month", () => {
+    expect(arxivAgeMonths("https://arxiv.org/abs/2608.00001", at)).toBe(0);
+  });
+
+  it("returns a large age for a stale paper", () => {
+    expect(arxivAgeMonths("https://arxiv.org/abs/2401.00001", at)).toBe(31);
+  });
+
+  it("returns null for a non-arXiv URL", () => {
+    expect(arxivAgeMonths("https://example.com/blog/post", at)).toBeNull();
+  });
+
+  it("returns null for a pseudo arXiv URL with an invalid month (13)", () => {
+    expect(arxivAgeMonths("https://arxiv.org/abs/2613.00001", at)).toBeNull();
   });
 });

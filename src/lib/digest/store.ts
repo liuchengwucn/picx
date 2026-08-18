@@ -9,6 +9,7 @@ import {
   inArray,
   isNull,
   lt,
+  lte,
   or,
   sql,
 } from "drizzle-orm";
@@ -92,6 +93,7 @@ export interface DirectionContext {
 export async function loadDirectionContext(
   db: Db,
   directionId: string,
+  periodEnd: Date,
 ): Promise<DirectionContext> {
   const [direction] = await db
     .select()
@@ -122,7 +124,7 @@ export async function loadDirectionContext(
   // 候选池会无限增长（从不删除），全量读回有撞 workflow 1MiB step-return 上限的风险。
   // recommended 必须永久保留——否则已发布论文可能在后续期数被重新选中；
   // 其余 seen/rejected 超过 180 天允许被遗忘，最坏情形只是白白重评一次、大概率仍会被拒。
-  const poolCutoff = new Date(Date.now() - 180 * 86400_000);
+  const poolCutoff = new Date(periodEnd.getTime() - 180 * 86400_000);
   const poolRows = await db
     .select({
       canonicalUrl: directionCandidates.canonicalUrl,
@@ -140,7 +142,7 @@ export async function loadDirectionContext(
       ),
     );
 
-  const since = new Date(Date.now() - 14 * 86400_000)
+  const since = new Date(periodEnd.getTime() - 14 * 86400_000)
     .toISOString()
     .slice(0, 10);
   const signalRows = await db
@@ -318,7 +320,10 @@ export async function upsertCandidatesSeen(
         title: item.title.slice(0, 500),
         kind: item.kind,
         status: "seen",
-        sourceMeta: { sourceLabel: item.sourceLabel },
+        sourceMeta: {
+          sourceLabel: item.sourceLabel,
+          ...(item.publishedAt ? { publishedAt: item.publishedAt } : {}),
+        },
         firstSeenAt: now,
         lastSeenAt: now,
       })
@@ -340,18 +345,31 @@ export async function upsertCandidatesSeen(
 export async function listPoolCandidateItems(
   db: Db,
   directionId: string,
+  periodEnd: Date,
 ): Promise<CandidateItem[]> {
   const rows = await db
     .select()
     .from(directionCandidates)
-    .where(eq(directionCandidates.directionId, directionId));
-  return rows.map((r) => ({
-    canonicalUrl: r.canonicalUrl,
-    title: r.title,
-    kind: r.kind,
-    sourceLabel:
-      (r.sourceMeta?.sourceLabel as string | undefined) ?? "pool-replay",
-  }));
+    .where(
+      and(
+        eq(directionCandidates.directionId, directionId),
+        lte(directionCandidates.firstSeenAt, periodEnd),
+      ),
+    );
+  return rows.map((r) => {
+    const publishedAt =
+      typeof r.sourceMeta?.publishedAt === "string"
+        ? r.sourceMeta.publishedAt
+        : undefined;
+    return {
+      canonicalUrl: r.canonicalUrl,
+      title: r.title,
+      kind: r.kind,
+      sourceLabel:
+        (r.sourceMeta?.sourceLabel as string | undefined) ?? "pool-replay",
+      ...(publishedAt ? { publishedAt } : {}),
+    };
+  });
 }
 
 /** 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。 */

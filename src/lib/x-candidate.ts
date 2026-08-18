@@ -13,6 +13,23 @@ export function capCandidates<T extends { upvotes: number }>(rows: T[]): T[] {
 // 周六出刊 + 1 天容错；是防洪护栏一（24h 窗口）在 digest 来源上的替代形态。
 export const DIGEST_WINDOW_DAYS = 8;
 
+/**
+ * 从 arXiv URL 解析论文月龄（相对 at）；非 arXiv 或解析失败返回 null。
+ * 与 src/lib/digest/store.ts 的 yymm 裁定同一口径（月历差，正数=过去），用于
+ * 给发推 digest 回退再加一道论文年龄闸——digest picks 正常全是 arXiv 且已过
+ * MAX_CANDIDATE_AGE_MONTHS 闸，这里只是防线：万一未来 pick 来源变化，非
+ * arXiv/解析失败一律 fail-closed 丢弃，不放行未知年龄的候选。
+ */
+export function arxivAgeMonths(url: string, at: Date): number | null {
+  const m = url.match(/arxiv\.org\/abs\/(\d{2})(\d{2})\./);
+  if (!m) return null;
+  const yy = Number(m[1]);
+  const mm = Number(m[2]);
+  if (mm < 1 || mm > 12) return null;
+  const year = 2000 + yy;
+  return (at.getUTCFullYear() - year) * 12 + (at.getUTCMonth() + 1 - mm);
+}
+
 /** digest picks 候选行（SQL join 后、JS 去重排序前的最小形状）。 */
 export interface DigestCandidateRow {
   paperId: string;

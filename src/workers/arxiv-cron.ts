@@ -193,7 +193,14 @@ async function recordHfSignals(
       .values(batch)
       .onConflictDoUpdate({
         target: hfSignals.arxivId,
-        set: { upvotes: sql`excluded.upvotes`, updatedAt: now },
+        // 再次上榜要刷新 date，否则 14 天信号窗（loadDirectionContext）与 90
+        // 天清理（下面的 delete）都会用旧 date 误判，导致仍在榜的论文被当过期
+        // 信号砍掉、或提前被清理任务删除。
+        set: {
+          upvotes: sql`excluded.upvotes`,
+          date: sql`excluded.date`,
+          updatedAt: now,
+        },
       });
   }
   const cutoff = new Date(Date.now() - 90 * 86400_000)

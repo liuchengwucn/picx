@@ -132,7 +132,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
 
     // ── 1. 加载上下文 + digest shell ──
     const ctx = await step.do("load-context", () =>
-      loadDirectionContext(db, directionId),
+      loadDirectionContext(db, directionId, periodEnd),
     );
     const shell = await step.do("ensure-digest-shell", () =>
       ensureDigestShell(db, {
@@ -385,14 +385,40 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         }
       }
 
+      // ── pool 重放：把候选池整行还原为一组候选（独立 step，池子读取享受 durable 缓存）──
+      // step 内直接过 canonicalizeCandidate 这道新鲜度闸：旧候选（尤其无日期
+      // intel）落库时未必经过 3 个月硬闸，重放不能绕过；池里无日期的 intel 会
+      // 带 dateUnknown 标出来，交给下面的 4b 一并解析。
+      let poolItems: CandidateItem[] =
+        candidateSource === "pool"
+          ? await step.do("load-pool-candidates", async () => {
+              const items = await listPoolCandidateItems(
+                db,
+                directionId,
+                periodEnd,
+              );
+              return items
+                .map((it) => canonicalizeCandidate(it, periodEnd))
+                .filter((it): it is CandidateItem => it !== null);
+            })
+          : [];
+
       // ── 4b. 无日期 intel 的日期解析（每条一个 step；月份都判不出的丢弃）──
-      // canonicalizeCandidate 对 URL/自述日期都判不出龄的 intel 打 dateUnknown 标，
-      // 这里补日期后重过同一道 3 个月硬闸。宁缺勿旧：解析失败也丢弃。
-      const undated = angleGroups.flatMap((g) =>
-        g.filter((it) => it.dateUnknown),
-      );
-      for (let gi = 0; gi < angleGroups.length; gi++) {
-        angleGroups[gi] = angleGroups[gi].filter((it) => !it.dateUnknown);
+      // canonicalizeCandidate 对 URL/自述日期都判不出龄的 intel 打 dateUnknown 标
+      // （角度搜索候选与 pool 重放候选都会流经这道闸），这里补日期后重过同一道
+      // 3 个月硬闸。宁缺勿旧：解析失败也丢弃。pool 模式下候选只有 poolItems 这
+      // 一组（未走角度搜索扇出，angleGroups 恒空），故 undated 直接从 poolItems
+      // 取，解析幸存者也 push 回 poolItems。
+      const undated =
+        candidateSource === "pool"
+          ? poolItems.filter((it) => it.dateUnknown)
+          : angleGroups.flatMap((g) => g.filter((it) => it.dateUnknown));
+      if (candidateSource === "pool") {
+        poolItems = poolItems.filter((it) => !it.dateUnknown);
+      } else {
+        for (let gi = 0; gi < angleGroups.length; gi++) {
+          angleGroups[gi] = angleGroups[gi].filter((it) => !it.dateUnknown);
+        }
       }
       if (undated.length > 0) {
         const dateResolved: CandidateItem[] = [];
@@ -434,16 +460,12 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         console.log(
           `[Digest] ${ctx.direction.slug}: date-resolved kept ${dateResolved.length}/${undated.length} undated intel`,
         );
-        angleGroups.push(dateResolved);
+        if (candidateSource === "pool") {
+          poolItems.push(...dateResolved);
+        } else {
+          angleGroups.push(dateResolved);
+        }
       }
-
-      // ── pool 重放：把候选池整行还原为一组候选（独立 step，池子读取享受 durable 缓存）──
-      const poolItems =
-        candidateSource === "pool"
-          ? await step.do("load-pool-candidates", () =>
-              listPoolCandidateItems(db, directionId),
-            )
-          : [];
 
       // ── 5. 合并去重 + 候选池对齐 + 预算（纯代码）──
       const partition = await step.do("merge-and-budget", async () => {

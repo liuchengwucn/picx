@@ -103,7 +103,7 @@ async function seedIssue(input: {
 describe("loadDirectionContext history", () => {
   it("returns empty history when the direction has no published issue", async () => {
     await seedIssue({ issueNumber: 1, status: "generating", content: null });
-    const ctx = await loadDirectionContext(db, "dir-1");
+    const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.pastPicks).toEqual([]);
     expect(ctx.history.lastIssueBody).toBeNull();
     expect(ctx.history.lastIssueNumber).toBeNull();
@@ -133,7 +133,7 @@ describe("loadDirectionContext history", () => {
       status: "failed",
       picks: [{ paperId: "p3a", rank: 1, note: four("N3a") }],
     });
-    const ctx = await loadDirectionContext(db, "dir-1");
+    const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.pastPicks).toEqual([
       { issueNumber: 2, title: "Paper p2a", note: "N2a zh-cn" },
       { issueNumber: 2, title: "Paper p2b", note: "" },
@@ -152,7 +152,7 @@ describe("loadDirectionContext history", () => {
         picks: [{ paperId: `p${i}`, rank: 1, note: four(`N${i}`) }],
       });
     }
-    const ctx = await loadDirectionContext(db, "dir-1");
+    const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.pastPicks).toHaveLength(PAST_PICKS_ISSUES);
     const issueNumbers = ctx.history.pastPicks.map((p) => p.issueNumber);
     expect(issueNumbers[0]).toBe(PAST_PICKS_ISSUES + 2);
@@ -172,7 +172,7 @@ describe("loadDirectionContext history", () => {
         })),
       });
     }
-    const ctx = await loadDirectionContext(db, "dir-1");
+    const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.pastPicks).toHaveLength(PAST_PICKS_MAX_ROWS);
     // 截掉的是最旧期（#1）的尾部：只剩 80 - 7×11 = 3 行
     const oldest = ctx.history.pastPicks.filter((p) => p.issueNumber === 1);
@@ -186,7 +186,7 @@ describe("loadDirectionContext history", () => {
       content: { "zh-cn": "  ", en: "" },
       picks: [{ paperId: "p1", rank: 1, note: four("N1") }],
     });
-    const ctx = await loadDirectionContext(db, "dir-1");
+    const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.pastPicks).toHaveLength(1);
     expect(ctx.history.lastIssueBody).toBeNull();
     expect(ctx.history.lastIssueNumber).toBeNull();
@@ -199,7 +199,7 @@ describe("loadDirectionContext history", () => {
       status: "published",
       content: { "zh-cn": "", ja: "ja body", en: "en body" },
     });
-    const ctx = await loadDirectionContext(db, "dir-1");
+    const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.lastIssueBody).toBe("en body");
     expect(ctx.history.lastIssueNumber).toBe(1);
   });
@@ -225,7 +225,7 @@ describe("loadDirectionContext history", () => {
       content: four("Body dir2"),
       picks: [{ paperId: "p1-dir2", rank: 1, note: four("N1-dir2") }],
     });
-    const ctx = await loadDirectionContext(db, "dir-1");
+    const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.pastPicks).toEqual([
       { issueNumber: 1, title: "Paper p1-dir1", note: "N1-dir1 zh-cn" },
     ]);

@@ -8,6 +8,7 @@ import {
   tweetQueue,
   whiteboardImages,
 } from "#/db/schema";
+import { MAX_CANDIDATE_AGE_MONTHS } from "#/lib/digest/store";
 import { paperImageUrl } from "#/lib/embed-code";
 import {
   sendMessage,
@@ -17,6 +18,7 @@ import {
 import { pickTldr } from "#/lib/tldr";
 import { renderWhiteboardImage } from "#/lib/whiteboard-render";
 import {
+  arxivAgeMonths,
   capCandidates,
   DIGEST_WINDOW_DAYS,
   RECENT_WINDOW_HOURS,
@@ -182,6 +184,7 @@ export default {
         .select({
           id: papers.id,
           shortId: papers.shortId,
+          sourceUrl: papers.sourceUrl,
           rank: digestPapers.rank,
           digestPublishedAt: digests.publishedAt,
           recommendationNote: digestPapers.recommendationNote,
@@ -215,6 +218,13 @@ export default {
       const unsent = selectDigestCandidates(
         pickRows
           .filter((r) => !sentPaperIds.has(r.id))
+          .filter((r) => {
+            // 论文年龄闸：digest picks 正常全是 arXiv 且已过 digest 侧的
+            // MAX_CANDIDATE_AGE_MONTHS 硬闸，这里只是防线——非 arXiv/解析
+            // 失败 fail-closed 直接丢弃，不放行未知年龄的候选。
+            const age = arxivAgeMonths(r.sourceUrl ?? "", new Date(now));
+            return age !== null && age <= MAX_CANDIDATE_AGE_MONTHS;
+          })
           .map((r) => ({
             ...r,
             paperId: r.id,
