@@ -1,6 +1,6 @@
-import { lt, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
-import { hfSignals } from "#/db/schema";
+import { and, count, inArray, isNull, lt, sql } from "drizzle-orm";
+import { type DrizzleD1Database, drizzle } from "drizzle-orm/d1";
+import { hfSignals, papers } from "#/db/schema";
 import { canonicalArxivUrl, HF_DAILY_PAPERS_API } from "#/lib/arxiv";
 import { createGalleryPaper, ensureGuestUser } from "#/lib/gallery-paper";
 import type { Env } from "#/types/env";
@@ -49,6 +49,54 @@ export function resolveSelection(env: {
   };
 }
 
+// 队列消费者中途被杀（isolate 回收、部署重启等）不会把论文标 failed，行会永远
+// 停在在途状态、前端一直显示处理中。管线任何阶段都不该合法跑超 24 小时，超过
+// 即视为僵尸，由每日 cron 的 watchdog 收尸。
+const STALE_PAPER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+// papers.status 里 completed/failed 之外的全部在途枚举值（见 db/schema.ts）
+const IN_FLIGHT_STATUSES = [
+  "pending",
+  "parsing",
+  "processing_text",
+  "processing_image",
+] as const;
+
+/**
+ * 把在途状态卡超 24h 的论文标 failed，返回清扫条数。
+ * now 由调用方注入（而非函数内 Date.now），方便测试钉住时间。
+ */
+export async function sweepStalePapers<TSchema extends Record<string, unknown>>(
+  db: DrizzleD1Database<TSchema>,
+  now: Date,
+): Promise<number> {
+  const stale = and(
+    inArray(papers.status, [...IN_FLIGHT_STATUSES]),
+    lt(papers.updatedAt, new Date(now.getTime() - STALE_PAPER_MAX_AGE_MS)),
+    isNull(papers.deletedAt),
+  );
+  // 先数再写而不是读 UPDATE 的 changes：D1Result.meta 的形状不是所有执行路径都
+  // 给得出（测试用的 node:sqlite 适配层就只回 node 的 RunResult）。D1 无事务，
+  // 两条查询间的窗口竞态无害：期间新超时的行下一轮 cron 会被捞。
+  const [staleRow] = await db
+    .select({ value: count() })
+    .from(papers)
+    .where(stale);
+  const staleCount = staleRow?.value ?? 0;
+  if (staleCount > 0) {
+    await db
+      .update(papers)
+      .set({
+        status: "failed",
+        // 措辞刻意与人工清扫的 'stale sweep ...' 不同，便于区分来源
+        errorMessage: "stale watchdog: stuck in processing >24h",
+        updatedAt: now,
+      })
+      .where(stale);
+  }
+  return staleCount;
+}
+
 // 该 interface 只覆盖 cron 阈值判断所需字段(id/title/upvotes)，
 // src/lib/discovery-tools.ts 的 listDailyPapers 工具还要展示 summary/authors/publishedAt，
 // 且对外部 JSON 更防御(字段可选)，形状不同故各自定义；导出仅为 cron 测试。
@@ -74,6 +122,15 @@ export default {
     );
 
     const db = drizzle(env.DB);
+
+    // Step 0: 僵尸论文 watchdog。放在主流程之前：HF API 挂掉那天也要照常收尸。
+    // watchdog 失败不应阻断当天 gallery 论文创建，故单独 catch 且不 rethrow。
+    try {
+      const swept = await sweepStalePapers(db, new Date());
+      console.log(`[ArxivCron] Watchdog marked ${swept} stale papers failed`);
+    } catch (error) {
+      console.error("[ArxivCron] Failed to sweep stale papers:", error);
+    }
 
     try {
       // Step 1: upsert guest user，确保存在且 credits 充足
