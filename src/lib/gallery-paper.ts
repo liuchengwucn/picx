@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import { creditTransactions, papers, user } from "#/db/schema";
+import { cleanExtractedTitle } from "#/lib/paper-title";
 import { generateShortId } from "#/lib/short-id";
 import type { Env } from "#/types/env";
 
@@ -101,7 +102,9 @@ export async function createGalleryPaper(
     id: paperId,
     shortId: generateShortId(),
     userId: GUEST_USER_ID,
-    title,
+    // 入库即清洗：HF / arXiv 的标题偶尔带 HTML 实体与 LaTeX 转义，
+    // 且这条标题此后就是权威值（queue consumer 不再覆盖 arxiv 来源的标题）
+    title: cleanExtractedTitle(title),
     sourceType: "arxiv",
     sourceUrl: arxivUrl,
     pdfR2Key: `papers/${GUEST_USER_ID}/placeholder-${paperId}.pdf`, // queue consumer 会更新
