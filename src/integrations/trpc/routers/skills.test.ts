@@ -267,6 +267,8 @@ describe("builtin skills", () => {
     ).resolves.toMatchObject({ id: expect.any(String) });
   });
 
+  // 改名撞名有两条路径要守：未实体化时靠回退查询查不到行（下面这条），
+  // 已实体化时靠 guard（再下面那条）。删掉 guard 只有后者会红。
   it("把内置改名撞上已有 skill 时报 CONFLICT 而不是覆盖它", async () => {
     const { db } = createTestDb();
     await seedUsers(db, ["u1"]);
@@ -282,6 +284,30 @@ describe("builtin skills", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
 
     // 原有 skill 必须原封不动
+    const [row] = await db
+      .select()
+      .from(assistantSkills)
+      .where(eq(assistantSkills.name, "my-notes"));
+    expect(row).toMatchObject({ description: "keep", body: "keep me" });
+  });
+
+  it("已实体化后再改名撞上已有 skill，仍报 CONFLICT 而不是 500", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const caller = makeCaller(db, "u1");
+    await caller.create({
+      name: "my-notes",
+      description: "keep",
+      body: "keep me",
+    });
+    // 先实体化一次：此后库里已有真实的 fact-check 行，
+    // 失败回退路径能查到它，guard 是这里唯一的防线
+    await caller.update({ id: BUILTIN_ID, enabled: false });
+
+    await expect(
+      caller.update({ id: BUILTIN_ID, name: "my-notes" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
     const [row] = await db
       .select()
       .from(assistantSkills)
