@@ -3,7 +3,10 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { EditionSkeleton } from "#/components/digest/edition-skeleton";
 import { EditionView } from "#/components/digest/edition-view";
-import { PastEditions } from "#/components/digest/past-editions";
+import {
+  PastEditions,
+  selectPastEditions,
+} from "#/components/digest/past-editions";
 import { LoadFailedPanel, PendingPanel } from "#/components/ui/state-panel";
 import { useTRPC } from "#/integrations/trpc/react";
 import { mapEditionToLocale } from "#/lib/digest/present";
@@ -240,9 +243,18 @@ function WeeklyGalleryPage() {
     );
   }
 
+  // 脊上「往期合刊」那条锚点的判据: 页尾那节里真的有往期才出。第一周(七个方向首期
+  // 共享同一个 period_end, listEditionPeriods 只返回一期)过滤完是空的, 那时不能给锚点。
+  // 与 <PastEditions> 走同一个 selectPastEditions, 两者不会各说各话。
+  const hasPastEditions = selectPastEditions(periods, data.period).length > 0;
+
   return (
     <main className="min-h-dvh bg-[var(--bg)] py-8">
-      <EditionView edition={data} allDirections={allDirections}>
+      <EditionView
+        edition={data}
+        allDirections={allDirections}
+        showPastAnchor={hasPastEditions}
+      >
         <PastEditions editions={periods} currentPeriod={data.period} />
       </EditionView>
     </main>

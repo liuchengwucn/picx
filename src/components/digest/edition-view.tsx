@@ -18,6 +18,7 @@ import type { EditionView as EditionData } from "#/lib/digest/present";
 export function EditionView({
   edition,
   allDirections,
+  showPastAnchor = false,
   children,
 }: {
   edition: EditionData;
@@ -27,6 +28,15 @@ export function EditionView({
    * 要避免的事。
    */
   allDirections: readonly DirectionColorInput[];
+  /**
+   * 竖脊末尾要不要出「往期合刊」那条锚点。判据是**页尾那节里真的有往期**, 由调用方
+   * 算(见 selectPastEditions) —— 不能在这里退化成 Boolean(children): 落地页在全站只有
+   * 一期时照样传 children, 那时锚点会指向一节只剩档案入口的空目录。
+   *
+   * 缺省 false 是刻意的: 漏传只会少一条锚点(读者仍能滚到页尾), 而错出一条名不副实
+   * 的链接是要修的 bug —— 这个方向失败更安全。
+   */
+  showPastAnchor?: boolean;
   children?: ReactNode;
 }) {
   // 色相表按 allDirections ∪ 本期栏目建。并集这一半不是防御性代码: 它让查表全覆盖,
@@ -77,7 +87,7 @@ export function EditionView({
             pickCount: s.pickCount,
             accent: accentOf(s.directionSlug),
           }))}
-          showPastAnchor={Boolean(children)}
+          showPastAnchor={showPastAnchor}
         />
         <div className="flex flex-col gap-9">
           {edition.sections.map((s) => (

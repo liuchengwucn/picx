@@ -14,6 +14,26 @@ export interface EditionPeriodItem {
 }
 
 /**
+ * 「除当期之外还有没有别的期」这条规则的唯一定义。
+ *
+ * 竖脊那条「往期合刊」锚点的显示判据必须与本组件的过滤口径同源。原本它判的是
+ * EditionView 有没有收到 children —— 那个判据在**全站只有一期**时是错的: 落地页照常
+ * 传 <PastEditions>(所以 children 非空、锚点照出), 但列表过滤掉当期后一条不剩, 页尾
+ * 那一节只剩下档案入口。于是脊上写着「往期合刊」, 点下去滚到页底一块只有「档案」
+ * 二字的方块 —— 链接跳得动, 但名不副实。上线第一天就是这个状态(七个方向首期共享
+ * 同一个 period_end, listEditionPeriods 只返回一期)。
+ *
+ * 导出成函数而不是在两处各写一遍 `e.period !== currentPeriod`: 锚点的显隐与列表的
+ * 内容必须永远同进同退, 两份判据早晚会漂。
+ */
+export function selectPastEditions(
+  editions: EditionPeriodItem[],
+  currentPeriod: string,
+): EditionPeriodItem[] {
+  return editions.filter((e) => e.period !== currentPeriod);
+}
+
+/**
  * 页尾往期合刊列表 = 刊末的索引页。每一期的「名字」就是它覆盖的那段日期, 所以这里
  * 的日期区间用衬线(与刊头把历史期的 h1 设成日期区间是同一个决定): 同一个对象, 小
  * 一号。右侧那组数字用等宽数字右对齐, 整块读起来是一张目录表而不是一串卡片。
@@ -43,7 +63,7 @@ export function PastEditions({
       }),
     [locale],
   );
-  const past = editions.filter((e) => e.period !== currentPeriod);
+  const past = selectPastEditions(editions, currentPeriod);
 
   return (
     // id 是竖脊末尾「往期合刊」的锚点; scroll-mt 读的是与栏目同一个吸顶栈 token,
