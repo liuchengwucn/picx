@@ -41,6 +41,7 @@ import {
   stripDangerousHtml,
 } from "#/lib/paper-content";
 import { loadPaperText, paperTextKey } from "#/lib/paper-text";
+import { isPlaceholderTitle, resolveFinalTitle } from "#/lib/paper-title";
 import {
   downloadArxivPDF,
   extractPDFText,
@@ -454,10 +455,21 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
     return `Paper ${msg.paperId.substring(0, 8)}`;
   };
 
-  let paperTitle: string;
-  if (pdfMetadataTitle && pdfMetadataTitle.trim().length > 0) {
-    paperTitle = pdfMetadataTitle;
-    log("extract-title", `Using PDF metadata title: ${paperTitle}`);
+  // arXiv 来源入库时已带 HF / arXiv API 的权威标题，解析结果只会把它改坏
+  // （MinerU 把小型大写字母误判成 `<sub>`、丢副标题、OCR 错字），直接沿用，
+  // 连 LLM 提取都省掉。仅当入库标题是占位（URL / arXiv 编号）时才需要抽取。
+  const keepExistingTitle =
+    paperRow.sourceType === "arxiv" && !isPlaceholderTitle(paperRow.title);
+
+  let extractedTitle: string | null = null;
+  if (keepExistingTitle) {
+    log(
+      "extract-title",
+      "Keeping authoritative source title, skipping extraction",
+    );
+  } else if (pdfMetadataTitle && pdfMetadataTitle.trim().length > 0) {
+    extractedTitle = pdfMetadataTitle;
+    log("extract-title", `Using PDF metadata title: ${extractedTitle}`);
   } else {
     const textForTitleExtraction = rawText.substring(0, 3000);
 
@@ -466,21 +478,32 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
         "extract-title",
         "Text too short for title extraction, using fallback",
       );
-      paperTitle = getFallbackTitle();
+      extractedTitle = getFallbackTitle();
     } else {
       try {
-        paperTitle = await extractPaperTitle(textForTitleExtraction, aiConfig);
-        log("extract-title", `Extracted title: ${paperTitle}`);
+        extractedTitle = await extractPaperTitle(
+          textForTitleExtraction,
+          aiConfig,
+        );
+        log("extract-title", `Extracted title: ${extractedTitle}`);
       } catch (error) {
         logWarn(
           "extract-title",
           "LLM title extraction failed, using fallback",
           error,
         );
-        paperTitle = getFallbackTitle();
+        extractedTitle = getFallbackTitle();
       }
     }
   }
+
+  // 落库前统一清洗：剥行内排版标签、还原 HTML 实体与 LaTeX 转义、折叠空白
+  const { title: paperTitle, source: titleSource } = resolveFinalTitle({
+    sourceType: paperRow.sourceType,
+    existingTitle: paperRow.title,
+    extractedTitle,
+  });
+  log("extract-title", `Final title (${titleSource}): ${paperTitle}`);
 
   // 更新标题和页数（MinerU 未返回页数时不覆盖库里已有值）
   await db
