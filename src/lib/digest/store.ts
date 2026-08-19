@@ -708,7 +708,10 @@ export interface DirectionDetail {
   }>;
   /** 已发布期总数（不是 issues.length） */
   issueCount: number;
-  /** 该方向入选论文总数（跨期去重） */
+  /**
+   * 该方向入选论文总数（跨期去重），且**只数画廊流真的会列出来的那些**
+   * （与 paper.listPublic 同一套可见性谓词，见 getDirectionCounts）。
+   */
   paperCount: number;
   /** 还有更早的期次 ⇒ 前端出「更早的期次」按钮 */
   hasMore: boolean;
@@ -718,6 +721,11 @@ export interface DirectionDetail {
  * 方向的两个总数：已发布期数与跨期去重的论文数。两条查询都只依赖 directionId，
  * 互不依赖、也不依赖分页游标，并成一批而不是各自串行往返（与 edition-store.ts
  * 里 rows/neighbours/activeDirectionCount 那批 Promise.all 同一套论证）。
+ *
+ * **paperCount 的可见性谓词必须与 `paper.listPublic` 逐条相同**（见下方注释）：
+ * 这个数字在方向页上就印在那一列论文卡的正上方，读者会把它当成「下面这一列有多少
+ * 张」。两个口径一旦分叉，屏幕上就是「18 篇入选论文」配着 2 张卡 —— 没有哪个读者
+ * 会把它读成「另外 16 篇没有默认白板所以不进画廊流」，只会读成 bug。
  */
 async function getDirectionCounts(
   db: Db,
@@ -732,13 +740,36 @@ async function getDirectionCounts(
       .select({ n: sql<number>`count(*)` })
       .from(digests)
       .where(and(...publishedHere)),
-    // 跨期去重的方向论文总数：同一篇可能被多期引用
+    // 跨期去重的方向论文总数：同一篇可能被多期引用，故 count(distinct paperId)
+    // （它同时兜住重复默认白板行造成的扇出）。
+    //
+    // 谓词是 paper.listPublic 那套基础可见性条件的复制：isPublic /
+    // isListedInGallery / status='completed' / 未软删 / **有默认白板**
+    // (innerJoin，不是期内清单那种 leftJoin —— 见 getPublishedIssueDetail 的注释：
+    // 那里要的是「本期清单完整」，这里要的是「与画廊流所见一致」，两个目标不同)。
+    // 改这里或改 listPublic 的 baseConditions，另一处必须跟着改；口径分叉不会报错，
+    // 只会让方向页悄悄印上一个对不上的数字。
     db
       .select({ n: sql<number>`count(distinct ${digestPapers.paperId})` })
       .from(digestPapers)
       .innerJoin(digests, eq(digestPapers.digestId, digests.id))
       .innerJoin(papers, eq(digestPapers.paperId, papers.id))
-      .where(and(...publishedHere, isNull(papers.deletedAt))),
+      .innerJoin(
+        whiteboardImages,
+        and(
+          eq(whiteboardImages.paperId, papers.id),
+          eq(whiteboardImages.isDefault, true),
+        ),
+      )
+      .where(
+        and(
+          ...publishedHere,
+          isNull(papers.deletedAt),
+          eq(papers.isPublic, true),
+          eq(papers.isListedInGallery, true),
+          eq(papers.status, "completed"),
+        ),
+      ),
   ]);
   // 无 GROUP BY 的聚合查询恒返回一行, row?. 是防御性风格而非真的不确定
   // （与 edition-store.ts / ensureDigestShell 的 row?.max 同款写法）。
