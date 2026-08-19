@@ -2,7 +2,17 @@ import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { papers, whiteboardImages } from "#/db/schema";
 
 /**
- * 「一篇论文对外可见吗」这件事的唯一定义。
+ * 「一篇论文对外可见吗」这件事的**权威**定义 —— 但还不是唯一的一份。
+ *
+ * 仍然逐字手抄这四条的地方(有意留在本次重构范围之外, 收口是后续任务):
+ * `lib/related-papers.ts`、`workers/tweet-poster-cron.ts` 两处 —— 它们与本函数等价,
+ * 改本函数必须同时改这三处, 否则就是下面那次漂移的重演。
+ * `trpc/routers/paper.ts:1451`(投票鉴权)少一条 status, 属于同一类待收口的子集。
+ *
+ * 与它们不同, 按 shortId 取单篇的详情路径(`paper.ts:906`、`lib/paper-markdown.ts`、
+ * `lib/whiteboard-render.ts`、`routes/p/$shortId.tsx`)只查 isPublic + deletedAt,
+ * 这**不是**漂移: 「从画廊流里下架」(isListedInGallery=false)不该让那篇论文的页面
+ * 404, 它们要的本来就是另一条更宽的谓词。别顺手把它们也换成本函数。
  *
  * 抽出来的原因不是去重那四行, 而是这四行曾经六处手抄、并且真的漂过一次:
  * 方向页的 paperCount 少了白板那一层, 于是屏幕上出现「18 篇入选论文」配 2 张卡。

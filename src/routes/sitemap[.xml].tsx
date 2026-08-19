@@ -135,6 +135,11 @@ async function handler({ request }: { request: Request }) {
     ? publicPapers[0].publishedAt.toISOString().split("T")[0]
     : undefined;
 
+  // 最新一期周刊的发布日 = /gallery 真正的内容变更时间(它渲染的就是这一期)。
+  const latestEditionDate = editionPeriods[0]?.publishedAt
+    ?.toISOString()
+    .split("T")[0];
+
   type SitemapRoute = {
     url: string;
     priority: string;
@@ -151,11 +156,17 @@ async function handler({ request }: { request: Request }) {
       lastmod: latestPaperDate,
     },
     {
-      // /gallery 现在是「最新一期合刊」而不是逐日刷新的论文流, 一周才换一次内容
+      // /gallery 现在渲染的是最新一期周刊, 不是逐日刷新的论文流 —— 一周才换一次内容。
+      // lastmod 必须跟着那一期的发布时间, 不能用 latestPaperDate: 一篇论文入库根本不
+      // 改变这个页面渲染出来的东西, 但那个日期天天在动, 于是 /gallery 会天天自称刚更
+      // 新。changefreq/priority 早已被 Google 忽略, lastmod 是这里唯一还有人读的字段
+      // (见上面 latestPaperDate 的注释), 所以恰恰是它不能敷衍。
+      // editionPeriods 已按 period 倒序, [0] 就是最新一期; 取不到(零期或查询失败)才
+      // 回落 latestPaperDate, 那时首页级的新鲜度信号总比没有好。
       url: `${origin}/gallery`,
       priority: "0.9",
       changefreq: "weekly",
-      lastmod: latestPaperDate,
+      lastmod: latestEditionDate ?? latestPaperDate,
     },
     { url: `${origin}/news`, priority: "0.8", changefreq: "hourly" },
     {
@@ -218,14 +229,17 @@ async function handler({ request }: { request: Request }) {
     lastmod: latestIssueDateBySlug.get(d.slug),
   }));
 
-  // 合刊永久链接。历史期定稿后不再变动, 所以 changefreq 给 yearly; priority 停在
-  // 0.7(与方向主页同档、低于 /gallery 的 0.9): 最新那一期的 canonical 指向
-  // /gallery, 给它们同档或更高的 priority 就是让站点自己跟自己抢同一份内容的排名。
-  // 本期出现在 sitemap 里本身没问题 —— sitemap 是"可抓取"清单, 不是 canonical 声明。
-  const editionRoutes: SitemapRoute[] = editionPeriods.map((e) => ({
+  // 周刊永久链接。priority 停在 0.7(与方向主页同档、低于 /gallery 的 0.9): 最新那一
+  // 期的 canonical 指向 /gallery, 给它们同档或更高的 priority 就是让站点自己跟自己抢
+  // 同一份内容的排名。本期出现在 sitemap 里本身没问题 —— sitemap 是「可抓取」清单,
+  // 不是 canonical 声明。
+  //
+  // changefreq 只有历史期是 yearly: 定稿后不再变的说法对 [0] 不成立 —— 最新那一期这
+  // 周还会因为补跑长出新栏目(editionPeriods 已按 period 倒序)。
+  const editionRoutes: SitemapRoute[] = editionPeriods.map((e, i) => ({
     url: `${origin}/gallery/w/${e.period}`,
     priority: "0.7",
-    changefreq: "yearly",
+    changefreq: i === 0 ? "weekly" : "yearly",
     lastmod: e.publishedAt?.toISOString().split("T")[0],
   }));
 

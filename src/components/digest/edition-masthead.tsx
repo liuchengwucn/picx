@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useMatchRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { ModuleKicker } from "#/components/home/module-kicker";
 import { m } from "#/paraglide/messages";
@@ -26,6 +26,16 @@ export function EditionMasthead({
   pickCount: number;
 }) {
   const locale = getLocale();
+  // 「本期永久链接」那条链接在永久链接页上就是指向自己。判据不能只看 isLatest:
+  // /gallery/w/<最新一期> 上 isLatest 同样为 true(它就是最新那一期), 于是刊头会在
+  // 读者已经站着的地址上再给一条通往同一地址的链接。
+  // fuzzy:false 精确匹配这条路由本身 —— 用 useMatchRoute 而不是从 EditionView 往下
+  // 传一个 prop, 是因为要修的正是「调用方不知道自己该传什么」这类漏配: 两个路由都渲
+  // 染同一个 EditionView, 加个可选 prop 只会让 /gallery/w 那侧再漏一次。
+  const matchRoute = useMatchRoute();
+  const onPermalinkRoute = Boolean(
+    matchRoute({ to: "/gallery/w/$period", fuzzy: false }),
+  );
   const range = useMemo(
     () =>
       new Intl.DateTimeFormat(locale, {
@@ -65,9 +75,10 @@ export function EditionMasthead({
                   picks: String(pickCount),
                 })}
           </div>
-          {/* 「本期」这个 URL 每周会换内容, 所以明写一条稳定链接给人引用。历史期
-              自己就是那条稳定链接(读者已经在它上面了), 不必重复。 */}
-          {isLatest ? (
+          {/* /gallery 每周会换内容, 所以在它上面明写一条稳定链接给人引用。两种情况都
+              不出: 历史期(它自己就是那条稳定地址), 以及最新一期的永久链接页 —— 两者
+              都是「读者已经站在那条稳定地址上了」, 再给一条指向自己的链接没有意义。 */}
+          {isLatest && !onPermalinkRoute ? (
             <Link
               to="/gallery/w/$period"
               params={{ period }}

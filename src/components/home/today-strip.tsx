@@ -231,6 +231,11 @@ function WeeklyEditionCard({
 
   return (
     <CardShell className="md:row-span-2">
+      {/* 栏眉放刊物名(与 nav_gallery、edition_kicker 同值), 不放内容名词: 这张卡是刊头
+          的缩小版, 栏眉位置对应的就是刊头上那行刊名。曾经这里写「方向简报」, 于是导航
+          说「画廊周刊」、卡说「方向简报」、点进去刊头又说「画廊周刊」—— 一个目的地三
+          个称呼。界线是: **目的地名称统一, 内容描述自由**(首页叙述区的 home_cta_gallery
+          仍是「浏览方向简报」, 那句描述的是内容不是目的地)。 */}
       <ModuleKicker as="h2" color="var(--olive)">
         {m.home_kicker_gallery()}
       </ModuleKicker>

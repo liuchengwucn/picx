@@ -93,7 +93,13 @@ export function EditionSpine({
         // 所以 --edition-sticky-stack 在这里就等于 header 高度
         className="hidden lg:sticky lg:top-[calc(var(--edition-sticky-stack)_+_1rem)] lg:block lg:self-start"
       >
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-soft)]">
+        {/* 不加 uppercase: 主要读者语言是 CJK, 而 CJK 下 uppercase 不生效(与 archive.tsx
+            轴标签同一条约定)。tracking 保留 —— 字距对两种文字都成立。
+            代价记在这里: 英文下这行从 "IN THIS ISSUE" 变成了 "In this issue", 而同一页的
+            ModuleKicker 栏眉仍然是 uppercase, 于是英文界面上两个同级标签大小写不一致。
+            ModuleKicker 的 uppercase 是存量、去掉它是视觉决定而不是 bug 修复(会把
+            "AI NEWS" 变成 "AI News"), 留给后续统一; 那一步落地时把这里一并对齐。 */}
+        <div className="mb-2 text-[11px] font-semibold tracking-[0.12em] text-[var(--ink-soft)]">
           {m.edition_spine_label()}
         </div>
         <ul className="list-none">

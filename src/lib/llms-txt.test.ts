@@ -209,15 +209,19 @@ describe("buildLlmsFullTxt", () => {
   });
 
   it("stays within the byte budget by dropping overflow papers", () => {
-    // 这个 1100 不是「随手调大」的数字: 它的唯一作用是让预算恰好落在「header 之后、
-    // 正文之中」—— 装得下 header + 第一篇 + 一行截断说明(~1048B), 装不下第二篇
-    // (~1161B), 于是丢弃路径真的被走到。
+    // 这个 1100 不是「随手调大」的数字: 它的唯一作用是把预算卡在「header 之后、正文
+    // 之中」, 于是丢弃路径真的被走到。实测(本文件的两篇夹具): header 794B,
+    // header+第一篇 1027B, 加一行截断说明 1063B, 两篇 1176B —— 合法窗口是 [1063, 1175]。
     //
-    // 它随 header 文案浮动: header 本身是无条件输出的(buildLlmsFullTxt 不对它做预算
-    // 检查), 所以一旦 header 涨过这个数, 一篇正文都进不来, 断言 bytes <= maxBytes
-    // 反而恒真, 这条测试就静默退化成「只测了 header」——它已经因为 Pages 里加了
-    // Archive 一条而发生过一次(旧值 700)。往 Pages 加行、改站点简介之后, 必须把这个
-    // 数字一起顶上去(取 header + 第一篇 + 说明 与 header + 两篇 之间的任意值)。
+    // 它随 header 文案浮动, 而 header 是无条件输出的(buildLlmsFullTxt 不对它做预算
+    // 检查)。旧值 700 就是被 Pages 里新增的 Archive 一条顶穿的: 那时一篇正文都进不来,
+    // 输出退化成 header + 截断说明 = 831B, 于是本条的 bytes <= maxBytes 直接失败
+    // ——**这是好事**, 它把问题喊了出来。真正危险的是隔壁那条
+    // it("notes when papers were omitted"): 只要一篇进不来就一定有截断说明, 它照样
+    // 通过, 只是通过的理由已经从「丢弃了溢出的论文」变成了「header 就装不下」。
+    //
+    // 所以往 Pages 加行或改站点简介之后, 这个数字必须跟着顶到新窗口里, 而且要看着
+    // 本条测试的失败去改, 不要只看隔壁那条还是绿的。
     const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 1100 });
     const bytes = new TextEncoder().encode(txt).length;
     expect(bytes).toBeLessThanOrEqual(1100);
