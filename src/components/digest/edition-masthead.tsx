@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { ModuleKicker } from "#/components/home/module-kicker";
 import { m } from "#/paraglide/messages";
@@ -65,16 +66,18 @@ export function EditionMasthead({
                 })}
           </div>
           {/* 「本期」这个 URL 每周会换内容, 所以明写一条稳定链接给人引用。历史期
-              自己就是那条稳定链接(读者已经在它上面了), 不必重复。
-              TODO(下一任务): /gallery/w/$period 路由落地后换成 <Link>, 现在路由树
-              里还没有这个 id, 用 Link 会直接 tsc 报错。 */}
+              自己就是那条稳定链接(读者已经在它上面了), 不必重复。 */}
           {isLatest ? (
-            <a
-              href={`/gallery/w/${period}`}
+            <Link
+              to="/gallery/w/$period"
+              params={{ period }}
+              // 指向别处的 Link 一律 exact: 默认前缀匹配会把它在本页判成 active,
+              // 于是给一个指向别处的链接挂上 aria-current="page"
+              activeOptions={{ exact: true }}
               className="no-underline hover:underline"
             >
               {m.edition_permalink({ period })}
-            </a>
+            </Link>
           ) : null}
         </div>
       </div>

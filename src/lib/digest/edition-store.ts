@@ -285,6 +285,27 @@ export async function getEditionByPeriod(
   };
 }
 
+/**
+ * 方向识别色的分配输入：全量 active 方向的 (slug, createdAt)。
+ *
+ * 合刊页两条路由的 SSR loader 用它。为什么不复用 listActiveDirections：那个函数为
+ * 了方向页的「最新一期」做 N+1（每个方向一次 digests 查询），而这里只要两列，落地
+ * 页是站点主入口，白付 9 次往返换一份马上丢掉的 latestIssue 不值得。
+ *
+ * 必须是**全量** active 方向而不是本期有栏目的那些：色相是先到先得占槽，输入集合一
+ * 变所有后来者的颜色就跟着漂（「某方向本周缺席」会把其他方向的颜色挤位）——这正是
+ * direction-color 那套算法要避免的事。
+ */
+export async function listDirectionColorInputs(
+  db: Db,
+): Promise<Array<{ slug: string; createdAt: Date }>> {
+  return db
+    .select({ slug: directions.slug, createdAt: directions.createdAt })
+    .from(directions)
+    .where(eq(directions.isActive, true))
+    .orderBy(asc(directions.sortOrder), asc(directions.slug));
+}
+
 export interface EditionPeriodSummary {
   period: string;
   periodStart: Date;
