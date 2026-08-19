@@ -53,7 +53,10 @@ export default function MobileTabBar() {
         >
           <Globe className="h-5 w-5" />
           <span className="text-[10px] font-medium leading-none whitespace-nowrap">
-            {m.nav_gallery()}
+            {/* 短形而非 nav_gallery: 底栏五等分, 375px 下每格约 75px, 10px 字放得下
+                2–3 个汉字; 全名「画廊周刊 / 週刊ギャラリー」在 whitespace-nowrap 下
+                只会溢出到邻格 */}
+            {m.nav_gallery_short()}
           </span>
         </Link>
         <Link

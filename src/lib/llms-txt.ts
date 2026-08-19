@@ -72,7 +72,11 @@ function header(siteUrl: string): string {
     "",
     "## Pages",
     "",
-    `- [Gallery](${siteUrl}/gallery): Browse every visual paper summary, updated daily.`,
+    // 「updated daily」在周刊重构后就不成立了: /gallery 是每周一期的合刊落地页,
+    // 逐日更新的那条扁平论文流搬到了 /gallery/archive。给爬虫报错的更新节奏比不报
+    // 更糟 —— 它会按日回抓一个一周才变一次的页面。
+    `- [Weekly Gallery](${siteUrl}/gallery): Weekly edition of deep-dive digests across all tracked research directions.`,
+    `- [Archive](${siteUrl}/gallery/archive): Searchable archive of every paper summary on the site, refreshed as new papers land.`,
     `- [AI News](${siteUrl}/news): Hourly-aggregated frontier AI/LLM news stories.`,
   ].join("\n");
 }

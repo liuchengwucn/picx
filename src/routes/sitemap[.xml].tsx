@@ -9,6 +9,7 @@ import {
   papers,
   whiteboardImages,
 } from "#/db/schema";
+import { listEditionPeriods } from "#/lib/digest/edition-store";
 import { escapeHtml } from "#/lib/embed-code";
 import { PAPER_CATEGORY_SLUGS } from "#/lib/paper-categories";
 import {
@@ -105,6 +106,17 @@ async function handler({ request }: { request: Request }) {
     // Degrade gracefully to sitemap without digest issues
   }
 
+  // 合刊期次。复用 listEditionPeriods 而不是在这里 group by period_end: 它已经把
+  // 「同方向同 period_end 只认最大 issue_number」那条去重规则封进去了(见
+  // edition-store 的 isWinningDigest), 手写一份会把被取代的补跑残留期当成独立一期
+  // 发进 sitemap —— 那个 URL 上根本不存在第二期。
+  let editionPeriods: Array<{ period: string; publishedAt: Date | null }> = [];
+  try {
+    editionPeriods = await listEditionPeriods(db);
+  } catch {
+    // Degrade gracefully to sitemap without weekly editions
+  }
+
   let activeDirections: Array<{ slug: string }> = [];
   try {
     activeDirections = await db
@@ -139,12 +151,20 @@ async function handler({ request }: { request: Request }) {
       lastmod: latestPaperDate,
     },
     {
+      // /gallery 现在是「最新一期合刊」而不是逐日刷新的论文流, 一周才换一次内容
       url: `${origin}/gallery`,
       priority: "0.9",
-      changefreq: "daily",
+      changefreq: "weekly",
       lastmod: latestPaperDate,
     },
     { url: `${origin}/news`, priority: "0.8", changefreq: "hourly" },
+    {
+      // 档案页接了原来那条扁平论文流, 每有新论文入库就变
+      url: `${origin}/gallery/archive`,
+      priority: "0.6",
+      changefreq: "daily",
+      lastmod: latestPaperDate,
+    },
   ];
 
   const paperRoutes: SitemapRoute[] = publicPapers.map((p) => ({
@@ -198,10 +218,22 @@ async function handler({ request }: { request: Request }) {
     lastmod: latestIssueDateBySlug.get(d.slug),
   }));
 
+  // 合刊永久链接。历史期定稿后不再变动, 所以 changefreq 给 yearly; priority 停在
+  // 0.7(与方向主页同档、低于 /gallery 的 0.9): 最新那一期的 canonical 指向
+  // /gallery, 给它们同档或更高的 priority 就是让站点自己跟自己抢同一份内容的排名。
+  // 本期出现在 sitemap 里本身没问题 —— sitemap 是"可抓取"清单, 不是 canonical 声明。
+  const editionRoutes: SitemapRoute[] = editionPeriods.map((e) => ({
+    url: `${origin}/gallery/w/${e.period}`,
+    priority: "0.7",
+    changefreq: "yearly",
+    lastmod: e.publishedAt?.toISOString().split("T")[0],
+  }));
+
   const allRoutes = [
     ...staticRoutes,
     ...categoryRoutes,
     ...directionRoutes,
+    ...editionRoutes,
     ...paperRoutes,
     ...digestRoutes,
     ...storyRoutes,

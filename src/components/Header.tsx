@@ -56,6 +56,10 @@ export default function Header() {
             className={`nav-link inline-flex items-center gap-1.5${inGallerySection ? " is-active" : ""}`}
           >
             <Globe className="h-4 w-4" />
+            {/* nav_gallery 与 edition_kicker 眼下值相同(都是「画廊周刊」), 这是刻意
+                共存而不是待清理的重复: 这一个是导航标签(可以为了排版改写、甚至换成
+                动词短语), 另一个是刊物名在刊头上的出现(改它等于给刊物改名)。合并成
+                一个键之后, 任何一侧的文案调整都会连坐另一侧。 */}
             <span>{m.nav_gallery()}</span>
           </Link>
           <Link

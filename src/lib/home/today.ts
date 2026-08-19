@@ -8,6 +8,7 @@ import {
   papers,
   whiteboardImages,
 } from "#/db/schema";
+import { getEditionByPeriod } from "#/lib/digest/edition-store";
 import { compareFeatured, type GroupableStory } from "#/lib/news/group-stories";
 import {
   defaultWhiteboardOn,
@@ -19,7 +20,12 @@ import {
 
 // 与 lib/chat.ts、lib/agent.ts 同款：接收已建好的 drizzle 实例而非裸 D1Database,
 // router 侧直传 ctx.db, SSR loader 侧自行 drizzle(env.DB)。
-type Db = DrizzleD1Database<typeof schema>;
+//
+// $client 这一段是给 edition-store 用的: 那边(以及 digest/store.ts、admin-store.ts)
+// 的 Db 写作 ReturnType<typeof drizzle>, 里面带 $client, 光有
+// DrizzleD1Database<typeof schema> 传不进去。两个真实调用方(ctx.db 与 loader 里的
+// drizzle(env.DB, { schema }))都是 drizzle() 的直接返回值, 本来就带这个字段。
+type Db = DrizzleD1Database<typeof schema> & { $client: D1Database };
 
 // 今日精选取材窗口: 24h 内全量候选按分数选头条+次级;
 // 窗口内凑不满 HOME_STORY_COUNT 条(低频期)时放宽到最近 12 条(按时间)。
@@ -66,6 +72,37 @@ export interface HomePaper {
   hasImage: boolean;
 }
 
+/** 首页周刊卡渲染所需的最小切片: 刊头级数字 + 前两个栏目的名字。 */
+export interface HomeEdition {
+  /**
+   * 周期两端, epoch ms(与 HomeStory.publishedAt 同款数字而不是 Date: loader 数据
+   * 要序列化进首屏 HTML, Date 在 SSR/tRPC 两条路径上的还原结果会分歧)。
+   *
+   * 两端都是 UTC 边界(00:00:00 / 23:59:59), 渲染侧必须按 UTC 格化。
+   */
+  periodStart: number;
+  periodEnd: number;
+  /** active 方向总数(含本期缺席的), 与刊头第一个数字同源 */
+  activeDirectionCount: number;
+  /** 本期有更新的方向数 */
+  directionCount: number;
+  /** 本期入选总篇数 */
+  pickCount: number;
+  /**
+   * 前两个栏目(顺序与合刊页栏目顺序同源)。方向名与期标题都保留四语 Record 原样,
+   * 由组件按当前 locale 挑 —— 服务端不知道客户端渲染时的 locale(语言切换不重新
+   * 走 loader)。
+   *
+   * 实测(本地三期夹具)整个 edition 字段给首屏 HTML 加约 1.15 KB, 其中几乎全部是
+   * 这两条四语标题(CJK 一字 3 字节)。想再压只能砍语言, 而语言是不能砍的。整份
+   * sections 是几十 KB 量级, 差两个数量级 —— 那才是这个字段存在的理由。
+   */
+  highlights: Array<{
+    directionName: Record<string, string>;
+    title: Record<string, string> | null;
+  }>;
+}
+
 export interface HomeToday {
   /** 查询侧捕获一次; 客户端相对时间以它为基准, 避免 SSR/hydration 文本漂移 */
   now: number;
@@ -73,7 +110,15 @@ export interface HomeToday {
   stories: HomeStory[];
   /** 最近入库 4 篇公开画廊论文 */
   papers: HomePaper[];
+  /** 最新一期合刊的摘要; 还没有任何 published 期时为 null(首页回退到画廊精选卡) */
+  edition: HomeEdition | null;
 }
+
+/**
+ * 首页卡只露两条栏目: 卡高要与旁边的头条卡对齐(列满 7 条会把首页第一屏撑掉),
+ * 而每多一条就多一份四语标题进首屏 HTML(约 550 字节/条)。
+ */
+const EDITION_HIGHLIGHT_COUNT = 2;
 
 // 主查询: 24h 窗口在 SQL 过滤, 按分数取 top-N(SQLite 的 DESC 排序把 NULL
 // scoreMax 排在最后)。limit 36 只是安全上限, 正常一天的 story 远少于此。
@@ -117,7 +162,7 @@ export function pickTopStories<T extends GroupableStory>(
 export async function getHomeToday(db: Db): Promise<HomeToday> {
   const now = Date.now();
   const windowStart = new Date(now - HEADLINE_WINDOW_MS);
-  const [storyRows, paperRows] = await Promise.all([
+  const [storyRows, paperRows, edition] = await Promise.all([
     loadStoryCandidates(db, windowStart),
     db
       .select({
@@ -139,6 +184,12 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       .groupBy(papers.id)
       .orderBy(desc(papers.publishedAt))
       .limit(4),
+    // 最新一期合刊。复用 getEditionByPeriod 而不是在这里另写一个"取最新一组"的
+    // 查询: 「同方向同 period_end 只认 issue_number 最大的那条」这条去重规则很细
+    // (见 edition-store 的 isWinningDigest 注释), 手抄一份必然与合刊页漂开, 结果
+    // 就是首页写「7 个方向」点进去数出 8 个。代价是它顺带把四语正文 markdown 也
+    // 从 D1 读出来了(约几十 KB 行读), 但那些字段在下面就被丢掉、绝不进 HTML。
+    getEditionByPeriod(db, null),
   ]);
 
   return {
@@ -155,6 +206,19 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       tldr: p.tldr ?? null,
       hasImage: p.whiteboardKey != null,
     })),
+    // 逐字段挑而不是 { ...edition }: sections 里每个栏目带一份四语 markdown 正文,
+    // 整份铺开是几十 KB, 而首页 loader 的返回值会原样内联进首屏 HTML(HomeStory
+    // 刻意不带 summary 就是这个理由, 见上面的注释)。
+    edition: edition && {
+      periodStart: edition.periodStart.getTime(),
+      periodEnd: edition.periodEnd.getTime(),
+      activeDirectionCount: edition.activeDirectionCount,
+      directionCount: edition.sections.length,
+      pickCount: edition.sections.reduce((sum, s) => sum + s.pickCount, 0),
+      highlights: edition.sections
+        .slice(0, EDITION_HIGHLIGHT_COUNT)
+        .map((s) => ({ directionName: s.directionName, title: s.title })),
+    },
   };
 }
 

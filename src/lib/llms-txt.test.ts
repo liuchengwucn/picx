@@ -83,6 +83,13 @@ describe("buildLlmsTxt", () => {
     expect(txt).not.toContain("/about");
   });
 
+  it("links the archive and drops the retired daily-update claim", () => {
+    const txt = buildLlmsTxt({ siteUrl, papers });
+    expect(txt).toContain("(https://picx.dev/gallery/archive)");
+    // /gallery 现在一周才换一期; 报错的更新节奏比不报更糟(爬虫会按日回抓)
+    expect(txt).not.toContain("updated daily");
+  });
+
   it("always links the news page, regardless of stories", () => {
     const txt = buildLlmsTxt({ siteUrl, papers });
     expect(txt).toContain("(https://picx.dev/news)");
@@ -202,10 +209,13 @@ describe("buildLlmsFullTxt", () => {
   });
 
   it("stays within the byte budget by dropping overflow papers", () => {
-    // Budget fits the header + first paper (~656B) but not the second (~841B).
-    const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 700 });
+    // Budget fits the header + first paper + omission note (~1048B) but not the
+    // second paper (~1161B). The number tracks the header text, so it moves
+    // whenever the Pages list changes — keep it above the header or the test
+    // degenerates into "header only" and stops exercising the drop path.
+    const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 1100 });
     const bytes = new TextEncoder().encode(txt).length;
-    expect(bytes).toBeLessThanOrEqual(700);
+    expect(bytes).toBeLessThanOrEqual(1100);
     // The second paper must not fully fit in such a small budget.
     expect(txt).not.toContain(
       "Residual connections ease optimization of deep networks.",
@@ -213,7 +223,7 @@ describe("buildLlmsFullTxt", () => {
   });
 
   it("notes when papers were omitted for size", () => {
-    const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 700 });
+    const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 1100 });
     expect(txt.toLowerCase()).toContain("omitted");
   });
 
