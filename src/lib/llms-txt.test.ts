@@ -83,6 +83,13 @@ describe("buildLlmsTxt", () => {
     expect(txt).not.toContain("/about");
   });
 
+  it("links the archive and drops the retired daily-update claim", () => {
+    const txt = buildLlmsTxt({ siteUrl, papers });
+    expect(txt).toContain("(https://picx.dev/gallery/archive)");
+    // /gallery 现在一周才换一期; 报错的更新节奏比不报更糟(爬虫会按日回抓)
+    expect(txt).not.toContain("updated daily");
+  });
+
   it("always links the news page, regardless of stories", () => {
     const txt = buildLlmsTxt({ siteUrl, papers });
     expect(txt).toContain("(https://picx.dev/news)");
@@ -202,10 +209,22 @@ describe("buildLlmsFullTxt", () => {
   });
 
   it("stays within the byte budget by dropping overflow papers", () => {
-    // Budget fits the header + first paper (~656B) but not the second (~841B).
-    const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 700 });
+    // 这个 1100 不是「随手调大」的数字: 它的唯一作用是把预算卡在「header 之后、正文
+    // 之中」, 于是丢弃路径真的被走到。实测(本文件的两篇夹具): header 794B,
+    // header+第一篇 1027B, 加一行截断说明 1063B, 两篇 1176B —— 合法窗口是 [1063, 1175]。
+    //
+    // 它随 header 文案浮动, 而 header 是无条件输出的(buildLlmsFullTxt 不对它做预算
+    // 检查)。旧值 700 就是被 Pages 里新增的 Archive 一条顶穿的: 那时一篇正文都进不来,
+    // 输出退化成 header + 截断说明 = 831B, 于是本条的 bytes <= maxBytes 直接失败
+    // ——**这是好事**, 它把问题喊了出来。真正危险的是隔壁那条
+    // it("notes when papers were omitted"): 只要一篇进不来就一定有截断说明, 它照样
+    // 通过, 只是通过的理由已经从「丢弃了溢出的论文」变成了「header 就装不下」。
+    //
+    // 所以往 Pages 加行或改站点简介之后, 这个数字必须跟着顶到新窗口里, 而且要看着
+    // 本条测试的失败去改, 不要只看隔壁那条还是绿的。
+    const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 1100 });
     const bytes = new TextEncoder().encode(txt).length;
-    expect(bytes).toBeLessThanOrEqual(700);
+    expect(bytes).toBeLessThanOrEqual(1100);
     // The second paper must not fully fit in such a small budget.
     expect(txt).not.toContain(
       "Residual connections ease optimization of deep networks.",
@@ -213,7 +232,7 @@ describe("buildLlmsFullTxt", () => {
   });
 
   it("notes when papers were omitted for size", () => {
-    const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 700 });
+    const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 1100 });
     expect(txt.toLowerCase()).toContain("omitted");
   });
 

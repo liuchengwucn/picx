@@ -60,6 +60,43 @@
   --sidebar-accent-foreground: oklch(0.35 0.04 60);
   --sidebar-border: oklch(0.9 0.01 80);
   --sidebar-ring: oklch(0.52 0.08 65);
+
+  /* 方向识别色的明度/彩度: 色相由 lib/digest/direction-color.ts 给, 见 spec §5.1 */
+  --accent-l: 0.52;
+  --accent-c: 0.11;
+
+  /* ---- 吸顶栈高度。这几个值有真正的调用方(sticky top / scroll-margin-top /
+     IntersectionObserver 的 rootMargin), 三者必须同时改, 所以只允许有一份定义。
+     曾经它们是散在三个文件里的四个字面量, 直接的后果是滚动跟随高亮到了错误的
+     栏目(判定带上边界比吸顶栈矮 16px, 正在离开的那一栏还压在带内)。 ---- */
+
+  /* 全局 Header 的实际高度: 内容 h-9(36px) + nav py-3(24px) + 1px 下边框。
+     safe-area 不含在内 —— 消费方各自 `+ env(safe-area-inset-top)`, 因为 JS 侧
+     读 rootMargin 时 getBoundingClientRect 已经把 safe-area 算进坐标了。 */
+  --header-h: 61px;
+  /* 合刊窄屏那条吸顶 chip 行的高度(py-2 + chip 行高 + 1px 下边框)。lg 起该行
+     被 lg:hidden 收掉, 于是这里归零 —— 这样「吸顶栈总高」在两种布局下是同一个
+     表达式 var(--header-h) + var(--edition-chip-h), 消费方不必各自写断点分支。 */
+  --edition-chip-h: 59px;
+  /* 合刊页吸顶栈总高。栏目的 scroll-margin-top 与 scroll-spy 的判定带上边界都读
+     这一个值 —— 两者一旦不同源, 跳转落位与高亮判定就会各说各话。含 env() 与断点
+     分支, 所以 JS 侧只能靠探针元素让浏览器求值(见 edition-spine.tsx)。 */
+  --edition-sticky-stack: calc(
+    var(--header-h) + var(--edition-chip-h) + env(safe-area-inset-top)
+  );
+}
+
+@media (min-width: 40rem) {
+  :root {
+    /* sm 起 nav 是 py-4: 36 + 32 + 1 */
+    --header-h: 69px;
+  }
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --edition-chip-h: 0px;
+  }
 }
 
 .dark {
@@ -114,6 +151,10 @@
   --sidebar-accent-foreground: oklch(0.92 0.01 80);
   --sidebar-border: oklch(0.28 0.015 60);
   --sidebar-ring: oklch(0.75 0.1 80);
+
+  /* 暗底上必须提亮才看得见 7px 方块; L 再高就开始在深底上发光刺眼 */
+  --accent-l: 0.7;
+  --accent-c: 0.12;
 }
 
 @theme inline {

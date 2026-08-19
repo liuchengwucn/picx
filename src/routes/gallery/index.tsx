@@ -1,39 +1,39 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  AlertTriangle,
-  Globe,
-  Loader2,
-  RotateCcw,
-  Search,
-  Sparkles,
-  X,
-} from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { z } from "zod";
-import { DirectionTabs } from "#/components/digest/direction-tabs";
+import { EditionSkeleton } from "#/components/digest/edition-skeleton";
 import {
-  GalleryCard,
-  GalleryCardSkeleton,
-  getCategoryLabel,
-} from "#/components/papers/gallery-card";
-import { Button } from "#/components/ui/button";
-import { usePaperFeedback } from "#/hooks/use-paper-feedback";
-import { useTRPC, useTRPCClient } from "#/integrations/trpc/react";
+  EditionPanelShell,
+  EditionView,
+} from "#/components/digest/edition-view";
 import {
-  GALLERY_LIST_QUERY_KEY,
-  parseCsvParam,
-  parseSort,
-} from "#/lib/gallery-search";
+  PastEditions,
+  selectPastEditions,
+} from "#/components/digest/past-editions";
 import {
-  normalizeCategorySlugs,
-  PAPER_CATEGORY_SLUGS,
-} from "#/lib/paper-categories";
+  LoadFailedPanel,
+  PanelLinkContent,
+  PendingPanel,
+  panelLinkClass,
+} from "#/components/ui/state-panel";
+import { useTRPC } from "#/integrations/trpc/react";
+import { mapEditionToLocale } from "#/lib/digest/present";
 import { SITE_URL } from "#/lib/site-url";
+import { normalizeLocaleKey } from "#/lib/tldr";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
-const gallerySearchSchema = z.object({
+interface AppEnvBindings {
+  DB: D1Database;
+}
+
+/**
+ * 落地页已经不收任何筛选参数了(检索搬去了 /gallery/archive), 但这批键必须**留在
+ * schema 里**: 非 strict 的 zod 会把未知键静默抹掉, beforeLoad 里就再也看不到它们,
+ * 于是老书签 /gallery?q=lean&cat=llm 重定向过去时筛选条件全丢。
+ * 键集与 archive.tsx 的那份一致(除 dir —— 那是档案页新增的轴, 老链接里不会有)。
+ */
+const legacySearchSchema = z.object({
   q: z.string().optional(),
   cat: z.string().optional(),
   tag: z.string().optional(),
@@ -42,589 +42,267 @@ const gallerySearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/gallery/")({
-  validateSearch: gallerySearchSchema,
-  component: ExplorePage,
-  head: ({ match }) => {
-    const search = match.search;
-    const filtered = Boolean(
-      search.q || search.cat || search.tag || search.sort || search.page,
-    );
-    const description =
-      "Browse visual whiteboard summaries of today's top HuggingFace research papers, automatically updated daily.";
-    const meta: Array<
-      | { title: string }
-      | { name: string; content: string }
-      | { property: string; content: string }
-    > = [
-      { title: m.page_title_gallery() },
-      { name: "description", content: description },
-    ];
-    if (filtered) {
-      meta.push({ name: "robots", content: "noindex,follow" });
+  validateSearch: legacySearchSchema,
+  beforeLoad: ({ search }) => {
+    if (search.q || search.cat || search.tag || search.sort || search.page) {
+      throw redirect({
+        to: "/gallery/archive",
+        // 原样带上全部参数, 一个不丢
+        search,
+        // 必须是**临时**重定向: 301 会被浏览器永久缓存, 将来档案路径若再变, 已经
+        // 访问过的浏览器就再也救不回来了
+        statusCode: 302,
+        replace: true,
+      });
     }
-    meta.push(
-      { property: "og:title", content: m.page_title_gallery() },
-      { property: "og:description", content: description },
-      { property: "og:url", content: `${SITE_URL}/gallery` },
-    );
+  },
+  /**
+   * 页内锚点点击(竖脊末尾那条「往期合刊」是裸 <a href="#past-editions">, 走浏览器
+   * 默认跳转)会改 URL hash, 而 @tanstack/history 把它当成一次导航 —— 实测每点一次
+   * 就多跑一遍本路由的 loader(在客户端那是一次真实的数据请求)。本路由的 loader
+   * 不依赖任何 params/search, 同一个 URL 重进没有任何理由重跑。
+   *
+   * 方向 chips 那批锚点走的是 useScrollSpy 的 jumpTo(刻意不写 hash), 不受影响;
+   * 但「不写 hash」这个约定只能管住 JS 接管的链接, 所以这一层仍然要有。
+   */
+  shouldReload: false,
+  loader: async ({ context }) => {
+    // 落地页是站点主入口, 正文必须进第一个 HTML 响应(SEO + 首屏)。服务端不能走
+    // tRPC client: 它在 SSR 侧指向 localhost, 部署到 Workers 里发不出去 —— 与
+    // /p、/news、单期页同一处理: 直读 D1。
+    if (import.meta.env.SSR) {
+      const localeKey = normalizeLocaleKey(getLocale());
+      try {
+        const { env } = await import("cloudflare:workers");
+        const { drizzle } = await import("drizzle-orm/d1");
+        // 动态 import: edition-store 拽进 drizzle-orm 与整份 schema, 静态引会把它们
+        // 打进客户端包
+        const {
+          getEditionByPeriod,
+          listDirectionColorInputs,
+          listEditionPeriods,
+        } = await import("#/lib/digest/edition-store");
+        const db = drizzle((env as typeof env & AppEnvBindings).DB);
+        // 三条互不依赖, 并成一批而不是三次串行往返
+        const [edition, periods, directions] = await Promise.all([
+          getEditionByPeriod(db, null),
+          listEditionPeriods(db),
+          listDirectionColorInputs(db),
+        ]);
+        return {
+          ssrData: edition ? mapEditionToLocale(edition, localeKey) : null,
+          ssrPeriods: periods,
+          // 方向色输入也必须走 SSR: 少了它服务端只能按本期栏目分配色相, 客户端拿到
+          // 全量方向后分配结果不同 —— 栏眉方块的 inline style 对不上就是一处
+          // hydration mismatch(压缩构建里只报 #418, 极难定位)。
+          ssrDirections: directions,
+          ssrLocaleKey: localeKey,
+          // 与 ssrData: null 区分「读到了, 确实一期都没有」和「这一帧不是 SSR 读的」
+          ssrRead: true,
+          ssrFailed: false,
+        };
+      } catch (error) {
+        // 降级为纯 CSR(客户端那次查询能把正文补回来), 但故障不能无声无息:
+        // 三态口径要求读失败照实说, 既不许说成「生成中」, 也不许回 404。
+        console.error("[gallery edition loader] SSR D1 read failed", error);
+        return {
+          ssrData: null,
+          ssrPeriods: null,
+          ssrDirections: null,
+          ssrLocaleKey: null,
+          ssrRead: false,
+          ssrFailed: true,
+        };
+      }
+    }
+    // 客户端导航。用 prefetchQuery 而不是 ensureQueryData: 两者都会把数据填进
+    // 缓存, 但 prefetch 不抛 —— 取数失败要落到组件里的失败面板(带重试), 而不是
+    // 冒到路由错误边界; 落地页的「一期都没有」也是正常态而不是需要在 loader 里
+    // 提前拦下的 404。
+    //
+    // 方向色输入也一起等: 少了它色相只能按「本期栏目」这个小集合分配, 等
+    // listDirections 到位再按全量方向重算, 读者看到的是栏眉方块当场换色。
+    //
+    // listEditionPeriods 同样要等: 它是页尾往期列表 + 脊上「往期合刊」锚点的判据,
+    // 少了它客户端跳进 /gallery 的首帧 periods=[], 那条锚点会晚一拍才弹出来。
+    await Promise.all([
+      context.queryClient.prefetchQuery(
+        context.trpc.digest.getEdition.queryOptions({ locale: getLocale() }),
+      ),
+      context.queryClient.prefetchQuery(
+        context.trpc.digest.listDirections.queryOptions({
+          locale: getLocale(),
+        }),
+      ),
+      context.queryClient.prefetchQuery(
+        context.trpc.digest.listEditionPeriods.queryOptions(),
+      ),
+    ]);
     return {
-      meta,
-      ...(filtered
-        ? { links: [{ rel: "canonical", href: `${SITE_URL}/gallery` }] }
-        : {}),
+      ssrData: null,
+      ssrPeriods: null,
+      ssrDirections: null,
+      ssrLocaleKey: null,
+      ssrRead: false,
+      ssrFailed: false,
+    };
+  },
+  component: WeeklyGalleryPage,
+  head: ({ loaderData }) => {
+    // D1 读失败的那一帧没有正文, 只有一块失败面板 —— 不执行 JS 的抓取方看到的是个
+    // 软 404, 发自指 canonical 等于主动请求把带错误信息的空页收录成 /gallery 的
+    // 权威版本。这一帧只在 D1 抛错时存在, 那意味着全站同时在失败、其余路由
+    // (/p/$shortId、/news/$shortId、gallery/d、w.$period)**已经**在发 noindex,
+    // 所以这里不例外才是一致的。
+    //
+    // 只按 ssrFailed 判: ssrData === null 的「首期合刊生成中」是**真内容**(读成功了,
+    // 确实一期都没有), 该照常可收录、照常发自指 canonical。
+    if (loaderData?.ssrFailed) {
+      return {
+        meta: [
+          // 与 w.$period 的失败帧同一个标题: 两处是同一件事(这一期没读出来)。
+          // gallery_load_failed 是面板里那句完整的话, 当标题太长。
+          { title: `${m.digest_issue_error_title()} | PicX` },
+          { name: "robots", content: "noindex" },
+        ],
+      };
+    }
+    const title = m.page_title_gallery();
+    const description = m.edition_meta_description();
+    return {
+      meta: [
+        { title },
+        { name: "description", content: description },
+        { property: "og:title", content: title },
+        { property: "og:description", content: description },
+        { property: "og:url", content: `${SITE_URL}/gallery` },
+      ],
+      // 有正文时永远自指: 落地页是品牌入口。本周那一期同时住在 /gallery/w/<latest>,
+      // 让位的是那一边(见 w.$period.tsx 的 isLatest 条件 canonical)。
+      links: [{ rel: "canonical", href: `${SITE_URL}/gallery` }],
     };
   },
 });
 
-// 每页论文数量。横向宽卡为 2 列, 8 篇正好 4 行, 一屏更聚焦。
-const PAGE_SIZE = 8;
-
-const gallerySkeletonKeys = Array.from(
-  { length: PAGE_SIZE },
-  (_, i) => `gallery-skeleton-${i + 1}`,
-);
-
-function ExplorePage() {
-  const client = useTRPCClient();
+function WeeklyGalleryPage() {
+  const loaderData = Route.useLoaderData();
   const trpc = useTRPC();
-  const search = Route.useSearch();
-  const navigate = Route.useNavigate();
-
-  const page = search.page ?? 1;
-  const categories = normalizeCategorySlugs(parseCsvParam(search.cat));
-  const tags = parseCsvParam(search.tag);
-  const sort = parseSort(search.sort);
-  const q = search.q?.trim() || undefined;
-
-  // Local controlled input — debounced before writing to URL
-  const [inputValue, setInputValue] = useState(search.q ?? "");
-
-  // Keep local input in sync if URL q changes externally (e.g. browser back/forward).
-  // We write the trimmed value to the URL, so overwriting unconditionally would eat
-  // a trailing space the user is still typing after ("gpt " + "5" → "gpt5").
-  useEffect(() => {
-    const next = search.q ?? "";
-    setInputValue((cur) => (cur.trim() === next ? cur : next));
-  }, [search.q]);
-
-  // Debounce search input → URL
-  const urlQ = search.q?.trim() ?? "";
-  useEffect(() => {
-    const trimmed = inputValue.trim();
-    if (trimmed === urlQ) return;
-    const timer = setTimeout(() => {
-      navigate({
-        search: (prev) => ({
-          ...prev,
-          q: trimmed || undefined,
-          page: undefined,
-        }),
-      });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [inputValue, urlQ, navigate]);
-
   const locale = getLocale();
+  const localeKey = normalizeLocaleKey(locale);
 
-  // 真增量加载: 每次只取 PAGE_SIZE 条 (offset 分页), 客户端累加。
-  // limit 恒为 PAGE_SIZE, 不会撞后端 max(100) 上限, 可扩展到任意数量。
-  const galleryQuery = useInfiniteQuery({
-    queryKey: [GALLERY_LIST_QUERY_KEY, { q, categories, tags, sort, locale }],
-    queryFn: ({ pageParam, signal }) =>
-      client.paper.listPublic.query(
-        {
-          page: pageParam,
-          limit: PAGE_SIZE,
-          locale,
-          q,
-          categories,
-          tags,
-          sort,
-        },
-        { signal },
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage, allPages) =>
-      allPages.length * PAGE_SIZE < lastPage.total
-        ? allPages.length + 1
-        : undefined,
+  // 「读到了, 但一期都没有」(null)也要当 initialData 喂进去, 不能折成 undefined:
+  // 否则 SSR 渲染的是 PendingPanel、客户端第一帧因为 data 还是 undefined 渲染骨架,
+  // 又是一处 hydration mismatch。ssrRead 就是为了把它与「这一帧不是 SSR 读的」
+  // 分开(客户端导航时 ssrData 也是 null, 那种 null 不能当答案用)。
+  const ssrInitialData = loaderData.ssrRead ? loaderData.ssrData : undefined;
+  // SSR 那份是按服务端解析出的 locale 渲染的(cookie → Accept-Language → baseLocale)。
+  // 对不上当前 locale 时必须立刻重取, 否则 root-provider 的默认 staleTime(60s)会把
+  // 另一种语言的正文按住一分钟 —— 与单期页同一处理。
+  const staleSsrLocale =
+    ssrInitialData !== undefined && loaderData.ssrLocaleKey !== localeKey;
+  const query = useQuery({
+    ...trpc.digest.getEdition.queryOptions({ locale }),
+    initialData: ssrInitialData,
+    // 只在语言对不上时压掉 staleTime; 平时这个键**根本不出现**, 把新鲜度留给
+    // queryClient 的默认值(root-provider 的 60s)。
+    //
+    // 不能写成 `staleTime: staleSsrLocale ? 0 : undefined`: useQuery 的选项是
+    // `{...defaults.queries, ...options}` 展开合并, 显式的 undefined 会**覆盖**默认值,
+    // 而 isStaleByTime 再把 undefined 兜成 0 ⇒ 查询挂载即 stale、refetchOnMount 触发,
+    // 于是每次整页加载都把已经内联在 HTML 里的正文再拉一遍(英文约 9.9KB, CJK 更多),
+    // 三元的两个分支效果还完全相同(整套语言新鲜度机制变成死代码)。
+    ...(staleSsrLocale ? { staleTime: 0 } : {}),
   });
-
-  const papers = galleryQuery.data?.pages.flatMap((p) => p.papers) ?? [];
-  const total = galleryQuery.data?.pages[0]?.total ?? 0;
-  const hasMore = papers.length < total;
-  const hasFilters = Boolean(q || categories.length || tags.length);
-
-  // 卡片上要显示的是方向名而不是 slug。DirectionTabs 用的是同一个 query key,
-  // react-query 去重, 这里不会多发一次请求。
+  const periodsQuery = useQuery({
+    ...trpc.digest.listEditionPeriods.queryOptions(),
+    staleTime: 5 * 60_000,
+  });
+  // 与档案页 / 方向页共用同一个 query key, react-query 去重, 不会多发一次请求
   const directionsQuery = useQuery({
     ...trpc.digest.listDirections.queryOptions({ locale }),
     staleTime: 5 * 60_000,
   });
-  const directionNameBySlug = new Map(
-    (directionsQuery.data ?? []).map((d) => [d.slug, d.name] as const),
-  );
 
-  // 反馈按钮装配(登录态口径 / 登录回跳地址 / 「我的投票」分批取)三个页面共用,
-  // 细节与陷阱都在 usePaperFeedback 里。
-  const { feedbackAuth, signInCallbackURL, myVoteByPaperId } = usePaperFeedback(
-    papers.map((p) => p.id),
-  );
+  /**
+   * 服务端刻意不看 react-query 缓存, 只认 loader 刚从 D1 读出来的那份: 历史上
+   * root-provider 的 queryClient 是模块级单例、在 Worker isolate 内跨请求共享,
+   * 第一次 SSR 写进去的 initialData 会被后续所有请求读到。单例已改成每请求新建,
+   * 这里是第二道防线, 同时保证两侧第一帧同源。
+   */
+  const data = import.meta.env.SSR ? loaderData.ssrData : query.data;
+  // 客户端第一帧这两个 query 还没数据, 必须回退到 loader 那份, 否则脊上的方向色与
+  // 页尾往期列表两侧不一致(同样是 hydration mismatch)
+  const allDirections = directionsQuery.data ?? loaderData.ssrDirections ?? [];
+  const periods = periodsQuery.data ?? loaderData.ssrPeriods ?? [];
 
-  // URL 的 page 表示"已展开到第几页": deep link / 刷新 / 点「加载更多」都通过它驱动,
-  // 逐页补拉直到加载到目标页数 (单一数据源)。
-  const loadedPages = galleryQuery.data?.pages.length ?? 0;
-  const { fetchNextPage, hasNextPage, isFetchingNextPage } = galleryQuery;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 仅在目标/已加载页数变化时补拉
-  useEffect(() => {
-    if (loadedPages < page && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [page, loadedPages, hasNextPage, isFetchingNextPage]);
+  // 以下几条的顺序有讲究, 且都在所有 hook 之后(免得提前 return 那次渲染的 hook
+  // 数量对不上)。
+  //
+  // 1. SSR 读失败 → 照实说「没读出来」。判据必须是 `!data` 而不是
+  //    `data === undefined`: 服务端的 data 取自 loaderData.ssrData, 那一帧它是
+  //    **null**, 用 === undefined 就漏判, 于是这一帧落到第 3 条, 把一次读故障说成
+  //    「首期合刊生成中」—— 正是三态口径明令禁止的那句谎话(单期页那边同一个坑
+  //    更凶: 会直接渲染成 404)。这条必须排在 data === null 之前。
+  if (loaderData.ssrFailed && !data) {
+    return (
+      <EditionPanelShell>
+        <LoadFailedPanel onRetry={() => query.refetch()} />
+      </EditionPanelShell>
+    );
+  }
+  // 2. 手里还有正文时不能拿失败面板盖掉好内容: 非默认语言的读者每次首屏都会因
+  //    staleSsrLocale 被强制重取一次, 那一次网络抖动若直接翻成失败面板, 整期正文就
+  //    消失了, 而 retry 用尽 + refetchOnWindowFocus:false 意味着不刷新再也回不来。
+  if (query.isError && !data) {
+    return (
+      <EditionPanelShell>
+        <LoadFailedPanel onRetry={() => query.refetch()} />
+      </EditionPanelShell>
+    );
+  }
+  // 3. 全站一期都还没发布。不是 404 也不是空白页 —— 照实说在生成, 并给出唯一还能读
+  //    的去处(档案里有 900+ 篇论文)。
+  if (data === null) {
+    return (
+      <EditionPanelShell>
+        <PendingPanel
+          message={m.edition_empty()}
+          action={
+            <Link
+              to="/gallery/archive"
+              activeOptions={{ exact: true }}
+              className={panelLinkClass}
+            >
+              <PanelLinkContent>{m.archive_title()}</PanelLinkContent>
+            </Link>
+          }
+        />
+      </EditionPanelShell>
+    );
+  }
+  // 4. 一个字都还没有 = 还在取(前三条已经把 null 全部消化掉了)
+  if (!data) {
+    return (
+      <main className="min-h-dvh bg-[var(--bg)] py-8">
+        <EditionSkeleton />
+      </main>
+    );
+  }
 
-  // 无限滚动: 哨兵元素进入视口时自动展开下一页 (仍走 URL 的 page 单一数据源)。
-  // 防频繁触发: 仅当已加载页数追平目标页 (loadedPages >= page) 且不在加载中时才追加,
-  // 每次追加都需等一次 fetch 往返, 天然节流。
-  const loadMoreRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = loadMoreRef.current;
-    if (!el || !hasMore) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (
-        entries[0]?.isIntersecting &&
-        hasMore &&
-        !isFetchingNextPage &&
-        loadedPages >= page
-      ) {
-        navigate({
-          search: (prev) => ({ ...prev, page: page + 1 }),
-          resetScroll: false,
-        });
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasMore, isFetchingNextPage, loadedPages, page, navigate]);
-
-  // Category chips collapse to 2 rows; a toggle appears only when they overflow.
-  const chipsRef = useRef<HTMLDivElement>(null);
-  const [chipsExpanded, setChipsExpanded] = useState(false);
-  // px height of the first two rows; null = chips already fit in ≤2 rows (no toggle).
-  const [collapsedChipsH, setCollapsedChipsH] = useState<number | null>(null);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure on locale change — chip labels change width and (while clamped) the ResizeObserver won't fire on reflow.
-  useEffect(() => {
-    const el = chipsRef.current;
-    if (!el) return;
-    const measure = () => {
-      const kids = Array.from(el.children) as HTMLElement[];
-      if (kids.length === 0) return;
-      // Distinct offsetTop values = rows (overflow-hidden doesn't move children,
-      // so this stays correct even while clamped).
-      const rowTops: number[] = [];
-      for (const k of kids) {
-        if (!rowTops.includes(k.offsetTop)) rowTops.push(k.offsetTop);
-      }
-      if (rowTops.length <= 2) {
-        setCollapsedChipsH(null);
-        return;
-      }
-      const secondRowTop = rowTops[1];
-      const secondRowBottom = Math.max(
-        ...kids
-          .filter((k) => k.offsetTop === secondRowTop)
-          .map((k) => k.offsetTop + k.offsetHeight),
-      );
-      setCollapsedChipsH(secondRowBottom - rowTops[0]);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [locale]);
-
-  const chipsClamped = collapsedChipsH !== null && !chipsExpanded;
-
-  // --- URL mutation helpers ---
-  const patchSearch = (patch: Partial<z.infer<typeof gallerySearchSchema>>) =>
-    navigate({
-      search: (prev) => ({ ...prev, ...patch, page: undefined }),
-    });
-
-  const toggleCategory = (slug: string) => {
-    const next = categories.includes(slug as (typeof categories)[number])
-      ? categories.filter((c) => c !== slug)
-      : [...categories, slug];
-    patchSearch({ cat: next.length ? next.join(",") : undefined });
-  };
-
-  const addTag = (t: string) =>
-    patchSearch({
-      tag: Array.from(new Set([...tags, t])).join(",") || undefined,
-    });
-
-  const removeTag = (t: string) =>
-    patchSearch({
-      tag: tags.filter((x) => x !== t).join(",") || undefined,
-    });
-
-  const clearFilters = () => navigate({ search: () => ({}) });
+  // 脊上「往期合刊」那条锚点的判据: 页尾那节里真的有往期才出。第一周(七个方向首期
+  // 共享同一个 period_end, listEditionPeriods 只返回一期)过滤完是空的, 那时不能给锚点。
+  // 与 <PastEditions> 走同一个 selectPastEditions, 两者不会各说各话。
+  const hasPastEditions = selectPastEditions(periods, data.period).length > 0;
 
   return (
     <main className="min-h-dvh bg-[var(--bg)] py-8">
-      <div className="page-wrap">
-        {/* Header */}
-        <div className="rise-in mb-8 text-center">
-          <h1 className="mb-3 font-serif text-4xl font-bold text-[var(--ink)] sm:text-5xl">
-            {m.explore_title()}
-          </h1>
-          <p className="text-lg text-[var(--ink-soft)]">
-            {m.explore_description()}
-          </p>
-        </div>
-
-        {/* 方向导航行: 独立一行, 跟着页面滚走(不 sticky) —— 它是导航不是筛选器,
-            钉在筛选栏里会让人以为点了是在过滤当前列表 */}
-        <DirectionTabs />
-
-        {/* Sticky filter bar */}
-        {/* sticky 偏移 = 全局 Header 高度(h-9 内容 + py-3/py-4 + 1px 边框),
-            比 header 低 1px 让接缝藏在 header 下, 避免滚动时被遮挡。 */}
-        <div className="sticky top-[calc(60px+env(safe-area-inset-top))] z-10 -mx-4 mb-6 px-4 py-3 sm:top-[calc(68px+env(safe-area-inset-top))] sm:-mx-6 sm:px-6">
-          {/* 玻璃底:独立层 + 底部羽化, 让卡片柔和淡入而非硬切的模糊边。
-              延伸到 mb-6 间距下方, 羽化带落在卡片之外, 不影响搜索框/标签。 */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-0 -bottom-6 -z-10 bg-[var(--header-bg)] backdrop-blur-md mask-b-from-[calc(100%-1.5rem)] mask-b-to-100%"
-          />
-          {/* Row 1: search + sort */}
-          <div className="flex items-center gap-3">
-            {/* Search input */}
-            <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-soft)] pointer-events-none" />
-              <input
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder={m.gallery_search_placeholder()}
-                className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] py-2 pl-9 pr-9 text-sm text-[var(--ink)] placeholder:text-[var(--ink-soft)] outline-none transition-colors focus:border-[var(--academic-brown)] focus:ring-1 focus:ring-[var(--academic-brown)]/20"
-              />
-              {inputValue && (
-                <button
-                  type="button"
-                  onClick={() => setInputValue("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-soft)] hover:text-[var(--ink)]"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Sort toggle */}
-            <div className="flex shrink-0 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => patchSearch({ sort: undefined })}
-                className={`px-3 py-2 transition-colors ${
-                  sort === "recent"
-                    ? "bg-[var(--academic-brown)] text-white"
-                    : "text-[var(--ink-soft)] hover:text-[var(--ink)]"
-                }`}
-              >
-                {m.gallery_sort_recent()}
-              </button>
-              <button
-                type="button"
-                onClick={() => patchSearch({ sort: "popular" })}
-                className={`border-l border-[var(--line)] px-3 py-2 transition-colors ${
-                  sort === "popular"
-                    ? "bg-[var(--academic-brown)] text-white"
-                    : "text-[var(--ink-soft)] hover:text-[var(--ink)]"
-                }`}
-              >
-                {m.gallery_sort_popular()}
-              </button>
-            </div>
-          </div>
-
-          {/* Row 2: category chips (collapse to 2 rows) */}
-          <div
-            ref={chipsRef}
-            className={`mt-3 flex flex-wrap gap-1.5${chipsClamped ? " overflow-hidden" : ""}`}
-            style={
-              chipsClamped
-                ? { maxHeight: collapsedChipsH ?? undefined }
-                : undefined
-            }
-          >
-            {/* All chip */}
-            <button
-              type="button"
-              onClick={() => patchSearch({ cat: undefined })}
-              className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                categories.length === 0
-                  ? "border-[var(--academic-brown)] bg-[var(--academic-brown)] text-white"
-                  : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-              }`}
-            >
-              {m.gallery_all_categories()}
-            </button>
-
-            {PAPER_CATEGORY_SLUGS.map((slug) => {
-              const label = getCategoryLabel(slug);
-              const isActive = categories.includes(slug);
-              return (
-                <button
-                  key={slug}
-                  type="button"
-                  onClick={() => toggleCategory(slug)}
-                  className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    isActive
-                      ? "border-[var(--academic-brown)] bg-[var(--academic-brown)] text-white"
-                      : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          {collapsedChipsH !== null && (
-            <button
-              type="button"
-              onClick={() => setChipsExpanded((v) => !v)}
-              className="mt-2 text-xs font-medium text-[var(--academic-brown)] transition-opacity hover:opacity-70"
-            >
-              {chipsExpanded ? m.gallery_show_less() : m.gallery_show_more()}
-            </button>
-          )}
-        </div>
-
-        {/* Active filters row */}
-        {hasFilters && (
-          <div className="mb-5 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-[var(--ink-soft)]">
-              {m.gallery_filtered_label()}
-            </span>
-
-            {/* Selected categories */}
-            {categories.map((slug) => {
-              const label = getCategoryLabel(slug);
-              return (
-                <span
-                  key={`cat-${slug}`}
-                  className="inline-flex items-center gap-1 rounded-full border border-[var(--academic-brown)]/30 bg-[var(--academic-brown)]/8 px-2.5 py-0.5 text-xs text-[var(--academic-brown)]"
-                >
-                  {label}
-                  <button
-                    type="button"
-                    onClick={() => toggleCategory(slug)}
-                    className="ml-0.5 hover:opacity-70"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              );
-            })}
-
-            {/* Selected tags */}
-            {tags.map((tag) => (
-              <span
-                key={`tag-${tag}`}
-                className="inline-flex items-center gap-1 rounded-full border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-2.5 py-0.5 text-xs text-[var(--ink)]"
-              >
-                #{tag}
-                <button
-                  type="button"
-                  onClick={() => removeTag(tag)}
-                  className="ml-0.5 hover:opacity-70"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-
-            <span className="text-[var(--ink-soft)]">
-              {m.gallery_result_count({ count: String(total) })}
-            </span>
-
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="ml-auto text-xs text-[var(--ink-soft)] underline underline-offset-2 hover:text-[var(--academic-brown)]"
-            >
-              {m.gallery_clear_filters()}
-            </button>
-          </div>
-        )}
-
-        {/* Gallery Grid
-
-            isError 必须排在两个空态之前: 取数失败时 isLoading 已是 false、data 是
-            undefined 于是 total 为 0, 不拦就会直接落进 EmptyGallery / NoResults ——
-            前者请用户「来上传第一篇」, 后者请用户清筛选, 两句在一次网络抖动面前都是
-            错的, 而且都把「重试」这个唯一有用的动作藏了起来。方向页的论文流已经是
-            这个口径(见那边注释: 把失败说成空态等于对用户撒谎), 这里补齐。 */}
-        {galleryQuery.isLoading ? (
-          <div className="grid auto-rows-fr gap-5 lg:grid-cols-2">
-            {gallerySkeletonKeys.map((skeletonKey) => (
-              <GalleryCardSkeleton key={skeletonKey} />
-            ))}
-          </div>
-        ) : galleryQuery.isError ? (
-          <LoadFailedGallery onRetry={() => galleryQuery.refetch()} />
-        ) : total === 0 && hasFilters ? (
-          <NoResults onClear={clearFilters} />
-        ) : total === 0 ? (
-          <EmptyGallery />
-        ) : (
-          <div className="grid auto-rows-fr gap-5 lg:grid-cols-2">
-            {papers.map((paper, index) => (
-              <GalleryCard
-                key={paper.id}
-                paper={paper}
-                delay={`${index * 50}ms`}
-                onTagClick={addTag}
-                directionLabel={
-                  paper.directionSlug
-                    ? directionNameBySlug.get(paper.directionSlug)
-                    : undefined
-                }
-                myVote={myVoteByPaperId.get(paper.id)}
-                feedbackAuth={feedbackAuth}
-                signInCallbackURL={signInCallbackURL}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Upload CTA — invite browsers to turn their own paper into a whiteboard */}
-        {papers.length > 0 && (
-          <section className="rise-in mt-16">
-            <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[linear-gradient(135deg,var(--parchment-warm),var(--surface-strong))] px-6 py-8 text-center shadow-[0_4px_16px_rgba(45,42,36,0.06)] sm:px-10 sm:py-10">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] shadow-[0_6px_18px_rgba(139,111,71,0.28)]">
-                <Sparkles className="h-6 w-6 text-white" />
-              </div>
-              <h2 className="mb-2 font-serif text-2xl font-bold text-[var(--ink)]">
-                {m.gallery_cta_title()}
-              </h2>
-              <p className="mx-auto mb-6 max-w-md text-[var(--ink-soft)]">
-                {m.gallery_cta_desc()}
-              </p>
-              <Link
-                to="/papers"
-                className="inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold !text-white no-underline shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)]"
-              >
-                <Sparkles className="h-4 w-4" />
-                {m.papers_upload()}
-              </Link>
-            </div>
-          </section>
-        )}
-
-        {/* Load more — 滚动到哨兵元素时自动加载; 按钮作为无障碍 / 兜底入口 */}
-        {hasMore && (
-          <div ref={loadMoreRef} className="mt-10 flex justify-center">
-            {isFetchingNextPage ? (
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                <Loader2 className="size-4 animate-spin" />
-                {m.gallery_loading()}
-              </div>
-            ) : (
-              <Button
-                variant="outline"
-                onClick={() =>
-                  navigate({
-                    search: (prev) => ({ ...prev, page: page + 1 }),
-                    resetScroll: false,
-                  })
-                }
-              >
-                {m.gallery_load_more()}
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
+      <EditionView
+        edition={data}
+        allDirections={allDirections}
+        showPastAnchor={hasPastEditions}
+      >
+        <PastEditions editions={periods} currentPeriod={data.period} />
+      </EditionView>
     </main>
-  );
-}
-
-function NoResults({ onClear }: { onClear: () => void }) {
-  return (
-    <div className="rise-in mx-auto max-w-md py-16 text-center">
-      <div className="mb-6 flex justify-center">
-        <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-[var(--surface-strong)] border border-[var(--line)] shadow-[0_4px_16px_rgba(45,42,36,0.08)]">
-          <Search className="h-10 w-10 text-[var(--ink-soft)]" />
-        </div>
-      </div>
-      <p className="mb-6 text-base text-[var(--ink-soft)]">
-        {m.gallery_no_results()}
-      </p>
-      <button
-        type="button"
-        onClick={onClear}
-        className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] px-6 py-3 text-sm font-semibold text-[var(--ink)] shadow-[0_2px_8px_rgba(45,42,36,0.06)] transition-all hover:-translate-y-0.5 hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-      >
-        <X className="h-4 w-4" />
-        {m.gallery_clear_filters()}
-      </button>
-    </div>
-  );
-}
-
-/**
- * 论文流的加载失败态。与两个空态刻意长得不一样:
- * - 骨架 = 还在加载
- * - 空态(EmptyGallery / NoResults): 无边框、暖色/渐变图标块 = 这里本来就没内容
- * - 本组件: 实线边框面板 + 警告图标 = 内容应该在, 只是这次没取到
- * 这与方向页简报大卡「虚线 = 内容在路上, 实线 = 这次没取到」是同一套区分。
- * 重试按钮直接 refetch, 不用刷整页 —— 失败多半是一次抖动。
- */
-function LoadFailedGallery({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="rise-in mx-auto max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-6 py-12 text-center shadow-[0_4px_16px_rgba(45,42,36,0.06)]">
-      <div className="mb-5 flex justify-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--line)] bg-[var(--parchment-warm)]">
-          <AlertTriangle className="h-7 w-7 text-[var(--academic-brown)]" />
-        </div>
-      </div>
-      <p className="mb-6 text-base text-[var(--ink-soft)]">
-        {m.gallery_load_failed()}
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] px-6 py-3 text-sm font-semibold text-[var(--ink)] shadow-[0_2px_8px_rgba(45,42,36,0.06)] transition-all hover:-translate-y-0.5 hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-      >
-        <RotateCcw className="h-4 w-4" />
-        {m.gallery_retry()}
-      </button>
-    </div>
-  );
-}
-
-function EmptyGallery() {
-  return (
-    <div className="rise-in mx-auto max-w-md py-16 text-center">
-      <div className="mb-6 flex justify-center">
-        <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--academic-brown),var(--gold))] shadow-[0_8px_24px_rgba(139,111,71,0.24)]">
-          <Globe className="h-12 w-12 text-white" />
-        </div>
-      </div>
-      <h2 className="mb-3 font-serif text-2xl font-bold text-[var(--ink)]">
-        {m.explore_empty_title()}
-      </h2>
-      <p className="mb-6 text-base text-[var(--ink-soft)]">
-        {m.explore_empty_description()}
-      </p>
-      <Link
-        to="/papers"
-        className="inline-flex items-center gap-2 rounded-xl bg-[var(--academic-brown)] px-6 py-3 text-sm font-semibold !text-white shadow-[0_4px_12px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-1 hover:shadow-[0_6px_16px_rgba(139,111,71,0.32)] no-underline"
-      >
-        <Sparkles className="h-4 w-4" />
-        {m.papers_upload()}
-      </Link>
-    </div>
   );
 }

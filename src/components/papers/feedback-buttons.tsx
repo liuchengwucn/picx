@@ -106,7 +106,10 @@ export function FeedbackButtons({
       trpc.paper.getByShortId.pathKey(),
       trpc.paper.listPublic.pathKey(),
       trpc.digest.getIssue.pathKey(),
-      // /gallery 的无限滚动是手写 queryKey 的, 上面那个 listPublic pathKey 盖不到它
+      // /gallery/archive 与方向页(/gallery/d/$slug)的论文流都是手写 queryKey 的
+      // 无限滚动, 上面那个 listPublic pathKey 盖不到它们。这里给的是前缀, 两个消费者
+      // 的完整 key 都以它开头, 一条就够(archive.tsx 与 d/$slug.tsx 各自 push 自己的
+      // 筛选参数在后面)。
       [GALLERY_LIST_QUERY_KEY],
     ]) {
       queryClient.invalidateQueries({ queryKey });

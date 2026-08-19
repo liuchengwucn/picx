@@ -5,6 +5,7 @@ import {
   GalleryCardSkeleton,
   getCategoryLabel,
 } from "#/components/papers/gallery-card";
+import { LoadFailedPanel } from "#/components/ui/state-panel";
 import { useTRPC } from "#/integrations/trpc/react";
 import {
   isValidCategorySlug,
@@ -74,13 +75,21 @@ function CategoryPage() {
           </p>
         </div>
 
-        {/* Gallery Grid */}
+        {/* Gallery Grid
+
+            isError 必须排在空态之前: 取数失败时 isLoading 已是 false、data 是
+            undefined, 不拦就直接落进下面那句「成为第一个分享论文总结的用户吧」——
+            一次网络抖动被说成「这个分类还没有论文」, 而唯一有用的动作(重试)被藏了
+            起来。/gallery/archive 与方向页的论文流都已是这个口径(见 archive.tsx 里
+            那段注释), 这里补齐最后一处。 */}
         {query.isLoading ? (
           <div className="grid auto-rows-fr gap-5 lg:grid-cols-2">
             {SKELETON_KEYS.map((k) => (
               <GalleryCardSkeleton key={k} />
             ))}
           </div>
+        ) : query.isError ? (
+          <LoadFailedPanel onRetry={() => query.refetch()} />
         ) : query.data && query.data.papers.length > 0 ? (
           <div className="grid auto-rows-fr gap-5 lg:grid-cols-2">
             {query.data.papers.map((paper, index) => (
@@ -103,10 +112,11 @@ function CategoryPage() {
         <nav className="mt-12 border-t border-[var(--line)] pt-8">
           <div className="flex flex-wrap items-center justify-center gap-2">
             <Link
-              to="/gallery"
+              to="/gallery/archive"
+              activeOptions={{ exact: true }}
               className="shrink-0 rounded-full border border-[var(--academic-brown)] px-3 py-1 text-xs font-medium text-[var(--academic-brown)] transition-colors hover:bg-[var(--academic-brown)] hover:text-white no-underline"
             >
-              {m.explore_title()}
+              {m.archive_back()}
             </Link>
             {otherCategories.map((s) => (
               <Link

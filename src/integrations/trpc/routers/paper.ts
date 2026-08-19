@@ -44,6 +44,10 @@ import {
   IN_FLIGHT_PAPER_STATUSES,
   isInFlightPaperStatus,
 } from "#/lib/paper-status";
+import {
+  defaultWhiteboardOn,
+  galleryListableConditions,
+} from "#/lib/paper-visibility";
 import { selectRelatedPapers } from "#/lib/related-papers";
 import {
   getReviewGuestServerSession,
@@ -1257,13 +1261,10 @@ export const paperRouter = router({
 
       const sort = parseSort(input.sort);
 
-      // 基础可见性条件(列表与计数共用)
-      const baseConditions = [
-        eq(papers.isPublic, true),
-        eq(papers.isListedInGallery, true),
-        eq(papers.status, "completed"),
-        isNull(papers.deletedAt),
-      ];
+      // 基础可见性条件(列表与计数共用)。定义在 lib/paper-visibility.ts:
+      // 方向页的 paperCount 数的必须是同一批论文, 两处口径分叉过一次(见那边注释)。
+      // 下面的 innerJoin(whiteboardImages) 是这套口径的另一半, 不能只带一个。
+      const baseConditions = galleryListableConditions();
 
       // 方向过滤: 方向页论文流 = 该方向已出刊(published)各期实际引用过的论文,
       // 用关联 EXISTS 走 digest_papers → digests → directions。不能用
@@ -1300,14 +1301,24 @@ export const paperRouter = router({
         baseConditions.push(gte(papers.publishedAt, cutoff));
       }
 
-      // 搜索: 标题 + 当前语言 tldr/summary + tags(LIKE, CJK 子串友好)
+      // 搜索: 标题 + tldr/summary + tags(LIKE, CJK 子串友好)。
+      // 探当前 locale 与 en 两个键: resolveTldr 在缺当前语言时会回退 en 显示,
+      // 只探当前 locale 的话, 用户搜一个屏幕上看得见的词会得到 0 结果。
+      // (listMine 与 news.list 一直是这么做的, 这里是补齐。)
       if (input.q) {
         const needle = `%${escapeLike(input.q)}%`;
-        const localePath = `$."${localeKey}"`;
+        const localePaths =
+          localeKey === "en" ? ['$."en"'] : [`$."${localeKey}"`, '$."en"'];
         const searchCond = or(
           sql`${papers.title} LIKE ${needle} ESCAPE '\\'`,
-          sql`json_extract(${paperResults.tldr}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
-          sql`json_extract(${paperResults.summaries}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+          ...localePaths.map(
+            (path) =>
+              sql`json_extract(${paperResults.tldr}, ${path}) LIKE ${needle} ESCAPE '\\'`,
+          ),
+          ...localePaths.map(
+            (path) =>
+              sql`json_extract(${paperResults.summaries}, ${path}) LIKE ${needle} ESCAPE '\\'`,
+          ),
           sql`${paperResults.tags} LIKE ${needle} ESCAPE '\\'`,
         );
         if (searchCond) baseConditions.push(searchCond);
@@ -1352,13 +1363,9 @@ export const paperRouter = router({
           likeCount: likeCountSql(papers.id),
         })
         .from(papers)
-        .innerJoin(
-          whiteboardImages,
-          and(
-            eq(papers.id, whiteboardImages.paperId),
-            eq(whiteboardImages.isDefault, true),
-          ),
-        )
+        // innerJoin = 无默认白板的不列(画廊卡片以白板图为主体)。它是
+        // galleryListableConditions() 的另一半, 见 lib/paper-visibility.ts。
+        .innerJoin(whiteboardImages, defaultWhiteboardOn())
         .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
         // join 里必须带 isActive: 已下线方向的论文照常列出, 但 directionSlug
         // 置 null, 前端徽标从根上消失。否则任何「把方向名直接从这里带出去」
@@ -1398,13 +1405,9 @@ export const paperRouter = router({
         // countDistinct: 同上, join 可能放大行数, 用 distinct paper id 统计真实论文数。
         .select({ count: countDistinct(papers.id) })
         .from(papers)
-        .innerJoin(
-          whiteboardImages,
-          and(
-            eq(papers.id, whiteboardImages.paperId),
-            eq(whiteboardImages.isDefault, true),
-          ),
-        )
+        // 与上面那条行查询逐字相同的 join + 条件: 计数与列表口径分叉的表现是
+        // 「total 说 18、翻到底只有 2 张卡」, 不会报错
+        .innerJoin(whiteboardImages, defaultWhiteboardOn())
         .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
         .where(and(...baseConditions));
 

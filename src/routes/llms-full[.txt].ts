@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   digests,
@@ -10,6 +10,7 @@ import {
   papers,
 } from "#/db/schema";
 import { buildLlmsFullTxt } from "#/lib/llms-txt";
+import { publicPaperConditions } from "#/lib/paper-visibility";
 import { SITE_URL } from "#/lib/site-url";
 
 interface AppEnvBindings {
@@ -54,14 +55,8 @@ async function handler() {
       })
       .from(papers)
       .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
-      .where(
-        and(
-          eq(papers.isPublic, true),
-          eq(papers.isListedInGallery, true),
-          eq(papers.status, "completed"),
-          isNull(papers.deletedAt),
-        ),
-      )
+      // 不带白板条件: 与 llms.txt 同一个理由 —— 索引的是论文页面本身
+      .where(and(...publicPaperConditions()))
       .orderBy(desc(papers.publishedAt));
   } catch {
     // Degrade to overview-only llms-full.txt

@@ -2,12 +2,16 @@ import { Link } from "@tanstack/react-router";
 import { FileText, Globe, Newspaper, Sparkles } from "lucide-react";
 // 与引用分享卡右上角同一枚羊皮纸 mark(logo512 抠底版), 品牌符号全站只此一个。
 import logoMark from "#/assets/logo-mark.png";
+import { useInGallerySection } from "#/hooks/use-in-gallery-section";
 import { m } from "#/paraglide/messages";
 import BetterAuthHeader from "../integrations/better-auth/header-user.tsx";
 import ParaglideLocaleSwitcher from "./LocaleSwitcher.tsx";
 import ThemeToggle from "./ThemeToggle";
 
 export default function Header() {
+  // 「画廊」这一项的高亮与 aria-current 刻意不同源, 见 hook 里的解释。
+  const inGallerySection = useInGallerySection();
+
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-[var(--header-bg)] px-2 sm:px-4 pt-[env(safe-area-inset-top)] backdrop-blur-lg">
       <nav className="page-wrap flex items-center gap-x-1.5 sm:gap-x-4 py-3 sm:py-4">
@@ -40,10 +44,25 @@ export default function Header() {
           </Link>
           <Link
             to="/gallery"
-            className="nav-link inline-flex items-center gap-1.5"
-            activeProps={{ className: "nav-link is-active" }}
+            // aria-current 与视觉高亮在这一项上刻意不同源(为什么该分开见
+            // use-in-gallery-section.ts): aria-current 回答"这就是当前这一页",
+            // 必须精确, 否则方向页上 Header 与页面自己的方向 tab 会同时挂
+            // aria-current="page"(TanStack 的 STATIC_ACTIVE_PROPS 在用户 props 之后
+            // 展开, 显式传 aria-current={undefined} 挡不住默认的前缀匹配), 读屏一次
+            // 念出两个"当前页"。activeOptions exact 把这个语义钉死在落地页本身;
+            // is-active(视觉)另走 inGallerySection, 不受 exact 影响。TanStack 的
+            // activeProps 会把两者绑在一起(只在 isActive 时生效), 所以不用它。
+            activeOptions={{ exact: true }}
+            className={`nav-link inline-flex items-center gap-1.5${inGallerySection ? " is-active" : ""}`}
           >
             <Globe className="h-4 w-4" />
+            {/* nav_gallery、edition_kicker、home_kicker_gallery 眼下值相同(都是
+                「画廊周刊」), 这是刻意共存而不是待清理的重复: 三处分别是导航标签、
+                刊头上的刊名、首页卡的栏眉, 各自有独立的改写理由(比如导航为了排版换成
+                动词短语时, 刊物不该跟着改名)。合并成一个键之后, 任何一侧的文案调整都
+                会连坐另外两侧。
+                值相同不是巧合而是要求: 同一个目的地在全站只能有一个名字。描述内容的
+                文案(如 home_cta_gallery「浏览方向简报」)不受这条约束。 */}
             <span>{m.nav_gallery()}</span>
           </Link>
           <Link

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useMatchRoute } from "@tanstack/react-router";
 import { useTRPC } from "#/integrations/trpc/react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
@@ -19,14 +19,35 @@ const tabClassName = (active: boolean) =>
   );
 
 /**
- * 方向导航行。是导航(点了跳方向主页)而不是筛选器, 所以不写进 /gallery 的 search
- * params, 也不跟着筛选栏 sticky。/gallery 与方向主页共用。
+ * 方向导航行。是导航(点了跳方向主页)而不是筛选器, 所以不写进 search params, 也不跟着
+ * 筛选栏 sticky。
  *
- * 与 /gallery 页做 slug→方向名 映射的那次查询是同一个 query key, react-query 会
- * 去重, 不会多发一次请求。
+ * 今天唯一的挂载点是方向主页(/gallery/d/$slug.tsx), 且总传 activeSlug —— /gallery 自
+ * 周刊重构后是刊物落地页, 用的是竖脊(EditionSpine)而不是这行 tab; 单期页也还没复用它。
+ * 组件仍然按「可以被别的页面挂载」写(见下面 onGalleryRoot / onDirectionRoot 两个判据),
+ * 那是留给将来复用的接缝, 不是当下在防的东西。
+ *
+ * 与方向主页自己那次 slug→方向名 映射查询是同一个 query key, react-query 会去重,
+ * 不会多发一次请求。
  */
 export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
   const trpc = useTRPC();
+  const matchRoute = useMatchRoute();
+  // 两个判据都是 fuzzy:false 的精确匹配, 回答的是同一个问题: 「读屏该不该把这一项念成
+  // 当前页」。视觉高亮另走 activeSlug, 两者刻意不同源。
+  //
+  // onDirectionRoot: 只有真的停在 /gallery/d/$slug 上方向 tab 才配 aria-current。
+  // 将来把这行挂到单期页(/gallery/d/$slug/$issue)时, 这里的精确匹配会失败(路径段更长),
+  // tab 不会冒领「当前页」—— 那是这个判据存在的理由, 今天还没有这个挂载点。
+  //
+  // onGalleryRoot: 同理给「全部」那一项。今天它恒为 false(唯一挂载点是方向页), 所以
+  // 「全部」永远拿不到 aria-current —— 这是对的, 一并保证了将来这行被挂到 /gallery 上
+  // 时不必再回来改一遍。别把它简化成 !activeSlug: 那个值与当前路由无关, 任何传
+  // activeSlug=undefined 的挂载点都会让「全部」在一个不是 /gallery 的页面上自称当前页。
+  const onDirectionRoot = Boolean(
+    matchRoute({ to: "/gallery/d/$slug", fuzzy: false }),
+  );
+  const onGalleryRoot = Boolean(matchRoute({ to: "/gallery", fuzzy: false }));
   const { data, isPending, isError } = useQuery({
     ...trpc.digest.listDirections.queryOptions({ locale: getLocale() }),
     // 方向列表一周才动一次, 页面间来回切不必重取
@@ -59,13 +80,19 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
       <div className="-mb-px flex items-center gap-5 overflow-x-auto px-1 text-sm">
         {/* activeOptions exact 不是可选项: Link 默认按前缀判 active, 于是在
             /gallery/d/ai4formath 上「全部」(/gallery)也算 active、在期页上方向 tab
-            也算 active, Link 会自己挂 aria-current="page" —— 显式传 undefined 挡不住它,
-            读屏会一次念出两三个「当前页」。高亮由下面的 activeSlug 自己算, 本来就不靠
-            Link 的 active 态。 */}
+            也算 active。但即便 exact 挡住了大多数误判, TanStack 的
+            STATIC_ACTIVE_PROPS 是在用户 props 之后展开的(见 link.js 的
+            `...isActive && STATIC_ACTIVE_PROPS`), 一旦它判定的 isActive 为 true,
+            aria-current="page" 会覆盖掉我们显式传的值, 挡不住。所以两项的
+            aria-current 都不能只靠 activeOptions, 得用 useMatchRoute 精确算出
+            「是否真的停在那个页面上」(onGalleryRoot / onDirectionRoot), 再与
+            activeSlug 一起判定。视觉高亮(tabClassName)仍然只看 activeSlug, 与
+            aria-current 的语义判定分开: 前者是「用户选了哪个方向」, 后者是
+            「读屏该不该念这是当前页」。 */}
         <Link
           to="/gallery"
           activeOptions={{ exact: true }}
-          aria-current={activeSlug ? undefined : "page"}
+          aria-current={!activeSlug && onGalleryRoot ? "page" : undefined}
           className={tabClassName(!activeSlug)}
         >
           {m.digest_direction_all()}
@@ -78,7 +105,7 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
               to="/gallery/d/$slug"
               params={{ slug: direction.slug }}
               activeOptions={{ exact: true }}
-              aria-current={active ? "page" : undefined}
+              aria-current={onDirectionRoot && active ? "page" : undefined}
               className={tabClassName(active)}
             >
               {direction.name}

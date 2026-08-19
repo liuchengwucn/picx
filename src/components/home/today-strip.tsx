@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 import { ModuleKicker } from "#/components/home/module-kicker";
 import { StoryImage } from "#/components/news/story-image";
 import {
   assembleTodayCards,
+  type HomeEdition,
   type HomePaper,
   type HomeStory,
   type HomeToday,
@@ -37,8 +38,8 @@ export function TodayStrip({ today }: { today: HomeToday | null }) {
     return title ? [{ shortId: story.shortId, title }] : [];
   });
 
-  // 资讯与论文两条主线全空 = 站点没有任何可展示的当日内容, 整区让位给静态叙事区
-  if (!headlineTitle && !latestPaper) return null;
+  // 资讯、论文、合刊三条线全空 = 站点没有任何可展示的内容, 整区让位给静态叙事区
+  if (!headlineTitle && !latestPaper && !today.edition) return null;
 
   return (
     <section className="px-4 pt-8 sm:px-6 sm:pt-10">
@@ -53,7 +54,15 @@ export function TodayStrip({ today }: { today: HomeToday | null }) {
               locale={locale}
             />
           ) : null}
-          {galleryPicks.length > 0 ? (
+          {/* 周刊卡是常态形态; 首期合刊发布前(零 published 期)回退到画廊精选卡,
+              否则报头下面会缺掉一整格。两套数据都由 loader 一次取回, 不额外往返。 */}
+          {today.edition ? (
+            <WeeklyEditionCard
+              edition={today.edition}
+              localeKey={localeKey}
+              locale={locale}
+            />
+          ) : galleryPicks.length > 0 ? (
             <GalleryPicksCard picks={galleryPicks} localeKey={localeKey} />
           ) : null}
           {latestPaper ? (
@@ -177,6 +186,102 @@ function HeadlineCard({
   );
 }
 
+/**
+ * 「画廊周刊 · 本周」卡 —— 合刊刊头的缩略版。
+ *
+ * 排版刻意与 EditionMasthead 同构(栏眉 → 衬线「本周」→ 周期区间 → 方向数/入选数),
+ * 只是小一号: 读者点进 /gallery 后看到的是同一组信息用同一个顺序放大, 卡与落地页
+ * 是同一个对象的两个尺寸而不是两种设计。
+ *
+ * 两条栏目是封面导语, 刻意不各自成链: 这张卡只有一个门(尾链 → 合刊落地页)。给每条
+ * 栏目挂一个通往单期页的深链会把「本周共 N 个方向」这个整体框架拆散, 而首页这一排
+ * 卡已经有 6 条资讯链接 + 1 条论文链接在抢注意力。
+ */
+function WeeklyEditionCard({
+  edition,
+  localeKey,
+  locale,
+}: {
+  edition: HomeEdition;
+  localeKey: LocaleKey;
+  locale: string;
+}) {
+  const range = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        // 必须按 UTC 格化(与刊头、页尾往期列表同一个理由): 周期两端是 UTC 的
+        // 00:00:00 / 23:59:59, 按本地时区渲染会让东八区读者看到的末日比合刊自己的
+        // 永久链接 /gallery/w/2026-08-15 晚一天 —— 同一期出现两个日历, 顺带成为
+        // SSR/hydration 文本漂移(#418)的来源。
+        timeZone: "UTC",
+      }).formatRange(
+        new Date(edition.periodStart),
+        new Date(edition.periodEnd),
+      ),
+    [locale, edition.periodStart, edition.periodEnd],
+  );
+
+  // 方向名取不到当前语言的译文就整条不出(与上面 namedSubStories 同源的判断):
+  // 一条只有标题没有方向署名的栏目在这张卡里读不出是谁的简报。
+  const highlights = edition.highlights.flatMap((h) => {
+    const name = pickTldr(h.directionName, localeKey);
+    return name ? [{ name, title: pickTldr(h.title, localeKey) }] : [];
+  });
+
+  return (
+    <CardShell className="md:row-span-2">
+      {/* 栏眉放刊物名(与 nav_gallery、edition_kicker 同值), 不放内容名词: 这张卡是刊头
+          的缩小版, 栏眉位置对应的就是刊头上那行刊名。曾经这里写「方向简报」, 于是导航
+          说「画廊周刊」、卡说「方向简报」、点进去刊头又说「画廊周刊」—— 一个目的地三
+          个称呼。界线是: **目的地名称统一, 内容描述自由**(首页叙述区的 home_cta_gallery
+          仍是「浏览方向简报」, 那句描述的是内容不是目的地)。 */}
+      <ModuleKicker as="h2" color="var(--olive)">
+        {m.home_kicker_gallery()}
+      </ModuleKicker>
+
+      <h3 className="mt-3 font-serif text-[15px] font-bold leading-snug text-[var(--ink)] sm:text-base">
+        {m.edition_this_week()}
+      </h3>
+      <p className="mt-1 text-[11px] text-[var(--ink-soft)]">{range}</p>
+      <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--ink-soft)]">
+        {/* all / partial 的分支必须与刊头同一套判断: 两处若各挑一个键, 卡上写
+            「7 个方向」而刊头写「9 个方向 · 本期 7 个有更新」, 读者会以为点错了期 */}
+        {edition.directionCount === edition.activeDirectionCount
+          ? m.edition_meta_all({
+              directions: String(edition.activeDirectionCount),
+              picks: String(edition.pickCount),
+            })
+          : m.edition_meta_partial({
+              directions: String(edition.activeDirectionCount),
+              updated: String(edition.directionCount),
+              picks: String(edition.pickCount),
+            })}
+      </p>
+
+      {highlights.length > 0 ? (
+        <ul className="mt-3 divide-y divide-[var(--line)] border-t border-[var(--line)]">
+          {highlights.map((h) => (
+            <li key={h.name} className="py-2.5 last:pb-0">
+              <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
+                {h.name}
+              </p>
+              {/* 期标题缺译文时只留方向名: 那仍然是一条真信息(这个方向本期有更新) */}
+              {h.title ? (
+                <p className="mt-0.5 line-clamp-2 font-serif text-[13.5px] font-semibold leading-snug text-[var(--ink)]">
+                  {h.title}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <MoreLink to="/gallery">{m.home_more_gallery()}</MoreLink>
+    </CardShell>
+  );
+}
+
 function GalleryPicksCard({
   picks,
   localeKey,
@@ -186,8 +291,10 @@ function GalleryPicksCard({
 }) {
   return (
     <CardShell className="md:row-span-2">
+      {/* 栏眉不能用 home_kicker_gallery(「方向简报」): 这张卡列的是三篇论文而不是
+          简报, 那个键已经归 WeeklyEditionCard。同一个模块槽位、两种内容、两个名字。 */}
       <ModuleKicker as="h2" color="var(--olive)">
-        {m.home_kicker_gallery()}
+        {m.home_kicker_gallery_picks()}
       </ModuleKicker>
 
       <ul className="mt-3 divide-y divide-[var(--line)]">
@@ -230,6 +337,10 @@ function LatestPaperCard({
 
   return (
     <CardShell>
+      {/* 栏眉必须保持「最新论文」这个精确口径: 这张卡渲染的是 papers[0] —— 最近入库
+          的一篇公开论文, 既没有按周取范围也没有编辑挑选。周刊重构期间曾把它换成
+          「本周推荐论文 / This week's picks」, 那是在说谎(实现期已撤回并写进 spec)。
+          要用那种措辞, 得先把数据源换成本期入选。 */}
       <ModuleKicker as="h2" color="var(--academic-brown)">
         {m.home_kicker_paper()}
       </ModuleKicker>

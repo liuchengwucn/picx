@@ -5,8 +5,10 @@
  * SSR loader 必须直读 D1(SSR 侧 tRPC client 指向 localhost, 部署到 Workers 里发不
  * 出去), 于是 loader 与 procedure 都要做同一次 pickTldr。而 router 模块静态 import
  * 了 trpc init(里面有 `cloudflare:workers`), 路由文件一旦静态引它客户端就打不出包。
- * 这里只依赖 pickTldr 与一个 type-only 的 IssueDetail, 两侧都能直接 import。
+ * 这里只依赖 pickTldr 与两个 type-only 的 IssueDetail / EditionDetail(均来自
+ * store 层而非 router), 两侧都能直接 import。
  */
+import type { EditionDetail } from "#/lib/digest/edition-store";
 import type { IssueDetail } from "#/lib/digest/store";
 import { pickTldr } from "#/lib/tldr";
 
@@ -81,3 +83,48 @@ export function mapIssueToLocale(issue: IssueDetail, localeKey: LocaleKey) {
     nextIssue: issue.nextIssue,
   };
 }
+
+/**
+ * 合刊的公开单语视图。/gallery 与 /gallery/w/$period 的 SSR loader 直读 D1 后走
+ * 同一个映射(与期页同理: SSR 侧 tRPC client 指向 localhost 发不出去), 所以两条
+ * 路径下发的形状必须逐字一致。
+ *
+ * content 刻意不出现在返回值里: 只抽 excerpt。EditionSection.content 是四语
+ * markdown 全文, 七个栏目的正文全文若原样下发会让首屏 dehydrate payload 翻倍;
+ * 正文全文的唯一去处是单期页(mapIssueToLocale)。返回类型天然不含 content ——
+ * 这是故意让 tsc 而不是人来守住这条不变式, 别为了「方便」把 content 透传出去。
+ */
+export function mapEditionToLocale(
+  edition: EditionDetail,
+  localeKey: LocaleKey,
+) {
+  return {
+    period: edition.period,
+    periodStart: edition.periodStart,
+    periodEnd: edition.periodEnd,
+    publishedAt: edition.publishedAt,
+    isLatest: edition.isLatest,
+    prevPeriod: edition.prevPeriod,
+    nextPeriod: edition.nextPeriod,
+    activeDirectionCount: edition.activeDirectionCount,
+    sections: edition.sections.map((s) => ({
+      directionSlug: s.directionSlug,
+      directionName: pickTldr(s.directionName, localeKey) ?? s.directionSlug,
+      directionCreatedAt: s.directionCreatedAt,
+      issueNumber: s.issueNumber,
+      title: pickTldr(s.title, localeKey) ?? "",
+      excerpt: excerptFromMarkdown(pickTldr(s.content, localeKey)),
+      pickCount: s.pickCount,
+      picks: s.picks.map((p) => ({
+        id: p.id,
+        shortId: p.shortId,
+        title: p.title,
+        recommendationNote: pickTldr(p.recommendationNote, localeKey) ?? "",
+        whiteboardImageR2Key: p.whiteboardImageR2Key,
+        rank: p.rank,
+      })),
+    })),
+  };
+}
+
+export type EditionView = ReturnType<typeof mapEditionToLocale>;

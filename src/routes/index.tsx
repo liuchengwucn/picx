@@ -210,6 +210,10 @@ function HomePage() {
               to="/gallery"
               className="rounded-xl border-[1.5px] border-[var(--academic-brown)] px-5 py-2.5 text-sm font-semibold text-[var(--academic-brown)] no-underline transition-colors hover:bg-[color-mix(in_srgb,var(--academic-brown)_8%,transparent)]"
             >
+              {/* 这里刻意不是刊物名(「画廊周刊」)而是内容描述(「浏览方向简报」):
+                  界线是「目的地名称统一、内容描述自由」—— 导航标签 / 刊头 / 首页卡栏眉
+                  三处都必须念同一个名字(见 Header.tsx 的注释), 而按钮上说的是点下去
+                  会读到什么, 那是内容, 不必与刊名一致。 */}
               {m.home_cta_gallery()}
             </Link>
           </div>

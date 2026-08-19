@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   digests,
@@ -9,8 +9,13 @@ import {
   papers,
   whiteboardImages,
 } from "#/db/schema";
+import { listEditionPeriods } from "#/lib/digest/edition-store";
 import { escapeHtml } from "#/lib/embed-code";
 import { PAPER_CATEGORY_SLUGS } from "#/lib/paper-categories";
+import {
+  defaultWhiteboardOn,
+  publicPaperConditions,
+} from "#/lib/paper-visibility";
 
 interface AppEnvBindings {
   DB: D1Database;
@@ -41,21 +46,11 @@ async function handler({ request }: { request: Request }) {
         whiteboardKey: whiteboardImages.imageR2Key,
       })
       .from(papers)
-      .leftJoin(
-        whiteboardImages,
-        and(
-          eq(whiteboardImages.paperId, papers.id),
-          eq(whiteboardImages.isDefault, true),
-        ),
-      )
-      .where(
-        and(
-          eq(papers.isPublic, true),
-          eq(papers.isListedInGallery, true),
-          eq(papers.status, "completed"),
-          isNull(papers.deletedAt),
-        ),
-      )
+      // leftJoin 是刻意的: sitemap 收录的是「这个页面能不能被访问」, 有没有配图只
+      // 决定要不要发 image 条目。别改成画廊流那种 innerJoin —— 那会把无图论文整条
+      // 从 sitemap 里删掉。见 lib/paper-visibility.ts。
+      .leftJoin(whiteboardImages, defaultWhiteboardOn())
+      .where(and(...publicPaperConditions()))
       .orderBy(desc(papers.publishedAt));
     // Defensive dedup: default whiteboard should be unique per paper, but the
     // join would duplicate a paper row if that invariant ever broke.
@@ -111,6 +106,17 @@ async function handler({ request }: { request: Request }) {
     // Degrade gracefully to sitemap without digest issues
   }
 
+  // 合刊期次。复用 listEditionPeriods 而不是在这里 group by period_end: 它已经把
+  // 「同方向同 period_end 只认最大 issue_number」那条去重规则封进去了(见
+  // edition-store 的 isWinningDigest), 手写一份会把被取代的补跑残留期当成独立一期
+  // 发进 sitemap —— 那个 URL 上根本不存在第二期。
+  let editionPeriods: Array<{ period: string; publishedAt: Date | null }> = [];
+  try {
+    editionPeriods = await listEditionPeriods(db);
+  } catch {
+    // Degrade gracefully to sitemap without weekly editions
+  }
+
   let activeDirections: Array<{ slug: string }> = [];
   try {
     activeDirections = await db
@@ -129,6 +135,11 @@ async function handler({ request }: { request: Request }) {
     ? publicPapers[0].publishedAt.toISOString().split("T")[0]
     : undefined;
 
+  // 最新一期周刊的发布日 = /gallery 真正的内容变更时间(它渲染的就是这一期)。
+  const latestEditionDate = editionPeriods[0]?.publishedAt
+    ?.toISOString()
+    .split("T")[0];
+
   type SitemapRoute = {
     url: string;
     priority: string;
@@ -145,12 +156,26 @@ async function handler({ request }: { request: Request }) {
       lastmod: latestPaperDate,
     },
     {
+      // /gallery 现在渲染的是最新一期周刊, 不是逐日刷新的论文流 —— 一周才换一次内容。
+      // lastmod 必须跟着那一期的发布时间, 不能用 latestPaperDate: 一篇论文入库根本不
+      // 改变这个页面渲染出来的东西, 但那个日期天天在动, 于是 /gallery 会天天自称刚更
+      // 新。changefreq/priority 早已被 Google 忽略, lastmod 是这里唯一还有人读的字段
+      // (见上面 latestPaperDate 的注释), 所以恰恰是它不能敷衍。
+      // editionPeriods 已按 period 倒序, [0] 就是最新一期; 取不到(零期或查询失败)才
+      // 回落 latestPaperDate, 那时首页级的新鲜度信号总比没有好。
       url: `${origin}/gallery`,
       priority: "0.9",
+      changefreq: "weekly",
+      lastmod: latestEditionDate ?? latestPaperDate,
+    },
+    { url: `${origin}/news`, priority: "0.8", changefreq: "hourly" },
+    {
+      // 档案页接了原来那条扁平论文流, 每有新论文入库就变
+      url: `${origin}/gallery/archive`,
+      priority: "0.6",
       changefreq: "daily",
       lastmod: latestPaperDate,
     },
-    { url: `${origin}/news`, priority: "0.8", changefreq: "hourly" },
   ];
 
   const paperRoutes: SitemapRoute[] = publicPapers.map((p) => ({
@@ -204,10 +229,25 @@ async function handler({ request }: { request: Request }) {
     lastmod: latestIssueDateBySlug.get(d.slug),
   }));
 
+  // 周刊永久链接。priority 停在 0.7(与方向主页同档、低于 /gallery 的 0.9): 最新那一
+  // 期的 canonical 指向 /gallery, 给它们同档或更高的 priority 就是让站点自己跟自己抢
+  // 同一份内容的排名。本期出现在 sitemap 里本身没问题 —— sitemap 是「可抓取」清单,
+  // 不是 canonical 声明。
+  //
+  // changefreq 只有历史期是 yearly: 定稿后不再变的说法对 [0] 不成立 —— 最新那一期这
+  // 周还会因为补跑长出新栏目(editionPeriods 已按 period 倒序)。
+  const editionRoutes: SitemapRoute[] = editionPeriods.map((e, i) => ({
+    url: `${origin}/gallery/w/${e.period}`,
+    priority: "0.7",
+    changefreq: i === 0 ? "weekly" : "yearly",
+    lastmod: e.publishedAt?.toISOString().split("T")[0],
+  }));
+
   const allRoutes = [
     ...staticRoutes,
     ...categoryRoutes,
     ...directionRoutes,
+    ...editionRoutes,
     ...paperRoutes,
     ...digestRoutes,
     ...storyRoutes,
