@@ -209,10 +209,15 @@ describe("buildLlmsFullTxt", () => {
   });
 
   it("stays within the byte budget by dropping overflow papers", () => {
-    // Budget fits the header + first paper + omission note (~1048B) but not the
-    // second paper (~1161B). The number tracks the header text, so it moves
-    // whenever the Pages list changes — keep it above the header or the test
-    // degenerates into "header only" and stops exercising the drop path.
+    // 这个 1100 不是「随手调大」的数字: 它的唯一作用是让预算恰好落在「header 之后、
+    // 正文之中」—— 装得下 header + 第一篇 + 一行截断说明(~1048B), 装不下第二篇
+    // (~1161B), 于是丢弃路径真的被走到。
+    //
+    // 它随 header 文案浮动: header 本身是无条件输出的(buildLlmsFullTxt 不对它做预算
+    // 检查), 所以一旦 header 涨过这个数, 一篇正文都进不来, 断言 bytes <= maxBytes
+    // 反而恒真, 这条测试就静默退化成「只测了 header」——它已经因为 Pages 里加了
+    // Archive 一条而发生过一次(旧值 700)。往 Pages 加行、改站点简介之后, 必须把这个
+    // 数字一起顶上去(取 header + 第一篇 + 说明 与 header + 两篇 之间的任意值)。
     const txt = buildLlmsFullTxt({ siteUrl, papers, maxBytes: 1100 });
     const bytes = new TextEncoder().encode(txt).length;
     expect(bytes).toBeLessThanOrEqual(1100);

@@ -332,6 +332,10 @@ function LatestPaperCard({
 
   return (
     <CardShell>
+      {/* 栏眉必须保持「最新论文」这个精确口径: 这张卡渲染的是 papers[0] —— 最近入库
+          的一篇公开论文, 既没有按周取范围也没有编辑挑选。周刊重构期间曾把它换成
+          「本周推荐论文 / This week's picks」, 那是在说谎(实现期已撤回并写进 spec)。
+          要用那种措辞, 得先把数据源换成本期入选。 */}
       <ModuleKicker as="h2" color="var(--academic-brown)">
         {m.home_kicker_paper()}
       </ModuleKicker>
