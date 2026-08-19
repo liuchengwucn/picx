@@ -85,13 +85,32 @@ export const Route = createFileRoute("/gallery/archive")({
   },
 });
 
-// 每页论文数量。横向宽卡为 2 列, 8 篇正好 4 行, 一屏更聚焦。
+// 每页论文数量。横向宽卡为 2 列, 8 篇正好 4 行——档案页论文基数比落地页大得多
+// (全站存量 936+ 篇), 但无限滚动是逐页累加而非分页跳转, 首屏大小不影响能看到多少,
+// 只影响首次请求的往返大小, 8 篇维持与落地页一致的排版节奏即可, 不必为了「档案」
+// 这个语境专门调大。
 const PAGE_SIZE = 8;
 
 const gallerySkeletonKeys = Array.from(
   { length: PAGE_SIZE },
   (_, i) => `gallery-skeleton-${i + 1}`,
 );
+
+// 四处 chips(方向全选/方向单项/分类全选/分类单项)共用的选中态样式,
+// 收敛掉逐字重复的条件字符串。
+const chipClass = (active: boolean) =>
+  `shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+    active
+      ? "border-[var(--academic-brown)] bg-[var(--academic-brown)] text-white"
+      : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
+  }`;
+
+// 筛选轴的小字标签样式:方向行(单选)与分类行(多选)标记与配色完全相同,
+// 不加轴标签会让用户以为是同一组可叠加的标签, 结果点方向 chip 时把之前选的
+// 另一个方向静默替换掉(单选语义), 却没有任何视觉线索预告这一点。
+// 不用 uppercase/small-caps: CJK 下这两种强调手法不生效也不好看。
+const axisLabelClass =
+  "mb-1 block text-[0.7rem] font-medium tracking-wide text-[var(--ink-soft)]";
 
 function ArchivePage() {
   const client = useTRPCClient();
@@ -358,93 +377,105 @@ function ArchivePage() {
             </div>
           </div>
 
-          {/* 方向筛选行: 单选。分类是论文自带属性, 方向是「哪一期挑中过它」,
-              两者是不同维度, 所以分两行而不是混在同一组 chips 里。 */}
+          {/* 方向筛选行: 单选(radiogroup)。分类是论文自带属性, 方向是「哪一期
+              挑中过它」, 两者是不同维度, 所以分两行而不是混在同一组 chips 里——
+              两行的标记/配色故意相同(都是圆角描边 chip), 靠上面的轴标签
+              (「方向」/「分类」)区分「这行是二选一」还是「这行可叠加」,
+              并用 radiogroup/radio + aria-checked 把单选语义讲给读屏听。 */}
           {(directionsQuery.data ?? []).length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => patchSearch({ dir: undefined })}
-                className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                  dirSlug === undefined
-                    ? "border-[var(--academic-brown)] bg-[var(--academic-brown)] text-white"
-                    : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-                }`}
+            <div className="mt-3">
+              <span className={axisLabelClass}>
+                {m.archive_filter_axis_direction()}
+              </span>
+              <div
+                role="radiogroup"
+                aria-label={m.archive_filter_axis_direction()}
+                className="flex flex-wrap gap-1.5"
               >
-                {m.archive_all_directions()}
-              </button>
-              {(directionsQuery.data ?? []).map((d) => (
+                {/* biome-ignore lint/a11y/useSemanticElements: 与页面其余 chips 共用
+                    pill 视觉且支持点已选中项取消(回到「全部」)——原生 <input
+                    type="radio"> 一组里选中项不能被自己取消, 语义不匹配, 只能
+                    用 button + role="radio" 手写。 */}
                 <button
-                  key={d.slug}
                   type="button"
-                  onClick={() =>
-                    patchSearch({
-                      dir: dirSlug === d.slug ? undefined : d.slug,
-                    })
-                  }
-                  className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    dirSlug === d.slug
-                      ? "border-[var(--academic-brown)] bg-[var(--academic-brown)] text-white"
-                      : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-                  }`}
+                  role="radio"
+                  aria-checked={dirSlug === undefined}
+                  onClick={() => patchSearch({ dir: undefined })}
+                  className={chipClass(dirSlug === undefined)}
                 >
-                  {d.name}
+                  {m.archive_all_directions()}
                 </button>
-              ))}
+                {(directionsQuery.data ?? []).map((d) => (
+                  // biome-ignore lint/a11y/useSemanticElements: 同上, 一组里逐个标注太啰嗦
+                  <button
+                    key={d.slug}
+                    type="button"
+                    role="radio"
+                    aria-checked={dirSlug === d.slug}
+                    onClick={() =>
+                      patchSearch({
+                        dir: dirSlug === d.slug ? undefined : d.slug,
+                      })
+                    }
+                    className={chipClass(dirSlug === d.slug)}
+                  >
+                    {d.name}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Row 2: category chips (collapse to 2 rows) */}
-          <div
-            ref={chipsRef}
-            className={`mt-3 flex flex-wrap gap-1.5${chipsClamped ? " overflow-hidden" : ""}`}
-            style={
-              chipsClamped
-                ? { maxHeight: collapsedChipsH ?? undefined }
-                : undefined
-            }
-          >
-            {/* All chip */}
-            <button
-              type="button"
-              onClick={() => patchSearch({ cat: undefined })}
-              className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                categories.length === 0
-                  ? "border-[var(--academic-brown)] bg-[var(--academic-brown)] text-white"
-                  : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-              }`}
+          {/* Row 2: category chips (collapse to 2 rows). 分类是可叠加多选,
+              选中态目前跟全站其他 chips/排序开关一样只靠颜色表达(既有的全站
+              一致性问题, 留给另一轮统一处理), 这里不单独改。 */}
+          <div className="mt-3">
+            <span className={axisLabelClass}>
+              {m.archive_filter_axis_category()}
+            </span>
+            <div
+              ref={chipsRef}
+              className={`flex flex-wrap gap-1.5${chipsClamped ? " overflow-hidden" : ""}`}
+              style={
+                chipsClamped
+                  ? { maxHeight: collapsedChipsH ?? undefined }
+                  : undefined
+              }
             >
-              {m.gallery_all_categories()}
-            </button>
+              {/* All chip */}
+              <button
+                type="button"
+                onClick={() => patchSearch({ cat: undefined })}
+                className={chipClass(categories.length === 0)}
+              >
+                {m.gallery_all_categories()}
+              </button>
 
-            {PAPER_CATEGORY_SLUGS.map((slug) => {
-              const label = getCategoryLabel(slug);
-              const isActive = categories.includes(slug);
-              return (
-                <button
-                  key={slug}
-                  type="button"
-                  onClick={() => toggleCategory(slug)}
-                  className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    isActive
-                      ? "border-[var(--academic-brown)] bg-[var(--academic-brown)] text-white"
-                      : "border-[var(--line)] text-[var(--ink-soft)] hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
+              {PAPER_CATEGORY_SLUGS.map((slug) => {
+                const label = getCategoryLabel(slug);
+                const isActive = categories.includes(slug);
+                return (
+                  <button
+                    key={slug}
+                    type="button"
+                    onClick={() => toggleCategory(slug)}
+                    className={chipClass(isActive)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {collapsedChipsH !== null && (
+              <button
+                type="button"
+                onClick={() => setChipsExpanded((v) => !v)}
+                className="mt-2 text-xs font-medium text-[var(--academic-brown)] transition-opacity hover:opacity-70"
+              >
+                {chipsExpanded ? m.gallery_show_less() : m.gallery_show_more()}
+              </button>
+            )}
           </div>
-          {collapsedChipsH !== null && (
-            <button
-              type="button"
-              onClick={() => setChipsExpanded((v) => !v)}
-              className="mt-2 text-xs font-medium text-[var(--academic-brown)] transition-opacity hover:opacity-70"
-            >
-              {chipsExpanded ? m.gallery_show_less() : m.gallery_show_more()}
-            </button>
-          )}
         </div>
 
         {/* Active filters row */}

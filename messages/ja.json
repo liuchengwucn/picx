@@ -228,6 +228,8 @@
   "archive_description": "PicX のすべての論文：週刊の入選と日次のストック。",
   "archive_all_directions": "すべての方向",
   "archive_back": "アーカイブに戻る",
+  "archive_filter_axis_direction": "方向",
+  "archive_filter_axis_category": "カテゴリ",
   "time_today": "今日",
   "time_days_ago": "{days}日前",
   "time_weeks_ago": "{weeks}週間前",

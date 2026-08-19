@@ -228,6 +228,8 @@
   "archive_description": "站上全部論文：週刊入選與每日存量。",
   "archive_all_directions": "全部方向",
   "archive_back": "返回檔案",
+  "archive_filter_axis_direction": "方向",
+  "archive_filter_axis_category": "分類",
   "time_today": "今天",
   "time_days_ago": "{days}天前",
   "time_weeks_ago": "{weeks}週前",

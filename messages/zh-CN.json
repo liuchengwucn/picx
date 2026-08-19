@@ -232,6 +232,8 @@
   "archive_description": "站上全部论文：周刊入选与每日存量。",
   "archive_all_directions": "全部方向",
   "archive_back": "返回档案",
+  "archive_filter_axis_direction": "方向",
+  "archive_filter_axis_category": "分类",
   "time_today": "今天",
   "time_days_ago": "{days}天前",
   "time_weeks_ago": "{weeks}周前",

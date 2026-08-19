@@ -232,6 +232,8 @@
   "archive_description": "Every paper on PicX — weekly picks and the daily backlog.",
   "archive_all_directions": "All directions",
   "archive_back": "Back to archive",
+  "archive_filter_axis_direction": "Direction",
+  "archive_filter_axis_category": "Category",
   "time_today": "Today",
   "time_days_ago": "{days} days ago",
   "time_weeks_ago": "{weeks} weeks ago",
