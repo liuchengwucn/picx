@@ -200,10 +200,10 @@ export function mergeBuiltinSkills<
  * ⚠️ `userRows` 必须是**全部**用户行（含 disabled）：先合并判覆盖、再过滤 enabled。
  * 顺序反了，用户关掉的内置 skill 会原地复活（关掉 = 一条 enabled=false 的同名行）。
  */
-export function buildSkillsCatalogEntries<
-  U extends { name: string; description: string; enabled: boolean },
-  B extends { name: string; description: string },
->(userRows: readonly U[], builtins: readonly B[]): SkillCatalogEntry[] {
+export function buildSkillsCatalogEntries(
+  userRows: readonly { name: string; description: string; enabled: boolean }[],
+  builtins: readonly { name: string; description: string }[],
+): SkillCatalogEntry[] {
   const { builtin } = mergeBuiltinSkills(userRows, builtins);
   return [
     ...userRows

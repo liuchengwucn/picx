@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
-  assistantSkills,
   conversationMembers,
   conversationMessages,
   conversations,
@@ -13,7 +12,6 @@ import {
   buildAgentSystemPrompt,
   checkAgentRateLimit,
 } from "#/lib/agent";
-import { BUILTIN_SKILLS } from "#/lib/builtin-skills";
 import {
   type AuthorizeResult,
   type ChatStreamArgs,
@@ -23,12 +21,8 @@ import {
 } from "#/lib/chat-stream";
 import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
-import {
-  buildSkillsCatalogEntries,
-  buildSkillsCatalogSection,
-  parseSkillDirective,
-  SKILL_LIMITS,
-} from "#/lib/skills";
+import { parseSkillDirective } from "#/lib/skills";
+import { buildSkillsCatalogForUser } from "#/lib/skills-catalog";
 
 /**
  * Assistant agent 的流式端点。会话创建走 tRPC assistant.createConversation，
@@ -140,24 +134,7 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
     // catalog 查询失败不阻断对话：跳过注入，agent 只是这一轮不知道 skills 存在
     const loadCatalog = async () => {
       try {
-        // ⚠️ 这里必须查「全部用户行」而不是只查 enabled：
-        // 用户关掉内置 skill = 实体化出一条 enabled=false 的行，只查 enabled
-        // 的话这条覆盖看不见，内置版本会原地复活。
-        // 正确顺序：全部用户行做覆盖判定 → 覆盖后再过滤 enabled。
-        const rows = await db
-          .select({
-            name: assistantSkills.name,
-            description: assistantSkills.description,
-            enabled: assistantSkills.enabled,
-          })
-          .from(assistantSkills)
-          .where(eq(assistantSkills.userId, userId))
-          .orderBy(desc(assistantSkills.updatedAt));
-        const entries = buildSkillsCatalogEntries(rows, BUILTIN_SKILLS);
-        return buildSkillsCatalogSection(
-          entries.slice(0, SKILL_LIMITS.catalogMaxEntries),
-          entries.length > SKILL_LIMITS.catalogMaxEntries,
-        );
+        return await buildSkillsCatalogForUser(db, userId);
       } catch {
         return "";
       }

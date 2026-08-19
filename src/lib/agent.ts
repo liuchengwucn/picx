@@ -26,11 +26,7 @@ import {
 import { escapeLike } from "#/lib/gallery-search";
 import { loadPaperText } from "#/lib/paper-text";
 import { SITE_URL } from "#/lib/site-url";
-import {
-  expandSkillBody,
-  mergeBuiltinSkills,
-  SKILL_LIMITS,
-} from "#/lib/skills";
+import { expandSkillBody, mergeBuiltinSkills } from "#/lib/skills";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 
 type Db = DrizzleD1Database<typeof schema>;
@@ -359,6 +355,9 @@ export function buildAgentTools(deps: AgentToolsDeps) {
             instructions: expandSkillBody(builtin.body, args ?? ""),
           };
         }
+        // 不加 limit：这些行同时用于覆盖判定，截断会让第 26 行之后的 disabled
+        // 同名行压不住内置，available 里就会列出用户已经关掉的内置名。
+        // 最多 50 行（SKILL_LIMITS.maxPerUser），且这是错误路径不是热路径。
         let rows: { name: string; enabled: boolean }[];
         try {
           rows = await db
@@ -368,8 +367,7 @@ export function buildAgentTools(deps: AgentToolsDeps) {
             })
             .from(assistantSkills)
             .where(eq(assistantSkills.userId, userId))
-            .orderBy(desc(assistantSkills.updatedAt))
-            .limit(SKILL_LIMITS.catalogMaxEntries);
+            .orderBy(desc(assistantSkills.updatedAt));
         } catch {
           // available 只是补充信息，列不出来就只报未找到
           return { error: "skill not found" };
