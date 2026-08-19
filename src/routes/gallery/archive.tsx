@@ -1,14 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  AlertTriangle,
-  Globe,
-  Loader2,
-  RotateCcw,
-  Search,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { Globe, Loader2, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import {
@@ -17,6 +9,7 @@ import {
   getCategoryLabel,
 } from "#/components/papers/gallery-card";
 import { Button } from "#/components/ui/button";
+import { LoadFailedPanel } from "#/components/ui/state-panel";
 import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { useTRPC, useTRPCClient } from "#/integrations/trpc/react";
 import {
@@ -556,7 +549,9 @@ function ArchivePage() {
             undefined 于是 total 为 0, 不拦就会直接落进 EmptyGallery / NoResults ——
             前者请用户「来上传第一篇」, 后者请用户清筛选, 两句在一次网络抖动面前都是
             错的, 而且都把「重试」这个唯一有用的动作藏了起来。方向页的论文流已经是
-            这个口径(见那边注释: 把失败说成空态等于对用户撒谎), 这里补齐。 */}
+            这个口径(见那边注释: 把失败说成空态等于对用户撒谎), 这里补齐。失败态用
+            全站共用的 LoadFailedPanel(实线边 + 必填重试按钮), 不再自己维护一份 ——
+            NoResults / EmptyGallery 是空态不是失败态, 文案与动作都不同, 不与它合并。 */}
         {galleryQuery.isLoading ? (
           <div className="grid auto-rows-fr gap-5 lg:grid-cols-2">
             {gallerySkeletonKeys.map((skeletonKey) => (
@@ -564,7 +559,7 @@ function ArchivePage() {
             ))}
           </div>
         ) : galleryQuery.isError ? (
-          <LoadFailedGallery onRetry={() => galleryQuery.refetch()} />
+          <LoadFailedPanel onRetry={() => galleryQuery.refetch()} />
         ) : total === 0 && hasFilters ? (
           <NoResults onClear={clearFilters} />
         ) : total === 0 ? (
@@ -660,37 +655,6 @@ function NoResults({ onClear }: { onClear: () => void }) {
       >
         <X className="h-4 w-4" />
         {m.gallery_clear_filters()}
-      </button>
-    </div>
-  );
-}
-
-/**
- * 论文流的加载失败态。与两个空态刻意长得不一样:
- * - 骨架 = 还在加载
- * - 空态(EmptyGallery / NoResults): 无边框、暖色/渐变图标块 = 这里本来就没内容
- * - 本组件: 实线边框面板 + 警告图标 = 内容应该在, 只是这次没取到
- * 这与方向页简报大卡「虚线 = 内容在路上, 实线 = 这次没取到」是同一套区分。
- * 重试按钮直接 refetch, 不用刷整页 —— 失败多半是一次抖动。
- */
-function LoadFailedGallery({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="rise-in mx-auto max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] px-6 py-12 text-center shadow-[0_4px_16px_rgba(45,42,36,0.06)]">
-      <div className="mb-5 flex justify-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--line)] bg-[var(--parchment-warm)]">
-          <AlertTriangle className="h-7 w-7 text-[var(--academic-brown)]" />
-        </div>
-      </div>
-      <p className="mb-6 text-base text-[var(--ink-soft)]">
-        {m.gallery_load_failed()}
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] px-6 py-3 text-sm font-semibold text-[var(--ink)] shadow-[0_2px_8px_rgba(45,42,36,0.06)] transition-all hover:-translate-y-0.5 hover:border-[var(--academic-brown)] hover:text-[var(--academic-brown)]"
-      >
-        <RotateCcw className="h-4 w-4" />
-        {m.gallery_retry()}
       </button>
     </div>
   );

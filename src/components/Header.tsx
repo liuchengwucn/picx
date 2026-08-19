@@ -40,6 +40,15 @@ export default function Header() {
           </Link>
           <Link
             to="/gallery"
+            // 默认前缀匹配会让这条链接在 /gallery/d/*、/gallery/archive、
+            // /gallery/w/* 上都判成 active —— 不止视觉高亮跟着漂移(顶栏"画廊"与子
+            // 页面自己的方向 tab / 返回链接同时亮), aria-current="page" 也会被
+            // TanStack 的 STATIC_ACTIVE_PROPS 强行挂上(它在用户 props 之后展开,
+            // 显式传 aria-current={undefined} 挡不住), 于是方向页上同时存在 Header
+            // 与方向 tab 两个 aria-current="page", 读屏一次念出两个"当前页"。
+            // exact 让 isActive(连带 className 高亮与 aria-current)只在落地页本身
+            // 成立, 子页面不再冒领。
+            activeOptions={{ exact: true }}
             className="nav-link inline-flex items-center gap-1.5"
             activeProps={{ className: "nav-link is-active" }}
           >

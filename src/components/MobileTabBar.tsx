@@ -37,6 +37,12 @@ export default function MobileTabBar() {
         </Link>
         <Link
           to="/gallery"
+          // 同 Header.tsx 那一条: 默认前缀匹配会让这个 tab 在 /gallery/d/*、
+          // /gallery/archive、/gallery/w/* 上都判成 active, 与页面内容自己的方向
+          // tab 同时挂 aria-current="page"(即便本栏在桌面视口 md:hidden, DOM 里
+          // 那个属性依然存在, document.querySelectorAll('[aria-current]') 照样
+          // 数得到, 移动视口下更是两个都可见)。exact 让它只在落地页本身当前。
+          activeOptions={{ exact: true }}
           className={ITEM_CLASS}
           activeProps={{ className: `${ITEM_CLASS} is-active` }}
         >

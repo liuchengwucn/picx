@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useMatchRoute } from "@tanstack/react-router";
 import { useTRPC } from "#/integrations/trpc/react";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
@@ -27,6 +27,14 @@ const tabClassName = (active: boolean) =>
  */
 export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
   const trpc = useTRPC();
+  const matchRoute = useMatchRoute();
+  // fuzzy:false 精确匹配当前路由: 只有真的停在方向主页(/gallery/d/$slug)上, 方向
+  // tab 才配得上 aria-current="page"。挂在单期页(/gallery/d/$slug/$issue)上时,
+  // 这里对 /gallery/d/$slug 的精确匹配会失败(路径段更长), tab 不会冒领「当前页」——
+  // 这正是这个组件被挪来给单期页共用时(下一任务)不用再改一遍的地方。
+  const onDirectionRoot = Boolean(
+    matchRoute({ to: "/gallery/d/$slug", fuzzy: false }),
+  );
   const { data, isPending, isError } = useQuery({
     ...trpc.digest.listDirections.queryOptions({ locale: getLocale() }),
     // 方向列表一周才动一次, 页面间来回切不必重取
@@ -59,9 +67,16 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
       <div className="-mb-px flex items-center gap-5 overflow-x-auto px-1 text-sm">
         {/* activeOptions exact 不是可选项: Link 默认按前缀判 active, 于是在
             /gallery/d/ai4formath 上「全部」(/gallery)也算 active、在期页上方向 tab
-            也算 active, Link 会自己挂 aria-current="page" —— 显式传 undefined 挡不住它,
-            读屏会一次念出两三个「当前页」。高亮由下面的 activeSlug 自己算, 本来就不靠
-            Link 的 active 态。 */}
+            也算 active。但即便 exact 挡住了大多数误判, TanStack 的
+            STATIC_ACTIVE_PROPS 是在用户 props 之后展开的(见 link.js 的
+            `...isActive && STATIC_ACTIVE_PROPS`), 一旦它判定的 isActive 为 true,
+            aria-current="page" 会覆盖掉我们显式传的值, 挡不住。所以方向 tab 的
+            aria-current 不能只靠 activeOptions, 得用 useMatchRoute 精确算出
+            「是否真的停在方向主页」(onDirectionRoot), 与 activeSlug 一起判定。
+            「全部」这一项的目标路由(/gallery)本来就只在落地页本身精确匹配, 没有
+            同款歧义, 保持原样。视觉高亮(tabClassName)仍然只看 activeSlug, 与
+            aria-current 的语义判定分开: 前者是「用户选了哪个方向」, 后者是
+            「读屏该不该念这是当前页」。 */}
         <Link
           to="/gallery"
           activeOptions={{ exact: true }}
@@ -78,7 +93,7 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
               to="/gallery/d/$slug"
               params={{ slug: direction.slug }}
               activeOptions={{ exact: true }}
-              aria-current={active ? "page" : undefined}
+              aria-current={onDirectionRoot && active ? "page" : undefined}
               className={tabClassName(active)}
             >
               {direction.name}

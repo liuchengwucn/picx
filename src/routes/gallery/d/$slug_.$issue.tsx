@@ -4,6 +4,7 @@ import {
   isNotFound,
   Link,
   notFound,
+  useRouter,
 } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -12,6 +13,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { DigestPaperCard } from "#/components/digest/digest-paper-card";
 import { Skeleton } from "#/components/ui/skeleton";
+import { LoadFailedPanel } from "#/components/ui/state-panel";
 import { usePaperFeedback } from "#/hooks/use-paper-feedback";
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
@@ -39,7 +41,10 @@ export const Route = createFileRoute("/gallery/d/$slug_/$issue")({
   // 两者刻意分开: 「这期不存在」与「这次没读出来」对读者是两件事, 用同一个组件糊过去
   // 就等于把故障说成 404。
   notFoundComponent: IssueNotFound,
-  errorComponent: IssueLoadFailed,
+  // 客户端导航时 ensureQueryData 抛出(网络故障)会冒到这里, 与 /gallery/w/$period
+  // 同一处理: 路由注入的是 {error, info, reset}, 不是页面内那份 query, 所以另开一个
+  // 薄壳组件把 router.invalidate() 接到 IssueLoadFailed 需要的 onRetry 上。
+  errorComponent: IssueRouteError,
   loader: async ({ context, params }) => {
     // 路由段是任意字符串, 期号只认「无前导零的正整数字面量」。校验原始字符串而不是
     // Number() 的结果: Number 会把 "001" / "1.0" / "+1" / "0x1" / " 1" / "1e3" 全部
@@ -204,14 +209,21 @@ function DigestIssuePage() {
   const issueNumber = Number(issue);
 
   const ssrData = loaderData.ssrData ?? undefined;
-  // SSR 那份永远是 baseLocale 渲染的(全站 locale 都在客户端解析)。语言对不上时必须
-  // 立刻重取, 否则默认 staleTime(60s) 会把英文正文按住一分钟; 对得上就别白发请求。
+  // SSR 那份是按服务端解析出的 locale 渲染的; 对不上就立刻重取, 否则 root-provider 的
+  // 默认 staleTime(60s)会把另一种语言的正文按住一分钟(与 /gallery、/gallery/w/$period
+  // 同一处理)。
   const staleSsrLocale =
     ssrData !== undefined && loaderData.ssrLocaleKey !== localeKey;
   const query = useQuery({
     ...trpc.digest.getIssue.queryOptions({ slug, issueNumber, locale }),
     initialData: ssrData,
-    staleTime: staleSsrLocale ? 0 : undefined,
+    // 只在语言对不上时压掉 staleTime; 平时这个键**根本不出现**。写成
+    // `staleTime: staleSsrLocale ? 0 : undefined` 会反过来: 选项是
+    // `{...defaults.queries, ...options}` 展开合并, 显式 undefined 覆盖掉默认的 60s,
+    // isStaleByTime 又把 undefined 兜成 0 ⇒ 挂载即 stale, 每次整页加载都把已经内联在
+    // HTML 里的正文白拉一遍, 而三元两个分支效果相同(新鲜度机制成死代码) —— 之前这里
+    // 的注释断言「对得上就别白发请求」, 实际正好相反, 是这个 bug 本身在说反话。
+    ...(staleSsrLocale ? { staleTime: 0 } : {}),
   });
   /**
    * 服务端刻意不看 react-query 的缓存, 只认 loader 刚从 D1 读出来的那份。
@@ -242,13 +254,15 @@ function DigestIssuePage() {
   //    也是 null, 落到下面那条就会把一次故障说成「这期不存在」, 还顺手回 404 状态码。
   //    服务端与客户端首帧都走这里(ssrFailed 是 loader 数据, 两侧一致), 客户端那次
   //    查询回来后正文会自己补上。
-  if (loaderData.ssrFailed && !data) return <IssueLoadFailed />;
+  if (loaderData.ssrFailed && !data)
+    return <IssueLoadFailed onRetry={() => query.refetch()} />;
   // 2. 查询出错但手里还有正文(refetch 失败 —— react-query 保留上一次的 data, 只把
   //    status 翻成 error)时, 必须继续渲染正文, 不能拿失败面板把好内容盖掉。这条最容易
   //    踩: 非英文读者每次首屏都会因为 staleSsrLocale 被强制重取一次, 那一次网络抖动
   //    就会让整篇文章消失, 而 retry 用尽 + refetchOnWindowFocus:false 意味着不刷新
   //    就再也回不来。只有「一个字都没有」时才是真的加载失败。
-  if (query.isError && !data) return <IssueLoadFailed />;
+  if (query.isError && !data)
+    return <IssueLoadFailed onRetry={() => query.refetch()} />;
   // 3. 查询明确返回 null = 这期不存在或未发布。loader 已经拦过一次, 这里兜的是
   //    loader 之后这期刚被撤下。
   if (data === null) throw notFound();
@@ -367,50 +381,80 @@ function DigestIssuePage() {
 }
 
 /**
- * 「这次没读出来」。实线边 + 常规底色, 与方向页空态卡的虚线边区分开: 虚线 = 内容还
- * 没生成, 实线 = 内容应该在但这次没取到。文案也不与 404 共用。
+ * 「这次没读出来」。用全站共用的 LoadFailedPanel(实线边 + 必填重试按钮), 与方向页
+ * 空态卡的虚线边区分开: 虚线 = 内容还没生成, 实线 = 内容应该在但这次没取到。文案也
+ * 不与 404 共用。
+ *
+ * onRetry 由调用方传入(该页 query.refetch(), 或路由错误边界的 router.invalidate())
+ * —— 这个组件本身拿不到 query, 之前那版无参组件正是 #34 的病根: 文案写着「请重试」,
+ * 页面上却没有任何可点的东西。
+ *
+ * 不直接把 LoadFailedPanel 塞进旧版 IssuePanel 的边框盒子里: 那个盒子自己也有一圈
+ * border, 两层描边框叠在一起是视觉噪音, 所以这里改用无边框的 IssuePanelShell, 边框
+ * 只留 LoadFailedPanel 自己那一层, 「返回该方向」链接另起一行放在盒子外面。
  */
-function IssueLoadFailed() {
+function IssueLoadFailed({ onRetry }: { onRetry: () => void }) {
   const { slug } = Route.useParams();
   return (
-    <IssuePanel slug={slug}>
-      <p className="text-sm text-[var(--ink-soft)]">
-        {m.digest_issue_load_failed()}
-      </p>
-    </IssuePanel>
+    <IssuePanelShell>
+      <LoadFailedPanel
+        message={m.digest_issue_load_failed()}
+        onRetry={onRetry}
+      />
+      <div className="mt-5 flex justify-center">
+        <Link
+          to="/gallery/d/$slug"
+          params={{ slug }}
+          activeOptions={{ exact: true }}
+          className="inline-flex items-center gap-1.5 text-sm text-[var(--academic-brown)] no-underline hover:underline"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {m.digest_back_to_direction()}
+        </Link>
+      </div>
+    </IssuePanelShell>
   );
+}
+
+/**
+ * 路由级错误边界(loader 抛出的非 notFound 故障, 多半是客户端导航时 ensureQueryData
+ * 网络失败)。TanStack 注入的是 {error, info, reset}, 不是页面内那份 query, 所以借
+ * router.invalidate() 重跑 loader 当重试动作, 与 /gallery/w/$period 的
+ * EditionRouteError 同一处理。
+ */
+function IssueRouteError() {
+  const router = useRouter();
+  return <IssueLoadFailed onRetry={() => router.invalidate()} />;
 }
 
 /** 期号不存在 / 这期还没发布(或已撤下)。 */
 function IssueNotFound() {
   const { slug } = Route.useParams();
   return (
-    <IssuePanel slug={slug}>
-      <h1 className="font-serif text-2xl font-bold text-[var(--ink)]">404</h1>
-      <p className="mt-2 text-sm text-[var(--ink-soft)]">
-        {m.digest_issue_not_found()}
-      </p>
-    </IssuePanel>
+    <IssuePanelShell>
+      <div className="rise-in rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-6 text-center">
+        <h1 className="font-serif text-2xl font-bold text-[var(--ink)]">404</h1>
+        <p className="mt-2 text-sm text-[var(--ink-soft)]">
+          {m.digest_issue_not_found()}
+        </p>
+        <Link
+          to="/gallery/d/$slug"
+          params={{ slug }}
+          activeOptions={{ exact: true }}
+          className="mt-5 inline-flex items-center gap-1.5 text-sm text-[var(--academic-brown)] no-underline hover:underline"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {m.digest_back_to_direction()}
+        </Link>
+      </div>
+    </IssuePanelShell>
   );
 }
 
-function IssuePanel({ slug, children }: { slug: string; children: ReactNode }) {
+function IssuePanelShell({ children }: { children: ReactNode }) {
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
-      <div className="page-wrap max-w-3xl">
-        <div className="rise-in rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-6 text-center">
-          {children}
-          <Link
-            to="/gallery/d/$slug"
-            params={{ slug }}
-            activeOptions={{ exact: true }}
-            className="mt-5 inline-flex items-center gap-1.5 text-sm text-[var(--academic-brown)] no-underline hover:underline"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            {m.digest_back_to_direction()}
-          </Link>
-        </div>
-      </div>
+      <div className="page-wrap max-w-3xl">{children}</div>
     </main>
   );
 }
