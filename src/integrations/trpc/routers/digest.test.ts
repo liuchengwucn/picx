@@ -611,7 +611,7 @@ describe("digest.getDirection", () => {
     expect(lastOnPage1).toBe(4);
     const page2 = await caller.getDirection({
       slug: "many-issues",
-      before: lastOnPage1,
+      cursor: lastOnPage1,
       locale: "zh-CN",
     });
     expect(page2?.issues.map((i) => i.issueNumber)).toEqual([3, 2, 1]);

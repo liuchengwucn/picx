@@ -21,6 +21,7 @@ import {
 } from "#/db/schema";
 import { REVIEW_GUEST_USER_ID } from "#/lib/review-guest";
 import { createTestDb } from "../../../../test/helpers/sqlite-d1";
+import { digestRouter } from "./digest";
 import { paperRouter } from "./paper";
 
 type Db = ReturnType<typeof createTestDb>["db"];
@@ -389,6 +390,61 @@ describe("paper.getMyFeedback", () => {
         paperIds: Array.from({ length: 91 }, (_, i) => `p-${i}`),
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+/**
+ * 方向页统计行印的 paperCount 与它正下方那一列卡片必须是同一批论文。
+ *
+ * 这条用例存在的理由是「同步义务不能只写在注释里」: 两个口径分叉过一次(方向页
+ * 「18 篇入选论文」配 2 张卡), 而 digest.test.ts 断言的是手算常数 —— 改
+ * listPublic 的可见性条件时那一套仍会全绿。所以在这里让两个 procedure 跑在同一个
+ * 库上对答案: 任一侧的谓词漂了, 这里就红。
+ *
+ * 放在本文件而不是 digest.test.ts: 只有这里同时有 digest 夹具与 paperRouter。
+ */
+describe("paperCount stays tied to paper.listPublic", () => {
+  it("reports exactly as many papers as the direction's gallery stream lists", async () => {
+    const digestCaller = digestRouter.createCaller({ db } as never);
+    const [detail, listed] = await Promise.all([
+      digestCaller.getDirection({ slug: "ai4formath" }),
+      createCaller(null).listPublic({ direction: "ai4formath" }),
+    ]);
+    // 夹具里 dir-a 出刊引用了 5 篇, 其中 private/unlisted/deleted 三篇画廊流列不出来
+    expect(listed.total).toBe(2);
+    expect(detail?.paperCount).toBe(listed.total);
+  });
+
+  it("keeps both sides in step for a pick that has no default whiteboard", async () => {
+    // 白板那一层是上次真正漏掉的东西(缺的是 innerJoin, 不是布尔标志), 所以单独给它
+    // 一篇夹具: 可见性全过、被已发布期引用, 只是没有默认白板。
+    await db.insert(papers).values({
+      id: "p-nowb",
+      shortId: "sid-p-nowb",
+      userId: "u1",
+      title: "Picked but imageless",
+      sourceType: "arxiv",
+      pdfR2Key: "papers/p-nowb.pdf",
+      fileSize: 1,
+      status: "completed",
+      isPublic: true,
+      isListedInGallery: true,
+      directionId: "dir-a",
+      publishedAt: new Date(Date.UTC(2026, 7, 20)),
+    });
+    await db
+      .insert(digestPapers)
+      .values({ digestId: "dg-a-1", paperId: "p-nowb", rank: 6 });
+
+    const digestCaller = digestRouter.createCaller({ db } as never);
+    const [detail, listed] = await Promise.all([
+      digestCaller.getDirection({ slug: "ai4formath" }),
+      createCaller(null).listPublic({ direction: "ai4formath" }),
+    ]);
+    // 两边都不数它 —— 关键是「两边一致」, 常数只是顺手钉住当前值
+    expect(listed.papers.map((p) => p.id)).not.toContain("p-nowb");
+    expect(listed.total).toBe(2);
+    expect(detail?.paperCount).toBe(listed.total);
   });
 });
 

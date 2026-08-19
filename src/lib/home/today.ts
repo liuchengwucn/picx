@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type * as schema from "#/db/schema";
 import {
@@ -9,6 +9,10 @@ import {
   whiteboardImages,
 } from "#/db/schema";
 import { compareFeatured, type GroupableStory } from "#/lib/news/group-stories";
+import {
+  defaultWhiteboardOn,
+  publicPaperConditions,
+} from "#/lib/paper-visibility";
 
 // 首页「今日精选」数据。SSR loader 与 tRPC home.today 共用本查询,
 // 两侧形状必须一致(loader 数据作为路由数据直出, 全部字段可序列化)。
@@ -124,21 +128,10 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       })
       .from(papers)
       .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
-      .leftJoin(
-        whiteboardImages,
-        and(
-          eq(whiteboardImages.paperId, papers.id),
-          eq(whiteboardImages.isDefault, true),
-        ),
-      )
-      .where(
-        and(
-          eq(papers.isPublic, true),
-          eq(papers.isListedInGallery, true),
-          eq(papers.status, "completed"),
-          isNull(papers.deletedAt),
-        ),
-      )
+      // leftJoin 是刻意的: 首页要的是 hasImage 这个信息本身, 无图论文照常上榜
+      // (画廊流那种 innerJoin 会让「今日」在图还没生成时空掉)。见 lib/paper-visibility.ts。
+      .leftJoin(whiteboardImages, defaultWhiteboardOn())
+      .where(and(...publicPaperConditions()))
       // paper_results.paper_id / whiteboard_images 的默认图都不是唯一约束(历史脏
       // 数据或重复处理可能有多行), 按 papers.id 聚合去重, 与 paper.listPublic 同款。
       // SQL 级去重必须在 limit 之前做, 否则 join 放大行数会让 limit 先吃掉重复行,

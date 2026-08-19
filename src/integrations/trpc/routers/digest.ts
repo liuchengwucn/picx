@@ -56,7 +56,17 @@ export const digestRouter = router({
     .input(
       z.object({
         slug: z.string().min(1).max(100),
-        before: z.number().int().min(1).optional(),
+        /**
+         * 期次时间线的游标（排他：只取期号更小的期）。字段名必须是 `cursor` ——
+         * @trpc/tanstack-react-query 把 infiniteQueryOptions 藏在
+         * `TDef['input'] extends OptionalCursorInput` 后面, 叫 `before` 的话这个
+         * 装饰在 proxy 上压根不存在, 前端只能退回手写 queryKey(于是 pathKey()
+         * 再也覆盖不到它)。store 层的参数仍叫 before, 那个名字更说明它是排他的。
+         *
+         * nullish 而不是 optional: tRPC 的 initialPageParam 默认是 null, optional
+         * 过不了校验。
+         */
+        cursor: z.number().int().min(1).nullish(),
         locale: localeInput,
       }),
     )
@@ -65,7 +75,7 @@ export const digestRouter = router({
       const detail = await getDirectionDetailBySlug(
         ctx.db,
         input.slug,
-        input.before,
+        input.cursor ?? undefined,
       );
       if (!detail) return null;
       return {

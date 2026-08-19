@@ -31,6 +31,10 @@ import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
 import { createGalleryPaper, ensureGuestUser } from "#/lib/gallery-paper";
 import { MAX_SOURCE_FAILURES } from "#/lib/news/source-health";
 import { likeCountSql } from "#/lib/paper-feedback";
+import {
+  defaultWhiteboardOn,
+  galleryListableConditions,
+} from "#/lib/paper-visibility";
 import type { Env } from "#/types/env";
 import type { PoolEntry } from "./candidates";
 import { directionIntroSource } from "./present";
@@ -743,33 +747,18 @@ async function getDirectionCounts(
     // 跨期去重的方向论文总数：同一篇可能被多期引用，故 count(distinct paperId)
     // （它同时兜住重复默认白板行造成的扇出）。
     //
-    // 谓词是 paper.listPublic 那套基础可见性条件的复制：isPublic /
-    // isListedInGallery / status='completed' / 未软删 / **有默认白板**
-    // (innerJoin，不是期内清单那种 leftJoin —— 见 getPublishedIssueDetail 的注释：
-    // 那里要的是「本期清单完整」，这里要的是「与画廊流所见一致」，两个目标不同)。
-    // 改这里或改 listPublic 的 baseConditions，另一处必须跟着改；口径分叉不会报错，
-    // 只会让方向页悄悄印上一个对不上的数字。
+    // 口径 = paper.listPublic 的画廊流口径，一个 import 而不是一份手抄
+    // （lib/paper-visibility.ts 记了为什么：这四条谓词曾在六个文件里各写一遍，
+    // 而这里漏掉白板那一层的那一次就印出了「18 篇入选论文」配 2 张卡）。
+    // innerJoin 不是期内清单那种 leftJoin —— 见 getPublishedIssueDetail 的注释：
+    // 那里要的是「本期清单完整」，这里要的是「与画廊流所见一致」，两个目标不同。
     db
       .select({ n: sql<number>`count(distinct ${digestPapers.paperId})` })
       .from(digestPapers)
       .innerJoin(digests, eq(digestPapers.digestId, digests.id))
       .innerJoin(papers, eq(digestPapers.paperId, papers.id))
-      .innerJoin(
-        whiteboardImages,
-        and(
-          eq(whiteboardImages.paperId, papers.id),
-          eq(whiteboardImages.isDefault, true),
-        ),
-      )
-      .where(
-        and(
-          ...publishedHere,
-          isNull(papers.deletedAt),
-          eq(papers.isPublic, true),
-          eq(papers.isListedInGallery, true),
-          eq(papers.status, "completed"),
-        ),
-      ),
+      .innerJoin(whiteboardImages, defaultWhiteboardOn())
+      .where(and(...publishedHere, ...galleryListableConditions())),
   ]);
   // 无 GROUP BY 的聚合查询恒返回一行, row?. 是防御性风格而非真的不确定
   // （与 edition-store.ts / ensureDigestShell 的 row?.max 同款写法）。

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   digests,
@@ -10,6 +10,7 @@ import {
   papers,
 } from "#/db/schema";
 import { buildLlmsTxt } from "#/lib/llms-txt";
+import { publicPaperConditions } from "#/lib/paper-visibility";
 import { SITE_URL } from "#/lib/site-url";
 
 interface AppEnvBindings {
@@ -48,14 +49,9 @@ async function handler() {
       })
       .from(papers)
       .leftJoin(paperResults, eq(paperResults.paperId, papers.id))
-      .where(
-        and(
-          eq(papers.isPublic, true),
-          eq(papers.isListedInGallery, true),
-          eq(papers.status, "completed"),
-          isNull(papers.deletedAt),
-        ),
-      )
+      // 不带白板条件: 索引的是论文页面本身, 有没有配图与能不能被抓取无关
+      // (画廊流那套更窄的口径见 lib/paper-visibility.ts)
+      .where(and(...publicPaperConditions()))
       .orderBy(desc(papers.publishedAt))
       .limit(MAX_PAPERS);
   } catch {

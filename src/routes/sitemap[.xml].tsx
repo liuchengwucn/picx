@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   digests,
@@ -11,6 +11,10 @@ import {
 } from "#/db/schema";
 import { escapeHtml } from "#/lib/embed-code";
 import { PAPER_CATEGORY_SLUGS } from "#/lib/paper-categories";
+import {
+  defaultWhiteboardOn,
+  publicPaperConditions,
+} from "#/lib/paper-visibility";
 
 interface AppEnvBindings {
   DB: D1Database;
@@ -41,21 +45,11 @@ async function handler({ request }: { request: Request }) {
         whiteboardKey: whiteboardImages.imageR2Key,
       })
       .from(papers)
-      .leftJoin(
-        whiteboardImages,
-        and(
-          eq(whiteboardImages.paperId, papers.id),
-          eq(whiteboardImages.isDefault, true),
-        ),
-      )
-      .where(
-        and(
-          eq(papers.isPublic, true),
-          eq(papers.isListedInGallery, true),
-          eq(papers.status, "completed"),
-          isNull(papers.deletedAt),
-        ),
-      )
+      // leftJoin 是刻意的: sitemap 收录的是「这个页面能不能被访问」, 有没有配图只
+      // 决定要不要发 image 条目。别改成画廊流那种 innerJoin —— 那会把无图论文整条
+      // 从 sitemap 里删掉。见 lib/paper-visibility.ts。
+      .leftJoin(whiteboardImages, defaultWhiteboardOn())
+      .where(and(...publicPaperConditions()))
       .orderBy(desc(papers.publishedAt));
     // Defensive dedup: default whiteboard should be unique per paper, but the
     // join would duplicate a paper row if that invariant ever broke.
