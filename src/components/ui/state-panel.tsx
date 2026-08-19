@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ArrowRight, RotateCcw } from "lucide-react";
+import type { ReactNode } from "react";
 import { m } from "#/paraglide/messages";
 
 /**
@@ -52,37 +52,47 @@ export function LoadFailedPanel({
  * 「内容还没生成」。虚线边是这一态唯一的视觉标记 —— 不给图标块、不给按钮: 读者
  * 做不了任何事让它更快生成, 放一个假动作按钮只会骗人点。
  *
- * link 是可选的「同时还能去哪」出口(空屏必须给一个去处, 否则就是死胡同)。
- * to 收窄成字面量而不是 string: TanStack 的 Link 靠字面量做类型推断, 收成 string
- * 会让整条链接失去路由校验。将来要指向别的页面就把这里改成联合类型。
+ * action 是可选的「同时还能去哪」出口(空屏必须给一个去处, 否则就是死胡同)。
+ * 收成 ReactNode 而不是 `{ to, label }`: TanStack 的 Link 靠 to 的**字面量**做类型推断,
+ * 面板一旦替调用方拼 Link, to 就得在这里穷举所有目标(方向页那种带 params 的目标连
+ * 联合类型都过不了), 于是一个通用状态面板被钉在了具体路由表上。让调用方自己传
+ * <Link> 进来, 面板只保留「声明你处在哪一种状态」这份价值。
  */
 export function PendingPanel({
   message,
-  link,
+  action,
 }: {
   message: string;
-  link?: { to: "/gallery/archive"; label: string };
+  action?: ReactNode;
 }) {
   return (
     <div className="rise-in mx-auto max-w-md rounded-2xl border border-dashed border-[var(--line)] px-6 py-14 text-center">
       <p className="text-base text-[var(--ink-soft)]">{message}</p>
-      {link ? (
-        <Link
-          to={link.to}
-          activeOptions={{ exact: true }}
-          // 不写 text-[var(--academic-brown)]: styles.css 里那条未分层的 `a { color }`
-          // 压过 Tailwind utilities 层, 写在 <a> 上的 text-* 是死类 —— 而全局 a{}
-          // 给的正好就是这个色
-          className="group mt-5 inline-flex items-center gap-1 text-sm font-semibold no-underline"
-        >
-          {link.label}
-          <ArrowRight
-            className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
-            strokeWidth={1.25}
-            aria-hidden
-          />
-        </Link>
-      ) : null}
+      {action ? <div className="mt-5">{action}</div> : null}
     </div>
   );
 }
+
+/**
+ * 面板态里那条「去别处」的链接。样式集中在这里, 免得每个调用方各写一份箭头 + 间距。
+ *
+ * 不写 text-[var(--academic-brown)]: styles.css 里那条未分层的 `a { color }` 压过
+ * Tailwind utilities 层, 写在 <a> 上的 text-* 是死类 —— 而全局 a{} 给的正好就是这个色。
+ * 要改色只能挂到内层 <span> 上。
+ */
+export function PanelLinkContent({ children }: { children: ReactNode }) {
+  return (
+    <>
+      {children}
+      <ArrowRight
+        className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
+        strokeWidth={1.25}
+        aria-hidden
+      />
+    </>
+  );
+}
+
+/** 面板里链接的 className: 与 PanelLinkContent 配对使用(group 是箭头位移的锚) */
+export const panelLinkClass =
+  "group inline-flex items-center gap-1 text-sm font-semibold no-underline";

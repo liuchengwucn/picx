@@ -10,6 +10,21 @@ import {
 import type { EditionView as EditionData } from "#/lib/digest/present";
 
 /**
+ * 面板态(读失败 / 生成中)的页面外壳: 与正文同一个 main、同一个纸底、同一个主列宽度,
+ * 只是内容换成一块面板。两条合刊路由共用 —— 原本 index 叫 EditionShell、permalink 叫
+ * EditionPanelShell, 同一个六行包装的两个名字。
+ *
+ * 留白比正文那份大(py-16 vs py-8): 一块小面板挂在页顶会显得像加载卡住了。
+ */
+export function EditionPanelShell({ children }: { children: ReactNode }) {
+  return (
+    <main className="min-h-dvh bg-[var(--bg)] py-16">
+      <div className="page-wrap max-w-5xl">{children}</div>
+    </main>
+  );
+}
+
+/**
  * 合刊主体。/gallery(最新一期)与 /gallery/w/$period(某一期)共用同一个组件:
  * 两个页面长得一样, 分成两份实现必然各自漂移。
  *

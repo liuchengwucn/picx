@@ -1,13 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { EditionSkeleton } from "#/components/digest/edition-skeleton";
-import { EditionView } from "#/components/digest/edition-view";
+import {
+  EditionPanelShell,
+  EditionView,
+} from "#/components/digest/edition-view";
 import {
   PastEditions,
   selectPastEditions,
 } from "#/components/digest/past-editions";
-import { LoadFailedPanel, PendingPanel } from "#/components/ui/state-panel";
+import {
+  LoadFailedPanel,
+  PanelLinkContent,
+  PendingPanel,
+  panelLinkClass,
+} from "#/components/ui/state-panel";
 import { useTRPC } from "#/integrations/trpc/react";
 import { mapEditionToLocale } from "#/lib/digest/present";
 import { SITE_URL } from "#/lib/site-url";
@@ -90,7 +98,7 @@ export const Route = createFileRoute("/gallery/")({
           ssrDirections: directions,
           ssrLocaleKey: localeKey,
           // 与 ssrData: null 区分「读到了, 确实一期都没有」和「这一帧不是 SSR 读的」
-          ssrResolved: true,
+          ssrRead: true,
           ssrFailed: false,
         };
       } catch (error) {
@@ -102,7 +110,7 @@ export const Route = createFileRoute("/gallery/")({
           ssrPeriods: null,
           ssrDirections: null,
           ssrLocaleKey: null,
-          ssrResolved: false,
+          ssrRead: false,
           ssrFailed: true,
         };
       }
@@ -114,6 +122,9 @@ export const Route = createFileRoute("/gallery/")({
     //
     // 方向色输入也一起等: 少了它色相只能按「本期栏目」这个小集合分配, 等
     // listDirections 到位再按全量方向重算, 读者看到的是栏眉方块当场换色。
+    //
+    // listEditionPeriods 同样要等: 它是页尾往期列表 + 脊上「往期合刊」锚点的判据,
+    // 少了它客户端跳进 /gallery 的首帧 periods=[], 那条锚点会晚一拍才弹出来。
     await Promise.all([
       context.queryClient.prefetchQuery(
         context.trpc.digest.getEdition.queryOptions({ locale: getLocale() }),
@@ -123,18 +134,39 @@ export const Route = createFileRoute("/gallery/")({
           locale: getLocale(),
         }),
       ),
+      context.queryClient.prefetchQuery(
+        context.trpc.digest.listEditionPeriods.queryOptions(),
+      ),
     ]);
     return {
       ssrData: null,
       ssrPeriods: null,
       ssrDirections: null,
       ssrLocaleKey: null,
-      ssrResolved: false,
+      ssrRead: false,
       ssrFailed: false,
     };
   },
   component: WeeklyGalleryPage,
-  head: () => {
+  head: ({ loaderData }) => {
+    // D1 读失败的那一帧没有正文, 只有一块失败面板 —— 不执行 JS 的抓取方看到的是个
+    // 软 404, 发自指 canonical 等于主动请求把带错误信息的空页收录成 /gallery 的
+    // 权威版本。这一帧只在 D1 抛错时存在, 那意味着全站同时在失败、其余路由
+    // (/p/$shortId、/news/$shortId、gallery/d、w.$period)**已经**在发 noindex,
+    // 所以这里不例外才是一致的。
+    //
+    // 只按 ssrFailed 判: ssrData === null 的「首期合刊生成中」是**真内容**(读成功了,
+    // 确实一期都没有), 该照常可收录、照常发自指 canonical。
+    if (loaderData?.ssrFailed) {
+      return {
+        meta: [
+          // 与 w.$period 的失败帧同一个标题: 两处是同一件事(这一期没读出来)。
+          // gallery_load_failed 是面板里那句完整的话, 当标题太长。
+          { title: `${m.digest_issue_error_title()} | PicX` },
+          { name: "robots", content: "noindex" },
+        ],
+      };
+    }
     const title = m.page_title_gallery();
     const description = m.edition_meta_description();
     return {
@@ -145,7 +177,7 @@ export const Route = createFileRoute("/gallery/")({
         { property: "og:description", content: description },
         { property: "og:url", content: `${SITE_URL}/gallery` },
       ],
-      // 永远自指: 落地页是品牌入口。本周那一期同时住在 /gallery/w/<latest>,
+      // 有正文时永远自指: 落地页是品牌入口。本周那一期同时住在 /gallery/w/<latest>,
       // 让位的是那一边(见 w.$period.tsx 的 isLatest 条件 canonical)。
       links: [{ rel: "canonical", href: `${SITE_URL}/gallery` }],
     };
@@ -160,20 +192,26 @@ function WeeklyGalleryPage() {
 
   // 「读到了, 但一期都没有」(null)也要当 initialData 喂进去, 不能折成 undefined:
   // 否则 SSR 渲染的是 PendingPanel、客户端第一帧因为 data 还是 undefined 渲染骨架,
-  // 又是一处 hydration mismatch。ssrResolved 就是为了把它与「这一帧不是 SSR 读的」
+  // 又是一处 hydration mismatch。ssrRead 就是为了把它与「这一帧不是 SSR 读的」
   // 分开(客户端导航时 ssrData 也是 null, 那种 null 不能当答案用)。
-  const ssrInitialData = loaderData.ssrResolved
-    ? loaderData.ssrData
-    : undefined;
+  const ssrInitialData = loaderData.ssrRead ? loaderData.ssrData : undefined;
   // SSR 那份是按服务端解析出的 locale 渲染的(cookie → Accept-Language → baseLocale)。
-  // 对不上当前 locale 时必须立刻重取, 否则默认 staleTime(60s)会把另一种语言的正文
-  // 按住一分钟 —— 与单期页同一处理。
+  // 对不上当前 locale 时必须立刻重取, 否则 root-provider 的默认 staleTime(60s)会把
+  // 另一种语言的正文按住一分钟 —— 与单期页同一处理。
   const staleSsrLocale =
     ssrInitialData !== undefined && loaderData.ssrLocaleKey !== localeKey;
   const query = useQuery({
     ...trpc.digest.getEdition.queryOptions({ locale }),
     initialData: ssrInitialData,
-    staleTime: staleSsrLocale ? 0 : undefined,
+    // 只在语言对不上时压掉 staleTime; 平时这个键**根本不出现**, 把新鲜度留给
+    // queryClient 的默认值(root-provider 的 60s)。
+    //
+    // 不能写成 `staleTime: staleSsrLocale ? 0 : undefined`: useQuery 的选项是
+    // `{...defaults.queries, ...options}` 展开合并, 显式的 undefined 会**覆盖**默认值,
+    // 而 isStaleByTime 再把 undefined 兜成 0 ⇒ 查询挂载即 stale、refetchOnMount 触发,
+    // 于是每次整页加载都把已经内联在 HTML 里的正文再拉一遍(英文约 9.9KB, CJK 更多),
+    // 三元的两个分支效果还完全相同(整套语言新鲜度机制变成死代码)。
+    ...(staleSsrLocale ? { staleTime: 0 } : {}),
   });
   const periodsQuery = useQuery({
     ...trpc.digest.listEditionPeriods.queryOptions(),
@@ -207,9 +245,9 @@ function WeeklyGalleryPage() {
   //    更凶: 会直接渲染成 404)。这条必须排在 data === null 之前。
   if (loaderData.ssrFailed && !data) {
     return (
-      <EditionShell>
+      <EditionPanelShell>
         <LoadFailedPanel onRetry={() => query.refetch()} />
-      </EditionShell>
+      </EditionPanelShell>
     );
   }
   // 2. 手里还有正文时不能拿失败面板盖掉好内容: 非默认语言的读者每次首屏都会因
@@ -217,21 +255,29 @@ function WeeklyGalleryPage() {
   //    消失了, 而 retry 用尽 + refetchOnWindowFocus:false 意味着不刷新再也回不来。
   if (query.isError && !data) {
     return (
-      <EditionShell>
+      <EditionPanelShell>
         <LoadFailedPanel onRetry={() => query.refetch()} />
-      </EditionShell>
+      </EditionPanelShell>
     );
   }
   // 3. 全站一期都还没发布。不是 404 也不是空白页 —— 照实说在生成, 并给出唯一还能读
   //    的去处(档案里有 900+ 篇论文)。
   if (data === null) {
     return (
-      <EditionShell>
+      <EditionPanelShell>
         <PendingPanel
           message={m.edition_empty()}
-          link={{ to: "/gallery/archive", label: m.archive_title() }}
+          action={
+            <Link
+              to="/gallery/archive"
+              activeOptions={{ exact: true }}
+              className={panelLinkClass}
+            >
+              <PanelLinkContent>{m.archive_title()}</PanelLinkContent>
+            </Link>
+          }
         />
-      </EditionShell>
+      </EditionPanelShell>
     );
   }
   // 4. 一个字都还没有 = 还在取(前三条已经把 null 全部消化掉了)
@@ -257,15 +303,6 @@ function WeeklyGalleryPage() {
       >
         <PastEditions editions={periods} currentPeriod={data.period} />
       </EditionView>
-    </main>
-  );
-}
-
-/** 三个面板态共用的外壳: 与正文同一个 main/纸底/上下留白, 只是内容换成一块面板 */
-function EditionShell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="min-h-dvh bg-[var(--bg)] py-16">
-      <div className="page-wrap max-w-5xl">{children}</div>
     </main>
   );
 }

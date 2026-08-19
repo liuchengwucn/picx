@@ -2,12 +2,21 @@ import { useQuery } from "@tanstack/react-query";
 import {
   createFileRoute,
   isNotFound,
+  Link,
   notFound,
   useRouter,
 } from "@tanstack/react-router";
 import { EditionSkeleton } from "#/components/digest/edition-skeleton";
-import { EditionView } from "#/components/digest/edition-view";
-import { LoadFailedPanel } from "#/components/ui/state-panel";
+import {
+  EditionPanelShell,
+  EditionView,
+} from "#/components/digest/edition-view";
+import {
+  LoadFailedPanel,
+  PanelLinkContent,
+  PendingPanel,
+  panelLinkClass,
+} from "#/components/ui/state-panel";
 import { useTRPC } from "#/integrations/trpc/react";
 import { mapEditionToLocale } from "#/lib/digest/present";
 import { SITE_URL } from "#/lib/site-url";
@@ -104,6 +113,10 @@ export const Route = createFileRoute("/gallery/w/$period")({
   // 客户端导航时 ensureQueryData 抛出(网络故障)会冒到这里。默认错误边界是一段
   // 通用报错, 三态口径要求失败态必须带一个能点的重试 —— invalidate 会重跑 loader。
   errorComponent: EditionRouteError,
+  // 「这一周不存在」与「这次没读出来」刻意用两个组件, 且 404 帧必须自带标题 ——
+  // 缺了 notFoundComponent 时读者拿到的是根路由的默认标题(PicX - Paper Whiteboard),
+  // 页面上也没有任何回去的路。
+  notFoundComponent: EditionNotFound,
   head: ({ loaderData, params }) => {
     // 两种没有正文的帧, 都不该进索引, 也都不发 canonical:
     // loaderData 为空 = loader 抛了 notFound(这期不存在 / 格式非法);
@@ -149,14 +162,19 @@ function EditionPermalinkPage() {
   const localeKey = normalizeLocaleKey(locale);
 
   const ssrData = loaderData.ssrData ?? undefined;
-  // SSR 那份是按服务端解析出的 locale 渲染的; 对不上就立刻重取, 否则默认
-  // staleTime(60s)会把另一种语言的正文按住一分钟(与单期页同一处理)
+  // SSR 那份是按服务端解析出的 locale 渲染的; 对不上就立刻重取, 否则 root-provider 的
+  // 默认 staleTime(60s)会把另一种语言的正文按住一分钟(与单期页同一处理)
   const staleSsrLocale =
     ssrData !== undefined && loaderData.ssrLocaleKey !== localeKey;
   const query = useQuery({
     ...trpc.digest.getEdition.queryOptions({ period, locale }),
     initialData: ssrData,
-    staleTime: staleSsrLocale ? 0 : undefined,
+    // 只在语言对不上时压掉 staleTime; 平时这个键**根本不出现**。写成
+    // `staleTime: staleSsrLocale ? 0 : undefined` 会反过来: 选项是
+    // `{...defaults.queries, ...options}` 展开合并, 显式 undefined 覆盖掉默认的 60s,
+    // isStaleByTime 又把 undefined 兜成 0 ⇒ 挂载即 stale, 每次整页加载都把已经内联在
+    // HTML 里的正文白拉一遍, 而三元两个分支效果相同(新鲜度机制成死代码)。
+    ...(staleSsrLocale ? { staleTime: 0 } : {}),
   });
   const directionsQuery = useQuery({
     ...trpc.digest.listDirections.queryOptions({ locale }),
@@ -178,13 +196,21 @@ function EditionPermalinkPage() {
   //    —— 实测服务端渲染出的是 404 页(而 head 还带着 ssrFailed 的 noindex),
   //    一次读故障被说成「这期不存在」。这条必须排在 data === null 之前。
   if (loaderData.ssrFailed && !data) {
-    return <EditionPanelShell onRetry={() => query.refetch()} />;
+    return (
+      <EditionPanelShell>
+        <LoadFailedPanel onRetry={() => query.refetch()} />
+      </EditionPanelShell>
+    );
   }
   // 2. 有正文时不能拿失败面板盖掉好内容: 非默认语言的读者每次首屏都会因
   //    staleSsrLocale 被强制重取一次, 那一次网络抖动若翻成失败面板, 整期正文就消失了,
   //    而 retry 用尽 + refetchOnWindowFocus:false 意味着不刷新再也回不来。
   if (query.isError && !data) {
-    return <EditionPanelShell onRetry={() => query.refetch()} />;
+    return (
+      <EditionPanelShell>
+        <LoadFailedPanel onRetry={() => query.refetch()} />
+      </EditionPanelShell>
+    );
   }
   // 3. loader 已经拦过一次, 这里兜的是 loader 之后这期刚被撤下
   if (data === null) throw notFound();
@@ -205,17 +231,41 @@ function EditionPermalinkPage() {
   );
 }
 
-function EditionPanelShell({ onRetry }: { onRetry: () => void }) {
+function EditionRouteError() {
+  const router = useRouter();
   return (
-    <main className="min-h-dvh bg-[var(--bg)] py-16">
-      <div className="page-wrap max-w-5xl">
-        <LoadFailedPanel onRetry={onRetry} />
-      </div>
-    </main>
+    <EditionPanelShell>
+      <LoadFailedPanel onRetry={() => router.invalidate()} />
+    </EditionPanelShell>
   );
 }
 
-function EditionRouteError() {
-  const router = useRouter();
-  return <EditionPanelShell onRetry={() => router.invalidate()} />;
+/**
+ * 「这一周不存在」。与 errorComponent 刻意分开: 对读者「没有这一期」和「这次没读出来」
+ * 是两件事, 用同一个组件糊过去就等于把故障说成 404(参考 gallery/d/$slug_.$issue)。
+ *
+ * 必须自己出标题: 缺了它 404 帧拿的是根路由的默认标题(PicX - Paper Whiteboard),
+ * 读者与爬虫都看不出这是一个 404。虚线面板 = 这里没有内容, 不给重试按钮(重试一个
+ * 不存在的地址永远失败), 只给一条回落地页的路。
+ */
+function EditionNotFound() {
+  return (
+    <EditionPanelShell>
+      {/* 标题与 noindex 不在这里出: head() 的 `!loaderData` 分支已经供了这一帧的
+          meta(loader 抛 notFound 时 loaderData 就是 undefined)。组件里再渲染一份
+          <meta name="robots"> 不会被 head 那份去重, 结果是两条一模一样的标签。 */}
+      <PendingPanel
+        message={m.digest_issue_not_found()}
+        action={
+          <Link
+            to="/gallery"
+            activeOptions={{ exact: true }}
+            className={panelLinkClass}
+          >
+            <PanelLinkContent>{m.nav_gallery()}</PanelLinkContent>
+          </Link>
+        }
+      />
+    </EditionPanelShell>
+  );
 }
