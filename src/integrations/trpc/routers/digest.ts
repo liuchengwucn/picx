@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { excerptFromMarkdown, mapIssueToLocale } from "#/lib/digest/present";
+import {
+  getEditionByPeriod,
+  listEditionPeriods,
+} from "#/lib/digest/edition-store";
+import {
+  excerptFromMarkdown,
+  mapEditionToLocale,
+  mapIssueToLocale,
+} from "#/lib/digest/present";
 import {
   getDirectionDetailBySlug,
   getPublishedIssueDetail,
@@ -9,6 +17,8 @@ import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 import { publicProcedure, router } from "../init";
 
 const localeInput = z.enum(["en", "zh-CN", "zh-TW", "ja"]).optional();
+/** 合刊 URL 参数：date(period_end) 的 UTC 日期字符串 */
+const periodInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const digestRouter = router({
   listDirections: publicProcedure
@@ -19,6 +29,7 @@ export const digestRouter = router({
       return dirs.map((d) => ({
         slug: d.slug,
         name: pickTldr(d.name, localeKey) ?? d.slug,
+        createdAt: d.createdAt,
         latestIssue: d.latestIssue
           ? {
               issueNumber: d.latestIssue.issueNumber,
@@ -29,25 +40,50 @@ export const digestRouter = router({
       }));
     }),
 
+  getEdition: publicProcedure
+    .input(z.object({ period: periodInput.optional(), locale: localeInput }))
+    .query(async ({ ctx, input }) => {
+      const edition = await getEditionByPeriod(ctx.db, input.period ?? null);
+      if (!edition) return null;
+      return mapEditionToLocale(edition, normalizeLocaleKey(input.locale));
+    }),
+
+  listEditionPeriods: publicProcedure.query(({ ctx }) =>
+    listEditionPeriods(ctx.db),
+  ),
+
   getDirection: publicProcedure
-    .input(z.object({ slug: z.string().min(1).max(100), locale: localeInput }))
+    .input(
+      z.object({
+        slug: z.string().min(1).max(100),
+        before: z.number().int().min(1).optional(),
+        locale: localeInput,
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const localeKey = normalizeLocaleKey(input.locale);
-      const detail = await getDirectionDetailBySlug(ctx.db, input.slug);
+      const detail = await getDirectionDetailBySlug(
+        ctx.db,
+        input.slug,
+        input.before,
+      );
       if (!detail) return null;
       return {
         slug: detail.slug,
         name: pickTldr(detail.name, localeKey) ?? detail.slug,
         intro: pickTldr(detail.intro, localeKey) ?? "",
-        latestExcerpt: excerptFromMarkdown(
-          pickTldr(detail.latestContent, localeKey),
-        ),
+        issueCount: detail.issueCount,
+        paperCount: detail.paperCount,
+        hasMore: detail.hasMore,
         issues: detail.issues.map((i) => ({
           issueNumber: i.issueNumber,
           title: pickTldr(i.title, localeKey) ?? "",
+          // 正文只出摘要：四语 markdown 不下发（与合刊同一口径）
+          excerpt: excerptFromMarkdown(pickTldr(i.content, localeKey)),
           publishedAt: i.publishedAt,
           periodStart: i.periodStart,
           periodEnd: i.periodEnd,
+          pickCount: i.pickCount,
         })),
       };
     }),

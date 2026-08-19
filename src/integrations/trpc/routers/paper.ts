@@ -1300,14 +1300,24 @@ export const paperRouter = router({
         baseConditions.push(gte(papers.publishedAt, cutoff));
       }
 
-      // 搜索: 标题 + 当前语言 tldr/summary + tags(LIKE, CJK 子串友好)
+      // 搜索: 标题 + tldr/summary + tags(LIKE, CJK 子串友好)。
+      // 探当前 locale 与 en 两个键: resolveTldr 在缺当前语言时会回退 en 显示,
+      // 只探当前 locale 的话, 用户搜一个屏幕上看得见的词会得到 0 结果。
+      // (listMine 与 news.list 一直是这么做的, 这里是补齐。)
       if (input.q) {
         const needle = `%${escapeLike(input.q)}%`;
-        const localePath = `$."${localeKey}"`;
+        const localePaths =
+          localeKey === "en" ? ['$."en"'] : [`$."${localeKey}"`, '$."en"'];
         const searchCond = or(
           sql`${papers.title} LIKE ${needle} ESCAPE '\\'`,
-          sql`json_extract(${paperResults.tldr}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
-          sql`json_extract(${paperResults.summaries}, ${localePath}) LIKE ${needle} ESCAPE '\\'`,
+          ...localePaths.map(
+            (path) =>
+              sql`json_extract(${paperResults.tldr}, ${path}) LIKE ${needle} ESCAPE '\\'`,
+          ),
+          ...localePaths.map(
+            (path) =>
+              sql`json_extract(${paperResults.summaries}, ${path}) LIKE ${needle} ESCAPE '\\'`,
+          ),
           sql`${paperResults.tags} LIKE ${needle} ESCAPE '\\'`,
         );
         if (searchCond) baseConditions.push(searchCond);

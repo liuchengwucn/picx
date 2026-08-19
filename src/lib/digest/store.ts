@@ -638,6 +638,8 @@ export function canonicalizeCandidate(
 export interface DirectionSummary {
   slug: string;
   name: Record<string, string>;
+  /** 方向识别色的先到先得排序键：新增方向不洗牌老方向的颜色分配（见后续前端任务） */
+  createdAt: Date;
   latestIssue: {
     issueNumber: number;
     title: Record<string, string> | null;
@@ -649,7 +651,12 @@ export async function listActiveDirections(
   db: Db,
 ): Promise<DirectionSummary[]> {
   const dirs = await db
-    .select({ id: directions.id, slug: directions.slug, name: directions.name })
+    .select({
+      id: directions.id,
+      slug: directions.slug,
+      name: directions.name,
+      createdAt: directions.createdAt,
+    })
     .from(directions)
     .where(eq(directions.isActive, true))
     .orderBy(asc(directions.sortOrder), asc(directions.slug));
@@ -668,10 +675,18 @@ export async function listActiveDirections(
       )
       .orderBy(desc(digests.issueNumber))
       .limit(1);
-    result.push({ slug: d.slug, name: d.name, latestIssue: latest ?? null });
+    result.push({
+      slug: d.slug,
+      name: d.name,
+      createdAt: d.createdAt,
+      latestIssue: latest ?? null,
+    });
   }
   return result;
 }
+
+/** 方向页时间线每页期数。超过就靠 before 游标再取一页。 */
+export const TIMELINE_PAGE_SIZE = 12;
 
 export interface DirectionDetail {
   slug: string;
@@ -681,20 +696,29 @@ export interface DirectionDetail {
    * （见 getDirectionDetailBySlug），intro 全量生成后这里只会是真 intro。
    */
   intro: Record<string, string>;
+  /** 按期号倒序的一页期次，每条自带正文（调用方抽 excerpt 后丢弃） */
   issues: Array<{
     issueNumber: number;
     title: Record<string, string> | null;
+    content: Record<string, string> | null;
     publishedAt: Date | null;
     periodStart: Date;
     periodEnd: Date;
+    pickCount: number;
   }>;
-  /** 最新一期正文（大卡摘要用；无 published 期为 null） */
-  latestContent: Record<string, string> | null;
+  /** 已发布期总数（不是 issues.length） */
+  issueCount: number;
+  /** 该方向入选论文总数（跨期去重） */
+  paperCount: number;
+  /** 还有更早的期次 ⇒ 前端出「更早的期次」按钮 */
+  hasMore: boolean;
 }
 
 export async function getDirectionDetailBySlug(
   db: Db,
   slug: string,
+  /** 游标：只取期号小于它的期次；undefined = 第一页 */
+  before?: number,
 ): Promise<DirectionDetail | null> {
   const [dir] = await db
     .select({
@@ -709,42 +733,91 @@ export async function getDirectionDetailBySlug(
     .where(and(eq(directions.slug, slug), eq(directions.isActive, true)))
     .limit(1);
   if (!dir) return null;
-  const issues = await db
+
+  const publishedHere = [
+    eq(digests.directionId, dir.id),
+    eq(digests.status, "published"),
+  ];
+
+  const rows = await db
     .select({
+      id: digests.id,
       issueNumber: digests.issueNumber,
       title: digests.title,
+      content: digests.content,
       publishedAt: digests.publishedAt,
       periodStart: digests.periodStart,
       periodEnd: digests.periodEnd,
     })
     .from(digests)
     .where(
-      and(eq(digests.directionId, dir.id), eq(digests.status, "published")),
+      and(
+        ...publishedHere,
+        ...(before === undefined ? [] : [lt(digests.issueNumber, before)]),
+      ),
     )
-    .orderBy(desc(digests.issueNumber));
-  // 正文只取最新一期（列表页不需要历史期的 4 倍 markdown）
-  let latestContent: Record<string, string> | null = null;
-  if (issues.length > 0) {
-    const [latest] = await db
-      .select({ content: digests.content })
-      .from(digests)
-      .where(
-        and(
-          eq(digests.directionId, dir.id),
-          eq(digests.issueNumber, issues[0].issueNumber),
-          eq(digests.status, "published"),
-        ),
-      )
-      .limit(1);
-    latestContent = latest?.content ?? null;
-  }
+    .orderBy(desc(digests.issueNumber))
+    // 多取一条来判断有没有下一页，返回前切掉
+    .limit(TIMELINE_PAGE_SIZE + 1);
+
+  const hasMore = rows.length > TIMELINE_PAGE_SIZE;
+  const page = rows.slice(0, TIMELINE_PAGE_SIZE);
+
+  // inArray 喂的是 page（≤ TIMELINE_PAGE_SIZE + 1 = 13 条）：有界数组，远低于
+  // D1 的 100 参数上限，是本仓库允许的「安全的例外」写法（与 edition-store.ts
+  // 的 pickRows 查询同一套论证）。
+  const countRows = page.length
+    ? await db
+        .select({ digestId: digestPapers.digestId, n: sql<number>`count(*)` })
+        .from(digestPapers)
+        .innerJoin(papers, eq(digestPapers.paperId, papers.id))
+        .where(
+          and(
+            inArray(
+              digestPapers.digestId,
+              page.map((r) => r.id),
+            ),
+            isNull(papers.deletedAt),
+          ),
+        )
+        .groupBy(digestPapers.digestId)
+    : [];
+  const pickCountByDigest = new Map(countRows.map((r) => [r.digestId, r.n]));
+
+  // 无 GROUP BY 的聚合查询恒返回一行, row?. 是防御性风格而非真的不确定
+  // （与 edition-store.ts / ensureDigestShell 的 row?.max 同款写法）。
+  const [issueCountRow] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(digests)
+    .where(and(...publishedHere));
+  const issueCount = issueCountRow?.n ?? 0;
+
+  // 跨期去重的方向论文总数：同一篇可能被多期引用
+  const [paperCountRow] = await db
+    .select({ n: sql<number>`count(distinct ${digestPapers.paperId})` })
+    .from(digestPapers)
+    .innerJoin(digests, eq(digestPapers.digestId, digests.id))
+    .innerJoin(papers, eq(digestPapers.paperId, papers.id))
+    .where(and(...publishedHere, isNull(papers.deletedAt)));
+  const paperCount = paperCountRow?.n ?? 0;
+
   return {
     slug: dir.slug,
     name: dir.name,
     // 回退与 SSR loader 那侧共用一个实现，回填完成后两处一起删（见 directionIntroSource）
     intro: directionIntroSource(dir),
-    issues,
-    latestContent,
+    issues: page.map((r) => ({
+      issueNumber: r.issueNumber,
+      title: r.title,
+      content: r.content,
+      publishedAt: r.publishedAt,
+      periodStart: r.periodStart,
+      periodEnd: r.periodEnd,
+      pickCount: pickCountByDigest.get(r.id) ?? 0,
+    })),
+    issueCount,
+    paperCount,
+    hasMore,
   };
 }
 

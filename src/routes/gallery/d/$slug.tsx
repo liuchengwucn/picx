@@ -278,7 +278,7 @@ function DirectionPage() {
                 issueNumber={latestIssue.issueNumber}
                 title={latestIssue.title}
                 publishedAt={latestIssue.publishedAt}
-                excerpt={direction?.latestExcerpt ?? ""}
+                excerpt={latestIssue?.excerpt ?? ""}
               />
             ) : (
               <DigestEmptyIssueCard />

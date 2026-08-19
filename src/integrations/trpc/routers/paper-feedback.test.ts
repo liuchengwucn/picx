@@ -579,3 +579,30 @@ describe("paper.listPublic direction filter", () => {
     ).resolves.toMatchObject({ total: 0, papers: [] });
   });
 });
+
+describe("paper.listPublic search locale fallback", () => {
+  // 回归用例: 早先的实现只探当前 locale 那一个 JSON 键, 而展示层 resolveTldr
+  // 缺当前语言时会回退 en 显示 —— 于是用户搜一个屏幕上看得见的英文词, 在没有
+  // 日文 tldr 的论文上会得 0 结果。p-a1(共享 seed 里)四语 tldr 齐全, 不足以
+  // 复现这条 bug(它自己的 ja 键本来就命中), 所以这里单独插一篇只有 en tldr
+  // 的论文。
+  it("finds an English-only tldr when searching in a locale that lacks it", async () => {
+    await insertGalleryPaper(db, "p-en-only", null, 9);
+    await db.insert(paperResults).values({
+      id: "pr-en-only",
+      paperId: "p-en-only",
+      summaries: { en: "A quantum entanglement summary." },
+      tldr: { en: "Quantum entanglement breakthrough" },
+    });
+
+    const result = await createCaller(null).listPublic({
+      q: "quantum",
+      locale: "ja",
+    });
+    expect(result.papers.map((p) => p.id)).toEqual(["p-en-only"]);
+    // total 与列表查询共用同一个 baseConditions 数组: 这条断言两处都要吃到
+    // 新增的搜索条件, 否则会出现「有结果但 total 不等于返回条数」的矛盾响应
+    expect(result.total).toBe(1);
+    expect(result.total).toBe(result.papers.length);
+  });
+});
