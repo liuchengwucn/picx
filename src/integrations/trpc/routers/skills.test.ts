@@ -267,6 +267,28 @@ describe("builtin skills", () => {
     ).resolves.toMatchObject({ id: expect.any(String) });
   });
 
+  it("把内置改名撞上已有 skill 时报 CONFLICT 而不是覆盖它", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const caller = makeCaller(db, "u1");
+    await caller.create({
+      name: "my-notes",
+      description: "keep",
+      body: "keep me",
+    });
+
+    await expect(
+      caller.update({ id: BUILTIN_ID, name: "my-notes", body: "clobber" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    // 原有 skill 必须原封不动
+    const [row] = await db
+      .select()
+      .from(assistantSkills)
+      .where(eq(assistantSkills.name, "my-notes"));
+    expect(row).toMatchObject({ description: "keep", body: "keep me" });
+  });
+
   it("delete 虚拟 id 报 NOT_FOUND", async () => {
     const { db } = createTestDb();
     await seedUsers(db, ["u1"]);

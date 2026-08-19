@@ -173,15 +173,19 @@ export const skillsRouter = router({
           return { id: newId };
         } catch (error) {
           if (!isUniqueViolation(error)) throw error;
-          // 并发双击开关，或用户早已有同名行：退化成更新那一行
-          const targetName = patch.name ?? builtin.name;
+          // 显式改名撞上了另一条已存在的 skill：必须跟普通 update 路径一样报冲突。
+          // 否则会把内置正文写进用户那条同名 skill 里，静默吞掉他的内容。
+          if (patch.name && patch.name !== builtin.name) {
+            throw new TRPCError({ code: "CONFLICT", message: "name taken" });
+          }
+          // 到这里只可能是并发双击开关：撞的是刚刚自己插进去的那行，退化为更新
           const [existing] = await ctx.db
             .select({ id: assistantSkills.id })
             .from(assistantSkills)
             .where(
               and(
                 eq(assistantSkills.userId, userId),
-                eq(assistantSkills.name, targetName),
+                eq(assistantSkills.name, builtin.name),
               ),
             )
             .limit(1);
