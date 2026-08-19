@@ -9,6 +9,7 @@ import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
 import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
+import { BUILTIN_SKILL_NAMES, isBuiltinId } from "#/lib/builtin-skills";
 import { formatSkillMarkdown, type SkillInput } from "#/lib/skills";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
@@ -41,13 +42,22 @@ function AssistantSkillEditPage() {
 
   const updateMutation = useMutation(
     trpc.skills.update.mutationOptions({
-      onSuccess: (_result, variables) => {
+      onSuccess: (result, variables) => {
         invalidateList();
         void queryClient.invalidateQueries({
           queryKey: trpc.skills.get.queryKey({ id: variables.id }),
         });
         // 列表 enabled 开关也走 update：只有编辑器保存（带 body）才弹「已保存」
         if (variables.body != null) toast.success(m.assistant_skills_saved());
+        // 内置行被写就实体化成一条真实行，URL 里的 builtin: 前缀必须换成真 id，
+        // 否则后续保存会反复实体化，而这一页的 get 还指着虚拟 id
+        if (result.id !== variables.id) {
+          void navigate({
+            to: "/assistant/skills/$skillId",
+            params: { skillId: result.id },
+            replace: true,
+          });
+        }
       },
       onError: (error) => toast.error(resolveSkillErrorMessage(error)),
     }),
@@ -133,6 +143,16 @@ function AssistantSkillEditPage() {
   }
 
   const skill = getQuery.data;
+  const isBuiltin = isBuiltinId(skillId);
+  // 内置行没有实体可删；已实体化（或用户自建的同名行）删掉后内置版本会回归，
+  // 所以文案是「恢复默认」而不是「删除」
+  const isResettable = !isBuiltin && BUILTIN_SKILL_NAMES.has(skill.name);
+  const deleteLabel = isResettable
+    ? m.assistant_skills_reset()
+    : m.assistant_skills_delete();
+  const deleteConfirmLabel = isResettable
+    ? m.assistant_skills_reset_confirm()
+    : m.assistant_skills_delete_confirm();
   const initial: SkillInput = {
     name: skill.name,
     description: skill.description,
@@ -178,58 +198,60 @@ function AssistantSkillEditPage() {
                   {m.assistant_skills_enabled()}
                 </span>
               </span>
-              {isConfirmingDelete ? (
-                <span className="flex items-center gap-1 rounded-md bg-[var(--parchment-warm)] px-2 py-1">
-                  <span className="text-xs text-[var(--ink-soft)]">
-                    {m.assistant_skills_delete_confirm()}
+              {/* 内置行没有实体可删，连按钮都不该出现 */}
+              {!isBuiltin &&
+                (isConfirmingDelete ? (
+                  <span className="flex items-center gap-1 rounded-md bg-[var(--parchment-warm)] px-2 py-1">
+                    <span className="text-xs text-[var(--ink-soft)]">
+                      {deleteConfirmLabel}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => deleteMutation.mutate({ id: skillId })}
+                      disabled={deleteMutation.isPending}
+                      aria-label={deleteLabel}
+                      title={deleteLabel}
+                    >
+                      {deleteMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5 text-[var(--sienna)]" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => setIsConfirmingDelete(false)}
+                      aria-label={m.cancel()}
+                      title={m.cancel()}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
                   </span>
+                ) : (
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon-xs"
-                    onClick={() => deleteMutation.mutate({ id: skillId })}
-                    disabled={deleteMutation.isPending}
-                    aria-label={m.assistant_skills_delete()}
-                    title={m.assistant_skills_delete()}
+                    size="sm"
+                    onClick={() => setIsConfirmingDelete(true)}
+                    className="text-[var(--sienna)] hover:text-[var(--sienna)]"
                   >
-                    {deleteMutation.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Check className="h-3.5 w-3.5 text-[var(--sienna)]" />
-                    )}
+                    <Trash2 className="h-4 w-4" />
+                    <span className="max-sm:sr-only">{deleteLabel}</span>
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={() => setIsConfirmingDelete(false)}
-                    aria-label={m.cancel()}
-                    title={m.cancel()}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </span>
-              ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsConfirmingDelete(true)}
-                  className="text-[var(--sienna)] hover:text-[var(--sienna)]"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  <span className="max-sm:sr-only">
-                    {m.assistant_skills_delete()}
-                  </span>
-                </Button>
-              )}
+                ))}
             </div>
           }
           footerMeta={
             <span>
-              {m.assistant_skills_updated_at({
-                date: skill.updatedAt.toLocaleDateString(getLocale()),
-              })}
+              {isBuiltin
+                ? m.assistant_skills_builtin()
+                : m.assistant_skills_updated_at({
+                    date: skill.updatedAt.toLocaleDateString(getLocale()),
+                  })}
             </span>
           }
           // 停用的技能不会出现在 slash 候选里，链接过去也匹配不到任何东西——

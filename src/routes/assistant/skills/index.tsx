@@ -8,7 +8,6 @@ import {
   Plus,
   Search,
   SearchX,
-  Sparkles,
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -148,9 +147,12 @@ function AssistantSkillsListPage() {
     enabled: !!session,
   });
   const skills = listQuery.data;
-  const used = skills?.length ?? 0;
+  // 配额只算用户自己的行：内置 skill 不占 maxPerUser
+  const used = skills?.filter((row) => !row.builtin).length ?? 0;
+  // 筛选按钮的计数要跟 visible 一致，所以算全部行（含内置）
+  const total = skills?.length ?? 0;
   const enabledCount = skills?.filter((row) => row.enabled).length ?? 0;
-  const disabledCount = used - enabledCount;
+  const disabledCount = total - enabledCount;
 
   const updateMutation = useMutation(
     trpc.skills.update.mutationOptions({
@@ -225,13 +227,6 @@ function AssistantSkillsListPage() {
       >
         {m.assistant_history_retry()}
       </Button>
-    </div>
-  ) : used === 0 ? (
-    <div className="rounded-2xl border border-dashed border-[var(--line)] px-6 py-16 text-center">
-      <Sparkles className="mx-auto size-8 text-[var(--ink-soft)] opacity-60" />
-      <p className="mt-4 font-serif text-lg font-semibold text-[var(--ink)]">
-        {m.assistant_skills_empty()}
-      </p>
     </div>
   ) : visible.length === 0 ? (
     <div className="rounded-2xl border border-dashed border-[var(--line)] px-6 py-16 text-center">

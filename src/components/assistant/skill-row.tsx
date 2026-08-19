@@ -33,6 +33,17 @@ export function SkillRow({ skill, isToggling, onToggle }: SkillRowProps) {
     count: formatChars(skill.bodyChars),
   });
   const dim = !skill.enabled;
+  // 内置行的 updatedAt 是占位值（new Date(0)），显示出来只会误导。
+  // 这一列是密集行的元数据槽，徽章不该比技能名更抢眼：所以不换颜色、不加底色，
+  // 只把字号收一档并转成页面 eyebrow 同款的字距大写——用排版而不是色彩表达
+  // 「这一格是标签不是数据」。CJK 下大写是空操作，字距同样成立。
+  const stamp = skill.builtin ? (
+    <span className="text-[10px] uppercase tracking-[0.06em]">
+      {m.assistant_skills_builtin()}
+    </span>
+  ) : (
+    shortMonthDay(skill.updatedAt)
+  );
 
   return (
     <article className="flex items-center border-b border-[var(--line)] transition-colors hover:bg-[var(--parchment-warm)]">
@@ -58,10 +69,10 @@ export function SkillRow({ skill, isToggling, onToggle }: SkillRowProps) {
             {chars}
           </span>
           <span
-            title={fullDate}
-            className="w-[46px] shrink-0 text-right text-[10.5px] tabular-nums text-[var(--ink-soft)]"
+            title={skill.builtin ? undefined : fullDate}
+            className="w-[56px] shrink-0 text-right text-[10.5px] whitespace-nowrap tabular-nums text-[var(--ink-soft)]"
           >
-            {shortMonthDay(skill.updatedAt)}
+            {stamp}
           </span>
         </span>
 
@@ -77,8 +88,8 @@ export function SkillRow({ skill, isToggling, onToggle }: SkillRowProps) {
           </span>
           <span className="flex items-baseline gap-2 text-[10.5px] text-[var(--ink-soft)]">
             <span className="min-w-0 flex-1 truncate">{skill.description}</span>
-            <span className="shrink-0 tabular-nums">
-              {chars} · {shortMonthDay(skill.updatedAt)}
+            <span className="shrink-0 whitespace-nowrap tabular-nums">
+              {chars} · {stamp}
             </span>
           </span>
         </span>
@@ -105,7 +116,7 @@ export function SkillRowSkeleton() {
         <Skeleton className="h-3.5 w-[150px] shrink-0" />
         <Skeleton className="h-3 flex-1" />
         <Skeleton className="h-3 w-[60px] shrink-0" />
-        <Skeleton className="h-3 w-[46px] shrink-0" />
+        <Skeleton className="h-3 w-[56px] shrink-0" />
         <span className="flex size-11 shrink-0 items-center justify-center">
           <Skeleton className="h-3.5 w-6 rounded-full" />
         </span>
