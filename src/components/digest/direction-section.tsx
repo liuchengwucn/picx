@@ -22,6 +22,10 @@ export interface EditionSectionView {
  * 识别色, 栏目名走 --ink-soft —— 别把 accent 传给文字(ModuleKicker 的既有约定)。
  *
  * id 是脊上锚点与滚动跟随的锚：两处都按 `section-${slug}` 取, 别改成随机 id。
+ * 它挂在栏眉 <h2> 上而不是外层 <section>: 滚动跟随的判定带只有一百多 px 高, 而
+ * 相邻两个 section 在视口里几乎总是同时存在 —— 观测 section 时「正在离开的那一栏」
+ * 会和「刚跳到的那一栏」同批落在带内, 于是高亮恒定落在上一栏(实测 100% 复现)。
+ * 栏眉是细高度元素, 两项同时在带内在结构上就不可能。别把 id 挪回 section。
  */
 export function DirectionSection({
   section,
@@ -35,14 +39,16 @@ export function DirectionSection({
     issue: String(section.issueNumber),
   };
   return (
-    <section
-      id={`section-${section.directionSlug}`}
-      // scroll-mt 让锚点跳转后栏眉不被吸顶层盖住。窄屏要同时躲开 header(60px)与
-      // 吸顶 chip 行(约 41px), 所以 9rem; 宽屏只有 header, 6rem 够。实测 375px 下
-      // 跳转后栏眉落在 chip 行下方 25px。
-      className="scroll-mt-36 lg:scroll-mt-24"
-    >
-      <ModuleKicker as="h2" color={accent}>
+    <section>
+      <ModuleKicker
+        as="h2"
+        color={accent}
+        id={`section-${section.directionSlug}`}
+        // scroll-mt 让锚点跳转后栏眉不被吸顶层盖住, 再留 0.5rem 呼吸。--edition-sticky-stack
+        // 已经把两种布局(窄屏 header + chip 行, 宽屏只有 header)与 safe-area 都算进去了,
+        // 所以这里没有断点分支; 滚动跟随的判定带上边界读的是同一个 token。
+        className="scroll-mt-[calc(var(--edition-sticky-stack)_+_0.5rem)]"
+      >
         {/* 颜色一律挂在 <a> 内层的 span 上, 不挂 <a> 自己: styles.css 里那条
             `a { color: var(--academic-brown) }` 是未分层规则, 在 CSS 层叠里压过
             Tailwind v4 的 utilities 层, 直接写在 <a> 上的 text-* 会被静默吃掉

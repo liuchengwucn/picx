@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { SelfHidingImage } from "#/components/self-hiding-image";
 
 export interface EditionPickView {
   id: string;
@@ -68,35 +68,17 @@ export function PickEntry({
 }
 
 /**
- * 缩略图。取不到图时整个 <img> 消失(连带 flex 间距), 条目自动退化成纯文字条 ——
- * 白板 key 存在但对象已不在 R2(迁移/清理/管线中途失败)时留一个坏图框比无图更难看。
- *
- * 只挂 onError 不够: 合刊页是 SSR 直出, 浏览器解析到 <img> 就开始下载, 而 React
- * 的 onError 要等 bundle 到达、hydration 跑到这个节点才挂上; 图片的错误若早于
- * hydration 返回, error 事件就永久丢失, 框子再也摘不掉(news 的 StoryImage 为此
- * 做过本地实测: JS 延迟 4s 时坏图框稳定留在页面上)。所以挂载时必须主动补检
- * `complete && naturalWidth === 0`(语义 = 加载已结束却没有任何像素)。
- * ref callback 跑在 commit 阶段、早于绘制, 因此不会闪一帧坏图。
+ * 缩略图。白板 key 存在但对象已不在 R2(迁移 / 清理 / 管线中途失败)时, 留一个坏图
+ * 框比无图更难看 —— 取不到就整个 <img> 消失(连带 flex 间距), 条目自动退化成纯
+ * 文字条。这套「自隐藏」的实现与其中的 hydration 竞态全在 SelfHidingImage 里,
+ * 别在这里再抄一份(曾经抄过, 抄丢了渲染期重置那一行)。
  */
 function PickThumb({ r2Key }: { r2Key: string }) {
-  // 记「哪个 key 失败了」而不是裸布尔: 同一实例换图时失败态要自动作废(照抄
-  // StoryImage 的口径, 别退化成需要调用方挂 key 的写法)
-  const [failedKey, setFailedKey] = useState<string | null>(null);
-  const probeOnMount = useCallback(
-    (img: HTMLImageElement | null) => {
-      if (img?.complete && img.naturalWidth === 0) setFailedKey(r2Key);
-    },
-    [r2Key],
-  );
-  if (failedKey === r2Key) return null;
   return (
-    <img
-      ref={probeOnMount}
-      // alt 留空: 标题就在旁边, 缩略图在这里纯装饰, 念一遍论文标题只是噪音
+    <SelfHidingImage
       src={`/api/r2/${r2Key}`}
+      // alt 留空: 标题就在旁边, 缩略图在这里纯装饰, 念一遍论文标题只是噪音
       alt=""
-      loading="lazy"
-      onError={() => setFailedKey(r2Key)}
       className="w-[118px] shrink-0 rounded-md border border-[var(--line)] bg-[var(--parchment-warm)] object-cover object-left-top"
       // 白板左上角是论文标题, 缩到 118px 要留住它 —— 与 digest-paper-card 同口径
       style={{ aspectRatio: "3 / 2" }}

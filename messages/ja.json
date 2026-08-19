@@ -566,7 +566,7 @@
   "digest_issue_not_found_title": "号が見つかりません",
   "digest_issue_error_title": "本文を表示できません",
   "digest_back_to_direction": "すべての号",
-  "edition_kicker": "ギャラリー週刊",
+  "edition_kicker": "週刊ギャラリー",
   "edition_this_week": "今週",
   "edition_meta_all": "{directions} 方向 · {picks} 本選出",
   "edition_meta_partial": "{directions} 方向 · 今号は {updated} 件更新 · {picks} 本選出",

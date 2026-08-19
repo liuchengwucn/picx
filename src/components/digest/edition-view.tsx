@@ -29,8 +29,30 @@ export function EditionView({
   allDirections: readonly DirectionColorInput[];
   children?: ReactNode;
 }) {
-  const hues = assignDirectionHues(allDirections);
-  const accentOf = (slug: string) => directionAccent(hues.get(slug) ?? 20);
+  // 色相表按 allDirections ∪ 本期栏目建。并集这一半不是防御性代码: 它让查表全覆盖,
+  // 于是下面不需要 `?? 某个默认色相` —— 而默认色相恰恰是这个模块要防的东西(悄悄
+  // 冒出两个同为铁锈色的方向, 只能靠眼睛发现)。栏目自带 directionCreatedAt 正是
+  // 为此才一路穿到客户端的, 有了这里它才有消费者。
+  const colorInputs = new Map<string, DirectionColorInput>();
+  for (const d of allDirections) colorInputs.set(d.slug, d);
+  for (const s of edition.sections) {
+    // 重复 slug 会在先到先得里占掉两个槽位、把后面的方向挤位, 所以按 slug 去重;
+    // allDirections 那份优先(它是权威的 active 方向表)
+    if (!colorInputs.has(s.directionSlug)) {
+      colorInputs.set(s.directionSlug, {
+        slug: s.directionSlug,
+        createdAt: s.directionCreatedAt,
+      });
+    }
+  }
+  const hues = assignDirectionHues([...colorInputs.values()]);
+  const accentOf = (slug: string) => {
+    const hue = hues.get(slug);
+    // 并集建表之后这里查不到已经不可能。真查不到 = 有人把 sections 换成了别的集合,
+    // 那时回退成一个「看起来很正常」的暖色是最坏的处理(它会和某个方向撞成同一块
+    // 铁锈色, 只能靠眼睛发现); 退成中性灰至少不冒充识别色。
+    return hue === undefined ? "var(--ink-soft)" : directionAccent(hue);
+  };
   const pickCount = edition.sections.reduce((sum, s) => sum + s.pickCount, 0);
 
   // max-w-5xl 是本仓库「正文 + 侧栏」页面的既有口径(news/$shortId 有 aside 时同值):

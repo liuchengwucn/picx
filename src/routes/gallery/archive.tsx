@@ -318,9 +318,9 @@ function ArchivePage() {
         </div>
 
         {/* Sticky filter bar */}
-        {/* sticky 偏移 = 全局 Header 高度(h-9 内容 + py-3/py-4 + 1px 边框),
-            比 header 低 1px 让接缝藏在 header 下, 避免滚动时被遮挡。 */}
-        <div className="sticky top-[calc(60px+env(safe-area-inset-top))] z-10 -mx-4 mb-6 px-4 py-3 sm:top-[calc(68px+env(safe-area-inset-top))] sm:-mx-6 sm:px-6">
+        {/* sticky 偏移 = --header-h(全局 Header 的实际高度, 定义在 styles.css)
+            减 1px: 让接缝藏在 header 的下边框里, 避免滚动时露出一条缝。 */}
+        <div className="sticky top-[calc(var(--header-h)_-_1px_+_env(safe-area-inset-top))] z-10 -mx-4 mb-6 px-4 py-3 sm:-mx-6 sm:px-6">
           {/* 玻璃底:独立层 + 底部羽化, 让卡片柔和淡入而非硬切的模糊边。
               延伸到 mb-6 间距下方, 羽化带落在卡片之外, 不影响搜索框/标签。 */}
           <div

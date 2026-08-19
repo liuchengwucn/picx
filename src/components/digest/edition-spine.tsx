@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useScrollSpy } from "#/hooks/use-scroll-spy";
 import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 
@@ -11,14 +12,34 @@ export interface SpineItem {
 }
 
 /**
+ * 吸顶栈的实测高度(px)。判定带上边界与栏目的 scroll-margin-top 必须是同一个数,
+ * 否则跳转落位与高亮判定各说各话(实测差 16px 就足以让高亮永远落在上一栏)。
+ *
+ * 为什么不在 JS 里写常量、也不 getComputedStyle 读 --edition-sticky-stack: 那个
+ * token 的值含 env(safe-area-inset-top)(刘海屏非 0)与断点分支(--edition-chip-h
+ * 在 lg 归零), 而自定义属性读出来的是未求值的 token 流。塞一个探针元素让浏览器
+ * 自己算, 拿到的就是当前布局下的真值。
+ */
+function measureStickyStack(): number {
+  const probe = document.createElement("div");
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  probe.style.pointerEvents = "none";
+  probe.style.height = "var(--edition-sticky-stack)";
+  document.body.appendChild(probe);
+  const h = probe.offsetHeight;
+  probe.remove();
+  return h;
+}
+
+/**
  * 「本期一览」。这一页的签名元素: 7 个方向同时更新是这份周刊的真实结构, 脊把它
  * 常驻在视野里, 顺便回答「共几栏 / 你在第几栏 / 各栏几篇」——而不是装饰。
  *
  * 宽屏是 sticky 竖脊, 窄屏收成吸顶横向 chip 行(同一份数据, 两套排版)。
  *
- * 锚点用裸 <a href="#section-...">(不点 JS 也能跳)。注意 TanStack Router 会把
- * hash 变化当成一次导航并重跑本路由的 loader —— 挂载本组件的页面要么 loader 幂等,
- * 要么显式 `shouldReload: false`, 否则每点一次栏目名都要白跑一次数据加载。
+ * 锚点是裸 <a href="#section-...">, 不带 JS 也能跳; 带 JS 时 preventDefault 后交给
+ * useScrollSpy 的 jumpTo(它刻意不写 URL hash —— 原因见那个 hook)。
  */
 export function EditionSpine({
   items,
@@ -28,41 +49,13 @@ export function EditionSpine({
   /** 页尾往期列表只在落地页出; 单期页没有那个锚点, 不能给一个跳不动的链接 */
   showPastAnchor?: boolean;
 }) {
-  const [activeSlug, setActiveSlug] = useState<string | null>(
-    items[0]?.slug ?? null,
+  // 观测的是每个栏目的栏眉 <h2>(细高度), 不是整个 <section> —— 见 useScrollSpy
+  // 文件头不变式 1, 观测 section 会让高亮恒定落在上一栏。
+  const { activeId, jumpTo } = useScrollSpy(
+    items.map((i) => `section-${i.slug}`),
+    { topOffset: measureStickyStack },
   );
-
-  // 依赖 slug 串而不是 items 数组: 调用方每次渲染都会 map 出新数组, 直接依赖它会
-  // 让 observer 白拆白建
-  const slugKey = items.map((i) => i.slug).join(",");
-  useEffect(() => {
-    const slugs = slugKey ? slugKey.split(",") : [];
-    const nodes = slugs
-      .map((slug) => document.getElementById(`section-${slug}`))
-      .filter((n): n is HTMLElement => n !== null);
-    if (nodes.length === 0) return;
-    // 自己记全量可见态: 回调只带「这次发生变化」的 entries, 光看这一批取最靠上的
-    // 那个会在快速滚动(多个 entry 同批、且顺序不保证)时高亮跳到读者身后的栏目。
-    const visible = new Set<string>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) visible.add(e.target.id);
-          else visible.delete(e.target.id);
-        }
-        // slugs 就是 DOM 顺序, 取第一个还落在判定带里的
-        const first = slugs.find((slug) => visible.has(`section-${slug}`));
-        // 全都不在带内(滚到刊头之上或页尾之下)时保留上一个高亮, 不闪回第一条
-        if (first) setActiveSlug(first);
-      },
-      // 判定带 = 视口顶部往下一条窄带: 上边界收掉吸顶层的高度, 否则「进入视口」
-      // 会在栏眉还被 header 盖住时就触发, 高亮跑在阅读位置前面; 下边界收掉大半
-      // 屏, 否则一屏内同时可见的两三个栏目里最靠上那个会一直霸着高亮。
-      { rootMargin: "-104px 0px -62% 0px" },
-    );
-    for (const n of nodes) observer.observe(n);
-    return () => observer.disconnect();
-  }, [slugKey]);
+  const activeSlug = activeId?.replace(/^section-/, "") ?? null;
 
   // 窄屏 chip 行放得下约三颗 chip(七方向的总宽度是可视宽度的两倍多), 高亮跑到行外
   // 就等于没有高亮 —— 跟随时把当前 chip 拉回行中。只动这一行自己的 scrollLeft:
@@ -75,11 +68,16 @@ export function EditionSpine({
       `[href="#section-${activeSlug}"]`,
     );
     if (!chip) return;
+    // chip 的 offsetParent 是外层那个 sticky <nav>(它才是定位祖先), 不是这一行,
+    // 所以 offsetLeft 里裹着 nav 的 px-4。减掉 row 自己的 offsetLeft 才是行内坐标
+    // —— 直接拿 offsetLeft 跟 scrollLeft 比会整体偏 16px。
+    const chipLeft = chip.offsetLeft - row.offsetLeft;
+    // 已经完整看得见就别动。无条件居中等于每次高亮变化都启动一段平滑横滚, 而这段
+    // 动画会把用户自己横滚 chip 行的手抢走(实测手动滚到 605 会被拽回 45)。
+    const inView = chipLeft - row.scrollLeft;
+    if (inView >= 0 && inView + chip.offsetWidth <= row.clientWidth) return;
     row.scrollTo({
-      left: Math.max(
-        0,
-        chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2,
-      ),
+      left: Math.max(0, chipLeft - (row.clientWidth - chip.offsetWidth) / 2),
       behavior: "smooth",
     });
   }, [activeSlug]);
@@ -91,7 +89,9 @@ export function EditionSpine({
       {/* 宽屏竖脊 */}
       <nav
         aria-label={m.edition_spine_label()}
-        className="hidden lg:sticky lg:top-[calc(84px+env(safe-area-inset-top))] lg:block lg:self-start"
+        // 竖脊贴在 header 下方留 1rem 呼吸。lg 断点下 --edition-chip-h 已归零,
+        // 所以 --edition-sticky-stack 在这里就等于 header 高度
+        className="hidden lg:sticky lg:top-[calc(var(--edition-sticky-stack)_+_1rem)] lg:block lg:self-start"
       >
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-soft)]">
           {m.edition_spine_label()}
@@ -103,7 +103,12 @@ export function EditionSpine({
               <li key={i.slug}>
                 <a
                   href={`#section-${i.slug}`}
-                  aria-current={active ? "true" : undefined}
+                  onClick={(e) => {
+                    // 点击即设 active: 等 observer 回调会先高亮到别处再纠正
+                    e.preventDefault();
+                    jumpTo(`section-${i.slug}`);
+                  }}
+                  aria-current={active ? "location" : undefined}
                   className={cn(
                     "group flex items-baseline justify-between gap-2 py-1 text-xs no-underline",
                     active && "font-semibold",
@@ -160,10 +165,12 @@ export function EditionSpine({
         </div>
       </nav>
 
-      {/* 窄屏吸顶 chip 行。sticky 偏移与全站 header 同口径(60/68px + safe-area) */}
+      {/* 窄屏吸顶 chip 行。比 header 低 1px 让接缝藏在 header 的下边框里(与
+          gallery 两个列表页的筛选栏同一口径)。这一行的高度就是 --edition-chip-h,
+          改了 py / 字号要连着改那个 token, 否则滚动跟随的判定带跟着错。 */}
       <nav
         aria-label={m.edition_spine_label()}
-        className="sticky top-[calc(60px+env(safe-area-inset-top))] z-10 -mx-4 mb-5 border-b border-[var(--line)] bg-[var(--header-bg)] px-4 py-2 backdrop-blur-md sm:top-[calc(68px+env(safe-area-inset-top))] lg:hidden"
+        className="sticky top-[calc(var(--header-h)_-_1px_+_env(safe-area-inset-top))] z-10 -mx-4 mb-5 border-b border-[var(--line)] bg-[var(--header-bg)] px-4 py-2 backdrop-blur-md lg:hidden"
       >
         <div
           ref={chipRowRef}
@@ -175,7 +182,11 @@ export function EditionSpine({
               <a
                 key={i.slug}
                 href={`#section-${i.slug}`}
-                aria-current={active ? "true" : undefined}
+                onClick={(e) => {
+                  e.preventDefault();
+                  jumpTo(`section-${i.slug}`);
+                }}
+                aria-current={active ? "location" : undefined}
                 className={cn(
                   "shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 no-underline transition-colors",
                   active

@@ -9,8 +9,18 @@
  * --ink / --ink-soft —— 别把这里的色传给 color。
  */
 const HUE_START = 20;
+/**
+ * 开区间上界, 取不到。步长 = (HUE_END - HUE_START) / ACCENT_SLOTS = 10°, 所以
+ * 实际用到的最大色相是 130°(第 12 个槽位), 140 只是用来定步长的除数。
+ */
 const HUE_END = 140;
 export const ACCENT_SLOTS = 12;
+/**
+ * 槽位 → 色相的跳步。**必须与 ACCENT_SLOTS 互素**, 否则 hueOfSlot 不再是双射,
+ * 会有两个方向拿到同一个色相(direction-color.test.ts 的双射用例会变红)。
+ * 放在 ACCENT_SLOTS 旁边就是为了让这条约束的两个操作数挨着, 改一个能看见另一个。
+ */
+const HUE_JUMP = 5;
 
 /**
  * FNV-1a 32 位。必须是显式实现的确定性哈希：SSR 与客户端要算出同一个槽位，
@@ -62,8 +72,8 @@ export function assignDirectionHues(
 }
 
 /**
- * 槽位 → 色相角。刻意不是 `20 + slot * 10` 的顺序排列，而是按步长 5 跳着取
- * （5 与 12 互素，所以仍是双射，12 个槽位一个不漏、一色不重）。
+ * 槽位 → 色相角。刻意不是 `20 + slot * 10` 的顺序排列，而是按 HUE_JUMP 跳着取
+ * （与 ACCENT_SLOTS 互素，所以仍是双射，12 个槽位一个不漏、一色不重）。
  *
  * 为什么：顺延让位会让「哈希撞在一起」的方向拿到相邻槽位，而顺序排列下相邻槽位
  * 只差 10°——本地七方向夹具实测就撞出了 50°/60°/70° 三个方向，7px 方块放大四倍
@@ -74,7 +84,7 @@ export function assignDirectionHues(
  */
 function hueOfSlot(slot: number): number {
   const step = (HUE_END - HUE_START) / ACCENT_SLOTS;
-  return HUE_START + ((slot * 5) % ACCENT_SLOTS) * step;
+  return HUE_START + ((slot * HUE_JUMP) % ACCENT_SLOTS) * step;
 }
 
 /**
