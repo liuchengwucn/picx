@@ -9,7 +9,9 @@ import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
 import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
-import { BUILTIN_SKILL_NAMES, isBuiltinId } from "#/lib/builtin-skills";
+// 走 names 这个叶子模块而不是 #/lib/builtin-skills：后者 ?raw 引入三份 SKILL.md，
+// import 它会把约 7KB 正文打进这个路由 chunk，而这里只要名字和前缀判断
+import { BUILTIN_SKILL_NAMES, isBuiltinId } from "#/lib/builtin-skills/names";
 import { formatSkillMarkdown, type SkillInput } from "#/lib/skills";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
@@ -52,6 +54,34 @@ function AssistantSkillEditPage() {
         // 内置行被写就实体化成一条真实行，URL 里的 builtin: 前缀必须换成真 id，
         // 否则后续保存会反复实体化，而这一页的 get 还指着虚拟 id
         if (result.id !== variables.id) {
+          // 新 id 的 query key 是全新的、这条路由没有 loader 预取，直接跳过去会
+          // isPending → 整页塌成 spinner → 编辑器（key={skillId}）重挂载，把用户
+          // 在保存请求飞行期间敲的字一起丢掉。拿旧 key 的数据播种一份，跳转就无缝。
+          // 上面那次 invalidate 打的是旧虚拟 key（精确到 input.id），冲不到这里。
+          const previous = queryClient.getQueryData(
+            trpc.skills.get.queryKey({ id: variables.id }),
+          );
+          if (previous) {
+            queryClient.setQueryData(
+              trpc.skills.get.queryKey({ id: result.id }),
+              {
+                ...previous,
+                id: result.id,
+                // previous 是内置行，updatedAt 是 new Date(0)；跳过去 id 已经不带
+                // builtin: 前缀，页脚会照直显示「更新于 1970/1/1」。服务端刚写过这行，
+                // 用本地 now 顶上，紧随其后的后台重取会校准成真值。
+                updatedAt: new Date(),
+                ...(variables.name != null ? { name: variables.name } : {}),
+                ...(variables.description != null
+                  ? { description: variables.description }
+                  : {}),
+                ...(variables.body != null ? { body: variables.body } : {}),
+                ...(variables.enabled != null
+                  ? { enabled: variables.enabled }
+                  : {}),
+              },
+            );
+          }
           void navigate({
             to: "/assistant/skills/$skillId",
             params: { skillId: result.id },

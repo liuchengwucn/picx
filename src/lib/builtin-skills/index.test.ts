@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { SKILL_LIMITS, skillNameSchema } from "#/lib/skills";
 import {
+  BUILTIN_SKILL_NAMES,
   BUILTIN_SKILLS,
   builtinIdOf,
   findBuiltinById,
@@ -35,6 +36,14 @@ describe("builtin skills", () => {
       expect(skill.body.trim().length).toBeGreaterThan(0);
     },
   );
+
+  // names.ts 手抄了一份名字给客户端用（避免把三份 md 正文打进 bundle），
+  // 这条断言是它与 frontmatter 之间唯一的防漂移护栏
+  it("names.ts 的名字集合与解析出来的三份 md 一致", () => {
+    expect([...BUILTIN_SKILL_NAMES].sort()).toEqual(
+      BUILTIN_SKILLS.map((skill) => skill.name).sort(),
+    );
+  });
 
   it("虚拟 id 往返", () => {
     expect(isBuiltinId(builtinIdOf("fact-check"))).toBe(true);
