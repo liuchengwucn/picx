@@ -93,13 +93,18 @@ export function EditionSpine({
         // 所以 --edition-sticky-stack 在这里就等于 header 高度
         className="hidden lg:sticky lg:top-[calc(var(--edition-sticky-stack)_+_1rem)] lg:block lg:self-start"
       >
-        {/* 不加 uppercase: 主要读者语言是 CJK, 而 CJK 下 uppercase 不生效(与 archive.tsx
-            轴标签同一条约定)。tracking 保留 —— 字距对两种文字都成立。
-            代价记在这里: 英文下这行从 "IN THIS ISSUE" 变成了 "In this issue", 而同一页的
-            ModuleKicker 栏眉仍然是 uppercase, 于是英文界面上两个同级标签大小写不一致。
-            ModuleKicker 的 uppercase 是存量、去掉它是视觉决定而不是 bug 修复(会把
-            "AI NEWS" 变成 "AI News"), 留给后续统一; 那一步落地时把这里一并对齐。 */}
-        <div className="mb-2 text-[11px] font-semibold tracking-[0.12em] text-[var(--ink-soft)]">
+        {/* uppercase 与 module-kicker.tsx 保持一致是**刻意的**, 不是漏改。
+            权衡的是这两件事:
+            1) archive.tsx:104-106 声明过「CJK 下不用 uppercase/small-caps」并在那处照做了,
+               按那条政策这里该去掉;
+            2) 但 uppercase 对 CJK 是视觉空操作 —— 去掉它对中日读者看到的东西毫无改变,
+               唯一真实的变化发生在英文侧: 这行会从 "IN THIS ISSUE" 变成 "In this issue",
+               而同一页的 ModuleKicker 栏眉仍是大写, 于是英文界面上两个同级标签大小写打架。
+            即: 去掉它换来的是文档一致, 付出的是英文可见的不一致。所以「栏眉到底大写不大写」
+            要作为一个视觉决定一次性对全站做(那一步会同时把 "AI NEWS" 变成 "AI News",
+            属于设计决策而非 bug 修复), 在那之前这里跟着 ModuleKicker 走。
+            archive.tsx 那条声明与全站栏眉现状之间的落差是已知的, 与那个决定一起收。 */}
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-soft)]">
           {m.edition_spine_label()}
         </div>
         <ul className="list-none">
