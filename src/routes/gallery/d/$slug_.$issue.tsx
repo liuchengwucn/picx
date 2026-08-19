@@ -285,109 +285,107 @@ function DigestIssuePage() {
   );
 
   return (
-    <main className="min-h-screen bg-[var(--bg)] py-8">
-      <div className="page-wrap max-w-3xl">
-        <article className="rise-in">
-          {/* 刊头一行, 与方向页那张简报卡同一套语法: 栏目(可点回方向页) → 期号 →
-              细线 → 覆盖周期。期号和周期是读者真正要扫的两个数, 给它们一条独立的线。 */}
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-            <Link
-              to="/gallery/d/$slug"
-              params={{ slug }}
-              // exact 是必须的: 默认前缀匹配会把方向页这条链接在本页判成 active,
-              // Link 于是给一个指向别处的链接挂上 aria-current="page"。
-              activeOptions={{ exact: true }}
-              className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--academic-brown)] no-underline transition-colors hover:text-[var(--academic-brown-deep)]"
+    <IssuePanelShell>
+      <article className="rise-in">
+        {/* 刊头一行, 与方向页那张简报卡同一套语法: 栏目(可点回方向页) → 期号 →
+            细线 → 覆盖周期。期号和周期是读者真正要扫的两个数, 给它们一条独立的线。 */}
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+          <Link
+            to="/gallery/d/$slug"
+            params={{ slug }}
+            // exact 是必须的: 默认前缀匹配会把方向页这条链接在本页判成 active,
+            // Link 于是给一个指向别处的链接挂上 aria-current="page"。
+            activeOptions={{ exact: true }}
+            className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--academic-brown)] no-underline transition-colors hover:text-[var(--academic-brown-deep)]"
+          >
+            {data.directionName}
+          </Link>
+          <span className="shrink-0 rounded-full border border-[var(--gold)]/60 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--academic-brown-deep)]">
+            {m.digest_issue_n({ n: String(data.issueNumber) })}
+          </span>
+          <span
+            aria-hidden
+            className="h-px min-w-2 flex-1 bg-[var(--academic-brown)]/20"
+          />
+          <span className="shrink-0 text-xs text-[var(--ink-soft)]">
+            {period}
+          </span>
+        </div>
+
+        <h1 className="mt-3 font-serif text-3xl font-bold leading-tight text-[var(--ink)] sm:text-4xl">
+          {data.title}
+        </h1>
+
+        {data.content ? (
+          // 正文里的小标题跟着刊头/大标题一起用衬线: .prose 默认继承正文无衬线,
+          // 否则同一页上「本期看点」是无衬线、下面「本期论文」是衬线, 像两套系统。
+          // typography 插件的 `.prose :where(h2)` 是零特异性, 这里的后代选择器盖得住。
+          <div className="prose prose-sm mt-6 max-w-none break-words text-[var(--ink)] [&_h1]:font-serif [&_h2]:font-serif [&_h3]:font-serif">
+            <ReactMarkdown
+              remarkPlugins={REMARK_PLUGINS}
+              components={MARKDOWN_COMPONENTS}
             >
-              {data.directionName}
-            </Link>
-            <span className="shrink-0 rounded-full border border-[var(--gold)]/60 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--academic-brown-deep)]">
-              {m.digest_issue_n({ n: String(data.issueNumber) })}
-            </span>
-            <span
-              aria-hidden
-              className="h-px min-w-2 flex-1 bg-[var(--academic-brown)]/20"
-            />
-            <span className="shrink-0 text-xs text-[var(--ink-soft)]">
-              {period}
-            </span>
+              {data.content}
+            </ReactMarkdown>
           </div>
+        ) : null}
 
-          <h1 className="mt-3 font-serif text-3xl font-bold leading-tight text-[var(--ink)] sm:text-4xl">
-            {data.title}
-          </h1>
+        {papers.length > 0 ? (
+          <section className="mt-12">
+            <h2 className="font-serif text-xl font-semibold text-[var(--ink)]">
+              {m.digest_papers_heading()}
+            </h2>
+            {/* <ol> 而不是 <ul>: rank 是编辑排序, 顺序本身带信息 */}
+            <ol className="mt-5 space-y-5">
+              {papers.map((paper) => (
+                <DigestPaperCard
+                  key={paper.id}
+                  paper={paper}
+                  myVote={myVoteByPaperId.get(paper.id)}
+                  auth={feedbackAuth}
+                  signInCallbackURL={signInCallbackURL}
+                />
+              ))}
+            </ol>
+          </section>
+        ) : null}
 
-          {data.content ? (
-            // 正文里的小标题跟着刊头/大标题一起用衬线: .prose 默认继承正文无衬线,
-            // 否则同一页上「本期看点」是无衬线、下面「本期论文」是衬线, 像两套系统。
-            // typography 插件的 `.prose :where(h2)` 是零特异性, 这里的后代选择器盖得住。
-            <div className="prose prose-sm mt-6 max-w-none break-words text-[var(--ink)] [&_h1]:font-serif [&_h2]:font-serif [&_h3]:font-serif">
-              <ReactMarkdown
-                remarkPlugins={REMARK_PLUGINS}
-                components={MARKDOWN_COMPONENTS}
+        <nav className="mt-14 flex items-center justify-between gap-4 border-t border-[var(--line)] pt-6 text-sm">
+          <div className="min-w-0 flex-1">
+            {data.prevIssue !== null ? (
+              <Link
+                to="/gallery/d/$slug/$issue"
+                params={{ slug, issue: String(data.prevIssue) }}
+                className="group inline-flex items-center gap-1.5 text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
               >
-                {data.content}
-              </ReactMarkdown>
-            </div>
-          ) : null}
-
-          {papers.length > 0 ? (
-            <section className="mt-12">
-              <h2 className="font-serif text-xl font-semibold text-[var(--ink)]">
-                {m.digest_papers_heading()}
-              </h2>
-              {/* <ol> 而不是 <ul>: rank 是编辑排序, 顺序本身带信息 */}
-              <ol className="mt-5 space-y-5">
-                {papers.map((paper) => (
-                  <DigestPaperCard
-                    key={paper.id}
-                    paper={paper}
-                    myVote={myVoteByPaperId.get(paper.id)}
-                    auth={feedbackAuth}
-                    signInCallbackURL={signInCallbackURL}
-                  />
-                ))}
-              </ol>
-            </section>
-          ) : null}
-
-          <nav className="mt-14 flex items-center justify-between gap-4 border-t border-[var(--line)] pt-6 text-sm">
-            <div className="min-w-0 flex-1">
-              {data.prevIssue !== null ? (
-                <Link
-                  to="/gallery/d/$slug/$issue"
-                  params={{ slug, issue: String(data.prevIssue) }}
-                  className="group inline-flex items-center gap-1.5 text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
-                  {m.digest_prev_issue()}
-                </Link>
-              ) : null}
-            </div>
-            <Link
-              to="/gallery/d/$slug"
-              params={{ slug }}
-              activeOptions={{ exact: true }}
-              className="shrink-0 text-[var(--academic-brown)] no-underline hover:underline"
-            >
-              {m.digest_back_to_direction()}
-            </Link>
-            <div className="flex min-w-0 flex-1 justify-end">
-              {data.nextIssue !== null ? (
-                <Link
-                  to="/gallery/d/$slug/$issue"
-                  params={{ slug, issue: String(data.nextIssue) }}
-                  className="group inline-flex items-center gap-1.5 text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
-                >
-                  {m.digest_next_issue()}
-                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                </Link>
-              ) : null}
-            </div>
-          </nav>
-        </article>
-      </div>
-    </main>
+                <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+                {m.digest_prev_issue()}
+              </Link>
+            ) : null}
+          </div>
+          <Link
+            to="/gallery/d/$slug"
+            params={{ slug }}
+            activeOptions={{ exact: true }}
+            className="shrink-0 text-[var(--academic-brown)] no-underline hover:underline"
+          >
+            {m.digest_back_to_direction()}
+          </Link>
+          <div className="flex min-w-0 flex-1 justify-end">
+            {data.nextIssue !== null ? (
+              <Link
+                to="/gallery/d/$slug/$issue"
+                params={{ slug, issue: String(data.nextIssue) }}
+                className="group inline-flex items-center gap-1.5 text-[var(--ink-soft)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+              >
+                {m.digest_next_issue()}
+                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            ) : null}
+          </div>
+        </nav>
+      </article>
+    </IssuePanelShell>
   );
 }
 
@@ -462,6 +460,12 @@ function IssueNotFound() {
   );
 }
 
+/**
+ * 本页四种态(正常正文 / 骨架 / 404 / 读失败)共用的最外层壳(`<main>` + 定宽
+ * `page-wrap`)。这层是纯排版容器, 与各态内容无关, 抽出来免得四处各写一遍——三处
+ * 取值(min-h-screen / py-8 / max-w-3xl)完全一致, 不像 EditionPanelShell 那边跟
+ * 正文页 py-8/py-16、max-w-3xl/max-w-5xl 有意区分, 没有"要不要参数化"的问题。
+ */
 function IssuePanelShell({ children }: { children: ReactNode }) {
   return (
     <main className="min-h-screen bg-[var(--bg)] py-8">
@@ -472,22 +476,20 @@ function IssuePanelShell({ children }: { children: ReactNode }) {
 
 function IssueSkeleton() {
   return (
-    <main className="min-h-screen bg-[var(--bg)] py-8">
-      <div className="page-wrap max-w-3xl">
-        <Skeleton className="h-3 w-56" />
-        <Skeleton className="mt-4 h-10 w-4/5" />
-        <div className="mt-6 space-y-2.5">
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-11/12" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-2/3" />
-        </div>
-        <Skeleton className="mt-12 h-6 w-40" />
-        <div className="mt-5 space-y-5">
-          <Skeleton className="h-36 w-full rounded-2xl" />
-          <Skeleton className="h-36 w-full rounded-2xl" />
-        </div>
+    <IssuePanelShell>
+      <Skeleton className="h-3 w-56" />
+      <Skeleton className="mt-4 h-10 w-4/5" />
+      <div className="mt-6 space-y-2.5">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-11/12" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-2/3" />
       </div>
-    </main>
+      <Skeleton className="mt-12 h-6 w-40" />
+      <div className="mt-5 space-y-5">
+        <Skeleton className="h-36 w-full rounded-2xl" />
+        <Skeleton className="h-36 w-full rounded-2xl" />
+      </div>
+    </IssuePanelShell>
   );
 }
