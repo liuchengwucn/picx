@@ -594,6 +594,20 @@ describe("digest.getEdition", () => {
     expect(edition?.nextPeriod).toBeNull();
     // prevPeriod 要跨方向找最近的更早一组: dir-many 那组 2025-06-08 是唯一候选
     expect(edition?.prevPeriod).toBe("2025-06-08");
+    // 顶层字段集就是对外契约(与 mapIssueToLocale/getDirection 同一约定): toMatchObject
+    // 只保护点名字段, 抓不住意外多出来的字段(比如哪天有人图省事展开 EditionDetail
+    // 而不是逐字段挑), 必须用精确 key 集断言
+    expect(Object.keys(edition ?? {}).sort()).toEqual([
+      "activeDirectionCount",
+      "isLatest",
+      "nextPeriod",
+      "period",
+      "periodEnd",
+      "periodStart",
+      "prevPeriod",
+      "publishedAt",
+      "sections",
+    ]);
 
     const first = edition?.sections[0];
     expect(first).toMatchObject({
@@ -606,7 +620,25 @@ describe("digest.getEdition", () => {
     // content 刻意不下发: 全文里的「更多内容」不该出现在序列化响应的任何地方
     expect("content" in (first ?? {})).toBe(false);
     expect(JSON.stringify(edition)).not.toContain("更多内容");
+    expect(Object.keys(first ?? {}).sort()).toEqual([
+      "directionCreatedAt",
+      "directionName",
+      "directionSlug",
+      "excerpt",
+      "issueNumber",
+      "pickCount",
+      "picks",
+      "title",
+    ]);
     expect(first?.picks.map((p) => p.id)).toEqual(["p1", "p2"]);
+    expect(Object.keys(first?.picks[0] ?? {}).sort()).toEqual([
+      "id",
+      "rank",
+      "recommendationNote",
+      "shortId",
+      "title",
+      "whiteboardImageR2Key",
+    ]);
 
     const second = edition?.sections[1];
     expect(second).toMatchObject({

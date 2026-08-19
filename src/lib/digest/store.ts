@@ -714,10 +714,48 @@ export interface DirectionDetail {
   hasMore: boolean;
 }
 
+/**
+ * 方向的两个总数：已发布期数与跨期去重的论文数。两条查询都只依赖 directionId，
+ * 互不依赖、也不依赖分页游标，并成一批而不是各自串行往返（与 edition-store.ts
+ * 里 rows/neighbours/activeDirectionCount 那批 Promise.all 同一套论证）。
+ */
+async function getDirectionCounts(
+  db: Db,
+  directionId: string,
+): Promise<{ issueCount: number; paperCount: number }> {
+  const publishedHere = [
+    eq(digests.directionId, directionId),
+    eq(digests.status, "published"),
+  ];
+  const [[issueCountRow], [paperCountRow]] = await Promise.all([
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(digests)
+      .where(and(...publishedHere)),
+    // 跨期去重的方向论文总数：同一篇可能被多期引用
+    db
+      .select({ n: sql<number>`count(distinct ${digestPapers.paperId})` })
+      .from(digestPapers)
+      .innerJoin(digests, eq(digestPapers.digestId, digests.id))
+      .innerJoin(papers, eq(digestPapers.paperId, papers.id))
+      .where(and(...publishedHere, isNull(papers.deletedAt))),
+  ]);
+  // 无 GROUP BY 的聚合查询恒返回一行, row?. 是防御性风格而非真的不确定
+  // （与 edition-store.ts / ensureDigestShell 的 row?.max 同款写法）。
+  return {
+    issueCount: issueCountRow?.n ?? 0,
+    paperCount: paperCountRow?.n ?? 0,
+  };
+}
+
 export async function getDirectionDetailBySlug(
   db: Db,
   slug: string,
-  /** 游标：只取期号小于它的期次；undefined = 第一页 */
+  /**
+   * 游标：只取期号小于它的期次；undefined = 第一页。用期号而不是 offset：
+   * offset 分页在两次翻页之间又发布了一期时会跳条/重条（新一期插到最前，
+   * 后续 offset 全部错位），期号是稳定的排序键，不受并发发布影响。
+   */
   before?: number,
 ): Promise<DirectionDetail | null> {
   const [dir] = await db
@@ -734,31 +772,32 @@ export async function getDirectionDetailBySlug(
     .limit(1);
   if (!dir) return null;
 
-  const publishedHere = [
-    eq(digests.directionId, dir.id),
-    eq(digests.status, "published"),
-  ];
-
-  const rows = await db
-    .select({
-      id: digests.id,
-      issueNumber: digests.issueNumber,
-      title: digests.title,
-      content: digests.content,
-      publishedAt: digests.publishedAt,
-      periodStart: digests.periodStart,
-      periodEnd: digests.periodEnd,
-    })
-    .from(digests)
-    .where(
-      and(
-        ...publishedHere,
-        ...(before === undefined ? [] : [lt(digests.issueNumber, before)]),
-      ),
-    )
-    .orderBy(desc(digests.issueNumber))
-    // 多取一条来判断有没有下一页，返回前切掉
-    .limit(TIMELINE_PAGE_SIZE + 1);
+  // rows 与两个总数查询互不依赖（总数不看分页游标, 见 getDirectionCounts 的
+  // 注释）, 并成一批。countRows 依赖 rows 出的 page, 只能在拿到 page 后单独发。
+  const [rows, { issueCount, paperCount }] = await Promise.all([
+    db
+      .select({
+        id: digests.id,
+        issueNumber: digests.issueNumber,
+        title: digests.title,
+        content: digests.content,
+        publishedAt: digests.publishedAt,
+        periodStart: digests.periodStart,
+        periodEnd: digests.periodEnd,
+      })
+      .from(digests)
+      .where(
+        and(
+          eq(digests.directionId, dir.id),
+          eq(digests.status, "published"),
+          ...(before === undefined ? [] : [lt(digests.issueNumber, before)]),
+        ),
+      )
+      .orderBy(desc(digests.issueNumber))
+      // 多取一条来判断有没有下一页，返回前切掉
+      .limit(TIMELINE_PAGE_SIZE + 1),
+    getDirectionCounts(db, dir.id),
+  ]);
 
   const hasMore = rows.length > TIMELINE_PAGE_SIZE;
   const page = rows.slice(0, TIMELINE_PAGE_SIZE);
@@ -783,23 +822,6 @@ export async function getDirectionDetailBySlug(
         .groupBy(digestPapers.digestId)
     : [];
   const pickCountByDigest = new Map(countRows.map((r) => [r.digestId, r.n]));
-
-  // 无 GROUP BY 的聚合查询恒返回一行, row?. 是防御性风格而非真的不确定
-  // （与 edition-store.ts / ensureDigestShell 的 row?.max 同款写法）。
-  const [issueCountRow] = await db
-    .select({ n: sql<number>`count(*)` })
-    .from(digests)
-    .where(and(...publishedHere));
-  const issueCount = issueCountRow?.n ?? 0;
-
-  // 跨期去重的方向论文总数：同一篇可能被多期引用
-  const [paperCountRow] = await db
-    .select({ n: sql<number>`count(distinct ${digestPapers.paperId})` })
-    .from(digestPapers)
-    .innerJoin(digests, eq(digestPapers.digestId, digests.id))
-    .innerJoin(papers, eq(digestPapers.paperId, papers.id))
-    .where(and(...publishedHere, isNull(papers.deletedAt)));
-  const paperCount = paperCountRow?.n ?? 0;
 
   return {
     slug: dir.slug,
