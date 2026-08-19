@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSkillDirectiveText,
+  buildSkillsCatalogEntries,
   buildSkillsCatalogSection,
   expandSkillBody,
   mergeBuiltinSkills,
@@ -129,5 +130,49 @@ describe("mergeBuiltinSkills", () => {
       builtins,
     );
     expect(result.builtin.map((entry) => entry.name)).toEqual(["daily-brief"]);
+  });
+});
+
+describe("buildSkillsCatalogEntries", () => {
+  const builtins = [
+    { name: "fact-check", description: "builtin fc" },
+    { name: "daily-brief", description: "builtin db" },
+  ];
+
+  it("用户行在前、未被覆盖的内置行在后", () => {
+    expect(
+      buildSkillsCatalogEntries(
+        [{ name: "my-skill", description: "mine", enabled: true }],
+        builtins,
+      ),
+    ).toEqual([
+      { name: "my-skill", description: "mine" },
+      { name: "fact-check", description: "builtin fc" },
+      { name: "daily-brief", description: "builtin db" },
+    ]);
+  });
+
+  // 复活陷阱在 catalog 侧的正锁，一条用例同时验两件事：
+  // disabled 行自己不出现在结果里，但仍然把同名内置压掉。
+  // 若实现把 filter(enabled) 提到 mergeBuiltinSkills 之前，fact-check 会复活。
+  it("disabled 用户行不出现在结果里，但仍覆盖同名内置", () => {
+    expect(
+      buildSkillsCatalogEntries(
+        [{ name: "fact-check", description: "mine", enabled: false }],
+        builtins,
+      ),
+    ).toEqual([{ name: "daily-brief", description: "builtin db" }]);
+  });
+
+  it("无同名冲突时两段都在，且内置保持声明顺序", () => {
+    expect(
+      buildSkillsCatalogEntries(
+        [
+          { name: "a", description: "da", enabled: true },
+          { name: "b", description: "db", enabled: true },
+        ],
+        builtins,
+      ).map((entry) => entry.name),
+    ).toEqual(["a", "b", "fact-check", "daily-brief"]);
   });
 });

@@ -24,8 +24,8 @@ import {
 import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import {
+  buildSkillsCatalogEntries,
   buildSkillsCatalogSection,
-  mergeBuiltinSkills,
   parseSkillDirective,
   SKILL_LIMITS,
 } from "#/lib/skills";
@@ -153,18 +153,7 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
           .from(assistantSkills)
           .where(eq(assistantSkills.userId, userId))
           .orderBy(desc(assistantSkills.updatedAt));
-        const { builtin } = mergeBuiltinSkills(rows, BUILTIN_SKILLS);
-        // 内置排在用户行之后：显式创建的优先级高于引导物料，
-        // 25 条 clamp 时先截掉内置。注意与 skills.list 的顺序相反。
-        const entries = [
-          ...rows
-            .filter((row) => row.enabled)
-            .map((row) => ({ name: row.name, description: row.description })),
-          ...builtin.map((skill) => ({
-            name: skill.name,
-            description: skill.description,
-          })),
-        ];
+        const entries = buildSkillsCatalogEntries(rows, BUILTIN_SKILLS);
         return buildSkillsCatalogSection(
           entries.slice(0, SKILL_LIMITS.catalogMaxEntries),
           entries.length > SKILL_LIMITS.catalogMaxEntries,

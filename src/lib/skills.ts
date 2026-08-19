@@ -190,3 +190,28 @@ export function mergeBuiltinSkills<
     builtin: builtins.filter((entry) => !taken.has(entry.name)),
   };
 }
+
+/**
+ * catalog 注入的条目列表：用户行在前、未被覆盖的内置行在后。
+ *
+ * 顺序与 skills.list 刻意相反——list 内置置顶是为了引导可见性，catalog 内置置底
+ * 是因为用户显式创建的 skill 优先级更高，25 条 clamp 时该先截掉引导物料。
+ *
+ * ⚠️ `userRows` 必须是**全部**用户行（含 disabled）：先合并判覆盖、再过滤 enabled。
+ * 顺序反了，用户关掉的内置 skill 会原地复活（关掉 = 一条 enabled=false 的同名行）。
+ */
+export function buildSkillsCatalogEntries<
+  U extends { name: string; description: string; enabled: boolean },
+  B extends { name: string; description: string },
+>(userRows: readonly U[], builtins: readonly B[]): SkillCatalogEntry[] {
+  const { builtin } = mergeBuiltinSkills(userRows, builtins);
+  return [
+    ...userRows
+      .filter((row) => row.enabled)
+      .map((row) => ({ name: row.name, description: row.description })),
+    ...builtin.map((entry) => ({
+      name: entry.name,
+      description: entry.description,
+    })),
+  ];
+}
