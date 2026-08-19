@@ -2,8 +2,19 @@ import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { assistantSkills } from "#/db/schema";
+import {
+  BUILTIN_SKILLS,
+  BUILTIN_TIMESTAMP,
+  builtinIdOf,
+  findBuiltinById,
+  isBuiltinId,
+} from "#/lib/builtin-skills";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
-import { SKILL_LIMITS, skillInputSchema } from "#/lib/skills";
+import {
+  mergeBuiltinSkills,
+  SKILL_LIMITS,
+  skillInputSchema,
+} from "#/lib/skills";
 import { protectedProcedure, router } from "../init";
 
 /** 写操作统一挡 review-guest（共享演示账号的 skills 不能被访客互相改写） */
@@ -47,8 +58,9 @@ const updateInputSchema = z.object({
 
 export const skillsRouter = router({
   // 管理页列表 + slash 选择器共用；不含 body（正文按需 get）
-  list: protectedProcedure.query(({ ctx }) =>
-    ctx.db
+  // 内置行排最前：它们存在的理由就是引导可见性。注意与 catalog 的顺序相反。
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db
       .select({
         id: assistantSkills.id,
         name: assistantSkills.name,
@@ -61,12 +73,39 @@ export const skillsRouter = router({
       })
       .from(assistantSkills)
       .where(eq(assistantSkills.userId, ctx.session.user.id))
-      .orderBy(desc(assistantSkills.updatedAt)),
-  ),
+      .orderBy(desc(assistantSkills.updatedAt));
+    const userRows = rows.map((row) => ({ ...row, builtin: false }));
+    const { builtin } = mergeBuiltinSkills(userRows, BUILTIN_SKILLS);
+    const builtinRows = builtin.map((skill) => ({
+      id: builtinIdOf(skill.name),
+      name: skill.name,
+      description: skill.description,
+      enabled: true,
+      updatedAt: BUILTIN_TIMESTAMP,
+      bodyChars: skill.body.length,
+      builtin: true,
+    }));
+    return [...builtinRows, ...userRows];
+  }),
 
   get: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
+      // 形状必须与真实行一致，否则编辑页要为内置行分叉
+      const builtin = findBuiltinById(input.id);
+      if (builtin) {
+        return {
+          id: input.id,
+          userId: ctx.session.user.id,
+          name: builtin.name,
+          description: builtin.description,
+          body: builtin.body,
+          enabled: true,
+          createdAt: BUILTIN_TIMESTAMP,
+          updatedAt: BUILTIN_TIMESTAMP,
+        };
+      }
+      if (isBuiltinId(input.id)) throw new TRPCError({ code: "NOT_FOUND" });
       const [row] = await ctx.db
         .select()
         .from(assistantSkills)
@@ -113,6 +152,55 @@ export const skillsRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertWritable(ctx.session);
       const { id, ...patch } = input;
+      const userId = ctx.session.user.id;
+      const builtin = findBuiltinById(id);
+      if (builtin) {
+        // 实体化：内置行第一次被写就落成一条普通用户行，此后走全部现有路径。
+        // 不查 maxPerUser 配额——否则满 50 条的用户会关不掉内置 skill。
+        // patch 里 zod optional 未传的键根本不存在（不是 undefined），
+        // 所以 `...patch` 展开不会把下面的默认值抹成 undefined。
+        const newId = crypto.randomUUID();
+        try {
+          await ctx.db.insert(assistantSkills).values({
+            id: newId,
+            userId,
+            name: builtin.name,
+            description: builtin.description,
+            body: builtin.body,
+            enabled: true,
+            ...patch,
+          });
+          return { id: newId };
+        } catch (error) {
+          if (!isUniqueViolation(error)) throw error;
+          // 并发双击开关，或用户早已有同名行：退化成更新那一行
+          const targetName = patch.name ?? builtin.name;
+          const [existing] = await ctx.db
+            .select({ id: assistantSkills.id })
+            .from(assistantSkills)
+            .where(
+              and(
+                eq(assistantSkills.userId, userId),
+                eq(assistantSkills.name, targetName),
+              ),
+            )
+            .limit(1);
+          if (!existing) {
+            throw new TRPCError({ code: "CONFLICT", message: "name taken" });
+          }
+          await ctx.db
+            .update(assistantSkills)
+            .set({ ...patch, updatedAt: new Date() })
+            .where(
+              and(
+                eq(assistantSkills.id, existing.id),
+                eq(assistantSkills.userId, userId),
+              ),
+            );
+          return { id: existing.id };
+        }
+      }
+      if (isBuiltinId(id)) throw new TRPCError({ code: "NOT_FOUND" });
       const [existing] = await ctx.db
         .select({ id: assistantSkills.id })
         .from(assistantSkills)
@@ -140,13 +228,15 @@ export const skillsRouter = router({
         }
         throw error;
       }
-      return { ok: true };
+      return { id };
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       assertWritable(ctx.session);
+      // 内置行没有实体，删无可删；用户想去掉它就关掉开关（会实体化成 disabled 行）
+      if (isBuiltinId(input.id)) throw new TRPCError({ code: "NOT_FOUND" });
       const [existing] = await ctx.db
         .select({ id: assistantSkills.id })
         .from(assistantSkills)

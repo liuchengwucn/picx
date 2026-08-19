@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assistantSkills, user } from "#/db/schema";
 import { REVIEW_GUEST_USER_ID } from "#/lib/review-guest";
+import { SKILL_LIMITS } from "#/lib/skills";
 import { createTestDb } from "../../../../test/helpers/sqlite-d1";
 import { skillsRouter } from "./skills";
 
@@ -58,7 +59,8 @@ describe("skillsRouter CRUD", () => {
     const { id } = await caller.create(validInput);
     expect(id).toBeTruthy();
 
-    const list = await caller.list();
+    // list 头部固定是内置行（见下方 "builtin skills"），这里只看用户自己的部分
+    const list = (await caller.list()).filter((row) => !row.builtin);
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ id, name: validInput.name });
     expect(list[0]).not.toHaveProperty("body");
@@ -145,7 +147,9 @@ describe("skillsRouter review-guest read-only guard", () => {
   it("allows reads but forbids create/update/delete for the review-guest session", async () => {
     const guestCaller = makeCaller(db, REVIEW_GUEST_USER_ID);
 
-    await expect(guestCaller.list()).resolves.toEqual([]);
+    // 内置行对访客也可见（读操作不受限），但访客名下没有任何真实行
+    const guestList = await guestCaller.list();
+    expect(guestList.every((row) => row.builtin)).toBe(true);
 
     await expect(guestCaller.create(validInput)).rejects.toMatchObject({
       code: "FORBIDDEN",
@@ -185,5 +189,89 @@ describe("skillsRouter per-user skill limit", () => {
     await expect(
       caller.create({ ...validInput, name: "one-too-many" }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+});
+
+describe("builtin skills", () => {
+  const BUILTIN_ID = "builtin:fact-check";
+
+  it("list 把内置行排在最前并标记 builtin", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const caller = makeCaller(db, "u1");
+    await caller.create({ name: "mine", description: "d", body: "b" });
+
+    const rows = await caller.list();
+    expect(rows.slice(0, 3).map((row) => row.name)).toEqual([
+      "fact-check",
+      "daily-brief",
+      "topic-scan",
+    ]);
+    expect(rows.slice(0, 3).every((row) => row.builtin)).toBe(true);
+    expect(rows.at(-1)).toMatchObject({ name: "mine", builtin: false });
+  });
+
+  it("get 虚拟 id 返回内置内容", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const row = await makeCaller(db, "u1").get({ id: BUILTIN_ID });
+    expect(row.name).toBe("fact-check");
+    expect(row.body.length).toBeGreaterThan(0);
+    expect(row.enabled).toBe(true);
+  });
+
+  it("update 虚拟 id 会实体化成一条真实行", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const caller = makeCaller(db, "u1");
+
+    const { id } = await caller.update({ id: BUILTIN_ID, enabled: false });
+    expect(id).not.toBe(BUILTIN_ID);
+
+    const stored = await db
+      .select()
+      .from(assistantSkills)
+      .where(eq(assistantSkills.userId, "u1"));
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ name: "fact-check", enabled: false });
+    // 实体化后 list 不再出现内置版本（否则关掉的 skill 会复活）
+    const rows = await caller.list();
+    expect(rows.filter((row) => row.name === "fact-check")).toHaveLength(1);
+    expect(rows.find((row) => row.name === "fact-check")?.enabled).toBe(false);
+  });
+
+  it("重复实体化只留一行", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const caller = makeCaller(db, "u1");
+    const first = await caller.update({ id: BUILTIN_ID, enabled: false });
+    const second = await caller.update({ id: BUILTIN_ID, enabled: true });
+    expect(second.id).toBe(first.id);
+    const stored = await db
+      .select()
+      .from(assistantSkills)
+      .where(eq(assistantSkills.userId, "u1"));
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.enabled).toBe(true);
+  });
+
+  it("已满 maxPerUser 时仍能实体化（否则用户关不掉内置）", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const caller = makeCaller(db, "u1");
+    for (let i = 0; i < SKILL_LIMITS.maxPerUser; i++) {
+      await caller.create({ name: `s-${i}`, description: "d", body: "b" });
+    }
+    await expect(
+      caller.update({ id: BUILTIN_ID, enabled: false }),
+    ).resolves.toMatchObject({ id: expect.any(String) });
+  });
+
+  it("delete 虚拟 id 报 NOT_FOUND", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    await expect(
+      makeCaller(db, "u1").delete({ id: BUILTIN_ID }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
