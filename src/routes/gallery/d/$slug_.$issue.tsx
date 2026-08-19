@@ -244,7 +244,18 @@ function DigestIssuePage() {
     papers.map((p) => p.id),
   );
   const dateFormat = useMemo(
-    () => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }),
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        // 必须按 UTC 格化 —— 与刊头(edition-masthead.tsx)、往期列表
+        // (past-editions.tsx)同一个理由: 周期边界是 UTC 的 00:00:00 / 23:59:59,
+        // 永久链接 /gallery/w/<date> 里的日期也是 date(period_end, 'unixepoch')
+        // 取的 UTC 日。按本地时区渲染会让东八区读者看到「8/9 – 8/16」, 但这一期
+        // 自己的永久链接却写着 2026-08-15, 同一期出现两个日历(还会在 SSR 是 UTC
+        // 时区的部署环境下变成一次 hydration mismatch, 因为服务端与客户端时区
+        // 不同)。
+        timeZone: "UTC",
+      }),
     [locale],
   );
 
