@@ -3,6 +3,7 @@ import {
   buildSkillDirectiveText,
   buildSkillsCatalogSection,
   expandSkillBody,
+  mergeBuiltinSkills,
   parseSkillDirective,
   parseSkillImport,
   SKILL_LIMITS,
@@ -101,5 +102,32 @@ describe("buildSkillsCatalogSection", () => {
       SKILL_LIMITS.catalogDescriptionMax,
     );
     expect(json.truncated).toBe(true);
+  });
+});
+
+describe("mergeBuiltinSkills", () => {
+  const builtins = [{ name: "fact-check" }, { name: "daily-brief" }];
+
+  it("无同名用户行时内置原样保留", () => {
+    const result = mergeBuiltinSkills([{ name: "my-skill" }], builtins);
+    expect(result.builtin.map((entry) => entry.name)).toEqual([
+      "fact-check",
+      "daily-brief",
+    ]);
+  });
+
+  it("同名用户行覆盖内置行", () => {
+    const result = mergeBuiltinSkills([{ name: "fact-check" }], builtins);
+    expect(result.builtin.map((entry) => entry.name)).toEqual(["daily-brief"]);
+  });
+
+  // 复活陷阱的回归锁：关掉内置 = 实体化出一条 enabled=false 的行。
+  // 若调用方只传 enabled 行，这条覆盖就消失，内置会重新冒出来。
+  it("disabled 的同名用户行同样覆盖内置行", () => {
+    const result = mergeBuiltinSkills(
+      [{ name: "fact-check", enabled: false }],
+      builtins,
+    );
+    expect(result.builtin.map((entry) => entry.name)).toEqual(["daily-brief"]);
   });
 });
