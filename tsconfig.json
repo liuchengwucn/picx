@@ -1,5 +1,12 @@
 {
   "include": ["**/*.ts", "**/*.tsx"],
+  // docs/ 是 gitignore 的草稿区(spec、plan、种子 SQL、一次性校准 harness)。
+  // include 的 **/*.ts 会把它卷进类型检查, 而那些 harness 只对写它时的 API 负责
+  // ——例如 docs/calib/verify-variance/run.ts 引用的 verifyCandidate/VerifyVerdict
+  // 早已改名, 于是 `tsc --noEmit` 恒定带 3 个与线上代码无关的错误, 把真回归淹掉。
+  // 排除 docs 而不是删掉那些 harness: 它们是刻意留下可复用的。
+  // (.worktrees 不用排除: TS 的通配符默认跳过点开头的目录。)
+  "exclude": ["docs"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
