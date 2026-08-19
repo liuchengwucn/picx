@@ -9,6 +9,7 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assistantSkills, user } from "#/db/schema";
+import { BUILTIN_SKILLS, BUILTIN_TIMESTAMP } from "#/lib/builtin-skills";
 import { REVIEW_GUEST_USER_ID } from "#/lib/review-guest";
 import { SKILL_LIMITS } from "#/lib/skills";
 import { createTestDb } from "../../../../test/helpers/sqlite-d1";
@@ -97,7 +98,10 @@ describe("skillsRouter CRUD", () => {
       .set({ updatedAt: past })
       .where(eq(assistantSkills.id, id));
 
-    await caller.update({ id, name: "renamed-skill", enabled: false });
+    // 返回值是 UI navigate 的地基（内置实体化时 id 会变），必须钉住
+    await expect(
+      caller.update({ id, name: "renamed-skill", enabled: false }),
+    ).resolves.toEqual({ id });
 
     const got = await caller.get({ id });
     expect(got.name).toBe("renamed-skill");
@@ -149,6 +153,7 @@ describe("skillsRouter review-guest read-only guard", () => {
 
     // 内置行对访客也可见（读操作不受限），但访客名下没有任何真实行
     const guestList = await guestCaller.list();
+    expect(guestList).toHaveLength(BUILTIN_SKILLS.length);
     expect(guestList.every((row) => row.builtin)).toBe(true);
 
     await expect(guestCaller.create(validInput)).rejects.toMatchObject({
@@ -208,6 +213,12 @@ describe("builtin skills", () => {
       "topic-scan",
     ]);
     expect(rows.slice(0, 3).every((row) => row.builtin)).toBe(true);
+    // enabled 决定 slash 选择器里是否出现；updatedAt 用常量是为了 SSR/CSR 一致
+    expect(rows[0]).toMatchObject({
+      enabled: true,
+      updatedAt: BUILTIN_TIMESTAMP,
+      bodyChars: expect.any(Number),
+    });
     expect(rows.at(-1)).toMatchObject({ name: "mine", builtin: false });
   });
 
@@ -313,6 +324,55 @@ describe("builtin skills", () => {
       .from(assistantSkills)
       .where(eq(assistantSkills.name, "my-notes"));
     expect(row).toMatchObject({ description: "keep", body: "keep me" });
+  });
+
+  it("用户已有同名 skill 时，带内容的补丁报 CONFLICT 而不是覆盖他的正文", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const caller = makeCaller(db, "u1");
+    // 用户自己写了一条恰好也叫 fact-check 的 skill
+    await caller.create({
+      name: "fact-check",
+      description: "mine",
+      body: "MY PRECIOUS BODY",
+    });
+
+    // 编辑器保存的默认形状：name/description/body 都带上。后退键回到 builtin URL
+    // 再保存就是这个请求，绝不能把内置正文盖到用户那条上。
+    await expect(
+      caller.update({
+        id: BUILTIN_ID,
+        name: "fact-check",
+        description: "builtin desc",
+        body: "builtin body",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const [row] = await db
+      .select()
+      .from(assistantSkills)
+      .where(eq(assistantSkills.name, "fact-check"));
+    expect(row).toMatchObject({
+      description: "mine",
+      body: "MY PRECIOUS BODY",
+    });
+  });
+
+  it("未知内置名在 get/update/delete 三处都是 NOT_FOUND", async () => {
+    const { db } = createTestDb();
+    await seedUsers(db, ["u1"]);
+    const caller = makeCaller(db, "u1");
+    const unknown = "builtin:nope";
+
+    await expect(caller.get({ id: unknown })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      caller.update({ id: unknown, enabled: false }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(caller.delete({ id: unknown })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 
   it("delete 虚拟 id 报 NOT_FOUND", async () => {

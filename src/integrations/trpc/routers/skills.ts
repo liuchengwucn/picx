@@ -5,6 +5,7 @@ import { assistantSkills } from "#/db/schema";
 import {
   BUILTIN_SKILLS,
   BUILTIN_TIMESTAMP,
+  type BuiltinSkill,
   builtinIdOf,
   findBuiltinById,
   isBuiltinId,
@@ -15,7 +16,7 @@ import {
   SKILL_LIMITS,
   skillInputSchema,
 } from "#/lib/skills";
-import { protectedProcedure, router } from "../init";
+import { type Context, protectedProcedure, router } from "../init";
 
 /** 写操作统一挡 review-guest（共享演示账号的 skills 不能被访客互相改写） */
 function assertWritable(
@@ -55,6 +56,74 @@ const updateInputSchema = z.object({
   body: skillInputSchema.shape.body.optional(),
   enabled: z.boolean().optional(),
 });
+
+type SkillPatch = Omit<z.infer<typeof updateInputSchema>, "id">;
+
+/**
+ * 内置 skill 的实体化：把常量落成一条真实用户行。
+ * 前置：调用方已确认 id 是虚拟 id 且 builtin 存在、已过 assertWritable。
+ * 不查 maxPerUser 配额——否则满 50 条的用户会关不掉内置 skill。
+ * 失败回退只服务「并发重复实体化」，见函数内注释。
+ */
+async function materializeBuiltin(
+  db: Context["db"],
+  userId: string,
+  builtin: BuiltinSkill,
+  patch: SkillPatch,
+): Promise<{ id: string }> {
+  // 内置行第一次被写就落成一条普通用户行，此后走全部现有路径。
+  // patch 里 zod optional 未传的键根本不存在（不是 undefined），
+  // 所以 `...patch` 展开不会把下面的默认值抹成 undefined。
+  const newId = crypto.randomUUID();
+  try {
+    await db.insert(assistantSkills).values({
+      id: newId,
+      userId,
+      name: builtin.name,
+      description: builtin.description,
+      body: builtin.body,
+      enabled: true,
+      ...patch,
+    });
+    return { id: newId };
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    // 回退只服务「同一条内置的并发重复实体化」。撞名行已存在时，只有纯开关补丁能安全
+    // 退化为更新：带内容字段的补丁会把内置正文盖到用户自己的同名 skill 上（get 虚拟 id
+    // 永远返回常量正文，编辑器里那份根本不是他的内容），静默吞掉他写的东西。
+    if (
+      patch.name !== undefined ||
+      patch.description !== undefined ||
+      patch.body !== undefined
+    ) {
+      throw new TRPCError({ code: "CONFLICT", message: "name taken" });
+    }
+    // 到这里只剩纯开关补丁：撞的是刚刚（或并发地）实体化出来的同名行，退化为更新
+    const [existing] = await db
+      .select({ id: assistantSkills.id })
+      .from(assistantSkills)
+      .where(
+        and(
+          eq(assistantSkills.userId, userId),
+          eq(assistantSkills.name, builtin.name),
+        ),
+      )
+      .limit(1);
+    if (!existing) {
+      throw new TRPCError({ code: "CONFLICT", message: "name taken" });
+    }
+    await db
+      .update(assistantSkills)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(assistantSkills.id, existing.id),
+          eq(assistantSkills.userId, userId),
+        ),
+      );
+    return { id: existing.id };
+  }
+}
 
 export const skillsRouter = router({
   // 管理页列表 + slash 选择器共用；不含 body（正文按需 get）
@@ -155,54 +224,7 @@ export const skillsRouter = router({
       const userId = ctx.session.user.id;
       const builtin = findBuiltinById(id);
       if (builtin) {
-        // 实体化：内置行第一次被写就落成一条普通用户行，此后走全部现有路径。
-        // 不查 maxPerUser 配额——否则满 50 条的用户会关不掉内置 skill。
-        // patch 里 zod optional 未传的键根本不存在（不是 undefined），
-        // 所以 `...patch` 展开不会把下面的默认值抹成 undefined。
-        const newId = crypto.randomUUID();
-        try {
-          await ctx.db.insert(assistantSkills).values({
-            id: newId,
-            userId,
-            name: builtin.name,
-            description: builtin.description,
-            body: builtin.body,
-            enabled: true,
-            ...patch,
-          });
-          return { id: newId };
-        } catch (error) {
-          if (!isUniqueViolation(error)) throw error;
-          // 显式改名撞上了另一条已存在的 skill：必须跟普通 update 路径一样报冲突。
-          // 否则会把内置正文写进用户那条同名 skill 里，静默吞掉他的内容。
-          if (patch.name && patch.name !== builtin.name) {
-            throw new TRPCError({ code: "CONFLICT", message: "name taken" });
-          }
-          // 到这里只可能是并发双击开关：撞的是刚刚自己插进去的那行，退化为更新
-          const [existing] = await ctx.db
-            .select({ id: assistantSkills.id })
-            .from(assistantSkills)
-            .where(
-              and(
-                eq(assistantSkills.userId, userId),
-                eq(assistantSkills.name, builtin.name),
-              ),
-            )
-            .limit(1);
-          if (!existing) {
-            throw new TRPCError({ code: "CONFLICT", message: "name taken" });
-          }
-          await ctx.db
-            .update(assistantSkills)
-            .set({ ...patch, updatedAt: new Date() })
-            .where(
-              and(
-                eq(assistantSkills.id, existing.id),
-                eq(assistantSkills.userId, userId),
-              ),
-            );
-          return { id: existing.id };
-        }
+        return materializeBuiltin(ctx.db, userId, builtin, patch);
       }
       if (isBuiltinId(id)) throw new TRPCError({ code: "NOT_FOUND" });
       const [existing] = await ctx.db
