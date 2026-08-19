@@ -13,6 +13,7 @@ import {
   buildAgentSystemPrompt,
   checkAgentRateLimit,
 } from "#/lib/agent";
+import { BUILTIN_SKILLS } from "#/lib/builtin-skills";
 import {
   type AuthorizeResult,
   type ChatStreamArgs,
@@ -24,6 +25,7 @@ import { CARD_REPLAY_SPEC } from "#/lib/discovery-tools";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import {
   buildSkillsCatalogSection,
+  mergeBuiltinSkills,
   parseSkillDirective,
   SKILL_LIMITS,
 } from "#/lib/skills";
@@ -138,23 +140,34 @@ const handler = createChatStreamHandler<Body, AgentCtx>({
     // catalog 查询失败不阻断对话：跳过注入，agent 只是这一轮不知道 skills 存在
     const loadCatalog = async () => {
       try {
+        // ⚠️ 这里必须查「全部用户行」而不是只查 enabled：
+        // 用户关掉内置 skill = 实体化出一条 enabled=false 的行，只查 enabled
+        // 的话这条覆盖看不见，内置版本会原地复活。
+        // 正确顺序：全部用户行做覆盖判定 → 覆盖后再过滤 enabled。
         const rows = await db
           .select({
             name: assistantSkills.name,
             description: assistantSkills.description,
+            enabled: assistantSkills.enabled,
           })
           .from(assistantSkills)
-          .where(
-            and(
-              eq(assistantSkills.userId, userId),
-              eq(assistantSkills.enabled, true),
-            ),
-          )
-          .orderBy(desc(assistantSkills.updatedAt))
-          .limit(SKILL_LIMITS.catalogMaxEntries + 1);
+          .where(eq(assistantSkills.userId, userId))
+          .orderBy(desc(assistantSkills.updatedAt));
+        const { builtin } = mergeBuiltinSkills(rows, BUILTIN_SKILLS);
+        // 内置排在用户行之后：显式创建的优先级高于引导物料，
+        // 25 条 clamp 时先截掉内置。注意与 skills.list 的顺序相反。
+        const entries = [
+          ...rows
+            .filter((row) => row.enabled)
+            .map((row) => ({ name: row.name, description: row.description })),
+          ...builtin.map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+          })),
+        ];
         return buildSkillsCatalogSection(
-          rows.slice(0, SKILL_LIMITS.catalogMaxEntries),
-          rows.length > SKILL_LIMITS.catalogMaxEntries,
+          entries.slice(0, SKILL_LIMITS.catalogMaxEntries),
+          entries.length > SKILL_LIMITS.catalogMaxEntries,
         );
       } catch {
         return "";

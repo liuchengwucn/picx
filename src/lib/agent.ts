@@ -11,6 +11,7 @@ import {
   papers,
   userProfiles,
 } from "#/db/schema";
+import { BUILTIN_SKILLS, findBuiltinSkill } from "#/lib/builtin-skills";
 import {
   CHAT_LIMITS,
   loadAccessiblePaper,
@@ -25,7 +26,11 @@ import {
 import { escapeLike } from "#/lib/gallery-search";
 import { loadPaperText } from "#/lib/paper-text";
 import { SITE_URL } from "#/lib/site-url";
-import { expandSkillBody, SKILL_LIMITS } from "#/lib/skills";
+import {
+  expandSkillBody,
+  mergeBuiltinSkills,
+  SKILL_LIMITS,
+} from "#/lib/skills";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 
 type Db = DrizzleD1Database<typeof schema>;
@@ -318,48 +323,64 @@ export function buildAgentTools(deps: AgentToolsDeps) {
       }),
       execute: async ({ name, args }) => {
         // 查库失败降级为工具错误文本，不炸整轮生成（spec 承诺）
-        let row: { name: string; body: string } | undefined;
+        // ⚠️ 不带 enabled 过滤：用户关掉的 skill 必须命中这一行并明确报「已禁用」，
+        // 否则会掉到下面的内置回落分支，被关掉的内置 skill 就复活了。
+        let row: { name: string; body: string; enabled: boolean } | undefined;
         try {
           [row] = await db
-            .select({ name: assistantSkills.name, body: assistantSkills.body })
+            .select({
+              name: assistantSkills.name,
+              body: assistantSkills.body,
+              enabled: assistantSkills.enabled,
+            })
             .from(assistantSkills)
             .where(
               and(
                 eq(assistantSkills.userId, userId),
                 eq(assistantSkills.name, name),
-                eq(assistantSkills.enabled, true),
               ),
             )
             .limit(1);
         } catch {
           return { error: "failed to load skill, try again" };
         }
-        if (!row) {
-          let rows: { name: string }[];
-          try {
-            rows = await db
-              .select({ name: assistantSkills.name })
-              .from(assistantSkills)
-              .where(
-                and(
-                  eq(assistantSkills.userId, userId),
-                  eq(assistantSkills.enabled, true),
-                ),
-              )
-              .orderBy(desc(assistantSkills.updatedAt))
-              .limit(SKILL_LIMITS.catalogMaxEntries);
-          } catch {
-            // available 只是补充信息，列不出来就只报未找到
-            return { error: "skill not found" };
-          }
+        if (row && !row.enabled) return { error: "skill is disabled" };
+        if (row) {
           return {
-            error: "skill not found",
-            available: rows.map((r) => r.name),
+            name: row.name,
+            instructions: expandSkillBody(row.body, args ?? ""),
           };
         }
+        // 没有同名用户行才回落到内置
+        const builtin = findBuiltinSkill(name);
+        if (builtin) {
+          return {
+            name: builtin.name,
+            instructions: expandSkillBody(builtin.body, args ?? ""),
+          };
+        }
+        let rows: { name: string; enabled: boolean }[];
+        try {
+          rows = await db
+            .select({
+              name: assistantSkills.name,
+              enabled: assistantSkills.enabled,
+            })
+            .from(assistantSkills)
+            .where(eq(assistantSkills.userId, userId))
+            .orderBy(desc(assistantSkills.updatedAt))
+            .limit(SKILL_LIMITS.catalogMaxEntries);
+        } catch {
+          // available 只是补充信息，列不出来就只报未找到
+          return { error: "skill not found" };
+        }
+        const { builtin: remaining } = mergeBuiltinSkills(rows, BUILTIN_SKILLS);
         return {
-          name: row.name,
-          instructions: expandSkillBody(row.body, args ?? ""),
+          error: "skill not found",
+          available: [
+            ...rows.filter((entry) => entry.enabled).map((entry) => entry.name),
+            ...remaining.map((entry) => entry.name),
+          ],
         };
       },
     }),

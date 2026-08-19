@@ -92,11 +92,11 @@ describe("readSkill tool", () => {
     );
     expect(result).toEqual({
       error: "skill not found",
-      available: ["enabled-skill"],
+      available: ["enabled-skill", "fact-check", "daily-brief", "topic-scan"],
     });
   });
 
-  it("treats a disabled skill by that exact name as not found", async () => {
+  it("reports a disabled skill as disabled rather than falling through", async () => {
     const { db } = createTestDb();
     await seedUser(db, "user-1");
     await db.insert(assistantSkills).values({
@@ -119,7 +119,70 @@ describe("readSkill tool", () => {
       { name: "disabled-skill" },
       toolOptions,
     );
-    expect(result).toMatchObject({ error: "skill not found", available: [] });
+    expect(result).toEqual({ error: "skill is disabled" });
+  });
+});
+
+describe("readSkill builtin fallback", () => {
+  const deps = (db: Db) =>
+    buildAgentTools({
+      db,
+      bucket: {} as never,
+      userId: "user-1",
+      locale: "en",
+      isGuest: false,
+    });
+
+  it("没有同名用户行时读到内置正文", async () => {
+    const { db } = createTestDb();
+    await seedUser(db, "user-1");
+
+    const result = (await getExecute(deps(db).readSkill)(
+      { name: "fact-check" },
+      toolOptions,
+    )) as { name: string; instructions: string };
+    expect(result.name).toBe("fact-check");
+    expect(result.instructions).toContain("neutral verification pass");
+  });
+
+  it("同名用户行覆盖内置正文", async () => {
+    const { db } = createTestDb();
+    await seedUser(db, "user-1");
+    await db.insert(assistantSkills).values({
+      userId: "user-1",
+      name: "fact-check",
+      description: "mine",
+      body: "My own version.",
+    });
+
+    const result = await getExecute(deps(db).readSkill)(
+      { name: "fact-check" },
+      toolOptions,
+    );
+    expect(result).toEqual({
+      name: "fact-check",
+      instructions: "My own version.",
+    });
+  });
+
+  // 复活陷阱在 readSkill 侧的回归锁：关掉内置 = 一条 enabled=false 的同名用户行。
+  // 若这里回落到内置，用户关掉的 skill 就复活了。
+  it("disabled 的同名用户行不回落内置", async () => {
+    const { db } = createTestDb();
+    await seedUser(db, "user-1");
+    await db.insert(assistantSkills).values({
+      userId: "user-1",
+      name: "fact-check",
+      description: "d",
+      body: "b",
+      enabled: false,
+    });
+
+    const result = await getExecute(deps(db).readSkill)(
+      { name: "fact-check" },
+      toolOptions,
+    );
+    expect(result).toEqual({ error: "skill is disabled" });
   });
 });
 
