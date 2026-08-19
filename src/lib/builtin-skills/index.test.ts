@@ -3,8 +3,13 @@
  * 所以文案写坏必须在这里变红，否则线上表现为 catalog 里凭空少一条。
  */
 import { describe, expect, it } from "vitest";
-import { skillNameSchema, SKILL_LIMITS } from "#/lib/skills";
-import { BUILTIN_SKILLS, builtinIdOf, findBuiltinById, isBuiltinId } from "./index";
+import { SKILL_LIMITS, skillNameSchema } from "#/lib/skills";
+import {
+  BUILTIN_SKILLS,
+  builtinIdOf,
+  findBuiltinById,
+  isBuiltinId,
+} from "./index";
 
 describe("builtin skills", () => {
   it("三条全部解析成功", () => {
@@ -15,18 +20,21 @@ describe("builtin skills", () => {
     ]);
   });
 
-  it.each(["fact-check", "daily-brief", "topic-scan"])("%s 的字段合法", (name) => {
-    const skill = BUILTIN_SKILLS.find((entry) => entry.name === name);
-    expect(skill).toBeDefined();
-    if (!skill) return;
-    expect(skillNameSchema.safeParse(skill.name).success).toBe(true);
-    // 超过 catalogDescriptionMax 会在系统提示里被截断加 "…"，模型看到的是半句话
-    expect(skill.description.length).toBeLessThanOrEqual(
-      SKILL_LIMITS.catalogDescriptionMax,
-    );
-    expect(skill.body.length).toBeLessThanOrEqual(SKILL_LIMITS.bodyMax);
-    expect(skill.body.trim().length).toBeGreaterThan(0);
-  });
+  it.each(["fact-check", "daily-brief", "topic-scan"])(
+    "%s 的字段合法",
+    (name) => {
+      const skill = BUILTIN_SKILLS.find((entry) => entry.name === name);
+      expect(skill).toBeDefined();
+      if (!skill) return;
+      expect(skillNameSchema.safeParse(skill.name).success).toBe(true);
+      // 超过 catalogDescriptionMax 会在系统提示里被截断加 "…"，模型看到的是半句话
+      expect(skill.description.length).toBeLessThanOrEqual(
+        SKILL_LIMITS.catalogDescriptionMax,
+      );
+      expect(skill.body.length).toBeLessThanOrEqual(SKILL_LIMITS.bodyMax);
+      expect(skill.body.trim().length).toBeGreaterThan(0);
+    },
+  );
 
   it("虚拟 id 往返", () => {
     expect(isBuiltinId(builtinIdOf("fact-check"))).toBe(true);
