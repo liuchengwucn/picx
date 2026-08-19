@@ -103,10 +103,11 @@ function CategoryPage() {
         <nav className="mt-12 border-t border-[var(--line)] pt-8">
           <div className="flex flex-wrap items-center justify-center gap-2">
             <Link
-              to="/gallery"
+              to="/gallery/archive"
+              activeOptions={{ exact: true }}
               className="shrink-0 rounded-full border border-[var(--academic-brown)] px-3 py-1 text-xs font-medium text-[var(--academic-brown)] transition-colors hover:bg-[var(--academic-brown)] hover:text-white no-underline"
             >
-              {m.explore_title()}
+              {m.archive_back()}
             </Link>
             {otherCategories.map((s) => (
               <Link
