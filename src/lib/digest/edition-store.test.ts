@@ -91,19 +91,10 @@ async function seed(db: Db) {
   ]);
 
   await db.insert(digests).values([
-    {
-      id: "dg-a-new",
-      directionId: "dir-a",
-      issueNumber: 2,
-      periodStart: NEW_START,
-      periodEnd: NEW_END,
-      status: "published",
-      title: four("A2"),
-      content: four("A2 body"),
-      workflowInstanceId: "wf-a2",
-      publishedAt: new Date("2026-08-18T06:00:00Z"),
-    },
-    // 同一方向同一组的第二期（补跑残留）：只应留期号最大的 dg-a-new
+    // 故意让期号小的 dg-a-dup 先插入：若实现漏掉 desc(issueNumber) 排序，
+    // SQLite 无 ORDER BY 时按插入序返回，「留最大期号」的去重就会悄悄退化成
+    // 「留插入序里先出现的」，从而选中 issue=1 而非 issue=2 —— 这条顺序安排
+    // 就是让那种回归在测试里变红的关键。
     {
       id: "dg-a-dup",
       directionId: "dir-a",
@@ -115,6 +106,19 @@ async function seed(db: Db) {
       content: four("A1 body"),
       workflowInstanceId: "wf-a1",
       publishedAt: new Date("2026-08-18T05:00:00Z"),
+    },
+    // 同一方向同一组的第二期（补跑残留）：只应留期号最大的 dg-a-new
+    {
+      id: "dg-a-new",
+      directionId: "dir-a",
+      issueNumber: 2,
+      periodStart: NEW_START,
+      periodEnd: NEW_END,
+      status: "published",
+      title: four("A2"),
+      content: four("A2 body"),
+      workflowInstanceId: "wf-a2",
+      publishedAt: new Date("2026-08-18T06:00:00Z"),
     },
     {
       id: "dg-b-new",
@@ -165,9 +169,10 @@ async function seed(db: Db) {
     },
   ]);
 
-  // dir-a 本期 4 篇（1 篇软删 ⇒ pickCount 应为 3），dir-b 本期 1 篇
+  // dir-a 本期 5 篇（1 篇软删 ⇒ pickCount 应为 4，仍严格大于 PICKS_PER_SECTION
+  // 以证明 pickCount 是「未软删总数」而非「截断后长度」），dir-b 本期 1 篇
   await db.insert(papers).values(
-    [1, 2, 3, 4, 5].map((i) => ({
+    [1, 2, 3, 4, 5, 6].map((i) => ({
       id: `p${i}`,
       userId: "u1",
       shortId: `s${i}`,
@@ -215,6 +220,12 @@ async function seed(db: Db) {
       recommendationNote: four("note4"),
     },
     {
+      digestId: "dg-a-new",
+      paperId: "p6",
+      rank: 5,
+      recommendationNote: four("note6"),
+    },
+    {
       digestId: "dg-b-new",
       paperId: "p5",
       rank: 1,
@@ -249,8 +260,10 @@ describe("getEditionByPeriod", () => {
   it("pickCount 不计软删论文，picks 截到 PICKS_PER_SECTION 且按 rank 升序", async () => {
     const ed = await getEditionByPeriod(db, "2026-08-15");
     const a = ed?.sections.find((s) => s.directionSlug === "aaa");
-    expect(a?.pickCount).toBe(3);
-    expect(a?.picks).toHaveLength(Math.min(3, PICKS_PER_SECTION));
+    // 未软删总数（4）严格大于截断长度（PICKS_PER_SECTION=3）：两种语义在此
+    // 不会重合，pickCount 若被误写成 picks.length 这条断言会当场变红。
+    expect(a?.pickCount).toBe(4);
+    expect(a?.picks.length).toBe(PICKS_PER_SECTION);
     expect(a?.picks.map((p) => p.rank)).toEqual([1, 2, 3]);
     expect(a?.picks[0].whiteboardImageR2Key).toBe("wb/p1.png");
     // 无白板的论文照样在清单里（leftJoin），前端降级成文字条目
@@ -276,7 +289,7 @@ describe("listEditionPeriods", () => {
     const list = await listEditionPeriods(db);
     expect(list.map((e) => e.period)).toEqual(["2026-08-15", "2026-08-08"]);
     expect(list[0].directionCount).toBe(2);
-    expect(list[0].pickCount).toBe(4); // dg-a-new 3 + dg-b-new 1，p4 已软删
+    expect(list[0].pickCount).toBe(5); // dg-a-new 4 + dg-b-new 1，p4 已软删
     expect(list[0].periodEnd.toISOString()).toBe("2026-08-15T23:59:59.000Z");
   });
 });
