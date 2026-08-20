@@ -60,10 +60,11 @@ describe("assembleTodayCards", () => {
   });
 
   it("有合刊: 次要论文归论文卡底座, 画廊精选让位", () => {
+    const ed = edition();
     const cards = assembleTodayCards({
       stories: [story(1), story(2), story(3), story(4), story(5), story(6)],
       papers: [paper(1), paper(2), paper(3), paper(4)],
-      edition: edition(),
+      edition: ed,
     });
     expect(cards.headline?.shortId).toBe("s1");
     expect(cards.subStories.map((s) => s.shortId)).toEqual([
@@ -76,7 +77,8 @@ describe("assembleTodayCards", () => {
     expect(cards.latestPaper?.shortId).toBe("p1");
     expect(cards.relatedPapers.map((p) => p.shortId)).toEqual(["p2", "p3"]);
     expect(cards.galleryPicks).toEqual([]);
-    expect(cards.edition).not.toBeNull();
+    // toBe 而不是 not.toBeNull: 要钉住的是「原样透传」, 非空只是它的副作用
+    expect(cards.edition).toBe(ed);
   });
 
   it("无合刊(fallback): 画廊精选取 3 篇, 论文卡不挂次要论文", () => {

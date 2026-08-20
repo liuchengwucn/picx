@@ -12,7 +12,6 @@ import {
 } from "#/lib/home/today";
 import { formatRelative } from "#/lib/relative-time";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
-import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -92,27 +91,22 @@ function CardShell({
   );
 }
 
-/** 卡内「查看全部」尾链:统一的 11px 棕色小字 + 箭头微位移。 */
+/**
+ * 卡内「查看全部」尾链:统一的 11px 棕色小字 + 箭头微位移,并钉在卡底
+ * (要求父容器 flex-col —— CardShell 已经是)。余量为 0 时 pt-3 与原来的 mt-3 等价,
+ * 所以不需要给调用方留开关: 三张卡的尾链本来就该长一个样、待在同一个位置。
+ */
 function MoreLink({
   to,
-  className,
   children,
 }: {
   to: "/news" | "/gallery";
-  /**
-   * 卡片需要把尾链钉到底部时传 "mt-auto pt-3"。cn 走 tailwind-merge, mt-auto 会
-   * 覆盖掉默认的 mt-3 而不是与之并存。
-   */
-  className?: string;
   children: ReactNode;
 }) {
   return (
     <Link
       to={to}
-      className={cn(
-        "group mt-3 inline-flex items-center gap-1 self-start text-[11px] font-semibold text-[var(--academic-brown)] no-underline transition-colors hover:text-[var(--academic-brown-deep)]",
-        className,
-      )}
+      className="group mt-auto inline-flex items-center gap-1 self-start pt-3 text-[11px] font-semibold text-[var(--academic-brown)] no-underline transition-colors hover:text-[var(--academic-brown-deep)]"
     >
       {children}
       <ArrowRight
@@ -153,13 +147,11 @@ function HeadlineCard({
       <Link
         to="/news/$shortId"
         params={{ shortId: headline.shortId }}
-        className={cn(
-          "group mt-3 flex flex-col no-underline",
-          // 有图才让这块吃余量: 无图时 grow 会把空白塞进标题与时间戳之间。
-          // SelfHidingImage 的语义是「取不到图就整个消失」, 那种情况下这个类还在,
-          // 但里面没东西可长, 余量顺势落到下面 MoreLink 的 mt-auto 上。
-          leadImage && "grow",
-        )}
+        // 弹性件是里面那张图, 所以钉在 :has 上而不是 leadImage 上: SelfHidingImage 会在
+        // hydration 时把加载失败的 img 整个卸掉(news-cron 的 fail-open 会刻意存下探活
+        // 失败的图), 那一刻这块必须立刻停止吃余量, 否则余量会变成标题与时间戳之间的
+        // 一道空白 —— 而且 Link 吃光后 MoreLink 的 mt-auto 算出来是 0, 兜底接不住。
+        className="group mt-3 flex flex-col no-underline has-[>img]:grow"
       >
         {leadImage ? (
           // 首屏内容走 eager。grow shrink-0 而不是 flex-1: flex-basis:0% 会让这张图
@@ -198,9 +190,7 @@ function HeadlineCard({
         </ul>
       ) : null}
 
-      <MoreLink to="/news" className="mt-auto pt-3">
-        {m.home_more_news()}
-      </MoreLink>
+      <MoreLink to="/news">{m.home_more_news()}</MoreLink>
     </CardShell>
   );
 }
@@ -314,9 +304,7 @@ function WeeklyEditionCard({
         </div>
       ) : null}
 
-      <MoreLink to="/gallery" className="mt-auto pt-3">
-        {m.home_more_gallery()}
-      </MoreLink>
+      <MoreLink to="/gallery">{m.home_more_gallery()}</MoreLink>
     </CardShell>
   );
 }
@@ -360,9 +348,7 @@ function GalleryPicksCard({
         })}
       </ul>
 
-      <MoreLink to="/gallery" className="mt-auto pt-3">
-        {m.home_more_gallery()}
-      </MoreLink>
+      <MoreLink to="/gallery">{m.home_more_gallery()}</MoreLink>
     </CardShell>
   );
 }

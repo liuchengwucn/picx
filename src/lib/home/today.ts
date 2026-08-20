@@ -283,8 +283,9 @@ export function assembleTodayCards(
   return {
     headline: headline ?? null,
     subStories: restStories.slice(0, 5),
-    // ?? null 而不是直接透传: tRPC 反序列化路径上它可能是 undefined, 统一收敛成 null
-    // 让消费侧只需判一种空值。
+    // ?? null 在这一行其实是冗余的(上游已经是 HomeEdition | null, 不像 headline /
+    // latestPaper 那样从可能为空的数组解构出 undefined), 保留只为让三行同形 ——
+    // 一行例外会诱使下一个人反过来把「这里不需要」的结论抄到真正需要它的字段上。
     edition: data.edition ?? null,
     latestPaper: latestPaper ?? null,
     relatedPapers: hasEdition ? restPapers.slice(0, 2) : [],
