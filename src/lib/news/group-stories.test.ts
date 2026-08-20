@@ -5,6 +5,7 @@ import {
   dateKeyOf,
   type GroupableStory,
   groupStoriesByDay,
+  MAX_SUB_FEATURED,
 } from "./group-stories";
 
 const story = (over: Partial<GroupableStory> & { shortId: string }) =>
@@ -55,7 +56,7 @@ describe("groupStoriesByDay", () => {
     expect(groups[1].subFeatured).toEqual([]);
   });
 
-  it("promotes all >=80 stories: top score featured, rest sub-featured in input order", () => {
+  it("promotes stories above the threshold: top score featured, rest sub-featured in input order", () => {
     const mk = (shortId: string, scoreMax: number, hour: number) =>
       story({
         shortId,
@@ -64,13 +65,51 @@ describe("groupStoriesByDay", () => {
       });
     // 输入时间倒序：t85 晚于 t90 发布，但大头条仍取最高分 t90
     const groups = groupStoriesByDay(
-      [mk("t85", 85, 6), mk("t90", 90, 5), mk("t80", 80, 4), mk("low", 70, 3)],
+      [mk("t85", 85, 6), mk("t90", 90, 5), mk("t80", 80, 4), mk("low", 65, 3)],
       "Asia/Shanghai",
     );
     expect(groups).toHaveLength(1);
     expect(groups[0].featured.shortId).toBe("t90");
     expect(groups[0].subFeatured.map((s) => s.shortId)).toEqual(["t85", "t80"]);
     expect(groups[0].rest.map((s) => s.shortId)).toEqual(["low"]);
+  });
+
+  it("caps sub-featured at MAX_SUB_FEATURED, keeping the strongest and spilling the rest", () => {
+    const mk = (shortId: string, scoreMax: number, hour: number) =>
+      story({
+        shortId,
+        scoreMax,
+        earliestPublishedAt: new Date(
+          `2026-08-04T${String(hour).padStart(2, "0")}:00:00Z`,
+        ),
+      });
+    // 六条达标：最高分作大头条，次头条只留最强的 MAX_SUB_FEATURED 条，
+    // 其余落回 rest —— 不能凭空消失
+    const input = [
+      mk("s72", 72, 9),
+      mk("s95", 95, 8),
+      mk("s88", 88, 7),
+      mk("s70", 70, 6),
+      mk("s85", 85, 5),
+      mk("s78", 78, 4),
+    ];
+    const groups = groupStoriesByDay(input, "Asia/Shanghai");
+    expect(groups[0].featured.shortId).toBe("s95");
+    expect(groups[0].subFeatured).toHaveLength(MAX_SUB_FEATURED);
+    // 取分数最高的三条（88/85/78），但展示顺序沿用输入的时间倒序
+    expect(groups[0].subFeatured.map((s) => s.shortId)).toEqual([
+      "s88",
+      "s85",
+      "s78",
+    ]);
+    expect(groups[0].rest.map((s) => s.shortId)).toEqual(["s72", "s70"]);
+    // 没有条目在分层过程中丢失
+    const seen = [
+      groups[0].featured.shortId,
+      ...groups[0].subFeatured.map((s) => s.shortId),
+      ...groups[0].rest.map((s) => s.shortId),
+    ];
+    expect(seen.sort()).toEqual(input.map((s) => s.shortId).sort());
   });
 
   it("breaks ties by sourceCount then hn points; null score loses", () => {
@@ -107,13 +146,13 @@ describe("groupStoriesByDay", () => {
   });
 
   it("keeps first occurrence as featured on full tie and preserves rest order", () => {
-    const s1 = story({ shortId: "s1", scoreMax: 70 });
-    const s2 = story({ shortId: "s2", scoreMax: 70 });
+    const s1 = story({ shortId: "s1", scoreMax: 65 });
+    const s2 = story({ shortId: "s2", scoreMax: 65 });
     const s3 = story({ shortId: "s3", scoreMax: 60 });
     const groups = groupStoriesByDay([s1, s2, s3], "Asia/Shanghai");
     expect(groups).toHaveLength(1);
     expect(groups[0].featured.shortId).toBe("s1");
-    // 无 ≥80 者：只有兜底大头条，没有次头条
+    // 全天无达标者：只有兜底大头条，没有次头条
     expect(groups[0].subFeatured).toEqual([]);
     expect(groups[0].rest.map((s) => s.shortId)).toEqual(["s2", "s3"]);
   });

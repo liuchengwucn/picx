@@ -18,8 +18,13 @@ export interface DayGroup<T extends GroupableStory> {
   rest: T[];
 }
 
-// scoreMax 达到该阈值的 story 全部进当天头条区；无达标者退回单条最高分
-export const FEATURED_SCORE_MIN = 80;
+// scoreMax 达到该阈值的 story 进当天头条区；无达标者退回单条最高分。
+// 2026-08-20 由 80 下调至 70：8/13 的打分降权改动压低了整体分数，80 在新分布下
+// 近乎架空（近五日有四日一条次头条都没有）。按生产数据校准到「每天 2-3 条次头条」。
+export const FEATURED_SCORE_MIN = 70;
+// 次头条条数上限。日产量波动约 3 倍，单靠阈值无法稳定命中 2-3 条：阈值定低了
+// 繁忙日会冒出六七条，定高了清淡日一条没有。上限负责压住上沿，阈值负责保住质量下限。
+export const MAX_SUB_FEATURED = 3;
 
 // en-CA 的数字短日期恰好是 YYYY-MM-DD；timeZone 仅测试时显式传，生产用浏览器本地时区
 // Intl.DateTimeFormat 构造开销大，按 timeZone 缓存实例（300 条实测 8ms→0.17ms）
@@ -93,8 +98,15 @@ export function groupStoriesByDay<T extends GroupableStory>(
       if (compareFeatured(story, best) > 0) best = story;
     }
     group.featured = best;
-    // 次头条与 rest 均沿用输入的时间倒序
-    group.subFeatured = candidates.filter((story) => story !== best);
+    // 次头条按头条优先级取前 MAX_SUB_FEATURED 条，落选者由下面的 promoted 反算
+    // 自动回到 rest（不会凭空消失）。挑完再按输入的时间倒序展示，与 rest 一致。
+    const others = candidates.filter((story) => story !== best);
+    const picked = new Set(
+      [...others]
+        .sort((a, b) => compareFeatured(b, a))
+        .slice(0, MAX_SUB_FEATURED),
+    );
+    group.subFeatured = others.filter((story) => picked.has(story));
     const promoted = new Set<GroupableStory>([best, ...group.subFeatured]);
     group.rest = bucket.filter((story) => !promoted.has(story));
   }
