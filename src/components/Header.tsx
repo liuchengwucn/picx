@@ -56,12 +56,11 @@ export default function Header() {
             className={`nav-link inline-flex items-center gap-1.5${inGallerySection ? " is-active" : ""}`}
           >
             <Globe className="h-4 w-4" />
-            {/* nav_gallery、edition_kicker、home_kicker_gallery 眼下值相同(都是
-                「画廊周刊」), 这是刻意共存而不是待清理的重复: 三处分别是导航标签、
-                刊头上的刊名、首页卡的栏眉, 各自有独立的改写理由(比如导航为了排版换成
-                动词短语时, 刊物不该跟着改名)。合并成一个键之后, 任何一侧的文案调整都
-                会连坐另外两侧。
-                值相同不是巧合而是要求: 同一个目的地在全站只能有一个名字。描述内容的
+            {/* nav_gallery 是导航标签, edition_kicker(刊头刊名)、home_kicker_gallery
+                (首页卡栏眉)是刊物名 —— 三个键刻意分开而不是待清理的重复, 各自有独立的
+                改写理由。这里就是一例: 导航为了排版缩成「周刊」, 刊名仍是「画廊周刊」,
+                若当初合并成一个键, 这次改动会连坐刊头和首页卡。
+                刊名那两处彼此仍须同值: 同一个目的地在全站只能有一个名字。描述内容的
                 文案(如 home_cta_gallery「浏览方向简报」)不受这条约束。 */}
             <span>{m.nav_gallery()}</span>
           </Link>
