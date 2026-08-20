@@ -304,14 +304,25 @@ function WeeklyEditionCard({
         </ul>
       ) : null}
 
+      {/* 周刊卡没有图可以伸缩, 弹性件就是这一块: 方向名从「挤成一行」改为一行一个,
+          整块 grow、条目 flex-1 均分高度。方向多的期次靠条目数填, 方向少的期次靠均分
+          撑 —— 与当期有几个方向无关, 这是它区别于「多列两条重点栏目」那种配额式修法的
+          地方。gap-1.5 是余量为 0 时的下限(auto 外边距与均分在无余量时都退化成 0)。 */}
       {otherNames.length > 0 ? (
-        <div className="mt-3 border-t border-[var(--line)] pt-2.5">
+        <div className="mt-3 flex grow flex-col border-t border-[var(--line)] pt-2.5">
           <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
             {m.home_edition_more()}
           </p>
-          <p className="mt-1 text-[12px] leading-relaxed text-[var(--ink-soft)]">
-            {otherNames.join(" · ")}
-          </p>
+          <ul className="mt-1 flex grow flex-col gap-1.5">
+            {otherNames.map((name) => (
+              <li
+                key={name}
+                className="flex flex-1 items-center text-[12px] leading-snug text-[var(--ink-soft)]"
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
