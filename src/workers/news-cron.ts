@@ -52,7 +52,7 @@ const CLUSTER_WINDOW_HOURS = 72;
 // 把整体分布压低了，正常条目（非降权目标）也连带被压 ~5 分。809 条配对重打分
 // （同批构成下新旧 prompt 各打一遍）显示门槛 65 只召回旧标准入选量的 70%，
 // 55 召回 93% 而入选集噪声率仅由 7% 升到 10%。
-const RELEVANCE_THRESHOLD = 55;
+const RELEVANCE_THRESHOLD = 60;
 const SIM_CANDIDATE_THRESHOLD = 0.6;
 const TOP_K = 5;
 const FILTER_BATCH_SIZE = 25;
