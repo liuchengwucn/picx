@@ -22,7 +22,9 @@ const paper = (n: number): HomePaper => ({
   hasImage: true,
 });
 
-// 分配只看 edition 是否为 null, 字段值本身不参与判断, 给一份最小合法对象即可
+// 分配只看 edition 是否为 null, 字段值本身不参与判断, 给一份最小合法对象即可。
+// 渲染测试别直接复用这份: 它的计数与数组内容刻意不自洽(说 7 个方向 63 篇, 两个
+// 数组却都是空的), 现实中不存在这种组合, 拿去测 WeeklyEditionCard 会测出假结论。
 const edition = (): HomeEdition => ({
   periodStart: 1_700_000_000_000,
   periodEnd: 1_700_600_000_000,
@@ -93,10 +95,13 @@ describe("assembleTodayCards", () => {
 
   // 这条是本次改动真正的回归风险: 两张卡都从 papers[1..] 取, 无条件分配会让同一篇
   // 论文在首页出现两次。两个分支都断言一遍。
+  //
+  // 光断言"无重复"会被"静默少渲染"骗过(极端情形: 两个数组都空, 集合大小当然等于
+  // 长度), 所以连带钉住条数。
   it.each([
-    { name: "有合刊", ed: edition() },
-    { name: "无合刊", ed: null },
-  ])("$name: 论文卡与画廊精选永不重复同一篇", ({ ed }) => {
+    { name: "有合刊", ed: edition(), expected: 3 },
+    { name: "无合刊", ed: null, expected: 4 },
+  ])("$name: 论文卡与画廊精选永不重复同一篇", ({ ed, expected }) => {
     const cards = assembleTodayCards({
       stories: [],
       papers: [paper(1), paper(2), paper(3), paper(4)],
@@ -106,7 +111,9 @@ describe("assembleTodayCards", () => {
       cards.latestPaper?.shortId,
       ...cards.relatedPapers.map((p) => p.shortId),
       ...cards.galleryPicks.map((p) => p.shortId),
-    ].filter(Boolean);
+      // 不能用 filter(Boolean): 那会连空串 shortId 一起吞掉, 将来夹具一变就静默少算
+    ].filter((id): id is string => id != null);
+    expect(shown).toHaveLength(expected);
     expect(new Set(shown).size).toBe(shown.length);
   });
 

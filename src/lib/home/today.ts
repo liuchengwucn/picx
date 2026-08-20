@@ -72,7 +72,9 @@ export interface HomePaper {
   hasImage: boolean;
 }
 
-/** 首页周刊卡渲染所需的最小切片: 刊头级数字 + 前两个栏目的名字。 */
+/**
+ * 首页周刊卡渲染所需的最小切片: 刊头级数字 + 前两个栏目的名字与标题 + 其余方向名。
+ */
 export interface HomeEdition {
   /**
    * 周期两端, epoch ms(与 HomeStory.publishedAt 同款数字而不是 Date: loader 数据
@@ -93,9 +95,10 @@ export interface HomeEdition {
    * 由组件按当前 locale 挑 —— 服务端不知道客户端渲染时的 locale(语言切换不重新
    * 走 loader)。
    *
-   * 实测(本地三期夹具)整个 edition 字段给首屏 HTML 加约 1.15 KB, 其中几乎全部是
-   * 这两条四语标题(CJK 一字 3 字节)。想再压只能砍语言, 而语言是不能砍的。整份
-   * sections 是几十 KB 量级, 差两个数量级 —— 那才是这个字段存在的理由。
+   * 实测(本地三期夹具)整个 edition 字段给首屏 HTML 加约 1.65 KB, 拆开是 highlights
+   * 约 1.15 KB(几乎全部是这两条四语标题, CJK 一字 3 字节) + otherDirectionNames
+   * 约 0.5 KB。highlights 那份想再压只能砍语言, 而语言是不能砍的。整份 sections 是
+   * 几十 KB 量级, 差两个数量级 —— 那才是这个字段存在的理由。
    */
   highlights: Array<{
     directionName: Record<string, string>;
@@ -103,9 +106,10 @@ export interface HomeEdition {
   }>;
   /**
    * 本期有更新、但没排进 highlights 的方向名(即 sections.slice(EDITION_HIGHLIGHT_COUNT))。
-   * 只有名字没有标题: 四语一条约 60–80 字节, 7 个方向满打满算约 0.5KB —— 比 highlights
-   * 里每条带四语期标题的约 550 字节便宜一个量级, 所以这个字段可以列全, 而 highlights
-   * 仍然只露两条。
+   * 只有名字没有标题: 四语一条约 85–110 字节(实测 seed-directions.sql:13 的
+   * 「AI 形式化数学」是 110, 更短的方向名 85–95), 7 个方向 = 这里 5 条, 满打满算
+   * 约 0.5KB —— 比 highlights 里每条带四语期标题的约 550 字节便宜五六倍, 所以这个
+   * 字段可以列全, 而 highlights 仍然只露两条。
    *
    * 刻意不含本期缺席的方向(activeDirectionCount − directionCount 那一部分): 卡上就写着
    * 「N 个方向 · M 篇入选」, 这一行若混进没更新的方向, 数字与清单会自相矛盾。
@@ -128,7 +132,7 @@ export interface HomeToday {
  * 首页卡只露两条**带标题**的栏目: 卡高要与旁边的头条卡对齐(列满 7 条会把首页第一屏
  * 撑掉), 而每多一条就多一份四语标题进首屏 HTML(约 550 字节/条)。
  *
- * 其余方向只出名字(otherDirectionNames), 那个量级是 60–80 字节/条, 便宜一个数量级,
+ * 其余方向只出名字(otherDirectionNames), 那个量级是 85–110 字节/条, 便宜五六倍,
  * 所以可以列全 —— 卡片底部那行「本期还有」就是用它渲染的。
  */
 const EDITION_HIGHLIGHT_COUNT = 2;
@@ -248,7 +252,7 @@ export interface TodayCards {
    * 论文卡底座上的次要论文, ≤2。与 galleryPicks 互斥(见 assembleTodayCards 的注释)。
    */
   relatedPapers: HomePaper[];
-  /** 简报位 fallback「画廊精选」卡, ≤3, 与 latestPaper 不重复 */
+  /** 简报位 fallback「画廊精选」卡, ≤3, 与 latestPaper 不重复; 有合刊时恒为 [] */
   galleryPicks: HomePaper[];
 }
 
@@ -262,6 +266,10 @@ export function assembleTodayCards(
   // 必须跟着同一个分支走: 有合刊时 papers[1..2] 归论文卡底座, 没有合刊时 papers[1..3]
   // 归画廊精选卡。无条件两边都取会让同一篇论文在首页出现两次。
   const hasEdition = data.edition != null;
+  // 已知且刻意的浪费: 有合刊(首期发布后的常态路径)时只用到 papers[0..2], papers[3]
+  // 照查、照序列化进首屏 HTML、渲染侧一个字都不用, 成本约 0.5KB。别去裁上游那个
+  // limit(4) —— 那会让 getHomeToday 的返回形状取决于这里的卡片分配规则, 把查询函数
+  // 和纯函数绑死, 不值这 0.5KB。写在这里是免得下一个人再算一遍。
   return {
     headline: headline ?? null,
     subStories: restStories.slice(0, 5),
