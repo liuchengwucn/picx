@@ -71,7 +71,7 @@ async function seed(db: Db) {
   await db.insert(directions).values([
     {
       id: "dir-withdigests",
-      slug: "ai4formath",
+      slug: "formal-math",
       name: four("AI4Math"),
       focusBrief: "自动定理证明",
       isActive: true,
@@ -285,7 +285,7 @@ describe("upsertDirection", () => {
   it("rejects a new direction whose slug is taken, inserting nothing", async () => {
     const before = await db.select().from(directions);
     const result = await upsertDirection(db, {
-      slug: "ai4formath",
+      slug: "formal-math",
       name: four("Clash"),
       focusBrief: "撞车",
       isActive: true,
@@ -300,7 +300,7 @@ describe("upsertDirection", () => {
   it("updates an existing direction keeping its own slug", async () => {
     const result = await upsertDirection(db, {
       id: "dir-withdigests",
-      slug: "ai4formath",
+      slug: "formal-math",
       name: four("AI4Math v2"),
       focusBrief: "改过的口味描述",
       intro: four("公开简介"),
@@ -313,7 +313,7 @@ describe("upsertDirection", () => {
       .from(directions)
       .where(eq(directions.id, "dir-withdigests"));
     expect(row).toMatchObject({
-      slug: "ai4formath",
+      slug: "formal-math",
       focusBrief: "改过的口味描述",
       isActive: false,
       sortOrder: 7,
@@ -417,7 +417,7 @@ describe("upsertDirection", () => {
       .from(directions)
       .where(eq(directions.id, "dir-withdigests"));
     expect(row).toMatchObject({
-      slug: "ai4formath",
+      slug: "formal-math",
       focusBrief: "自动定理证明",
       isActive: true,
       sortOrder: 0,
@@ -429,7 +429,7 @@ describe("listDirectionsAdmin", () => {
   it("orders by sortOrder then slug and groups each direction's sources under it", async () => {
     const rows = await listDirectionsAdmin(db);
     expect(rows.map((d) => d.slug)).toEqual([
-      "ai4formath",
+      "formal-math",
       "agents",
       "brandnew",
     ]);
@@ -570,7 +570,7 @@ describe("reviveSource", () => {
 describe("listRecentDigestsAdmin", () => {
   it("returns the 10 newest issues per direction including internal fields", async () => {
     const rows = await listRecentDigestsAdmin(db);
-    const forDirection = rows.filter((r) => r.directionSlug === "ai4formath");
+    const forDirection = rows.filter((r) => r.directionSlug === "formal-math");
     expect(forDirection.map((r) => r.issueNumber)).toEqual([
       12, 11, 10, 9, 8, 7, 6, 5, 4, 3,
     ]);
@@ -957,7 +957,7 @@ describe("listPendingProposals", () => {
       proposal: PROPOSAL,
       status: "published",
       directionId: "dir-withdigests",
-      directionSlug: "ai4formath",
+      directionSlug: "formal-math",
       // currentFocusBrief 是方向当前的值，不是提案值——管理页要拿这两者上下对照
       currentFocusBrief: "自动定理证明",
     });

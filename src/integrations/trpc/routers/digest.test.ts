@@ -62,7 +62,7 @@ async function seed(db: Db) {
   await db.insert(directions).values([
     {
       id: "dir-a",
-      slug: "ai4formath",
+      slug: "formal-math",
       name: four("AI4Math"),
       focusBrief: "自动定理证明与形式化数学",
       intro: four("Intro"),
@@ -362,13 +362,13 @@ beforeAll(async () => {
 describe("digest.getIssue", () => {
   it("returns the published issue with its papers ordered by rank", async () => {
     const issue = await caller.getIssue({
-      slug: "ai4formath",
+      slug: "formal-math",
       issueNumber: 2,
       locale: "zh-CN",
     });
 
     expect(issue).not.toBeNull();
-    expect(issue?.directionSlug).toBe("ai4formath");
+    expect(issue?.directionSlug).toBe("formal-math");
     expect(issue?.directionName).toBe("AI4Math zh-cn");
     expect(issue?.title).toBe("Issue 2 zh-cn");
     expect(issue?.content).toBe(ISSUE_2_CONTENT);
@@ -394,7 +394,7 @@ describe("digest.getIssue", () => {
 
   it("links only to neighbouring published issues", async () => {
     const issue2 = await caller.getIssue({
-      slug: "ai4formath",
+      slug: "formal-math",
       issueNumber: 2,
     });
     // 第 3/4 期是 generating/failed，不能成为「下一期」
@@ -402,7 +402,7 @@ describe("digest.getIssue", () => {
     expect(issue2?.nextIssue).toBeNull();
 
     const issue1 = await caller.getIssue({
-      slug: "ai4formath",
+      slug: "formal-math",
       issueNumber: 1,
     });
     expect(issue1?.prevIssue).toBeNull();
@@ -412,7 +412,7 @@ describe("digest.getIssue", () => {
   it("omits soft-deleted papers from the issue's paper list", async () => {
     // p3 是 dg-2 的 rank 3 入选论文但已软删：标题与白板 R2 key 都不该再对外渲染
     const issue = await caller.getIssue({
-      slug: "ai4formath",
+      slug: "formal-math",
       issueNumber: 2,
     });
     expect(issue?.papers.map((p) => p.id)).not.toContain("p3");
@@ -422,10 +422,10 @@ describe("digest.getIssue", () => {
 
   it("hides issues that are not published", async () => {
     await expect(
-      caller.getIssue({ slug: "ai4formath", issueNumber: 3 }),
+      caller.getIssue({ slug: "formal-math", issueNumber: 3 }),
     ).resolves.toBeNull();
     await expect(
-      caller.getIssue({ slug: "ai4formath", issueNumber: 4 }),
+      caller.getIssue({ slug: "formal-math", issueNumber: 4 }),
     ).resolves.toBeNull();
   });
 
@@ -434,7 +434,7 @@ describe("digest.getIssue", () => {
       caller.getIssue({ slug: "nope", issueNumber: 1 }),
     ).resolves.toBeNull();
     await expect(
-      caller.getIssue({ slug: "ai4formath", issueNumber: 99 }),
+      caller.getIssue({ slug: "formal-math", issueNumber: 99 }),
     ).resolves.toBeNull();
   });
 
@@ -448,7 +448,7 @@ describe("digest.getIssue", () => {
 
   it("never leaks internal digest fields", async () => {
     const issue = await caller.getIssue({
-      slug: "ai4formath",
+      slug: "formal-math",
       issueNumber: 2,
     });
     expect(Object.keys(issue ?? {}).sort()).toEqual([
@@ -492,13 +492,13 @@ describe("digest.listDirections", () => {
   it("lists active directions with their latest published issue", async () => {
     const dirs = await caller.listDirections({ locale: "ja" });
     expect(dirs.map((d) => d.slug)).toEqual([
-      "ai4formath",
+      "formal-math",
       "no-issues-yet",
       "en-only-intro",
       "many-issues",
     ]);
     expect(dirs[0]).toEqual({
-      slug: "ai4formath",
+      slug: "formal-math",
       name: "AI4Math ja",
       // createdAt 是后续「先到先得」配色的排序键：必须真被透传, 不是随手漏掉
       createdAt: expect.any(Date),
@@ -521,7 +521,7 @@ describe("digest.listDirections", () => {
 describe("digest.getDirection", () => {
   it("returns a page of issues newest first, each with an excerpt but no content, plus counts", async () => {
     const detail = await caller.getDirection({
-      slug: "ai4formath",
+      slug: "formal-math",
       locale: "zh-CN",
     });
     expect(detail?.name).toBe("AI4Math zh-cn");
@@ -556,7 +556,7 @@ describe("digest.getDirection", () => {
   // 内部原文一个字都不该出现在响应里（存量 NULL intro 的回退除外，见下一条）
   it("serves the requested locale's intro and never the internal focusBrief", async () => {
     const detail = await caller.getDirection({
-      slug: "ai4formath",
+      slug: "formal-math",
       locale: "ja",
     });
     expect(detail?.intro).toBe("Intro ja");
@@ -650,17 +650,17 @@ describe("digest.getEdition", () => {
     });
     expect(edition).not.toBeNull();
     expect(edition?.period).toBe("2026-08-03");
-    // dg-2 是 ai4formath 在这组里 issue_number 更大的「获胜」期, dg-1 落选;
+    // dg-2 是 formal-math 在这组里 issue_number 更大的「获胜」期, dg-1 落选;
     // dir-c(en-only-intro) 也在同一天出刊, 两个方向都该出现, 顺序按 sortOrder
     expect(edition?.sections.map((s) => s.directionSlug)).toEqual([
-      "ai4formath",
+      "formal-math",
       "en-only-intro",
     ]);
     // retired 方向 isActive=false, many-issues 的期落在另一组日期, 都不该混进来
     expect(edition?.sections.map((s) => s.directionSlug)).not.toContain(
       "retired",
     );
-    // active 方向总数 = ai4formath/no-issues-yet/en-only-intro/many-issues, 不含 retired
+    // active 方向总数 = formal-math/no-issues-yet/en-only-intro/many-issues, 不含 retired
     expect(edition?.activeDirectionCount).toBe(4);
     // 这组是全库里日期最晚的一组(dir-many 的期全在更早的 2025-06), 没有更晚一组
     expect(edition?.isLatest).toBe(true);
@@ -684,7 +684,7 @@ describe("digest.getEdition", () => {
 
     const first = edition?.sections[0];
     expect(first).toMatchObject({
-      directionSlug: "ai4formath",
+      directionSlug: "formal-math",
       issueNumber: 2, // 获胜的是 issue2, 不是先插入的 issue1
       title: "Issue 2 zh-cn",
       excerpt: "本期看点：形式化数学 有实质进展",

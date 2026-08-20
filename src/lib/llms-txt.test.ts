@@ -28,13 +28,13 @@ const papers = [
 
 const digests = [
   {
-    directionSlug: "ai4formath",
+    directionSlug: "formal-math",
     issueNumber: 1,
     title: "Issue 1: Formalization hits research level",
     content: "## Highlights\n\nAutoformalization moved past competition math.",
   },
   {
-    directionSlug: "ai4formath",
+    directionSlug: "formal-math",
     issueNumber: 2,
     title: "Issue 2: Verifier-guided search",
     content: "## Highlights\n\nProof search now leans on learned verifiers.",
@@ -128,10 +128,10 @@ describe("buildLlmsTxt", () => {
     const txt = buildLlmsTxt({ siteUrl, papers, digests });
     expect(txt).toContain("## Research Direction Digests");
     expect(txt).toContain(
-      "- [Issue 1: Formalization hits research level](https://picx.dev/gallery/d/ai4formath/1)",
+      "- [Issue 1: Formalization hits research level](https://picx.dev/gallery/d/formal-math/1)",
     );
     expect(txt).toContain(
-      "- [Issue 2: Verifier-guided search](https://picx.dev/gallery/d/ai4formath/2)",
+      "- [Issue 2: Verifier-guided search](https://picx.dev/gallery/d/formal-math/2)",
     );
   });
 
@@ -279,7 +279,7 @@ describe("buildLlmsFullTxt", () => {
     expect(txt).toContain("## Research Direction Digests");
     expect(txt).toContain("## Issue 1: Formalization hits research level");
     expect(txt).toContain(
-      "- **Permalink:** https://picx.dev/gallery/d/ai4formath/1",
+      "- **Permalink:** https://picx.dev/gallery/d/formal-math/1",
     );
     expect(txt).toContain("Autoformalization moved past competition math.");
   });
@@ -296,13 +296,13 @@ describe("buildLlmsFullTxt", () => {
   it("drops overflow digests and notes how many were omitted", () => {
     const bigDigests = [
       {
-        directionSlug: "ai4formath",
+        directionSlug: "formal-math",
         issueNumber: 1,
         title: "Issue 1",
         content: "A".repeat(4000),
       },
       {
-        directionSlug: "ai4formath",
+        directionSlug: "formal-math",
         issueNumber: 2,
         title: "Issue 2",
         content: "B".repeat(4000),

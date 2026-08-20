@@ -79,7 +79,7 @@ export function DirectionTabs({ activeSlug }: DirectionTabsProps) {
           上面这条 hairline, 又不会让横向滚动容器凭空多出 1px 纵向溢出 */}
       <div className="-mb-px flex items-center gap-5 overflow-x-auto px-1 text-sm">
         {/* activeOptions exact 不是可选项: Link 默认按前缀判 active, 于是在
-            /gallery/d/ai4formath 上「全部」(/gallery)也算 active、在期页上方向 tab
+            /gallery/d/formal-math 上「全部」(/gallery)也算 active、在期页上方向 tab
             也算 active。但即便 exact 挡住了大多数误判, TanStack 的
             STATIC_ACTIVE_PROPS 是在用户 props 之后展开的(见 link.js 的
             `...isActive && STATIC_ACTIVE_PROPS`), 一旦它判定的 isActive 为 true,

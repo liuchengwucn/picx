@@ -10,7 +10,7 @@
 -- 前置依赖:
 --   1) `user` 表至少有一行 —— papers.user_id 是 NOT NULL 外键, 本脚本用
 --      `(SELECT id FROM user ORDER BY id LIMIT 1)` 取真实用户, 空表会报 NOT NULL 失败。
---   2) 方向归属需要 scripts/seed-directions.sql 先跑过 (slug='ai4formath');
+--   2) 方向归属需要 scripts/seed-directions.sql 先跑过 (slug='formal-math');
 --      没跑过也不会失败, 那 5 篇的 direction_id 会是 NULL, 只是方向主页看不到卡。
 --
 -- 执行 (本地 D1):
@@ -40,7 +40,7 @@
 -- 数据里刻意埋的边界:
 --   - seed-gallery-007 **没有** paper_results (验 tldr 缺失时卡片不塌);
 --   - seed-gallery-005 的 tldr 特别长 (验 line-clamp);
---   - 001 / 004 / 009 / 013 / 018 归属 ai4formath, 其余 direction_id 为 NULL;
+--   - 001 / 004 / 009 / 013 / 018 归属 formal-math, 其余 direction_id 为 NULL;
 --   - published_at 互不相同且严格递减 (每篇差 8 小时), 好肉眼确认排序与分页边界;
 --   - tldr / summaries 的 key 是**小写** en / zh-cn / zh-tw / ja (写成 zh-CN 会挑不出来),
 --     四种语言内容真的不一样, 切语言时看得出有没有生效。
@@ -59,7 +59,7 @@ VALUES
   ('seed-gallery-001', 'sgal001', (SELECT id FROM user ORDER BY id LIMIT 1),
    'Lean-Copilot: Retrieval-Augmented Premise Selection for Interactive Theorem Proving',
    'arxiv', 'https://arxiv.org/abs/2699.10001', 'papers/seed-gallery/seed-gallery-001.pdf', 812340,
-   18, 214, (SELECT id FROM directions WHERE slug = 'ai4formath'), 'completed', 1, 1,
+   18, 214, (SELECT id FROM directions WHERE slug = 'formal-math'), 'completed', 1, 1,
    strftime('%s','now') - 3600 * 8,   strftime('%s','now') - 3600 * 8,   strftime('%s','now') - 3600 * 8),
   ('seed-gallery-002', 'sgal002', (SELECT id FROM user ORDER BY id LIMIT 1),
    'Scaling Laws for Mixture-of-Experts Under Fixed Inference Budgets',
@@ -74,7 +74,7 @@ VALUES
   ('seed-gallery-004', 'sgal004', (SELECT id FROM user ORDER BY id LIMIT 1),
    'Autoformalizing Undergraduate Analysis: A Benchmark and Baselines in Lean 4',
    'arxiv', 'https://arxiv.org/abs/2699.10004', 'papers/seed-gallery/seed-gallery-004.pdf', 743902,
-   16, 176, (SELECT id FROM directions WHERE slug = 'ai4formath'), 'completed', 1, 1,
+   16, 176, (SELECT id FROM directions WHERE slug = 'formal-math'), 'completed', 1, 1,
    strftime('%s','now') - 3600 * 32,  strftime('%s','now') - 3600 * 32,  strftime('%s','now') - 3600 * 32),
   ('seed-gallery-005', 'sgal005', (SELECT id FROM user ORDER BY id LIMIT 1),
    'SparseKV: Attention-Sink Aware KV Cache Eviction for Million-Token Contexts',
@@ -100,7 +100,7 @@ VALUES
   ('seed-gallery-009', 'sgal009', (SELECT id FROM user ORDER BY id LIMIT 1),
    'ProofNet-XL: Neural Proof Search with Verified Subgoal Decomposition',
    'arxiv', 'https://arxiv.org/abs/2699.10009', 'papers/seed-gallery/seed-gallery-009.pdf', 887210,
-   19, 163, (SELECT id FROM directions WHERE slug = 'ai4formath'), 'completed', 1, 1,
+   19, 163, (SELECT id FROM directions WHERE slug = 'formal-math'), 'completed', 1, 1,
    strftime('%s','now') - 3600 * 72,  strftime('%s','now') - 3600 * 72,  strftime('%s','now') - 3600 * 72),
   ('seed-gallery-010', 'sgal010', (SELECT id FROM user ORDER BY id LIMIT 1),
    'RAG on Trial: Measuring Attribution Faithfulness in Retrieval-Augmented Generation',
@@ -120,7 +120,7 @@ VALUES
   ('seed-gallery-013', 'sgal013', (SELECT id FROM user ORDER BY id LIMIT 1),
    'Mathlib as a Corpus: Statistical Structure of Formalized Mathematics',
    'arxiv', 'https://arxiv.org/abs/2699.10013', 'papers/seed-gallery/seed-gallery-013.pdf', 623904,
-   17, 142, (SELECT id FROM directions WHERE slug = 'ai4formath'), 'completed', 1, 1,
+   17, 142, (SELECT id FROM directions WHERE slug = 'formal-math'), 'completed', 1, 1,
    strftime('%s','now') - 3600 * 104, strftime('%s','now') - 3600 * 104, strftime('%s','now') - 3600 * 104),
   ('seed-gallery-014', 'sgal014', (SELECT id FROM user ORDER BY id LIMIT 1),
    'Diffusion Guidance Without Classifier-Free Sampling',
@@ -145,7 +145,7 @@ VALUES
   ('seed-gallery-018', 'sgal018', (SELECT id FROM user ORDER BY id LIMIT 1),
    'Formal Verification of Neural Network Controllers via Lean Tactics',
    'arxiv', 'https://arxiv.org/abs/2699.10018', 'papers/seed-gallery/seed-gallery-018.pdf', 795640,
-   18, 121, (SELECT id FROM directions WHERE slug = 'ai4formath'), 'completed', 1, 1,
+   18, 121, (SELECT id FROM directions WHERE slug = 'formal-math'), 'completed', 1, 1,
    strftime('%s','now') - 3600 * 144, strftime('%s','now') - 3600 * 144, strftime('%s','now') - 3600 * 144),
   ('seed-gallery-019', 'sgal019', (SELECT id FROM user ORDER BY id LIMIT 1),
    'Curriculum Data Mixing for Continual Pretraining of Small Language Models',

@@ -19,7 +19,7 @@ describe("fnv1a32", () => {
 
 describe("assignDirectionHues", () => {
   const seven = [
-    D("ai4formath", "2026-01-01T00:00:00Z"),
+    D("formal-math", "2026-01-01T00:00:00Z"),
     D("pretrain-data", "2026-01-02T00:00:00Z"),
     D("moe", "2026-01-03T00:00:00Z"),
     D("efficient-attention", "2026-01-04T00:00:00Z"),

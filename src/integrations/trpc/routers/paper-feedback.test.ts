@@ -50,7 +50,7 @@ async function seed(db: Db) {
   await db.insert(directions).values([
     {
       id: "dir-a",
-      slug: "ai4formath",
+      slug: "formal-math",
       name: four("AI4Math"),
       focusBrief: "自动定理证明",
       isActive: true,
@@ -407,8 +407,8 @@ describe("paperCount stays tied to paper.listPublic", () => {
   it("reports exactly as many papers as the direction's gallery stream lists", async () => {
     const digestCaller = digestRouter.createCaller({ db } as never);
     const [detail, listed] = await Promise.all([
-      digestCaller.getDirection({ slug: "ai4formath" }),
-      createCaller(null).listPublic({ direction: "ai4formath" }),
+      digestCaller.getDirection({ slug: "formal-math" }),
+      createCaller(null).listPublic({ direction: "formal-math" }),
     ]);
     // 夹具里 dir-a 出刊引用了 5 篇, 其中 private/unlisted/deleted 三篇画廊流列不出来
     expect(listed.total).toBe(2);
@@ -438,8 +438,8 @@ describe("paperCount stays tied to paper.listPublic", () => {
 
     const digestCaller = digestRouter.createCaller({ db } as never);
     const [detail, listed] = await Promise.all([
-      digestCaller.getDirection({ slug: "ai4formath" }),
-      createCaller(null).listPublic({ direction: "ai4formath" }),
+      digestCaller.getDirection({ slug: "formal-math" }),
+      createCaller(null).listPublic({ direction: "formal-math" }),
     ]);
     // 两边都不数它 —— 关键是「两边一致」, 常数只是顺手钉住当前值
     expect(listed.papers.map((p) => p.id)).not.toContain("p-nowb");
@@ -451,12 +451,12 @@ describe("paperCount stays tied to paper.listPublic", () => {
 describe("paper.listPublic direction filter", () => {
   it("returns only papers of the requested direction", async () => {
     const caller = createCaller(null);
-    const result = await caller.listPublic({ direction: "ai4formath" });
+    const result = await caller.listPublic({ direction: "formal-math" });
 
     // p-private 不公开, p-unlisted 已下架, p-deleted 已软删, p-b1/p-none 不在该方向
     expect(result.papers.map((p) => p.id)).toEqual(["p-a2", "p-a1"]);
     expect(result.total).toBe(2);
-    expect(result.papers.every((p) => p.directionSlug === "ai4formath")).toBe(
+    expect(result.papers.every((p) => p.directionSlug === "formal-math")).toBe(
       true,
     );
   });
@@ -480,7 +480,7 @@ describe("paper.listPublic direction filter", () => {
     // 一个赞 + 一个踩 => likeCount 只数 vote = 1
     expect(result.papers.at(-1)).toMatchObject({
       id: "p-a1",
-      directionSlug: "ai4formath",
+      directionSlug: "formal-math",
       likeCount: 1,
       tldr: "tldr a1 zh-cn",
     });
@@ -539,7 +539,7 @@ describe("paper.listPublic direction filter", () => {
     await insertGalleryPaper(db, "p-orphan", "dir-a", 9);
 
     const caller = createCaller(null);
-    const filtered = await caller.listPublic({ direction: "ai4formath" });
+    const filtered = await caller.listPublic({ direction: "formal-math" });
     expect(filtered.papers.map((p) => p.id)).toEqual(["p-a2", "p-a1"]);
     expect(filtered.total).toBe(2);
 
@@ -548,7 +548,7 @@ describe("paper.listPublic direction filter", () => {
     expect(unfiltered.total).toBe(5);
     expect(unfiltered.papers[0]).toMatchObject({
       id: "p-orphan",
-      directionSlug: "ai4formath",
+      directionSlug: "formal-math",
     });
   });
 
@@ -571,7 +571,7 @@ describe("paper.listPublic direction filter", () => {
     });
 
     await expect(
-      createCaller(null).listPublic({ direction: "ai4formath" }),
+      createCaller(null).listPublic({ direction: "formal-math" }),
     ).resolves.toMatchObject({
       total: 2,
       papers: [{ id: "p-a2" }, { id: "p-a1" }],
@@ -598,7 +598,7 @@ describe("paper.listPublic direction filter", () => {
     });
 
     const result = await createCaller(null).listPublic({
-      direction: "ai4formath",
+      direction: "formal-math",
     });
     expect(result.papers.map((p) => p.id)).toEqual(["p-a2", "p-a1"]);
     expect(result.total).toBe(2);
@@ -616,7 +616,7 @@ describe("paper.listPublic direction filter", () => {
     });
 
     const result = await createCaller(null).listPublic({
-      direction: "ai4formath",
+      direction: "formal-math",
     });
     expect(result.papers.map((p) => p.id)).toEqual(["p-cross", "p-a2", "p-a1"]);
     expect(result.total).toBe(3);
@@ -627,11 +627,11 @@ describe("paper.listPublic direction filter", () => {
   it("still honours the other filters alongside direction", async () => {
     const caller = createCaller(null);
     await expect(
-      caller.listPublic({ direction: "ai4formath", q: "p-a2" }),
+      caller.listPublic({ direction: "formal-math", q: "p-a2" }),
     ).resolves.toMatchObject({ total: 1, papers: [{ id: "p-a2" }] });
     // q 命中的论文属于别的方向时, 两个条件是 AND
     await expect(
-      caller.listPublic({ direction: "ai4formath", q: "p-b1" }),
+      caller.listPublic({ direction: "formal-math", q: "p-b1" }),
     ).resolves.toMatchObject({ total: 0, papers: [] });
   });
 });
