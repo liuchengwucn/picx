@@ -208,11 +208,17 @@ export function MarkdownArticle({
       <article
         ref={articleRef}
         data-reader-font={settings.font}
+        // 原文一律是 arXiv 论文的英文正文,与站点 UI 语言无关。标出来有两个作用:屏幕阅读器
+        // 用对语音,以及 hyphens:auto 能取到英文断字词典 —— html[lang] 是 zh-cn/ja 时浏览器
+        // 找不到英文规则,两端对齐下的 hyphens 会静默失效。
+        lang="en"
         className={cn(
           // 页面级留白挂在这里而不是 .reader-prose 里:那个类还被引用卡片复用(见
           // quote-card.tsx),阅读页的顶部让位与底部收尾留白搬进卡片就是上下两块死白。
           "reader-prose prose pt-10 pb-24",
-          settings.textAlign === "justify" && "text-justify",
+          // 断字只在两端对齐时开:不断字的两端对齐要靠拉伸词间距填满行尾,长单词多的
+          // 论文正文会出现明显的"文字河流"。左对齐时行尾本就参差,不需要引入连字符噪音。
+          settings.textAlign === "justify" && "text-justify hyphens-auto",
         )}
         style={
           {

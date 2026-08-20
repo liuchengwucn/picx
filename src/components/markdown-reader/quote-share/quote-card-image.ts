@@ -3,7 +3,7 @@ const FONT_TIMEOUT_MS = 5000;
 
 /**
  * 跨域 Web 字体（styles.css 顶部的 Google Fonts）在 foreignObject 里必须内联成
- * base64 才会生效，而 Newsreader 是可变字重字体，抓一次就要几百 KB。这里把结果缓存
+ * base64 才会生效，而 Source Serif 4 是可变字重字体，抓一次就要几百 KB。这里把结果缓存
  * 在模块级：整个会话只嵌一次，后续生成直接复用。
  *
  * 不变式：缓存能正确复用的前提是「每张 QuoteCard 用到的字体集合都一样」。今天成立是
