@@ -250,6 +250,12 @@ export interface TodayCards {
   headline: HomeStory | null;
   /** 头条卡内的次级标题, ≤5 */
   subStories: HomeStory[];
+  /**
+   * 周刊卡的数据。与 galleryPicks 严格互斥 —— 这一个字段既是「渲染哪张卡」的判别式,
+   * 也是那张卡的数据源。组件不要再自己测 today.edition: 那会让同一个判别式出现第二份
+   * 拷贝, 两处一旦漂开就重新出现「同一篇论文渲染两次」, 而单测只看得见这个纯函数。
+   */
+  edition: HomeEdition | null;
   /** 论文卡(最新一篇) */
   latestPaper: HomePaper | null;
   /**
@@ -277,6 +283,9 @@ export function assembleTodayCards(
   return {
     headline: headline ?? null,
     subStories: restStories.slice(0, 5),
+    // ?? null 而不是直接透传: tRPC 反序列化路径上它可能是 undefined, 统一收敛成 null
+    // 让消费侧只需判一种空值。
+    edition: data.edition ?? null,
     latestPaper: latestPaper ?? null,
     relatedPapers: hasEdition ? restPapers.slice(0, 2) : [],
     galleryPicks: hasEdition ? [] : restPapers.slice(0, 3),

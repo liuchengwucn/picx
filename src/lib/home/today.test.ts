@@ -76,6 +76,7 @@ describe("assembleTodayCards", () => {
     expect(cards.latestPaper?.shortId).toBe("p1");
     expect(cards.relatedPapers.map((p) => p.shortId)).toEqual(["p2", "p3"]);
     expect(cards.galleryPicks).toEqual([]);
+    expect(cards.edition).not.toBeNull();
   });
 
   it("无合刊(fallback): 画廊精选取 3 篇, 论文卡不挂次要论文", () => {
@@ -91,6 +92,7 @@ describe("assembleTodayCards", () => {
       "p3",
       "p4",
     ]);
+    expect(cards.edition).toBeNull();
   });
 
   // 这条是本次改动真正的回归风险: 两张卡都从 papers[1..] 取, 无条件分配会让同一篇

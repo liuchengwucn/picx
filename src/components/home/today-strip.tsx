@@ -12,6 +12,7 @@ import {
 } from "#/lib/home/today";
 import { formatRelative } from "#/lib/relative-time";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
+import { cn } from "#/lib/utils";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -24,7 +25,7 @@ type LocaleKey = ReturnType<typeof normalizeLocaleKey>;
 export function TodayStrip({ today }: { today: HomeToday | null }) {
   if (!today) return null;
 
-  const { headline, subStories, latestPaper, galleryPicks } =
+  const { headline, subStories, edition, latestPaper, galleryPicks } =
     assembleTodayCards(today);
   const locale = getLocale();
   const localeKey = normalizeLocaleKey(locale);
@@ -39,7 +40,7 @@ export function TodayStrip({ today }: { today: HomeToday | null }) {
   });
 
   // 资讯、论文、合刊三条线全空 = 站点没有任何可展示的内容, 整区让位给静态叙事区
-  if (!headlineTitle && !latestPaper && !today.edition) return null;
+  if (!headlineTitle && !latestPaper && !edition) return null;
 
   return (
     <section className="px-4 pt-8 sm:px-6 sm:pt-10">
@@ -56,9 +57,9 @@ export function TodayStrip({ today }: { today: HomeToday | null }) {
           ) : null}
           {/* 周刊卡是常态形态; 首期合刊发布前(零 published 期)回退到画廊精选卡,
               否则报头下面会缺掉一整格。两套数据都由 loader 一次取回, 不额外往返。 */}
-          {today.edition ? (
+          {edition ? (
             <WeeklyEditionCard
-              edition={today.edition}
+              edition={edition}
               localeKey={localeKey}
               locale={locale}
             />
@@ -94,15 +95,24 @@ function CardShell({
 /** 卡内「查看全部」尾链:统一的 11px 棕色小字 + 箭头微位移。 */
 function MoreLink({
   to,
+  className,
   children,
 }: {
   to: "/news" | "/gallery";
+  /**
+   * 卡片需要把尾链钉到底部时传 "mt-auto pt-3"。cn 走 tailwind-merge, mt-auto 会
+   * 覆盖掉默认的 mt-3 而不是与之并存。
+   */
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <Link
       to={to}
-      className="group mt-3 inline-flex items-center gap-1 self-start text-[11px] font-semibold text-[var(--academic-brown)] no-underline transition-colors hover:text-[var(--academic-brown-deep)]"
+      className={cn(
+        "group mt-3 inline-flex items-center gap-1 self-start text-[11px] font-semibold text-[var(--academic-brown)] no-underline transition-colors hover:text-[var(--academic-brown-deep)]",
+        className,
+      )}
     >
       {children}
       <ArrowRight
@@ -143,14 +153,21 @@ function HeadlineCard({
       <Link
         to="/news/$shortId"
         params={{ shortId: headline.shortId }}
-        className="group mt-3 block no-underline"
+        className={cn(
+          "group mt-3 flex flex-col no-underline",
+          // 有图才让这块吃余量: 无图时 grow 会把空白塞进标题与时间戳之间。
+          // SelfHidingImage 的语义是「取不到图就整个消失」, 那种情况下这个类还在,
+          // 但里面没东西可长, 余量顺势落到下面 MoreLink 的 mt-auto 上。
+          leadImage && "grow",
+        )}
       >
         {leadImage ? (
-          // 首屏内容走 eager
+          // 首屏内容走 eager。grow shrink-0 而不是 flex-1: flex-basis:0% 会让这张图
+          // 在单列(md 以下, 无剩余空间)塌成一条线。
           <StoryImage
             media={leadImage}
             eager
-            className="mb-3 aspect-video w-full rounded-xl border border-[var(--line)] object-cover"
+            className="mb-3 aspect-video w-full shrink-0 grow rounded-xl border border-[var(--line)] object-cover"
           />
         ) : null}
         <h3 className="font-serif text-[15px] font-bold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)] sm:text-base">
@@ -181,7 +198,9 @@ function HeadlineCard({
         </ul>
       ) : null}
 
-      <MoreLink to="/news">{m.home_more_news()}</MoreLink>
+      <MoreLink to="/news" className="mt-auto pt-3">
+        {m.home_more_news()}
+      </MoreLink>
     </CardShell>
   );
 }
@@ -227,6 +246,12 @@ function WeeklyEditionCard({
   const highlights = edition.highlights.flatMap((h) => {
     const name = pickTldr(h.directionName, localeKey);
     return name ? [{ name, title: pickTldr(h.title, localeKey) }] : [];
+  });
+
+  // 「本期还有」只列名字。与 highlights 同源的处理: 取不到当前语言译文的方向直接跳过。
+  const otherNames = edition.otherDirectionNames.flatMap((n) => {
+    const name = pickTldr(n, localeKey);
+    return name ? [name] : [];
   });
 
   return (
@@ -278,7 +303,20 @@ function WeeklyEditionCard({
         </ul>
       ) : null}
 
-      <MoreLink to="/gallery">{m.home_more_gallery()}</MoreLink>
+      {otherNames.length > 0 ? (
+        <div className="mt-3 border-t border-[var(--line)] pt-2.5">
+          <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
+            {m.home_edition_more()}
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-[var(--ink-soft)]">
+            {otherNames.join(" · ")}
+          </p>
+        </div>
+      ) : null}
+
+      <MoreLink to="/gallery" className="mt-auto pt-3">
+        {m.home_more_gallery()}
+      </MoreLink>
     </CardShell>
   );
 }
@@ -322,7 +360,9 @@ function GalleryPicksCard({
         })}
       </ul>
 
-      <MoreLink to="/gallery">{m.home_more_gallery()}</MoreLink>
+      <MoreLink to="/gallery" className="mt-auto pt-3">
+        {m.home_more_gallery()}
+      </MoreLink>
     </CardShell>
   );
 }
