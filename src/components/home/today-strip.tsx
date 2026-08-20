@@ -444,7 +444,15 @@ function LatestPaperCard({
   );
 }
 
-/** 工具卡:没有当日数据可放,给一句示例问题 + 输入框形状的 affordance。 */
+// 三条示例覆盖助手的三种用法: 检索发现 / 方法辨析 / 脉络梳理。选题一律偏机器学习与
+// LLM 研究者的日常问题 —— 这张卡的读者就是他们。
+const ASSISTANT_SAMPLES = [
+  m.home_assistant_sample,
+  m.home_assistant_sample_2,
+  m.home_assistant_sample_3,
+] as const;
+
+/** 工具卡:没有当日数据可放,给三句示例问题 + 输入框形状的 affordance。 */
 function AssistantCard() {
   return (
     <CardShell className="transition-colors hover:border-[color-mix(in_srgb,var(--academic-brown)_40%,transparent)]">
@@ -452,11 +460,27 @@ function AssistantCard() {
         {m.home_kicker_assistant()}
       </ModuleKicker>
 
-      <Link to="/assistant" className="mt-3 block no-underline">
-        <p className="font-serif text-[13.5px] leading-relaxed text-[var(--ink)]">
-          {m.home_assistant_sample()}
-        </p>
-        <span className="mt-2.5 block truncate rounded-full border border-[var(--line)] bg-[var(--parchment)] px-3 py-1.5 text-[11px] text-[var(--ink-soft)]">
+      {/* 整卡仍是单个 Link, 三条示例留在链接内且不加 aria-hidden: 代价是可访问名偏长,
+          收益是保住「整卡可点」这个 affordance, 而示例本身就是对这个入口的说明。
+          不要拆成「示例是普通文字、只有输入框是链接」—— 那会把点击区缩到一条胶囊。 */}
+      <Link to="/assistant" className="mt-3 flex grow flex-col no-underline">
+        {/* 这张卡没有图可以伸缩, 弹性件就是三条示例之间的间距: 卡越高排得越开。
+            gap-3 是余量为 0 时的下限(auto 外边距在那种情形下解析成 0, 撑不出间距),
+            justify-between 负责把多出来的余量分配到三条之间。 */}
+        <div className="flex grow flex-col justify-between gap-3">
+          {ASSISTANT_SAMPLES.map((sample) => {
+            const text = sample();
+            return (
+              <p
+                key={text}
+                className="font-serif text-[13.5px] leading-relaxed text-[var(--ink)]"
+              >
+                {text}
+              </p>
+            );
+          })}
+        </div>
+        <span className="mt-auto block truncate rounded-full border border-[var(--line)] bg-[var(--parchment)] px-3 py-1.5 text-[11px] text-[var(--ink-soft)]">
           {m.home_assistant_hint()}
         </span>
       </Link>
