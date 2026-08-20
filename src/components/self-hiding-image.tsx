@@ -19,6 +19,13 @@ import { useCallback, useState } from "react";
  * 「加载已经结束，但没有任何像素」，即已经失败了，无论 error 事件有没有被听到。
  * onError 仍然保留，负责「挂载之后才失败」的那一半情况。
  *
+ * 返回值必须保持「裸 `<img>` 或 null」这个形状，别在外面包元素（骨架、角标、比例盒
+ * 都算）：首页的头条卡与论文卡都用 `has-[>img]:grow` 判断图这一刻还在不在，据此决定
+ * 这块要不要吃掉卡片余量（见 components/home/today-strip.tsx，头条卡经 StoryImage
+ * 间接用到，那边也留了一份同源说明）。一旦多出一层包裹，那两条选择器恒不命中、卡片
+ * 悄悄退回底部带空洞的旧形态——tsc 与单测都看不见，只有开浏览器才发现。真要加包裹层，
+ * 必须同步改那两处选择器。
+ *
  * 行为被 news/story-image.test.tsx 的 9 个用例钉住（含 hydrateRoot 那条真实路径）。
  * 待迁移站点：components/digest/digest-paper-card.tsx 的 Thumbnail 还是裸 `<img>`，
  * 完全没有这套防护，下次动那个文件时顺手换过来。

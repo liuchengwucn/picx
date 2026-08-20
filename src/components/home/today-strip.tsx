@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { ModuleKicker } from "#/components/home/module-kicker";
 import { StoryImage } from "#/components/news/story-image";
+import { SelfHidingImage } from "#/components/self-hiding-image";
 import {
   assembleTodayCards,
   type HomeEdition,
@@ -24,8 +25,14 @@ type LocaleKey = ReturnType<typeof normalizeLocaleKey>;
 export function TodayStrip({ today }: { today: HomeToday | null }) {
   if (!today) return null;
 
-  const { headline, subStories, edition, latestPaper, galleryPicks } =
-    assembleTodayCards(today);
+  const {
+    headline,
+    subStories,
+    edition,
+    latestPaper,
+    relatedPapers,
+    galleryPicks,
+  } = assembleTodayCards(today);
   const locale = getLocale();
   const localeKey = normalizeLocaleKey(locale);
 
@@ -66,7 +73,11 @@ export function TodayStrip({ today }: { today: HomeToday | null }) {
             <GalleryPicksCard picks={galleryPicks} localeKey={localeKey} />
           ) : null}
           {latestPaper ? (
-            <LatestPaperCard paper={latestPaper} localeKey={localeKey} />
+            <LatestPaperCard
+              paper={latestPaper}
+              related={relatedPapers}
+              localeKey={localeKey}
+            />
           ) : null}
           <AssistantCard />
         </div>
@@ -355,48 +366,75 @@ function GalleryPicksCard({
 
 function LatestPaperCard({
   paper,
+  related,
   localeKey,
 }: {
   paper: HomePaper;
+  /** 底座上的次要论文, ≤2; 有合刊时才非空(见 assembleTodayCards) */
+  related: HomePaper[];
   localeKey: LocaleKey;
 }) {
   const tldr = pickTldr(paper.tldr, localeKey);
 
   return (
     <CardShell>
-      {/* 栏眉必须保持「最新论文」这个精确口径: 这张卡渲染的是 papers[0] —— 最近入库
-          的一篇公开论文, 既没有按周取范围也没有编辑挑选。周刊重构期间曾把它换成
+      {/* 栏眉必须保持「最新论文」这个精确口径: 这张卡渲染的是 papers[0..2] —— 最近入库
+          的公开论文, 既没有按周取范围也没有编辑挑选。周刊重构期间曾把它换成
           「本周推荐论文 / This week's picks」, 那是在说谎(实现期已撤回并写进 spec)。
           要用那种措辞, 得先把数据源换成本期入选。 */}
       <ModuleKicker as="h2" color="var(--academic-brown)">
         {m.home_kicker_paper()}
       </ModuleKicker>
 
+      {/* 弹性件是里面那张图, 所以钉在 :has 上而不是 paper.hasImage 上: SelfHidingImage
+          会在图加载失败时把 img 整个卸掉(DB 的 whiteboardKey 只保证记录存在, 不保证 R2
+          对象还在), 那一刻这块必须立刻停止吃余量, 否则余量会变成标题与底座之间的一道
+          空白 —— 而且 Link 吃光后下面列表的 mt-auto 算出来是 0, 兜底接不住。 */}
       <Link
         to="/p/$shortId"
         params={{ shortId: paper.shortId }}
-        className="group mt-3 flex gap-3 no-underline"
+        className="group mt-3 flex flex-col no-underline has-[>img]:grow"
       >
         {paper.hasImage ? (
-          // 白板图标题在左上角, object-top 保证缩到 80x56 时还认得出是哪篇
-          <img
+          // 白板图标题在左上角, object-top 保证被裁切时还认得出是哪篇。
+          // grow shrink-0 而不是 flex-1: flex-basis:0% 会让这张图在单列(md 以下,
+          // 无剩余空间)塌成一条线。这张图在首屏但不是 LCP(那是报头 logo), 保持 lazy。
+          <SelfHidingImage
             src={`/p/${paper.shortId}/image`}
-            alt=""
-            loading="lazy"
-            className="h-14 w-20 shrink-0 rounded-lg border border-[var(--line)] bg-[var(--parchment-warm)] object-cover object-top"
+            className="mb-3 aspect-video w-full shrink-0 grow rounded-xl border border-[var(--line)] bg-[var(--parchment-warm)] object-cover object-top"
           />
         ) : null}
-        <div className="min-w-0">
-          <h3 className="line-clamp-2 font-serif text-[13.5px] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
-            {paper.title}
-          </h3>
-          {tldr ? (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--ink-soft)]">
-              {tldr}
-            </p>
-          ) : null}
-        </div>
+        <h3 className="line-clamp-2 font-serif text-[13.5px] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
+          {paper.title}
+        </h3>
+        {tldr ? (
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--ink-soft)]">
+            {tldr}
+          </p>
+        ) : null}
       </Link>
+
+      {/* 固定底座: 排版与头条卡的次条列表同构。mt-auto 无条件写: 有图时图先吃光余量,
+          按 flexbox 的顺序(先分配弹性长度, 再吃 auto 外边距)这里自动失效; 无图时它接手
+          钉底, 让余量落在主论文与底座之间而不是卡片底部。pt-3 提供余量为 0 时的间距。 */}
+      {related.length > 0 ? (
+        <ul className="mt-auto space-y-2 border-t border-[var(--line)] pt-3">
+          {related.map((p) => (
+            <li key={p.shortId}>
+              <Link
+                to="/p/$shortId"
+                params={{ shortId: p.shortId }}
+                className="block text-[13px] leading-snug text-[var(--ink)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+              >
+                <span aria-hidden className="mr-1.5 text-[var(--ink-soft)]">
+                  ·
+                </span>
+                {p.title}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </CardShell>
   );
 }
