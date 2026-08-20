@@ -95,10 +95,11 @@ export interface HomeEdition {
    * 由组件按当前 locale 挑 —— 服务端不知道客户端渲染时的 locale(语言切换不重新
    * 走 loader)。
    *
-   * 实测(本地三期夹具)整个 edition 字段给首屏 HTML 加约 1.65 KB, 拆开是 highlights
-   * 约 1.15 KB(几乎全部是这两条四语标题, CJK 一字 3 字节) + otherDirectionNames
-   * 约 0.5 KB。highlights 那份想再压只能砍语言, 而语言是不能砍的。整份 sections 是
-   * 几十 KB 量级, 差两个数量级 —— 那才是这个字段存在的理由。
+   * 实测(本地三期夹具)highlights 给首屏 HTML 加约 1.15 KB(几乎全部是这两条四语标题,
+   * CJK 一字 3 字节); 加上 otherDirectionNames 满载时的约 0.5 KB(那是估算不是实测,
+   * 见下面的单条推算), 整个 edition 字段约 1.65 KB。highlights 那份想再压只能砍语言,
+   * 而语言是不能砍的。整份 sections 是几十 KB 量级, 差二十倍以上 —— 那才是这个字段
+   * 存在的理由。
    */
   highlights: Array<{
     directionName: Record<string, string>;
@@ -106,10 +107,11 @@ export interface HomeEdition {
   }>;
   /**
    * 本期有更新、但没排进 highlights 的方向名(即 sections.slice(EDITION_HIGHLIGHT_COUNT))。
-   * 只有名字没有标题: 四语一条约 85–110 字节(实测 seed-directions.sql:13 的
-   * 「AI 形式化数学」是 110, 更短的方向名 85–95), 7 个方向 = 这里 5 条, 满打满算
-   * 约 0.5KB —— 比 highlights 里每条带四语期标题的约 550 字节便宜五六倍, 所以这个
-   * 字段可以列全, 而 highlights 仍然只露两条。
+   * 只有名字没有标题: 四语一条约 80–110 字节(实测 seed-directions.sql:13 的
+   * 「AI 形式化数学」是 110; 更短的方向名按同构造式推算 80–95 —— 仓库目前只有
+   * formal-math 一个方向, 没有第二条可实测, 别再去翻了)。7 个方向 = 这里 5 条,
+   * 满打满算约 0.5KB —— 比 highlights 里每条带四语期标题的约 550 字节便宜五六倍,
+   * 所以这个字段可以列全, 而 highlights 仍然只露两条。
    *
    * 刻意不含本期缺席的方向(activeDirectionCount − directionCount 那一部分): 卡上就写着
    * 「N 个方向 · M 篇入选」, 这一行若混进没更新的方向, 数字与清单会自相矛盾。
@@ -132,7 +134,7 @@ export interface HomeToday {
  * 首页卡只露两条**带标题**的栏目: 卡高要与旁边的头条卡对齐(列满 7 条会把首页第一屏
  * 撑掉), 而每多一条就多一份四语标题进首屏 HTML(约 550 字节/条)。
  *
- * 其余方向只出名字(otherDirectionNames), 那个量级是 85–110 字节/条, 便宜五六倍,
+ * 其余方向只出名字(otherDirectionNames), 那个量级是 80–110 字节/条, 便宜五六倍,
  * 所以可以列全 —— 卡片底部那行「本期还有」就是用它渲染的。
  */
 const EDITION_HIGHLIGHT_COUNT = 2;
@@ -198,6 +200,8 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       // 数据或重复处理可能有多行), 按 papers.id 聚合去重, 与 paper.listPublic 同款。
       // SQL 级去重必须在 limit 之前做, 否则 join 放大行数会让 limit 先吃掉重复行,
       // 静默把返回条数缩水到 < 4。
+      // 4 这个数是刻意留有余量的: 有合刊时第 4 篇渲染侧用不上, 但别裁, 理由见
+      // assembleTodayCards 里的注释。
       .groupBy(papers.id)
       .orderBy(desc(papers.publishedAt))
       .limit(4),
