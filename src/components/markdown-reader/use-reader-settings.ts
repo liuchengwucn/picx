@@ -16,14 +16,17 @@ export interface ReaderSettings {
   textAlign: ReaderAlign;
 }
 
-// 默认值按长文可读性研究取:行宽落在 45~75 字符的推荐区间上沿(Bringhurst;Dyson &
-// Haselgrove 2001),字号取 18px(Rello et al. CHI 2016 的眼动实验里大字号占优),行距 1.5
-// 是 WCAG 1.4.8 AAA 的段内行距下限。左对齐而非两端对齐:网页缺乏印刷级断字质量,
-// 两端对齐会拉伸词间距形成"文字河流"。衬线/无衬线在屏幕上无实证差异,取无衬线是取向选择。
+// 字号取 18px(Rello et al. CHI 2016 的眼动实验里大字号占优),行距 1.5 是 WCAG 1.4.8 AAA
+// 的段内行距下限。左对齐而非两端对齐:网页缺乏印刷级断字质量,两端对齐会拉伸词间距形成
+// "文字河流"。衬线/无衬线在屏幕上无实证差异,取无衬线是取向选择。
+//
+// 行宽 92ch 是明确的取舍:排版研究推荐 45~75 字符(Bringhurst;Dyson & Haselgrove 2001
+// 实测 55 字符/行理解度最好),92ch 实测约 95 字符/行,明显超出。这里按站点偏好选了更宽的
+// 版面 —— 代价是行越长回扫越容易串行,若日后收到"读着容易串行"的反馈,先动这个值。
 export const READER_DEFAULTS: ReaderSettings = {
   font: "sans",
   fontSize: 18,
-  measure: 76,
+  measure: 92,
   lineHeight: 1.5,
   textAlign: "left",
 };

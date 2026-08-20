@@ -521,7 +521,7 @@ a:hover { color: var(--academic-brown-deep); }
 /* ---- 正文排版:由阅读设置经 CSS 变量驱动,作用于 markdown 生成的 DOM ---- */
 .reader-prose {
   /* 兜底值与 READER_DEFAULTS 保持一致(两个消费方都显式传了变量,这里只是防御) */
-  max-width: var(--reader-measure, 76ch);
+  max-width: var(--reader-measure, 92ch);
   margin-inline: auto;
   font-size: var(--reader-font-size, 18px);
   line-height: var(--reader-leading, 1.5);
