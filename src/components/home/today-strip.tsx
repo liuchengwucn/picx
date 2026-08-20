@@ -307,7 +307,10 @@ function WeeklyEditionCard({
       {/* 周刊卡没有图可以伸缩, 弹性件就是这一块: 方向名从「挤成一行」改为一行一个,
           整块 grow、条目 flex-1 均分高度。方向多的期次靠条目数填, 方向少的期次靠均分
           撑 —— 与当期有几个方向无关, 这是它区别于「多列两条重点栏目」那种配额式修法的
-          地方。gap-1.5 是余量为 0 时的下限(auto 外边距与均分在无余量时都退化成 0)。 */}
+          地方。gap-1.5 是余量为 0 时的下限(auto 外边距与均分在无余量时都退化成 0)。
+          max-h-20 是均分的封顶: 方向少的期次若不封顶, 仅剩的一两条会各自吃掉上百像素,
+          文字浮在空格子正中, 比留白更像渲染坏了。封顶后多出的余量不再回流给已封顶的
+          兄弟项, 而是落到尾链的 mt-auto 上, 退化成与画廊精选卡一致的分区留白。 */}
       {otherNames.length > 0 ? (
         <div className="mt-3 flex grow flex-col border-t border-[var(--line)] pt-2.5">
           <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
@@ -317,7 +320,7 @@ function WeeklyEditionCard({
             {otherNames.map((name) => (
               <li
                 key={name}
-                className="flex flex-1 items-center text-[12px] leading-snug text-[var(--ink-soft)]"
+                className="flex max-h-20 flex-1 items-center text-[12px] leading-snug text-[var(--ink-soft)]"
               >
                 {name}
               </li>
