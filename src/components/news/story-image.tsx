@@ -13,6 +13,12 @@ interface StoryImageProps {
  * 新闻配图的唯一渲染口。非 image 类型的 media 不渲染；能渲染的交给
  * SelfHidingImage——「取不到图就整个消失」以及那条 hydration 竞态的来龙去脉都在
  * 那个原语里写着，这里不复述。
+ *
+ * 返回值必须保持「裸 `<img>` 或 null」这个形状，别包 `<div>`（骨架、角标、比例盒都算）：
+ * 首页头条卡用 `has-[>img]:grow` 判断图这一刻还在不在，据此决定要不要吃掉卡片余量
+ * （见 components/home/today-strip.tsx 的 HeadlineCard）。图外面一旦多一层元素，
+ * 那条选择器恒不命中、卡片悄悄退回底部带空洞的旧形态——tsc 与单测都看不见，
+ * 只有开浏览器才发现。要加包裹层就得同步改那个选择器。
  */
 export function StoryImage({ media, eager, className }: StoryImageProps) {
   if (media.type !== "image") return null;
