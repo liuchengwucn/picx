@@ -101,6 +101,16 @@ export interface HomeEdition {
     directionName: Record<string, string>;
     title: Record<string, string> | null;
   }>;
+  /**
+   * 本期有更新、但没排进 highlights 的方向名(即 sections.slice(EDITION_HIGHLIGHT_COUNT))。
+   * 只有名字没有标题: 四语一条约 60–80 字节, 7 个方向满打满算约 0.5KB —— 比 highlights
+   * 里每条带四语期标题的约 550 字节便宜一个量级, 所以这个字段可以列全, 而 highlights
+   * 仍然只露两条。
+   *
+   * 刻意不含本期缺席的方向(activeDirectionCount − directionCount 那一部分): 卡上就写着
+   * 「N 个方向 · M 篇入选」, 这一行若混进没更新的方向, 数字与清单会自相矛盾。
+   */
+  otherDirectionNames: Array<Record<string, string>>;
 }
 
 export interface HomeToday {
@@ -115,8 +125,11 @@ export interface HomeToday {
 }
 
 /**
- * 首页卡只露两条栏目: 卡高要与旁边的头条卡对齐(列满 7 条会把首页第一屏撑掉),
- * 而每多一条就多一份四语标题进首屏 HTML(约 550 字节/条)。
+ * 首页卡只露两条**带标题**的栏目: 卡高要与旁边的头条卡对齐(列满 7 条会把首页第一屏
+ * 撑掉), 而每多一条就多一份四语标题进首屏 HTML(约 550 字节/条)。
+ *
+ * 其余方向只出名字(otherDirectionNames), 那个量级是 60–80 字节/条, 便宜一个数量级,
+ * 所以可以列全 —— 卡片底部那行「本期还有」就是用它渲染的。
  */
 const EDITION_HIGHLIGHT_COUNT = 2;
 
@@ -218,6 +231,9 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       highlights: edition.sections
         .slice(0, EDITION_HIGHLIGHT_COUNT)
         .map((s) => ({ directionName: s.directionName, title: s.title })),
+      otherDirectionNames: edition.sections
+        .slice(EDITION_HIGHLIGHT_COUNT)
+        .map((s) => s.directionName),
     },
   };
 }
@@ -228,20 +244,29 @@ export interface TodayCards {
   subStories: HomeStory[];
   /** 论文卡(最新一篇) */
   latestPaper: HomePaper | null;
+  /**
+   * 论文卡底座上的次要论文, ≤2。与 galleryPicks 互斥(见 assembleTodayCards 的注释)。
+   */
+  relatedPapers: HomePaper[];
   /** 简报位 fallback「画廊精选」卡, ≤3, 与 latestPaper 不重复 */
   galleryPicks: HomePaper[];
 }
 
 /** 纯函数: 把查询结果切分到四张卡, 空态用 null/[] 表达(渲染侧据此隐藏/降级)。 */
 export function assembleTodayCards(
-  data: Pick<HomeToday, "stories" | "papers">,
+  data: Pick<HomeToday, "stories" | "papers" | "edition">,
 ): TodayCards {
   const [headline, ...restStories] = data.stories;
   const [latestPaper, ...restPapers] = data.papers;
+  // 周刊卡与「画廊精选」卡是互斥渲染的(见 today-strip 的 edition 分支), 次要论文的分配
+  // 必须跟着同一个分支走: 有合刊时 papers[1..2] 归论文卡底座, 没有合刊时 papers[1..3]
+  // 归画廊精选卡。无条件两边都取会让同一篇论文在首页出现两次。
+  const hasEdition = data.edition != null;
   return {
     headline: headline ?? null,
     subStories: restStories.slice(0, 5),
     latestPaper: latestPaper ?? null,
-    galleryPicks: restPapers.slice(0, 3),
+    relatedPapers: hasEdition ? restPapers.slice(0, 2) : [],
+    galleryPicks: hasEdition ? [] : restPapers.slice(0, 3),
   };
 }
