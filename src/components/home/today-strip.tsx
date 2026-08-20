@@ -182,10 +182,18 @@ function HeadlineCard({
         <time dateTime={published.toISOString()}>{timeAgo}</time>
       </p>
 
+      {/* 次条列表是「头条没有配图」时的备用弹性件: 有图时图先吃光余量, 这里的 flex-1
+          自动退化成内容高度, 行为与改动前一致; 无图时(leadImage 为 null, 或图 404 被
+          SelfHidingImage 卸掉)它接手均分余量, 否则那 200 多像素会整块堆在尾链上方。
+          max-h-20 是封顶: 次条只有一两条的日子, 不封顶会让单条撑出上百像素的空格子,
+          那比留白更像渲染坏了(与周刊卡的方向名列表同一套处理)。 */}
       {subStories.length > 0 ? (
-        <ul className="mt-3 space-y-2 border-t border-[var(--line)] pt-3">
+        <ul className="mt-3 flex grow flex-col gap-2 border-t border-[var(--line)] pt-3">
           {subStories.map((story) => (
-            <li key={story.shortId}>
+            <li
+              key={story.shortId}
+              className="flex max-h-20 flex-1 items-center"
+            >
               <Link
                 to="/news/$shortId"
                 params={{ shortId: story.shortId }}
@@ -349,11 +357,18 @@ function GalleryPicksCard({
         {m.home_kicker_gallery_picks()}
       </ModuleKicker>
 
-      <ul className="mt-3 divide-y divide-[var(--line)]">
+      {/* 这张卡没有图可以伸缩, 弹性件就是这个列表: 整块 grow、条目 flex-1 均分, 否则
+          跨两行时余量会整块堆在尾链上方(实测 247px)。不加 gap: divide-y 的分隔线走
+          `& > * + *` 的 border-top, 加了间距就不再贴合条目。max-h-32 比头条卡的次条
+          宽松, 因为每条是「标题 2 行 + tldr 2 行」的双行块, 本身就有 60-70px 高。 */}
+      <ul className="mt-3 flex grow flex-col divide-y divide-[var(--line)]">
         {picks.map((paper) => {
           const tldr = pickTldr(paper.tldr, localeKey);
           return (
-            <li key={paper.shortId} className="py-2.5 first:pt-0 last:pb-0">
+            <li
+              key={paper.shortId}
+              className="flex max-h-32 flex-1 items-center py-2.5 first:pt-0 last:pb-0"
+            >
               <Link
                 to="/p/$shortId"
                 params={{ shortId: paper.shortId }}
