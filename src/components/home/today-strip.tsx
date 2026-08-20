@@ -186,7 +186,11 @@ function HeadlineCard({
           自动退化成内容高度, 行为与改动前一致; 无图时(leadImage 为 null, 或图 404 被
           SelfHidingImage 卸掉)它接手均分余量, 否则那 200 多像素会整块堆在尾链上方。
           max-h-20 是封顶: 次条只有一两条的日子, 不封顶会让单条撑出上百像素的空格子,
-          那比留白更像渲染坏了(与周刊卡的方向名列表同一套处理)。 */}
+          那比留白更像渲染坏了(与周刊卡的方向名列表同一套处理)。
+          li 一旦成为 flex 容器, 里面的块级链接就从「撑满整行」变成 shrink-to-fit(flex
+          item 的 flex-basis:auto), 热区从整行缩到文字宽 —— 实测最短一条只剩 118/462px,
+          右侧 74% 的行宽变成点不动的死区。所以 <a> 必须显式 w-full。这个回退 tsc、单测、
+          肉眼截图全都看不出来, 只有量 getBoundingClientRect().width 才发现。 */}
       {subStories.length > 0 ? (
         <ul className="mt-3 flex grow flex-col gap-2 border-t border-[var(--line)] pt-3">
           {subStories.map((story) => (
@@ -197,7 +201,7 @@ function HeadlineCard({
               <Link
                 to="/news/$shortId"
                 params={{ shortId: story.shortId }}
-                className="block text-[13px] leading-snug text-[var(--ink)] no-underline transition-colors hover:text-[var(--academic-brown)]"
+                className="block w-full text-[13px] leading-snug text-[var(--ink)] no-underline transition-colors hover:text-[var(--academic-brown)]"
               >
                 <span aria-hidden className="mr-1.5 text-[var(--ink-soft)]">
                   ·
@@ -360,7 +364,8 @@ function GalleryPicksCard({
       {/* 这张卡没有图可以伸缩, 弹性件就是这个列表: 整块 grow、条目 flex-1 均分, 否则
           跨两行时余量会整块堆在尾链上方(实测 247px)。不加 gap: divide-y 的分隔线走
           `& > * + *` 的 border-top, 加了间距就不再贴合条目。max-h-32 比头条卡的次条
-          宽松, 因为每条是「标题 2 行 + tldr 2 行」的双行块, 本身就有 60-70px 高。 */}
+          宽松, 因为每条是「标题 2 行 + tldr 2 行」的双行块, 本身就有 60-70px 高。
+          里面的 <a> 同样必须 w-full, 理由见头条卡次条列表上的注释。 */}
       <ul className="mt-3 flex grow flex-col divide-y divide-[var(--line)]">
         {picks.map((paper) => {
           const tldr = pickTldr(paper.tldr, localeKey);
@@ -372,7 +377,7 @@ function GalleryPicksCard({
               <Link
                 to="/p/$shortId"
                 params={{ shortId: paper.shortId }}
-                className="group block no-underline"
+                className="group block w-full no-underline"
               >
                 <h3 className="line-clamp-2 font-serif text-[13.5px] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
                   {paper.title}
