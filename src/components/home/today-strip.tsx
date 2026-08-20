@@ -378,8 +378,9 @@ function LatestPaperCard({
 
   return (
     <CardShell>
-      {/* 栏眉必须保持「最新论文」这个精确口径: 这张卡渲染的是 papers[0..2] —— 最近入库
-          的公开论文, 既没有按周取范围也没有编辑挑选。周刊重构期间曾把它换成
+      {/* 栏眉必须保持「最新论文」这个精确口径: 这张卡渲染的是 papers[0] —— 最近入库的
+          一篇公开论文(有合刊时底座再带上随后两篇), 既没有按周取范围也没有编辑挑选。
+          周刊重构期间曾把它换成
           「本周推荐论文 / This week's picks」, 那是在说谎(实现期已撤回并写进 spec)。
           要用那种措辞, 得先把数据源换成本期入选。 */}
       <ModuleKicker as="h2" color="var(--academic-brown)">
@@ -393,7 +394,7 @@ function LatestPaperCard({
       <Link
         to="/p/$shortId"
         params={{ shortId: paper.shortId }}
-        className="group mt-3 flex flex-col no-underline has-[>img]:grow"
+        className="group mt-3 mb-3 flex flex-col no-underline has-[>img]:grow"
       >
         {paper.hasImage ? (
           // 白板图标题在左上角, object-top 保证被裁切时还认得出是哪篇。
@@ -416,7 +417,11 @@ function LatestPaperCard({
 
       {/* 固定底座: 排版与头条卡的次条列表同构。mt-auto 无条件写: 有图时图先吃光余量,
           按 flexbox 的顺序(先分配弹性长度, 再吃 auto 外边距)这里自动失效; 无图时它接手
-          钉底, 让余量落在主论文与底座之间而不是卡片底部。pt-3 提供余量为 0 时的间距。 */}
+          钉底, 让余量落在主论文与底座之间而不是卡片底部。
+          细线上方那 12px 间距来自上面 Link 的 mb-3, 不是这里: auto 外边距只吸收**正的**
+          剩余空间, 余量为 0 时(移动端单列全程、桌面图已吃光余量)它解析成 0, 撑不出任何
+          距离, 细线会贴上 tldr 的行盒。普通外边距则在算剩余空间时就先被减掉, 两种情形
+          下都稳定。pt-3 在边框下方, 管的是列表项与细线的距离, 换不到这个位置。 */}
       {related.length > 0 ? (
         <ul className="mt-auto space-y-2 border-t border-[var(--line)] pt-3">
           {related.map((p) => (
