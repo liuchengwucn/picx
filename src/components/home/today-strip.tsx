@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, type Ref, useMemo } from "react";
 import { ModuleKicker } from "#/components/home/module-kicker";
 import { StoryImage } from "#/components/news/story-image";
 import { SelfHidingImage } from "#/components/self-hiding-image";
+import { useFitLevel } from "#/hooks/use-fit-level";
 import {
   assembleTodayCards,
   type HomeEdition,
@@ -42,7 +43,16 @@ export function TodayStrip({ today }: { today: HomeToday | null }) {
   const headlineTitle = headline ? pickTldr(headline.title, localeKey) : null;
   const namedSubStories = subStories.flatMap((story) => {
     const title = pickTldr(story.title, localeKey);
-    return title ? [{ shortId: story.shortId, title }] : [];
+    return title
+      ? [
+          {
+            shortId: story.shortId,
+            title,
+            publishedAt: story.publishedAt,
+            sourceCount: story.sourceCount,
+          },
+        ]
+      : [];
   });
 
   // 资讯、论文、合刊三条线全空 = 站点没有任何可展示的内容, 整区让位给静态叙事区
@@ -87,19 +97,36 @@ export function TodayStrip({ today }: { today: HomeToday | null }) {
 }
 
 function CardShell({
+  ref,
   className,
+  fitLevel,
   children,
 }: {
+  /** React 19 的 ref-as-prop; useFitLevel 的 containerRef 直接传进来 */
+  ref?: Ref<HTMLElement>;
   className?: string;
+  /** 接了 fit-level 的卡把当前档写成 data-fit-level, 验收脚本据此断言「首帧即终值」 */
+  fitLevel?: number;
   children: ReactNode;
 }) {
   return (
     <article
+      ref={ref}
+      data-fit-level={fitLevel}
       className={`flex flex-col rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-4 shadow-[0_2px_12px_rgba(45,42,36,0.05)] sm:p-5 ${className ?? ""}`}
     >
       {children}
     </article>
   );
+}
+
+/**
+ * 卡内的余量探针: 高度 = 还没被任何人吃掉的余量, useFitLevel 据此决定要不要升档。
+ * 必须放在分级内容之后、尾链之前。MoreLink 的 mt-auto 在它存在时恒为 0
+ * (flex 先分配弹性长度, 再吃 auto 外边距), 两者不冲突。
+ */
+function FitSpacer({ ref }: { ref: Ref<HTMLDivElement> }) {
+  return <div ref={ref} className="grow" aria-hidden />;
 }
 
 /**
@@ -128,6 +155,25 @@ function MoreLink({
   );
 }
 
+/**
+ * 资讯卡的档位: 先加密度(副行), 再逐条加条数。
+ *
+ * L0 是 SSR 档, 必须与改动前的形态完全一致 —— 无 JS、爬虫、移动端单列都停在这里。
+ *
+ * **逐条递增而不是 5/6/8 跳着走**: 探测是「升一档 → 溢出就退回」, 跳着走会让退回
+ * 后白白空着一条的余量。实测(1440, 头条无配图)次条列表可用约 422px、每条带副行
+ * 约 38px —— 8 条正好把每条的空白压到 8px; 而 1024 下每条涨到约 56px, 7 条就溢出,
+ * 只能停在 6 条。同一套档位在不同宽度自动落在不同档, 这正是这个机制存在的理由,
+ * 别硬编码断点。
+ */
+const SUB_STORY_TIERS = [
+  { count: 5, meta: false },
+  { count: 5, meta: true },
+  { count: 6, meta: true },
+  { count: 7, meta: true },
+  { count: 8, meta: true },
+] as const;
+
 function HeadlineCard({
   headline,
   title,
@@ -139,7 +185,12 @@ function HeadlineCard({
   /** 已在 TodayStrip 侧取好并确认非空的当前语言标题 */
   title: string;
   /** 已过滤掉无标题项 */
-  subStories: Array<{ shortId: string; title: string }>;
+  subStories: Array<{
+    shortId: string;
+    title: string;
+    publishedAt: number;
+    sourceCount: number;
+  }>;
   now: number;
   locale: string;
 }) {
@@ -149,28 +200,36 @@ function HeadlineCard({
   // 非 image 类型由 StoryImage 内部一并挡掉, 这里不必再过滤一遍
   const leadImage = headline.leadImage;
 
+  const { level, spacerRef, containerRef } = useFitLevel(
+    SUB_STORY_TIERS.length - 1,
+  );
+  const tier = SUB_STORY_TIERS[level] ?? SUB_STORY_TIERS[0];
+  const shownSubStories = subStories.slice(0, tier.count);
+
   return (
-    <CardShell className="md:row-span-2">
+    <CardShell ref={containerRef} fitLevel={level} className="md:row-span-2">
       <ModuleKicker as="h2" color="var(--sienna)">
         {m.home_kicker_news()}
       </ModuleKicker>
 
+      {/* 这张图不吃余量。上一轮它是弹性件(靠 has-[>img]:grow 让 Link 跟着图的存在与否
+          伸缩), 改回刚性是因为它会把余量吃光, 下面的 spacer 就测不到余量、fit-level
+          永远不升档 —— 实测 768 下这张图被拉到 196px, 而 16:9 基线只有 118px, 多出来
+          的那 78px 本该变成两条真实的资讯标题。同样一块空间, 多几条标题比一张更大的
+          图有用。顺带一个好处: has-[>img] 那套「图 404 被 SelfHidingImage 卸掉后 Link
+          仍在吃余量」的坑, 随着 Link 不再 grow 自动消失了。 */}
       <Link
         to="/news/$shortId"
         params={{ shortId: headline.shortId }}
-        // 弹性件是里面那张图, 所以钉在 :has 上而不是 leadImage 上: SelfHidingImage 会在
-        // hydration 时把加载失败的 img 整个卸掉(news-cron 的 fail-open 会刻意存下探活
-        // 失败的图), 那一刻这块必须立刻停止吃余量, 否则余量会变成标题与时间戳之间的
-        // 一道空白 —— 而且 Link 吃光后 MoreLink 的 mt-auto 算出来是 0, 兜底接不住。
-        className="group mt-3 flex flex-col no-underline has-[>img]:grow"
+        className="group mt-3 flex flex-col no-underline"
       >
         {leadImage ? (
-          // 首屏内容走 eager。grow shrink-0 而不是 flex-1: flex-basis:0% 会让这张图
-          // 在单列(md 以下, 无剩余空间)塌成一条线。
+          // 首屏内容走 eager。保留 shrink-0: 卡内容真溢出时不许压这张图(压扁的图比
+          // 溢出更难看), aspect-video 是它唯一的高度来源。
           <StoryImage
             media={leadImage}
             eager
-            className="mb-3 aspect-video w-full shrink-0 grow rounded-xl border border-[var(--line)] object-cover"
+            className="mb-3 aspect-video w-full shrink-0 rounded-xl border border-[var(--line)] object-cover"
           />
         ) : null}
         <h3 className="font-serif text-[15px] font-bold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)] sm:text-base">
@@ -182,21 +241,22 @@ function HeadlineCard({
         <time dateTime={published.toISOString()}>{timeAgo}</time>
       </p>
 
-      {/* 次条列表是「头条没有配图」时的备用弹性件: 有图时图先吃光余量, 这里的 flex-1
-          自动退化成内容高度, 行为与改动前一致; 无图时(leadImage 为 null, 或图 404 被
-          SelfHidingImage 卸掉)它接手均分余量, 否则那 200 多像素会整块堆在尾链上方。
-          max-h-20 是封顶: 次条只有一两条的日子, 不封顶会让单条撑出上百像素的空格子,
-          那比留白更像渲染坏了(与周刊卡的方向名列表同一套处理)。
+      {/* 次条列表既是内容也是弹性件的一部分。max-h-14 比上一轮的 max-h-20 收紧, 是
+          fit-level 的前提: flex 的分配算法里触发 max-height 的项会被冻结、剩余空间
+          回流给未冻结的兄弟, 于是条目各拿 min(均分份额, 56px), 下面的 spacer 拿走
+          全部剩余 —— 均分负责微调(余量落在行距上), spacer 负责宏调(触发升档)。
+          **不要去掉 flex-1**: 去掉后余量会全堆到 spacer(尾链上方), 次条只有一两条的
+          低频日直接退回改动前的空洞。
           li 一旦成为 flex 容器, 里面的块级链接就从「撑满整行」变成 shrink-to-fit(flex
           item 的 flex-basis:auto), 热区从整行缩到文字宽 —— 实测最短一条只剩 118/462px,
           右侧 74% 的行宽变成点不动的死区。所以 <a> 必须显式 w-full。这个回退 tsc、单测、
           肉眼截图全都看不出来, 只有量 getBoundingClientRect().width 才发现。 */}
-      {subStories.length > 0 ? (
-        <ul className="mt-3 flex grow flex-col gap-2 border-t border-[var(--line)] pt-3">
-          {subStories.map((story) => (
+      {shownSubStories.length > 0 ? (
+        <ul className="mt-3 flex flex-col gap-2 border-t border-[var(--line)] pt-3">
+          {shownSubStories.map((story) => (
             <li
               key={story.shortId}
-              className="flex max-h-20 flex-1 items-center"
+              className="flex max-h-14 flex-1 items-center"
             >
               <Link
                 to="/news/$shortId"
@@ -207,11 +267,24 @@ function HeadlineCard({
                   ·
                 </span>
                 {story.title}
+                {/* 副行的口径与 /news 列表页同源(同一个 news_sources_count 键): 首页
+                    写「3 个来源」而列表页写别的, 读者会以为是两个不同的数。只有一个
+                    来源时不出这半句 —— 「1 个来源」是废话。 */}
+                {tier.meta ? (
+                  <span className="mt-0.5 block pl-3 text-[11px] text-[var(--ink-soft)]">
+                    {formatRelative(story.publishedAt, now, locale)}
+                    {story.sourceCount > 1
+                      ? ` · ${m.news_sources_count({ count: String(story.sourceCount) })}`
+                      : ""}
+                  </span>
+                ) : null}
               </Link>
             </li>
           ))}
         </ul>
       ) : null}
+
+      <FitSpacer ref={spacerRef} />
 
       <MoreLink to="/news">{m.home_more_news()}</MoreLink>
     </CardShell>
@@ -229,6 +302,20 @@ function HeadlineCard({
  * 栏目挂一个通往单期页的深链会把「本周共 N 个方向」这个整体框架拆散, 而首页这一排
  * 卡已经有 6 条资讯链接 + 1 条论文链接在抢注意力。
  */
+/**
+ * 周刊卡的档位: 露几条**带标题**的栏目。其余方向降级成「本期还有」里的名字。
+ *
+ * 上限 6 与 today.ts 的 EDITION_HIGHLIGHT_MAX 同源 —— 那边是数据供给上限, 这边是
+ * 渲染档位, 两个数必须一起改, 否则要么升档时无米下锅(档位 > 供给), 要么白白把四语
+ * 标题塞进首屏 HTML 却永远渲染不到(供给 > 档位)。
+ *
+ * **逐条递增而不是 2/4/6 跳着走**: 每把一个方向从「只有名字」升成「带标题」净增
+ * 约 34px(实测 name 条 42px、highlight 条 66~77px), 而 1440 下「本期还有」那 5 条的
+ * 总空白只有约 120px —— 跳着走会在 4 条时停下、白留 50px, 逐条走能升到 5 条把空白
+ * 压到 20px 以内。
+ */
+const HIGHLIGHT_TIERS = [2, 3, 4, 5, 6] as const;
+
 function WeeklyEditionCard({
   edition,
   localeKey,
@@ -267,8 +354,23 @@ function WeeklyEditionCard({
     return name ? [name] : [];
   });
 
+  // maxLevel 按实际方向数收窄: 本期只有 3 个方向时升到 tiers[1](=3) 就到头了,
+  // 再往上是无米之炊 —— 探测会白跑一轮、退回来, 结果一样但多两次渲染。
+  const cap = HIGHLIGHT_TIERS.findIndex((n) => n >= highlights.length);
+  const { level, spacerRef, containerRef } = useFitLevel(
+    cap < 0 ? HIGHLIGHT_TIERS.length - 1 : cap,
+  );
+  const shownCount = HIGHLIGHT_TIERS[level] ?? HIGHLIGHT_TIERS[0];
+  const shownHighlights = highlights.slice(0, shownCount);
+  // 没排进当前档位的重点方向, 降级到「本期还有」里只出名字 —— 与 otherNames 合并成
+  // 一个列表, 读者看到的仍是「本期共 N 个方向」这个完整框架。
+  const restNames = [
+    ...highlights.slice(shownCount).map((h) => h.name),
+    ...otherNames,
+  ];
+
   return (
-    <CardShell className="md:row-span-2">
+    <CardShell ref={containerRef} fitLevel={level} className="md:row-span-2">
       {/* 栏眉放刊物名(与 edition_kicker 同值), 不放内容名词: 这张卡是刊头的缩小版,
           栏眉位置对应的就是刊头上那行刊名。曾经这里写「方向简报」, 于是卡说「方向简报」、
           点进去刊头又说「画廊周刊」—— 一个目的地两个称呼。界线是: **目的地名称统一,
@@ -298,9 +400,9 @@ function WeeklyEditionCard({
             })}
       </p>
 
-      {highlights.length > 0 ? (
+      {shownHighlights.length > 0 ? (
         <ul className="mt-3 divide-y divide-[var(--line)] border-t border-[var(--line)]">
-          {highlights.map((h) => (
+          {shownHighlights.map((h) => (
             <li key={h.name} className="py-2.5 last:pb-0">
               <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
                 {h.name}
@@ -316,23 +418,20 @@ function WeeklyEditionCard({
         </ul>
       ) : null}
 
-      {/* 周刊卡没有图可以伸缩, 弹性件就是这一块: 方向名从「挤成一行」改为一行一个,
-          整块 grow、条目 flex-1 均分高度。方向多的期次靠条目数填, 方向少的期次靠均分
-          撑 —— 与当期有几个方向无关, 这是它区别于「多列两条重点栏目」那种配额式修法的
-          地方。gap-1.5 是余量为 0 时的下限(auto 外边距与均分在无余量时都退化成 0)。
-          max-h-20 是均分的封顶: 方向少的期次若不封顶, 仅剩的一两条会各自吃掉上百像素,
-          文字浮在空格子正中, 比留白更像渲染坏了。封顶后多出的余量不再回流给已封顶的
-          兄弟项, 而是落到尾链的 mt-auto 上, 退化成与画廊精选卡一致的分区留白。 */}
-      {otherNames.length > 0 ? (
-        <div className="mt-3 flex grow flex-col border-t border-[var(--line)] pt-2.5">
+      {/* 「本期还有」既是内容也是弹性件的一部分。max-h-14 比上一轮的 max-h-20 收紧,
+          理由与资讯卡次条列表相同(见那边的注释): 条目封顶后余量回流给下面的 spacer,
+          均分只负责把小于一行的零头吸收到行距里。
+          gap-1.5 是余量为 0 时的下限(均分在无余量时退化成 0, 撑不出间距)。 */}
+      {restNames.length > 0 ? (
+        <div className="mt-3 flex flex-col border-t border-[var(--line)] pt-2.5">
           <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
             {m.home_edition_more()}
           </p>
-          <ul className="mt-1 flex grow flex-col gap-1.5">
-            {otherNames.map((name) => (
+          <ul className="mt-1 flex flex-col gap-1.5">
+            {restNames.map((name) => (
               <li
                 key={name}
-                className="flex max-h-20 flex-1 items-center text-[12px] leading-snug text-[var(--ink-soft)]"
+                className="flex max-h-14 flex-1 items-center text-[12px] leading-snug text-[var(--ink-soft)]"
               >
                 {name}
               </li>
@@ -340,6 +439,8 @@ function WeeklyEditionCard({
           </ul>
         </div>
       ) : null}
+
+      <FitSpacer ref={spacerRef} />
 
       <MoreLink to="/gallery">{m.home_more_gallery()}</MoreLink>
     </CardShell>
@@ -421,22 +522,21 @@ function LatestPaperCard({
         {m.home_kicker_paper()}
       </ModuleKicker>
 
-      {/* 弹性件是里面那张图, 所以钉在 :has 上而不是 paper.hasImage 上: SelfHidingImage
-          会在图加载失败时把 img 整个卸掉(DB 的 whiteboardKey 只保证记录存在, 不保证 R2
-          对象还在), 那一刻这块必须立刻停止吃余量, 否则余量会变成标题与底座之间的一道
-          空白 —— 而且 Link 吃光后下面列表的 mt-auto 算出来是 0, 兜底接不住。 */}
+      {/* 这张图不吃余量。实测(1440/1024/768)它的高度恰好等于 16:9 × 内容宽, 整张论文卡
+          的空白只有 2px —— 论文卡是整排高度的**决定者**而不是接受者, 给它加弹性纯属
+          空转。余量(只有在资讯卡撑高 grid 那种少见场合才有)交给下面底座的 mt-auto 钉底。
+          mb-3 必须留着, 理由见下面底座上的注释。 */}
       <Link
         to="/p/$shortId"
         params={{ shortId: paper.shortId }}
-        className="group mt-3 mb-3 flex flex-col no-underline has-[>img]:grow"
+        className="group mt-3 mb-3 flex flex-col no-underline"
       >
         {paper.hasImage ? (
-          // 白板图标题在左上角, object-top 保证被裁切时还认得出是哪篇。
-          // grow shrink-0 而不是 flex-1: flex-basis:0% 会让这张图在单列(md 以下,
-          // 无剩余空间)塌成一条线。这张图在首屏但不是 LCP(那是报头 logo), 保持 lazy。
+          // 白板图标题在左上角, object-top 保证被裁切时还认得出是哪篇。保留 shrink-0:
+          // 卡内容真溢出时不许压这张图。这张图在首屏但不是 LCP(那是报头 logo), 保持 lazy。
           <SelfHidingImage
             src={`/p/${paper.shortId}/image`}
-            className="mb-3 aspect-video w-full shrink-0 grow rounded-xl border border-[var(--line)] bg-[var(--parchment-warm)] object-cover object-top"
+            className="mb-3 aspect-video w-full shrink-0 rounded-xl border border-[var(--line)] bg-[var(--parchment-warm)] object-cover object-top"
           />
         ) : null}
         <h3 className="line-clamp-2 font-serif text-[13.5px] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown)]">
@@ -478,15 +578,19 @@ function LatestPaperCard({
   );
 }
 
-// 三条示例覆盖助手的三种用法: 检索发现 / 方法辨析 / 脉络梳理。选题一律偏机器学习与
-// LLM 研究者的日常问题 —— 这张卡的读者就是他们。
+// 两条示例覆盖助手的两种用法: 检索发现 / 方法辨析。选题一律偏机器学习与 LLM
+// 研究者的日常问题 —— 这张卡的读者就是他们。
+//
+// 为什么是 2 条而不是 3 条、也不接 fit-level: 首页那排网格只有两行, row-span-2 的是
+// 资讯与周刊, 所以 row2 的高度**就等于助手卡自己的高度** —— 它的 spacer 恒为 0, 档位
+// 机制一次也升不上去。这是拓扑决定的, 不是参数问题。既然它调不了, 就让它尽量矮,
+// 把整排的刚性高度让给真正能调节的那两张卡。
 const ASSISTANT_SAMPLES = [
   m.home_assistant_sample,
   m.home_assistant_sample_2,
-  m.home_assistant_sample_3,
 ] as const;
 
-/** 工具卡:没有当日数据可放,给三句示例问题 + 输入框形状的 affordance。 */
+/** 工具卡:没有当日数据可放,给两句示例问题 + 输入框形状的 affordance。 */
 function AssistantCard() {
   return (
     <CardShell className="transition-colors hover:border-[color-mix(in_srgb,var(--academic-brown)_40%,transparent)]">
