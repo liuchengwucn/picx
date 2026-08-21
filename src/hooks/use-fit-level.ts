@@ -1,4 +1,10 @@
-import { type RefObject, useLayoutEffect, useRef, useState } from "react";
+import {
+  type RefObject,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 
 /**
  * 小于这个像素数的余量不值得再试升一档: 升上去几乎必然溢出, 白费两次渲染。
@@ -74,6 +80,11 @@ export interface FitLevel {
  */
 export function useFitLevel(maxLevel: number): FitLevel {
   const [level, setLevel] = useState(0);
+  // 重新探测的触发器。**不能只靠 setLevel(0)**: 宽度变化时当前 level 很可能已经是 0
+  // (从移动端单列拖宽就是这样), 那时 setLevel(0) 的值没变, React 直接 bail out 不
+  // 重渲染, 下面那个没有依赖数组的 layout effect 也就不会跑 —— 探测永远不启动, 卡片
+  // 停在 SSR 档。dispatch 每次都产生新值, 保证重渲染。
+  const [, restartProbe] = useReducer((n: number) => n + 1, 0);
   const spacerRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
   const probing = useRef(true);
@@ -107,6 +118,7 @@ export function useFitLevel(maxLevel: number): FitLevel {
       if (prev < 0 || width === prev) return;
       probing.current = true;
       setLevel(0);
+      restartProbe();
     });
     ro.observe(el);
     return () => ro.disconnect();
