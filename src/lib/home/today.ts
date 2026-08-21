@@ -30,7 +30,11 @@ type Db = DrizzleD1Database<typeof schema> & { $client: D1Database };
 // 今日精选取材窗口: 24h 内全量候选按分数选头条+次级;
 // 窗口内凑不满 HOME_STORY_COUNT 条(低频期)时放宽到最近 12 条(按时间)。
 const HEADLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
-const HOME_STORY_COUNT = 6; // 1 头条 + 5 次级
+// 1 头条 + 8 次级。8 是资讯卡最高档(fit-level L3)的条数上限, 不是常态渲染量 ——
+// SSR 只渲染 5 条(L0), 多出的 3 条只在客户端测出卡内真有空间时才升上去。
+// 代价是 3 条四语标题约 1.6KB 进首屏 HTML, 这是「填满」的唯一手段(见
+// 2026-08-21-home-fit-level-design.md 第 3 节: 密度加满也只到约 450px)。
+const HOME_STORY_COUNT = 9;
 
 // 与 news.list 同款相关子查询取 story 内 item 分数上限。
 // 陷阱: 单表查询时 drizzle 会剥去插值 Column 的表限定符, 子查询里的
@@ -57,6 +61,12 @@ export interface HomeStory {
   // 刻意不带 summary: 首页只渲染标题, 而四语 summary JSON 会随 loader 数据一起
   // 内联进首屏 HTML(实测约占 8%)。要加回来之前先确认真的有组件渲染它。
   leadImage: NewsMedia | null;
+  /**
+   * story 聚合到的来源数。资讯卡次条在高档位下会渲染「N 个来源」副行,
+   * 复用 m.news_sources_count(与 /news 列表页同一个键、同一个口径)。
+   * 零新增查询成本: storyProjection 本来就在查它, 只是没往外露。
+   */
+  sourceCount: number;
   /**
    * earliestPublishedAt ?? firstSeenAt, epoch ms。
    * 排序只看 earliestPublishedAt(0025 迁移已消灭存量 NULL, 写入路径始终赋值);
@@ -91,14 +101,14 @@ export interface HomeEdition {
   /** 本期入选总篇数 */
   pickCount: number;
   /**
-   * 前两个栏目(顺序与合刊页栏目顺序同源)。方向名与期标题都保留四语 Record 原样,
-   * 由组件按当前 locale 挑 —— 服务端不知道客户端渲染时的 locale(语言切换不重新
-   * 走 loader)。
+   * 前若干个栏目(顺序与合刊页栏目顺序同源, 上限 EDITION_HIGHLIGHT_MAX = 6)。
+   * 方向名与期标题都保留四语 Record 原样, 由组件按当前 locale 挑 —— 服务端不知道
+   * 客户端渲染时的 locale(语言切换不重新走 loader)。
    *
-   * 实测(本地三期夹具)highlights 给首屏 HTML 加约 1.15 KB(几乎全部是这两条四语标题,
-   * CJK 一字 3 字节); 加上 otherDirectionNames 满载时的约 0.5 KB(那是估算不是实测,
-   * 见下面的单条推算), 整个 edition 字段约 1.65 KB。highlights 那份想再压只能砍语言,
-   * 而语言是不能砍的。整份 sections 是几十 KB 量级, 差二十倍以上 —— 那才是这个字段
+   * 这是**供给**不是渲染量: 首页周刊卡 SSR 只渲染前 2 条, 其余由 fit-level 升档
+   * 时才用上。上一轮实测 2 条约 1.15 KB(几乎全部是四语标题, CJK 一字 3 字节),
+   * 按约 550 字节/条线性外推 6 条约 3.3 KB; 加上 otherDirectionNames 的约 0.5 KB,
+   * 整个 edition 字段约 3.8 KB。整份 sections 是几十 KB 量级 —— 那才是这个字段
    * 存在的理由。
    */
   highlights: Array<{
@@ -106,10 +116,10 @@ export interface HomeEdition {
     title: Record<string, string> | null;
   }>;
   /**
-   * 本期有更新、但没排进 highlights 的方向名(即 sections.slice(EDITION_HIGHLIGHT_COUNT))。
+   * 本期有更新、但没排进 highlights 的方向名(即 sections.slice(EDITION_HIGHLIGHT_MAX))。
    * 只有名字没有标题: 四语一条约 80–110 字节(实测 seed-directions.sql:13 的
    * 「AI 形式化数学」是 110; 更短的方向名按同构造式推算 80–95 —— 仓库目前只有
-   * formal-math 一个方向, 没有第二条可实测, 别再去翻了)。7 个方向 = 这里 5 条,
+   * formal-math 一个方向, 没有第二条可实测, 别再去翻了)。7 个方向 = 这里 1 条,
    * 满打满算约 0.5KB —— 比 highlights 里每条带四语期标题的约 550 字节便宜五六倍,
    * 所以这个字段可以列全, 而 highlights 仍然只露两条。
    *
@@ -122,7 +132,7 @@ export interface HomeEdition {
 export interface HomeToday {
   /** 查询侧捕获一次; 客户端相对时间以它为基准, 避免 SSR/hydration 文本漂移 */
   now: number;
-  /** 24h 窗口内按分数选出的头条+次级(≤6), 分数从高到低 */
+  /** 24h 窗口内按分数选出的头条+次级(≤9, 供给上限, 见 HOME_STORY_COUNT), 分数从高到低 */
   stories: HomeStory[];
   /** 最近入库 4 篇公开画廊论文 */
   papers: HomePaper[];
@@ -131,13 +141,14 @@ export interface HomeToday {
 }
 
 /**
- * 首页卡只露两条**带标题**的栏目: 卡高要与旁边的头条卡对齐(列满 7 条会把首页第一屏
- * 撑掉), 而每多一条就多一份四语标题进首屏 HTML(约 550 字节/条)。
+ * 首页周刊卡**最多**露几条带标题的栏目。这是供给上限而不是渲染量:
+ * SSR 只渲染 2 条(fit-level L0), 4 / 6 条是客户端测出卡内有空间后才升的档。
  *
- * 其余方向只出名字(otherDirectionNames), 那个量级是 80–110 字节/条, 便宜五六倍,
- * 所以可以列全 —— 卡片底部那行「本期还有」就是用它渲染的。
+ * 每多一条就多一份四语期标题进首屏 HTML(约 550 字节/条, 上一轮实测),
+ * 2 → 6 的代价约 +2.2KB。其余方向仍只出名字(otherDirectionNames),
+ * 那个量级是 80–110 字节/条, 便宜五六倍, 所以可以列全。
  */
-const EDITION_HIGHLIGHT_COUNT = 2;
+const EDITION_HIGHLIGHT_MAX = 6;
 
 // 主查询: 24h 窗口在 SQL 过滤, 按分数取 top-N(SQLite 的 DESC 排序把 NULL
 // scoreMax 排在最后)。limit 36 只是安全上限, 正常一天的 story 远少于此。
@@ -159,7 +170,7 @@ async function loadStoryCandidates(db: Db, windowStart: Date) {
     )
     .limit(36);
   if (rows.length >= HOME_STORY_COUNT) return rows;
-  // 低频兜底: 窗口内凑不满 6 条时放宽到最近 12 条, 选择仍按分数
+  // 低频兜底: 窗口内凑不满 HOME_STORY_COUNT 条时放宽到最近 12 条, 选择仍按分数
   return db
     .select(storyProjection)
     .from(newsStories)
@@ -219,6 +230,7 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       shortId: s.shortId,
       title: s.title,
       leadImage: s.leadImage ?? null,
+      sourceCount: s.sourceCount,
       publishedAt: (s.earliestPublishedAt ?? s.firstSeenAt).getTime(),
     })),
     papers: paperRows.map((p) => ({
@@ -237,10 +249,10 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       directionCount: edition.sections.length,
       pickCount: edition.sections.reduce((sum, s) => sum + s.pickCount, 0),
       highlights: edition.sections
-        .slice(0, EDITION_HIGHLIGHT_COUNT)
+        .slice(0, EDITION_HIGHLIGHT_MAX)
         .map((s) => ({ directionName: s.directionName, title: s.title })),
       otherDirectionNames: edition.sections
-        .slice(EDITION_HIGHLIGHT_COUNT)
+        .slice(EDITION_HIGHLIGHT_MAX)
         .map((s) => s.directionName),
     },
   };
@@ -248,7 +260,7 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
 
 export interface TodayCards {
   headline: HomeStory | null;
-  /** 头条卡内的次级标题, ≤5 */
+  /** 头条卡内的次级标题, ≤8(是供给上限; SSR 只渲染前 5 条, 见 use-fit-level) */
   subStories: HomeStory[];
   /**
    * 周刊卡的数据。与 galleryPicks 严格互斥 —— 这一个字段既是「渲染哪张卡」的判别式,
@@ -282,7 +294,7 @@ export function assembleTodayCards(
   // 和纯函数绑死, 不值这 0.5KB。写在这里是免得下一个人再算一遍。
   return {
     headline: headline ?? null,
-    subStories: restStories.slice(0, 5),
+    subStories: restStories.slice(0, 8),
     // ?? null 在这一行其实是冗余的(上游已经是 HomeEdition | null, 不像 headline /
     // latestPaper 那样从可能为空的数组解构出 undefined), 保留只为让三行同形 ——
     // 一行例外会诱使下一个人反过来把「这里不需要」的结论抄到真正需要它的字段上。

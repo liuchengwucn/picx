@@ -12,6 +12,7 @@ const story = (n: number): HomeStory => ({
   shortId: `s${n}`,
   title: { en: `Story ${n}` },
   leadImage: null,
+  sourceCount: 1,
   publishedAt: 1_700_000_000_000 + n,
 });
 
@@ -57,6 +58,15 @@ describe("assembleTodayCards", () => {
     });
     expect(cards.headline?.shortId).toBe("s1");
     expect(cards.subStories).toEqual([]);
+  });
+
+  it("次条上限放宽到 8 条", () => {
+    const cards = assembleTodayCards({
+      stories: Array.from({ length: 12 }, (_, i) => story(i)),
+      papers: [],
+      edition: null,
+    });
+    expect(cards.subStories).toHaveLength(8);
   });
 
   it("有合刊: 次要论文归论文卡底座, 画廊精选让位", () => {
