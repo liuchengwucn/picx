@@ -17,8 +17,7 @@ const skeletonKeys = ["s1", "s2", "s3", "s4", "s5", "s6"];
 
 /**
  * /papers 的匿名形态: 公开论文流 + 登录引导。刻意不带搜索/筛选 —— 全站检索归
- * /gallery/archive, 这里只回答「这个站的论文长什么样」; 也顺带绕开 listPublic
- * 的 locale 搜索 bug(本次不修)。
+ * /gallery/archive, 这里只回答「这个站的论文长什么样」。
  */
 export function PapersPublicPreview() {
   const trpc = useTRPC();

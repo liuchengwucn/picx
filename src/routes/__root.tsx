@@ -68,11 +68,11 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         content:
           "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content",
       },
-      { title: "PicX - Paper Whiteboard" },
+      { title: "PicX - AI Research, Tracked" },
       {
         name: "description",
         content:
-          "PicX turns academic papers into visual whiteboards. Upload a PDF or arXiv link and get an AI-generated summary and whiteboard image instantly.",
+          "An AI research intelligence hub: hourly-aggregated AI news, weekly digests across research directions, and papers to read in depth, discuss with AI, and turn into visual whiteboards.",
       },
       { property: "og:site_name", content: "PicX" },
       { property: "og:type", content: "website" },
