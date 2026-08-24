@@ -298,9 +298,10 @@ function HeadlineCard({
  * 只是小一号: 读者点进 /gallery 后看到的是同一组信息用同一个顺序放大, 卡与落地页
  * 是同一个对象的两个尺寸而不是两种设计。
  *
- * 两条栏目是封面导语, 刻意不各自成链: 这张卡只有一个门(尾链 → 合刊落地页)。给每条
- * 栏目挂一个通往单期页的深链会把「本周共 N 个方向」这个整体框架拆散, 而首页这一排
- * 卡已经有 6 条资讯链接 + 1 条论文链接在抢注意力。
+ * 栏目条各自深链到 /gallery/d/{slug}/{issue}。这里曾经刻意只留尾链一个门(理由是别把
+ * 「本周共 N 个方向」这个整体框架拆散), 但读者报告这些标题「看着像标题却点不动」——
+ * 排版把它们做成了与头条卡次条同级的可点条目, 唯独不可点, 这是可供性说谎。
+ * 尾链仍在, 整体框架由刊头那三行(本周 / 周期 / N 个方向 · M 篇)承担, 不靠「无处可点」来维持。
  */
 /**
  * 周刊卡的档位: 露几条**带标题**的栏目。其余方向降级成「本期还有」里的名字。
@@ -345,7 +346,16 @@ function WeeklyEditionCard({
   // 一条只有标题没有方向署名的栏目在这张卡里读不出是谁的简报。
   const highlights = edition.highlights.flatMap((h) => {
     const name = pickTldr(h.directionName, localeKey);
-    return name ? [{ name, title: pickTldr(h.title, localeKey) }] : [];
+    return name
+      ? [
+          {
+            slug: h.directionSlug,
+            issue: String(h.issueNumber),
+            name,
+            title: pickTldr(h.title, localeKey),
+          },
+        ]
+      : [];
   });
 
   // 「本期还有」只列名字。与 highlights 同源的处理: 取不到当前语言译文的方向直接跳过。
@@ -403,16 +413,30 @@ function WeeklyEditionCard({
       {shownHighlights.length > 0 ? (
         <ul className="mt-3 divide-y divide-[var(--line)] border-t border-[var(--line)]">
           {shownHighlights.map((h) => (
-            <li key={h.name} className="py-2.5 last:pb-0">
-              <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
-                {h.name}
-              </p>
-              {/* 期标题缺译文时只留方向名: 那仍然是一条真信息(这个方向本期有更新) */}
-              {h.title ? (
-                <p className="mt-0.5 line-clamp-2 font-serif text-[13.5px] font-semibold leading-snug text-[var(--ink)]">
-                  {h.title}
+            <li key={h.slug} className="py-2.5 last:pb-0">
+              {/* 方向名 + 期标题整块是一个热区(而不是只让标题那行可点): 两行在视觉上
+                  本来就是一条, 分成两个目的地会让 11px 的方向名成为一个几乎点不中的
+                  小靶子。颜色一律挂内层元素、不挂 <a>: styles.css 那条未分层的
+                  `a { color }` 会静默吃掉写在 <a> 上的 text-*(见 direction-section.tsx)。 */}
+              <Link
+                to="/gallery/d/$slug/$issue"
+                params={{ slug: h.slug, issue: h.issue }}
+                className="group block no-underline"
+              >
+                <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
+                  {h.name}
                 </p>
-              ) : null}
+                {/* 期标题缺译文时只留方向名: 那仍然是一条真信息(这个方向本期有更新),
+                    链接照旧指向单期页 —— 方向名此时就是这条链接的可读名字。
+                    标题保持 <p> 而不是换成带 block 的 <span>: block 与 line-clamp-2 都是
+                    display 类, 谁赢取决于 Tailwind 生成的 CSS 顺序而非类名顺序 ——
+                    line-clamp 一旦被压掉, 长标题就不再截两行, 卡高失控。 */}
+                {h.title ? (
+                  <p className="mt-0.5 line-clamp-2 font-serif text-[13.5px] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown-deep)]">
+                    {h.title}
+                  </p>
+                ) : null}
+              </Link>
             </li>
           ))}
         </ul>

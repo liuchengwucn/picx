@@ -112,6 +112,9 @@ export interface HomeEdition {
    * 存在的理由。
    */
   highlights: Array<{
+    /** 深链到 /gallery/d/{slug}/{issue} 用; 两者合起来约 20–30 字节, 相对四语标题可忽略 */
+    directionSlug: string;
+    issueNumber: number;
     directionName: Record<string, string>;
     title: Record<string, string> | null;
   }>;
@@ -248,9 +251,12 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       activeDirectionCount: edition.activeDirectionCount,
       directionCount: edition.sections.length,
       pickCount: edition.sections.reduce((sum, s) => sum + s.pickCount, 0),
-      highlights: edition.sections
-        .slice(0, EDITION_HIGHLIGHT_MAX)
-        .map((s) => ({ directionName: s.directionName, title: s.title })),
+      highlights: edition.sections.slice(0, EDITION_HIGHLIGHT_MAX).map((s) => ({
+        directionSlug: s.directionSlug,
+        issueNumber: s.issueNumber,
+        directionName: s.directionName,
+        title: s.title,
+      })),
       otherDirectionNames: edition.sections
         .slice(EDITION_HIGHLIGHT_MAX)
         .map((s) => s.directionName),
