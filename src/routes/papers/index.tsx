@@ -14,19 +14,24 @@ import {
   PaperActiveFilters,
   PaperTopicFilterButton,
 } from "#/components/papers/paper-topic-filter";
+import { PapersPublicPreview } from "#/components/papers/papers-public-preview";
 import { RecentPapers } from "#/components/papers/recent-papers";
 import { UploadDialog } from "#/components/papers/upload-dialog";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
-import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient } from "#/lib/auth-client";
 import { parseCsvParam } from "#/lib/gallery-search";
 import {
   normalizeCategorySlugs,
   type PaperCategorySlug,
 } from "#/lib/paper-categories";
 import { groupPapersByMonth } from "#/lib/papers-group";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+} from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -60,8 +65,17 @@ function PapersPage() {
 
   const [inputValue, setInputValue] = useState(search.q ?? "");
 
-  const { session, isSessionPending } = useRequireAuth("/papers");
-  const profile = useQuery(trpc.user.getProfile.queryOptions());
+  const { data: authSession, isPending: isSessionPending } =
+    authClient.useSession();
+  const guestSession =
+    !authSession && isReviewGuestModeEnabled()
+      ? getReviewGuestClientSession()
+      : null;
+  const session = authSession ?? guestSession;
+  const profile = useQuery({
+    ...trpc.user.getProfile.queryOptions(),
+    enabled: !!session,
+  });
   usePaperSSE(profile.data?.id);
   const queryClient = useQueryClient();
 
@@ -99,9 +113,13 @@ function PapersPage() {
       { getNextPageParam: (last) => last.nextCursor },
     ),
     placeholderData: keepPreviousData,
+    enabled: !!session,
   });
 
-  const counts = useQuery(trpc.paper.statusCounts.queryOptions());
+  const counts = useQuery({
+    ...trpc.paper.statusCounts.queryOptions(),
+    enabled: !!session,
+  });
 
   const papers = useMemo(() => {
     const seen = new Set<string>();
@@ -194,7 +212,7 @@ function PapersPage() {
       </main>
     );
   }
-  if (!session) return null;
+  if (!session) return <PapersPublicPreview />;
 
   const emptyKind = q ? "search" : hasFilters ? "filter" : "library";
 

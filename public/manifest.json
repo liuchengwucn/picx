@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "PicX - Paper Whiteboard",
+  "name": "PicX - AI Research, Tracked",
   "short_name": "PicX",
-  "description": "PicX turns academic papers into visual whiteboards. Upload a PDF or arXiv link and get an AI-generated summary and whiteboard image instantly.",
+  "description": "An AI research intelligence hub: hourly-aggregated AI news, weekly digests across research directions, and papers to read in depth, discuss with AI, and turn into visual whiteboards.",
   "lang": "en",
   "start_url": "/",
   "scope": "/",

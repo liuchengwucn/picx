@@ -10,10 +10,10 @@
  */
 
 const SITE_DESCRIPTION =
-  "An all-in-one workstation for academic papers: track AI news, discover papers with an AI assistant, read full text, discuss with AI, and generate visual whiteboard summaries.";
+  "An AI research intelligence hub: hourly-aggregated AI news, weekly direction digests, and papers to read in depth, discuss with AI, and turn into visual whiteboards.";
 
 const SITE_INTRO =
-  "PicX helps knowledge workers go from discovery to deep reading: a live AI news feed, AI-assisted paper discovery, a full-text reader with AI discussion, and one-glance visual whiteboards. Each paper links to a clean Markdown view intended for AI consumption.";
+  "PicX tracks frontier AI research: a live AI news feed aggregated hourly, weekly deep-dive digests for each tracked research direction, and a paper workstation for full-text reading, AI discussion, and one-glance visual whiteboards. Each paper links to a clean Markdown view intended for AI consumption.";
 
 interface LlmsTxtPaper {
   title: string;

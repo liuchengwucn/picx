@@ -374,7 +374,7 @@ function WeeklyEditionCard({
       {/* 栏眉放刊物名(与 edition_kicker 同值), 不放内容名词: 这张卡是刊头的缩小版,
           栏眉位置对应的就是刊头上那行刊名。曾经这里写「方向简报」, 于是卡说「方向简报」、
           点进去刊头又说「画廊周刊」—— 一个目的地两个称呼。界线是: **目的地名称统一,
-          内容描述自由**(首页叙述区的 home_cta_gallery 仍是「浏览方向简报」, 那句描述的
+          内容描述自由**(首页四步区的描述文案不必与刊名一致, 那句描述的
           是内容不是目的地)。导航标签 nav_gallery 是例外, 它为排版单独缩成了「周刊」,
           理由见 Header.tsx。 */}
       <ModuleKicker as="h2" color="var(--olive)">
@@ -533,9 +533,11 @@ function LatestPaperCard({
       >
         {paper.hasImage ? (
           // 白板图标题在左上角, object-top 保证被裁切时还认得出是哪篇。保留 shrink-0:
-          // 卡内容真溢出时不许压这张图。这张图在首屏但不是 LCP(那是报头 logo), 保持 lazy。
+          // 卡内容真溢出时不许压这张图。报头压缩后(报头 logo 已删)这张论文卡缩略图进入
+          // 首屏, 头条卡无配图时它就是 LCP 候选, 必须 eager。
           <SelfHidingImage
             src={`/p/${paper.shortId}/image`}
+            eager
             className="mb-3 aspect-video w-full shrink-0 rounded-xl border border-[var(--line)] bg-[var(--parchment-warm)] object-cover object-top"
           />
         ) : null}

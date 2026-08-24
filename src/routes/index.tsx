@@ -1,12 +1,12 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowRight,
   BookOpen,
   Github,
   MessageCircle,
+  Newspaper,
   Rss,
-  Search,
 } from "lucide-react";
 import { ModuleKicker } from "#/components/home/module-kicker";
 import { TodayStrip } from "#/components/home/today-strip";
@@ -15,18 +15,13 @@ import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
-// en/ja 的 h1 一行放不下, 自然断行会切进高亮短语内部(英文甚至断在
-// all-in-one 词中); 在前缀后强制换行让高亮短语整行独占。中文标题
-// 一行放得下, 不强制断, 否则平白多出一行。
-const H1_BREAK_LOCALES = new Set(["en", "ja"]);
-
 interface AppEnvBindings {
   DB: D1Database;
 }
 
 // JSON-LD 面向爬虫,不跟随界面语言:固定英文串,避免同一 URL 因访客语言产生不同结构化数据。
 const JSON_LD_DESCRIPTION =
-  "Track AI news; discover, read, and discuss papers from any field with AI — plus one-click visual whiteboards.";
+  "An AI research intelligence hub: hourly-aggregated AI news, weekly digests across research directions, and papers to read in depth, discuss with AI, and turn into visual whiteboards.";
 
 const GITHUB_URL = "https://github.com/liuchengwucn/picx";
 
@@ -80,13 +75,7 @@ export const Route = createFileRoute("/")({
         { name: "twitter:description", content: description },
         { name: "twitter:image", content: image },
       ],
-      links: [
-        { rel: "canonical", href: url },
-        // 报头 logo 是首屏 LCP 元素。优先级提示只写在 <img fetchPriority> 上:
-        // React 会额外 hoist 一份不带属性的 preload 到 head 顶部, 先到先得,
-        // 挂在这个 link 上的 fetchPriority 会被那份丢弃掉。
-        { rel: "preload", as: "image", href: "/logo.webp" },
-      ],
+      links: [{ rel: "canonical", href: url }],
       scripts: [
         {
           type: "application/ld+json",
@@ -118,19 +107,19 @@ export const Route = createFileRoute("/")({
   },
 });
 
-// 序号编码真实工作流顺序(追踪 → 发现 → 阅读 → 讨论),不是装饰性编号。
+// 序号编码情报站的真实生产顺序(聚合 → 出刊 → 深读 → 上手),不是装饰性编号。
 const WORKFLOW_STEPS = [
   {
-    id: "track",
+    id: "aggregate",
     icon: Rss,
-    title: m.home_step_track_title,
-    desc: m.home_step_track_desc,
+    title: m.home_step_aggregate_title,
+    desc: m.home_step_aggregate_desc,
   },
   {
-    id: "discover",
-    icon: Search,
-    title: m.home_step_discover_title,
-    desc: m.home_step_discover_desc,
+    id: "publish",
+    icon: Newspaper,
+    title: m.home_step_publish_title,
+    desc: m.home_step_publish_desc,
   },
   {
     id: "read",
@@ -139,10 +128,10 @@ const WORKFLOW_STEPS = [
     desc: m.home_step_read_desc,
   },
   {
-    id: "discuss",
+    id: "yours",
     icon: MessageCircle,
-    title: m.home_step_discuss_title,
-    desc: m.home_step_discuss_desc,
+    title: m.home_step_yours_title,
+    desc: m.home_step_yours_desc,
   },
 ] as const;
 
@@ -151,32 +140,12 @@ function HomePage() {
 
   return (
     <main className="min-h-dvh">
-      {/* 报头:单棕线收边,零纹理零渐变 */}
-      <header className="rise-in border-b border-[color-mix(in_srgb,var(--academic-brown)_35%,transparent)] px-4 pb-10 pt-4 text-center sm:px-6 sm:pb-12">
+      {/* 报头:单棕线收边。重定位后压缩成报纸式刊头 —— 内容三卡必须进首屏,
+          大 logo 插画与 CTA 按钮随「工具落地页」叙事一起退场。 */}
+      <header className="rise-in border-b border-[color-mix(in_srgb,var(--academic-brown)_35%,transparent)] px-4 pb-8 pt-6 text-center sm:px-6 sm:pb-9 sm:pt-8">
         <div className="page-wrap">
-          <img
-            src="/logo.webp"
-            alt="PicX"
-            width={1408}
-            height={768}
-            fetchPriority="high"
-            className="mx-auto w-full max-w-2xl"
-            style={{
-              maskImage:
-                "linear-gradient(to right, transparent, black 20%, black 80%, transparent), linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)",
-              WebkitMaskImage:
-                "linear-gradient(to right, transparent, black 20%, black 80%, transparent), linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)",
-              maskComposite: "intersect",
-              WebkitMaskComposite: "source-in",
-            }}
-          />
-
-          <h1 className="mx-auto max-w-3xl font-serif text-[1.75rem] font-bold leading-tight tracking-tight text-[var(--ink)] sm:text-[2.5rem] sm:leading-[1.22]">
+          <h1 className="mx-auto max-w-3xl font-serif text-2xl font-bold leading-tight tracking-tight text-[var(--ink)] sm:text-[2rem]">
             {m.home_h1_prefix()}
-            {/* 窄屏放不下一整行时 br 无害: 高亮 span 靠 clone 继续逐行断开 */}
-            {H1_BREAK_LOCALES.has(getLocale()) && (
-              <br className="hidden sm:inline" />
-            )}
             {/* 金色高亮沿用站内「划线引用」语义:背景条走 background-image,
                 boxDecorationBreak:clone 让它在换行处逐行断开而不是拉成一条 */}
             <span
@@ -195,28 +164,21 @@ function HomePage() {
             </span>
           </h1>
 
-          <p className="mx-auto mt-3 max-w-2xl text-sm text-[var(--ink-soft)] sm:text-base">
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-[var(--ink-soft)] sm:text-base">
             {m.home_new_subtitle()}
           </p>
 
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              to="/papers"
-              className="rounded-xl bg-[var(--academic-brown)] px-5 py-2.5 text-sm font-semibold !text-white no-underline shadow-[0_4px_14px_rgba(139,111,71,0.24)] transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_20px_rgba(139,111,71,0.3)] active:translate-y-0"
-            >
-              {m.home_cta_upload()}
-            </Link>
-            <Link
-              to="/gallery"
-              className="rounded-xl border-[1.5px] border-[var(--academic-brown)] px-5 py-2.5 text-sm font-semibold text-[var(--academic-brown)] no-underline transition-colors hover:bg-[color-mix(in_srgb,var(--academic-brown)_8%,transparent)]"
-            >
-              {/* 这里刻意不是刊物名(「画廊周刊」)而是内容描述(「浏览方向简报」):
-                  界线是「目的地名称统一、内容描述自由」—— 导航标签 / 刊头 / 首页卡栏眉
-                  三处都必须念同一个名字(见 Header.tsx 的注释), 而按钮上说的是点下去
-                  会读到什么, 那是内容, 不必与刊名一致。 */}
-              {m.home_cta_gallery()}
-            </Link>
-          </div>
+          {/* 刊头日期。now 来自 loader 服务端捕获, SSR/客户端格出同一天;
+              必须 UTC(全站日期口径), 否则 hydration 文本漂移(#418)。today 拿不到时
+              整行不出——报头没有加载态。 */}
+          {today ? (
+            <p className="mt-2 text-xs text-[var(--ink-soft)]">
+              {new Intl.DateTimeFormat(getLocale(), {
+                dateStyle: "long",
+                timeZone: "UTC",
+              }).format(today.now)}
+            </p>
+          ) : null}
         </div>
       </header>
 
@@ -316,10 +278,6 @@ function HomePage() {
             <Github className="h-3.5 w-3.5" strokeWidth={1.25} />
             {m.home_foot_github()}
           </a>
-          <span aria-hidden className="text-[var(--line)]">
-            ·
-          </span>
-          <span>{m.home_foot_free()}</span>
           <span aria-hidden className="text-[var(--line)]">
             ·
           </span>
