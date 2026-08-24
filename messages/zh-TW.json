@@ -463,7 +463,6 @@
   "assistant_preview_desc": "研究助手聯網搜尋，幫你找到該讀的論文；還能用技能庫定製自己的工作流。登入後即可開始對話。",
   "assistant_preview_answer": "近期代表工作大致分三條路線：基於注意力得分的條目淘汰、跨層預算分配、量化與低秩近似……登入後可以繼續追問，或把論文一鍵加入你的庫。",
   "assistant_new_conversation": "新對話",
-  "assistant_conversations": "對話",
   "assistant_conversations": "會話",
   "assistant_search_placeholder": "搜尋對話…",
   "assistant_search_clear": "清除搜尋",
