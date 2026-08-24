@@ -151,9 +151,12 @@ export default {
       });
     }
 
-    // 运维通道：重投 failed 的 gallery arXiv 论文（与 /__scheduled 同门禁）。
+    // 运维通道：重投 failed 的 arXiv 论文（与 /__scheduled 同门禁）。
     // 队列消息只能从 Worker 侧发、CLI 无法补投，这是 failed 论文唯一的正规
     // 重跑入口；只覆盖 arXiv 来源（用户上传的消息形状含 r2Key 等，不在此复原）。
+    // 可选参数复原用户论文的形状：lang=<en|zh-cn|zh-tw|ja> 单语（缺省为 gallery
+    // 四语），whiteboard=0 不出白板。BYOK/promptId 无法复原，重跑一律走系统 API；
+    // 消息不带 generateWhiteboard 时即使再失败也不会触发错误退款（charged=false）。
     if (pathname === "/__ops/retry-paper") {
       const params = new URL(request.url).searchParams;
       if (
@@ -164,6 +167,14 @@ export default {
       }
       const shortId = params.get("shortId");
       if (!shortId) return new Response("shortId required", { status: 400 });
+      const langParam = params.get("lang");
+      const lang = (["en", "zh-cn", "zh-tw", "ja"] as const).find(
+        (l) => l === langParam,
+      );
+      if (langParam !== null && !lang) {
+        return new Response("invalid lang", { status: 400 });
+      }
+      const wantWhiteboard = params.get("whiteboard") !== "0";
       const db = drizzle(env.DB);
       const [paper] = await db
         .select({
@@ -190,15 +201,18 @@ export default {
         .update(papers)
         .set({ status: "pending", errorMessage: null, updatedAt: new Date() })
         .where(eq(papers.id, paper.id));
-      // 消息形状对齐 createGalleryPaper 的初始入队（gallery 论文四语+白板）
+      // 缺省形状对齐 createGalleryPaper 的初始入队（gallery 论文四语+白板）；
+      // 带 lang 时按用户论文形状单语重投、不带 extraLanguages
       await env.PAPER_QUEUE.send({
         paperId: paper.id,
         userId: paper.userId,
         type: "initial",
         sourceType: "arxiv",
         arxivUrl: paper.sourceUrl,
-        extraLanguages: ["zh-cn", "zh-tw", "ja"],
-        generateWhiteboard: true,
+        ...(lang
+          ? { language: lang }
+          : { extraLanguages: ["zh-cn", "zh-tw", "ja"] as const }),
+        ...(wantWhiteboard ? { generateWhiteboard: true } : {}),
       });
       return new Response(`requeued ${shortId} (${paper.id})`, { status: 200 });
     }
