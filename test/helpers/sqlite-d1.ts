@@ -73,14 +73,19 @@ function createD1Client(sqlite: DatabaseSync) {
 
 export interface TestDb {
   db: ReturnType<typeof drizzle<typeof schema>>;
+  /**
+   * 底层的最小 D1Database 表面，供被测代码内部自建
+   * `drizzle(env.DB)`（不带 schema）的场景使用——两者共享同一个内存 sqlite，
+   * 用 `db` 播种的数据对 `d1` 上新建的 drizzle 实例同样可见。
+   */
+  d1: D1Database;
 }
 
 /** 新建一个跑完全部迁移的内存库 + drizzle 实例 */
 export function createTestDb(): TestDb {
   const sqlite = new DatabaseSync(":memory:");
   applyMigrations(sqlite);
-  const db = drizzle(createD1Client(sqlite) as unknown as D1Database, {
-    schema,
-  });
-  return { db };
+  const d1 = createD1Client(sqlite) as unknown as D1Database;
+  const db = drizzle(d1, { schema });
+  return { db, d1 };
 }

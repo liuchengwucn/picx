@@ -66,6 +66,11 @@ type LogWarnFn = (step: string, message: string, error?: unknown) => void;
 
 const MAX_RETRIES = 3;
 
+// DLQ 消费者标记在途论文失败时写入的统一原因: 4 次投递全部无声死亡通常意味着
+// worker isolate 被平台资源限制杀掉(OOM 等), 而不是代码里能捕获的业务错误。
+const DEAD_LETTER_REASON =
+  "processing aborted: queue retries exhausted (worker likely killed by resource limits)";
+
 // tldr 生成/翻译针对网关瞬时限流(429)/超时的重试次数。
 // tldr 是「非关键步骤」(失败仅回退到 summary 兜底), 但每日 cron 批量入队时
 // 这一步靠后的 4 连发最容易踩到限流, 故给较多次数 + 指数退避兜稳。
@@ -138,6 +143,11 @@ async function withRetry<T>(
 
 export default {
   async queue(batch: MessageBatch<QueueMessage>, env: Env): Promise<void> {
+    if (batch.queue === "paper-processing-dlq") {
+      await handleDeadLetterBatch(batch, env);
+      return;
+    }
+
     for (const message of batch.messages) {
       const { paperId, type = "initial" } = message.body;
       const attempt = message.attempts;
@@ -213,6 +223,95 @@ export default {
     }
   },
 };
+
+/**
+ * DLQ 消息意味着这条消息的 4 次投递全部无声死亡——通常是 worker isolate 被平台
+ * 按资源限制击杀(如 exceededMemory), 顶层 queue() 的 catch 根本没机会跑,
+ * 论文行就停在某个在途状态、error_message 为空, 只能靠 24h 后的 stale watchdog
+ * 收尸。这里把仍在途的论文立即标 failed 并写真实原因, 终结这个「僵尸行」窗口。
+ *
+ * 终态行绝不覆盖: Cloudflare Queues 是 at-least-once 投递, 同一篇论文可能被
+ * 另一条重复消息正常处理完成(甚至软删除)之后, 这条旧消息才姗姗来迟地进 DLQ——
+ * 此时必须原样跳过, 绝不能把 completed/failed/已软删的行再次改写。
+ */
+async function handleDeadLetterBatch(
+  batch: MessageBatch<QueueMessage>,
+  env: Env,
+): Promise<void> {
+  const db = drizzle(env.DB);
+
+  for (const message of batch.messages) {
+    try {
+      const { paperId, type = "initial" } = message.body;
+
+      // regenerate_whiteboard 的语义与 initial/mineru_poll 不同: 论文本身可能
+      // 早就 completed, 出问题的只是「重新生成一张白板图」这个子操作。
+      // 进 DLQ 说明 isolate 被杀、内部各步骤(load-results/generate-image/
+      // upload-image/update-db)的就地退款可能根本没跑到；但这里无法区分
+      // 「已退过」与「没退过」，宁可少退一次也不能冒双退风险，因此只清标志
+      // 不动状态也不退款——绝不动 papers.status。
+      if (type === "regenerate_whiteboard") {
+        await db
+          .update(papers)
+          .set({ whiteboardRegenerating: false, updatedAt: new Date() })
+          .where(eq(papers.id, paperId));
+        console.log(
+          `[paper:${paperId}] DLQ: cleared whiteboardRegenerating flag`,
+        );
+        message.ack();
+        continue;
+      }
+
+      const [paperRow] = await db
+        .select({ status: papers.status, deletedAt: papers.deletedAt })
+        .from(papers)
+        .where(eq(papers.id, paperId))
+        .limit(1);
+
+      if (!paperRow) {
+        console.log(`[paper:${paperId}] DLQ: paper not found, skipping`);
+        message.ack();
+        continue;
+      }
+
+      if (
+        paperRow.deletedAt ||
+        paperRow.status === "completed" ||
+        paperRow.status === "failed"
+      ) {
+        console.log(
+          `[paper:${paperId}] DLQ: paper already terminal (status=${paperRow.status}, deleted=${!!paperRow.deletedAt}), skipping`,
+        );
+        message.ack();
+        continue;
+      }
+
+      console.log(
+        `[paper:${paperId}] DLQ: marking failed (was status=${paperRow.status})`,
+      );
+      await markPaperFailedForMessage(
+        paperId,
+        message.body,
+        DEAD_LETTER_REASON,
+        env,
+      );
+      message.ack();
+    } catch (error) {
+      // 消息体本身也可能是畸形的(null/undefined 等), 因此不信任已解构出的
+      // paperId(它可能因为这次异常压根没解构成功)——用可选链兜底取一个
+      // 尽力而为的日志标识, 绝不能让一条坏消息的解构异常抛出循环外，
+      // 拖累同批次(max_batch_size 5)里其余健康消息被一并放弃投递。
+      const fallbackId =
+        (message.body as { paperId?: string } | null | undefined)?.paperId ??
+        "unknown";
+      console.error(
+        `[paper:${fallbackId}] DLQ: handling message failed`,
+        error,
+      );
+      message.retry();
+    }
+  }
+}
 
 async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
   const db = drizzle(env.DB);

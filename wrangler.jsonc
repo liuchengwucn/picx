@@ -59,7 +59,20 @@
         "queue": "paper-processing",
         "max_batch_size": 1,
         "max_retries": 3,
-        "dead_letter_queue": "paper-processing-dlq"
+        "dead_letter_queue": "paper-processing-dlq",
+        // MinerU zip 解析吃大量内存: 高并发同时处理会把多份大 buffer 挤进同一个
+        // isolate 引发 OOM 被平台击杀; 限流到 2 并发降低撞峰概率。零延迟重投会让
+        // 被杀的消息立刻在同一时刻再挤一次内存, 加个重试延迟错开重投时间。
+        "max_concurrency": 2,
+        "retry_delay": 120
+      },
+      {
+        // DLQ 消费者: 4 次投递全部失败(通常是 isolate 被杀, 代码 catch 没机会跑)
+        // 后落到这里, 立即把仍在途的论文标 failed 并写真实原因, 而不是留着当
+        // 僵尸行等 24h watchdog 收尸。
+        "queue": "paper-processing-dlq",
+        "max_batch_size": 5,
+        "max_retries": 3
       }
     ]
   },
