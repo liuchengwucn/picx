@@ -533,9 +533,11 @@ function LatestPaperCard({
       >
         {paper.hasImage ? (
           // 白板图标题在左上角, object-top 保证被裁切时还认得出是哪篇。保留 shrink-0:
-          // 卡内容真溢出时不许压这张图。这张图在首屏但不是 LCP(那是报头 logo), 保持 lazy。
+          // 卡内容真溢出时不许压这张图。报头压缩后(报头 logo 已删)这张论文卡缩略图进入
+          // 首屏, 头条卡无配图时它就是 LCP 候选, 必须 eager。
           <SelfHidingImage
             src={`/p/${paper.shortId}/image`}
+            eager
             className="mb-3 aspect-video w-full shrink-0 rounded-xl border border-[var(--line)] bg-[var(--parchment-warm)] object-cover object-top"
           />
         ) : null}

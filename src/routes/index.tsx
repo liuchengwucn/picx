@@ -112,14 +112,14 @@ const WORKFLOW_STEPS = [
   {
     id: "aggregate",
     icon: Rss,
-    title: m.home_step_track_title,
-    desc: m.home_step_track_desc,
+    title: m.home_step_aggregate_title,
+    desc: m.home_step_aggregate_desc,
   },
   {
     id: "publish",
     icon: Newspaper,
-    title: m.home_step_discover_title,
-    desc: m.home_step_discover_desc,
+    title: m.home_step_publish_title,
+    desc: m.home_step_publish_desc,
   },
   {
     id: "read",
@@ -130,8 +130,8 @@ const WORKFLOW_STEPS = [
   {
     id: "yours",
     icon: MessageCircle,
-    title: m.home_step_discuss_title,
-    desc: m.home_step_discuss_desc,
+    title: m.home_step_yours_title,
+    desc: m.home_step_yours_desc,
   },
 ] as const;
 
