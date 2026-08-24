@@ -5,13 +5,18 @@ import { Loader2, Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AssistantChat } from "#/components/assistant/assistant-chat";
+import { AssistantPreview } from "#/components/assistant/assistant-preview";
 import { ConversationHeader } from "#/components/assistant/conversation-header";
 import { ConversationList } from "#/components/assistant/conversation-list";
 import { ProfileDialog } from "#/components/assistant/profile-dialog";
 import { resolveChatErrorMessage } from "#/components/chat/chat-message";
 import { Button } from "#/components/ui/button";
-import { useRequireAuth } from "#/hooks/use-require-auth";
 import { useTRPC } from "#/integrations/trpc/react";
+import { authClient } from "#/lib/auth-client";
+import {
+  getReviewGuestClientSession,
+  isReviewGuestModeEnabled,
+} from "#/lib/review-guest";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/assistant/")({
@@ -25,7 +30,13 @@ export const Route = createFileRoute("/assistant/")({
 const TITLE_MAX_CHARS = 80;
 
 function AssistantPage() {
-  const { session, isSessionPending } = useRequireAuth("/assistant");
+  const { data: authSession, isPending: isSessionPending } =
+    authClient.useSession();
+  const guestSession =
+    !authSession && isReviewGuestModeEnabled()
+      ? getReviewGuestClientSession()
+      : null;
+  const session = authSession ?? guestSession;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const navigate = Route.useNavigate();
@@ -199,8 +210,8 @@ function AssistantPage() {
     );
   }
 
-  // 未登录会被 useRequireAuth 送去登录页，这里不渲染任何东西
-  if (!session) return null;
+  // 未登录：渲染匿名预览页（功能介绍 + 静态示例问答 + 登录入口），不拉任何数据
+  if (!session) return <AssistantPreview />;
 
   const newConversationButton = (
     <Button

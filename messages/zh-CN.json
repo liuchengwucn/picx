@@ -460,6 +460,8 @@
   "news_related": "相关资讯",
   "nav_assistant": "助手",
   "assistant_page_title": "研究助手",
+  "assistant_preview_desc": "研究助手联网搜索，帮你找到该读的论文；还能用技能库定制自己的工作流。登录后即可开始对话。",
+  "assistant_preview_answer": "近期代表工作大致分三条路线：基于注意力得分的条目淘汰、跨层预算分配、量化与低秩近似……登录后可以继续追问，或把论文一键加入你的库。",
   "assistant_new_conversation": "新对话",
   "assistant_conversations": "会话",
   "assistant_search_placeholder": "搜索会话…",

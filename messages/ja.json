@@ -460,6 +460,8 @@
   "news_related": "関連ニュース",
   "nav_assistant": "アシスタント",
   "assistant_page_title": "リサーチアシスタント",
+  "assistant_preview_desc": "リサーチアシスタントがウェブ検索であなたが読むべき論文を見つけます。スキルライブラリでワークフローもカスタマイズできます。ログインして会話を始めましょう。",
+  "assistant_preview_answer": "最近の代表的な研究は、注意スコアに基づく削除、層ごとの予算配分、量子化・低ランク近似の三つの方向に大別されます……ログインすると続けて質問したり、論文をライブラリに追加したりできます。",
   "assistant_new_conversation": "新しいチャット",
   "assistant_conversations": "会話",
   "assistant_search_placeholder": "会話を検索…",

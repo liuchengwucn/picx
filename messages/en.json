@@ -460,6 +460,8 @@
   "news_related": "Related stories",
   "nav_assistant": "Assistant",
   "assistant_page_title": "Research Assistant",
+  "assistant_preview_desc": "The research assistant searches the web to find papers worth reading, with a skill library to customize your workflow. Sign in to start a conversation.",
+  "assistant_preview_answer": "Recent representative work falls into three lines: attention-score-based eviction, per-layer budget allocation, and quantization / low-rank approximation… Sign in to keep asking, or add any paper to your library in one click.",
   "assistant_new_conversation": "New chat",
   "assistant_conversations": "Conversations",
   "assistant_search_placeholder": "Search conversations…",
