@@ -1,8 +1,8 @@
 # PicX
 
-**From discovery to deep reading — an all-in-one paper workstation.**
+**Frontier AI research, tracked — live AI news, weekly direction digests, and a paper workstation for deep reading.**
 
-Track what the AI community is talking about, discover papers worth reading in any field, read them in full text with an AI at your side, and turn any of them into a visual whiteboard in one click.
+PicX aggregates AI news every hour, publishes a weekly digest for each tracked research direction, and gives every paper a full-text reader with an AI at your side — plus one-click visual whiteboards. Upload your own papers and run them through the same pipeline.
 
 Free, open source, and running entirely on Cloudflare's edge. Live at **[picx.dev](https://picx.dev)**.
 
