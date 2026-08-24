@@ -6,6 +6,7 @@ import {
   GalleryCardSkeleton,
 } from "#/components/papers/gallery-card";
 import { Button } from "#/components/ui/button";
+import { LoadFailedPanel } from "#/components/ui/state-panel";
 import { useTRPC } from "#/integrations/trpc/react";
 import { startGitHubSignIn } from "#/lib/auth-client";
 import { m } from "#/paraglide/messages";
@@ -58,6 +59,8 @@ export function PapersPublicPreview() {
               <GalleryCardSkeleton key={key} />
             ))}
           </div>
+        ) : previewQuery.isError ? (
+          <LoadFailedPanel onRetry={() => previewQuery.refetch()} />
         ) : papers.length > 0 ? (
           <div className="mt-4 grid auto-rows-fr gap-5 lg:grid-cols-2">
             {papers.map((paper, index) => (
@@ -70,6 +73,7 @@ export function PapersPublicPreview() {
           </div>
         ) : null}
 
+        {/* 色类被未分层 a{color} 覆盖，靠同 token 值成立；改色时须包内层 span */}
         <Link
           to="/gallery/archive"
           className="group mt-8 inline-flex items-center gap-1 text-sm font-semibold text-[var(--academic-brown)] no-underline transition-colors hover:text-[var(--academic-brown-deep)]"
