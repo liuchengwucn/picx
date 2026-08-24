@@ -472,13 +472,22 @@ async function processPaper(msg: QueueMessage, env: Env): Promise<void> {
 
         // 上传到 R2
         r2Key = `papers/${msg.userId}/${Date.now()}-arxiv-${msg.paperId}.pdf`;
-        await env.PAPERS_BUCKET.put(r2Key, pdfBuffer);
+        const pdfR2Key = r2Key;
+        await withRetry(() => env.PAPERS_BUCKET.put(pdfR2Key, pdfBuffer), {
+          retries: 2,
+          onRetry: (attempt, error) =>
+            logWarn(
+              "fetch-pdf",
+              `R2 put PDF failed, retrying (attempt ${attempt})`,
+              error,
+            ),
+        });
 
         // 更新数据库中的 r2Key 和 fileSize
         await db
           .update(papers)
           .set({
-            pdfR2Key: r2Key,
+            pdfR2Key: pdfR2Key,
             fileSize: pdfBuffer.byteLength,
           })
           .where(eq(papers.id, msg.paperId));
@@ -1366,24 +1375,50 @@ async function persistMineruContent(
   }
 
   // 分批并发写图片：一次性全量并发会撞 Workers 的子请求并发预算。
+  // 整批放进 withRetry：R2 put 用固定 key 覆盖写，重放已成功的对象是幂等的，
+  // 所以失败后把整批（含已成功的几张）重投一次是安全的。
   for (let i = 0; i < referencedImages.length; i += MINERU_IMAGE_PUT_BATCH) {
     const batch = referencedImages.slice(i, i + MINERU_IMAGE_PUT_BATCH);
-    await Promise.all(
-      batch.map((img) =>
-        env.PAPERS_BUCKET.put(
-          paperContentImageKey(paperId, img.storedName),
-          img.bytes,
-          {
-            httpMetadata: { contentType: img.mime },
-          },
+    await withRetry(
+      () =>
+        Promise.all(
+          batch.map((img) =>
+            env.PAPERS_BUCKET.put(
+              paperContentImageKey(paperId, img.storedName),
+              img.bytes,
+              {
+                httpMetadata: { contentType: img.mime },
+              },
+            ),
+          ),
         ),
-      ),
+      {
+        retries: 2,
+        onRetry: (attempt, error) =>
+          logWarn(
+            "mineru-persist",
+            `R2 put images batch failed, retrying (attempt ${attempt})`,
+            error,
+          ),
+      },
     );
   }
 
-  await env.PAPERS_BUCKET.put(paperContentMarkdownKey(paperId), rewritten, {
-    httpMetadata: { contentType: "text/markdown; charset=utf-8" },
-  });
+  await withRetry(
+    () =>
+      env.PAPERS_BUCKET.put(paperContentMarkdownKey(paperId), rewritten, {
+        httpMetadata: { contentType: "text/markdown; charset=utf-8" },
+      }),
+    {
+      retries: 2,
+      onRetry: (attempt, error) =>
+        logWarn(
+          "mineru-persist",
+          `R2 put markdown failed, retrying (attempt ${attempt})`,
+          error,
+        ),
+    },
+  );
 
   // paper_id 唯一，重跑先删后插（D1 无事务，delete+insert 之间的空窗可接受：
   // 只有本条消息在写这一行，读侧拿不到内容时按「未解析」处理）。
@@ -1834,7 +1869,7 @@ class StepError extends Error {
 /**
  * 用户 API 配置错误，不应退还 credit
  */
-class UserApiConfigError extends Error {
+export class UserApiConfigError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "UserApiConfigError";
@@ -1991,7 +2026,7 @@ async function refundCredit(
   console.log(`[paper:${paperId}] Credit refunded successfully`);
 }
 
-function isRetryableError(error: unknown): boolean {
+export function isRetryableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
 
   // 用户 API 配置错误不可重试
@@ -2017,6 +2052,16 @@ function isRetryableError(error: unknown): boolean {
   // D1 瞬时查询失败（drizzle 统一前缀 "Failed query"）：实测重放高峰期出现过
   // 一次性 D1 抖动直接判不可重试打死论文，这类错误重投一次通常即恢复
   if (message.includes("Failed query")) {
+    return true;
+  }
+
+  // R2 绑定瞬时内部错误：2026-08-24 一篇论文的 MinerU 结果落盘 put 被此错误
+  // 命中，因不匹配任何关键字被判不可重试，首次尝试就打成 failed，Queues
+  // 自带的 3 次重试完全没机会介入。错误码与文案可能各自演进，两个都留。
+  if (
+    message.includes("(10001)") ||
+    message.includes("We encountered an internal error")
+  ) {
     return true;
   }
 

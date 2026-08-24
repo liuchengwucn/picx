@@ -4,7 +4,10 @@ import { creditTransactions, papers as papersTable, user } from "#/db/schema";
 import type { PaperQueueMessage } from "#/integrations/trpc/init";
 import type { Env } from "#/types/env";
 import { createTestDb } from "../../test/helpers/sqlite-d1";
-import queueConsumer from "./queue-consumer";
+import queueConsumer, {
+  isRetryableError,
+  UserApiConfigError,
+} from "./queue-consumer";
 
 const DEAD_LETTER_REASON =
   "processing aborted: queue retries exhausted (worker likely killed by resource limits)";
@@ -266,5 +269,61 @@ describe("handleDeadLetterBatch", () => {
     const paper = await fetchPaper(db, "p1");
     expect(paper.status).toBe("failed");
     expect(paper.errorMessage).toBe(DEAD_LETTER_REASON);
+  });
+});
+
+describe("isRetryableError", () => {
+  it("R2 内部错误 (10001) 判为可重试：put 场景", () => {
+    expect(
+      isRetryableError(
+        new Error(
+          "put: We encountered an internal error. Please try again. (10001)",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("R2 内部错误 (10001) 判为可重试：get 场景", () => {
+    expect(
+      isRetryableError(
+        new Error(
+          "get: We encountered an internal error. Please try again. (10001)",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("仅含错误码 (10001)、不含内部错误文案 也判为可重试", () => {
+    expect(
+      isRetryableError(new Error("put: unexpected response (10001)")),
+    ).toBe(true);
+  });
+
+  it("仅含内部错误文案、不含错误码 也判为可重试", () => {
+    expect(
+      isRetryableError(
+        new Error("put: We encountered an internal error. Please try again."),
+      ),
+    ).toBe(true);
+  });
+
+  it("非匹配错误判为不可重试", () => {
+    expect(isRetryableError(new Error("Invalid PDF structure"))).toBe(false);
+  });
+
+  it("UserApiConfigError 判为不可重试", () => {
+    expect(isRetryableError(new UserApiConfigError("x"))).toBe(false);
+  });
+
+  it("既有正例：网络超时仍判为可重试", () => {
+    expect(isRetryableError(new Error("Request timed out: ETIMEDOUT"))).toBe(
+      true,
+    );
+  });
+
+  it("既有正例：5xx 仍判为可重试", () => {
+    expect(isRetryableError(new Error("HTTP 503 Service Unavailable"))).toBe(
+      true,
+    );
   });
 });
