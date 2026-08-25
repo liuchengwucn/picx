@@ -93,8 +93,13 @@ const publicDigest = and(
  * 侧的表名，只插值外层查询的 Column）。这里插值的三处 `digests.*` 都活在多
  * 表 join 的外层查询里（getEditionByPeriod 的 rows 查询、listEditionPeriods
  * 的 rows / pickRows 查询都 innerJoin 了 directions），限定符不会被剥。
+ *
+ * 导出给 lib/feed/digest-feed.ts 复用：feed 漏掉这个条件的后果比页面严重 ——
+ * 页面只是数字显示错，feed 是给所有订阅者推两条一模一样的期，且收不回。
+ * 注意它插值的是 digests 表的 Column，只能用在 join 了 directions 的多表查询
+ * 外层（单表 select 会被 drizzle 剥掉表限定符，见注释里的既有说明）。
  */
-const isWinningDigest = sql`NOT EXISTS (
+export const isWinningDigest = sql`NOT EXISTS (
   SELECT 1 FROM digests riv
   WHERE riv.direction_id = ${digests.directionId}
     AND riv.status = 'published'
