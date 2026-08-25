@@ -32,6 +32,7 @@ import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
 } from "#/lib/review-guest";
+import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -45,7 +46,26 @@ const papersSearchSchema = z.object({
 export const Route = createFileRoute("/papers/")({
   validateSearch: papersSearchSchema,
   component: PapersPage,
-  head: () => ({ meta: [{ title: m.page_title_papers() }] }),
+  // 匿名形态是 PapersPublicPreview(公开论文流 + 登录引导), 爬虫看到的就是它。
+  // canonical 无条件指向裸地址: 筛选参数只是同一页的视图, 每种组合各收录一遍就是
+  // 拿 /gallery/archive 的检索面去稀释自己; 筛选态再补 noindex,follow —— follow
+  // 保住从筛选结果通往各 /p/{shortId} 的链接。
+  head: ({ match }) => {
+    const filtered = Boolean(
+      match.search.q ||
+        match.search.status ||
+        match.search.cat ||
+        match.search.tag,
+    );
+    return {
+      meta: [
+        { title: m.page_title_papers() },
+        { name: "description", content: m.papers_meta_description() },
+        ...(filtered ? [{ name: "robots", content: "noindex,follow" }] : []),
+      ],
+      links: [{ rel: "canonical", href: `${SITE_URL}/papers` }],
+    };
+  },
 });
 
 const PAGE_SIZE = 50;

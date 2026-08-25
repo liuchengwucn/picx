@@ -17,12 +17,21 @@ import {
   getReviewGuestClientSession,
   isReviewGuestModeEnabled,
 } from "#/lib/review-guest";
+import { SITE_URL } from "#/lib/site-url";
 import { m } from "#/paraglide/messages";
 
 export const Route = createFileRoute("/assistant/")({
   component: AssistantPage,
+  // 匿名形态是 AssistantPreview(可索引的介绍页), 登录态才是会话界面 —— 同一个
+  // URL 两种正文, 但爬虫永远只看得到前者, 所以照常发自指 canonical。
+  // 标题不能复用 assistant_page_title: 那条同时是页内 h1 与 aria-label, 加站名
+  // 后缀会把 "研究助手 - PicX" 塞进标题栏。document title 单独一条。
   head: () => ({
-    meta: [{ title: m.assistant_page_title() }],
+    meta: [
+      { title: m.assistant_meta_title() },
+      { name: "description", content: m.assistant_meta_description() },
+    ],
+    links: [{ rel: "canonical", href: `${SITE_URL}/assistant` }],
   }),
 });
 
