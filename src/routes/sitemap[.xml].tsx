@@ -140,6 +140,15 @@ async function handler({ request }: { request: Request }) {
     ?.toISOString()
     .split("T")[0];
 
+  // /news 的新鲜度。必须取 max: stories 按 earliestPublishedAt 倒序(那是事件发生
+  // 时间), 而列表页会因为老 story 并入新成员而变 —— 那记在 lastActivityAt 上,
+  // 与排序键不是同一个量, [0] 拿到的未必是最近变动的那条。
+  const latestStoryDate = stories.length
+    ? new Date(Math.max(...stories.map((s) => s.lastActivityAt.getTime())))
+        .toISOString()
+        .split("T")[0]
+    : undefined;
+
   type SitemapRoute = {
     url: string;
     priority: string;
@@ -168,13 +177,34 @@ async function handler({ request }: { request: Request }) {
       changefreq: "weekly",
       lastmod: latestEditionDate ?? latestPaperDate,
     },
-    { url: `${origin}/news`, priority: "0.8", changefreq: "hourly" },
+    {
+      url: `${origin}/news`,
+      priority: "0.8",
+      changefreq: "hourly",
+      lastmod: latestStoryDate,
+    },
     {
       // 档案页接了原来那条扁平论文流, 每有新论文入库就变
       url: `${origin}/gallery/archive`,
       priority: "0.6",
       changefreq: "daily",
       lastmod: latestPaperDate,
+    },
+    {
+      // 匿名形态是公开论文流预览 + 登录引导(见 PapersPublicPreview)。收录它而不是
+      // 当成登录墙跳过: 它对爬虫是一整页真内容。priority 压在 archive 之下 —— 同
+      // 一批论文, 全站检索那一面才是主入口, 这里只回答「这个站的论文长什么样」。
+      url: `${origin}/papers`,
+      priority: "0.5",
+      changefreq: "daily",
+      lastmod: latestPaperDate,
+    },
+    {
+      // 助手页的匿名形态是产品介绍(AssistantPreview), 内容不随库变 —— 不给 lastmod
+      // 比给一个天天在动的日期诚实。
+      url: `${origin}/assistant`,
+      priority: "0.5",
+      changefreq: "monthly",
     },
   ];
 
