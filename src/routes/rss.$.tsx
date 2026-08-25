@@ -38,6 +38,24 @@ function textResponse(body: string, status: number, extra?: HeadersInit) {
   });
 }
 
+/**
+ * builder 产出的 selfUrl / alternates 一律是 canonical 的 .xml 地址（站内只宣传
+ * Atom）。但 `rel="self"` 与 JSON Feed 的 `feed_url` 的语义是「你正在读的这份文档
+ * 的地址」—— 服务 .rss / .json 时还指回 .xml，聚合器会照着去抓另一份文档。
+ * alternates 同理：订阅 .rss 的人换语言也该拿到 .rss，而不是被换成 Atom。
+ *
+ * 只在呈现层改写：builder 不必知道自己被渲染成哪种格式。
+ */
+function withSelfExt(channel: FeedChannel, ext: FeedExt): FeedChannel {
+  if (ext === "xml") return channel;
+  const swap = (href: string) => href.replace(/\.xml$/, `.${ext}`);
+  return {
+    ...channel,
+    selfUrl: swap(channel.selfUrl),
+    alternates: channel.alternates.map((a) => ({ ...a, href: swap(a.href) })),
+  };
+}
+
 function cacheKeyOf(target: FeedTarget): string {
   if (target.kind === "news") return "news";
   if (target.kind === "digest-all") return "digest";
@@ -106,7 +124,7 @@ async function handler({ request }: { request: Request }) {
     return new Response(null, { headers });
   }
 
-  return new Response(RENDERERS[ext](channel), { headers });
+  return new Response(RENDERERS[ext](withSelfExt(channel, ext)), { headers });
 }
 
 export const Route = createFileRoute("/rss/$")({
