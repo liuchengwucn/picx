@@ -775,12 +775,21 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         // submitIndexNow 内部吞掉一切失败、未配置 key 时直接返回，所以 await 它
         // 不会让发布失败；必须 await——step 返回后上下文可能被拆掉，浮着的
         // promise 会被丢弃。
+        // 周刊那两个地址一起提交：本期一发布，/gallery/w/{period} 就多出这个方向的
+        // 一栏，/gallery 渲染的就是最新那一期。period 必须与 URL 参数同口径 ——
+        // date(period_end, 'unixepoch')，即 periodEnd 的 UTC 日期（见
+        // lib/digest/edition-store.ts 的 periodDaySql）；periodEnd 来自 payload，
+        // 重放时同样可复现。
+        // 同一期里每个方向发布时都会重提这两条：重复提交无害，且那一刻内容确实变了。
+        const periodDay = periodEnd.toISOString().slice(0, 10);
         await submitIndexNow({
           siteUrl: SITE_URL,
           key: env.INDEXNOW_KEY,
           urls: [
             `${SITE_URL}/gallery/d/${ctx.direction.slug}/${shell.issueNumber}`,
             `${SITE_URL}/gallery/d/${ctx.direction.slug}`,
+            `${SITE_URL}/gallery/w/${periodDay}`,
+            `${SITE_URL}/gallery`,
           ],
         });
       });

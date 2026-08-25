@@ -17,6 +17,7 @@ import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import type { NewsMedia } from "#/db/schema";
 import { newsItems, newsSources, newsStories } from "#/db/schema";
 import type { AIConfig } from "#/lib/ai";
+import { submitIndexNow } from "#/lib/indexnow";
 import { fetchHn, fetchHnItemSignals } from "#/lib/news/adapters/hn";
 import { fetchFeed } from "#/lib/news/adapters/rss";
 import { fetchRsshub } from "#/lib/news/adapters/rsshub";
@@ -41,6 +42,7 @@ import type { NormalizedItem } from "#/lib/news/types";
 import { hashUrl } from "#/lib/news/url";
 import { cosineSimilarity, meanVector, mergeCentroid } from "#/lib/news/vector";
 import { generateShortId } from "#/lib/short-id";
+import { SITE_URL } from "#/lib/site-url";
 import type { Env } from "#/types/env";
 
 // 窗口/阈值都是产品参数，集中放这里便于调整（spec：72h 窗口可配置）
@@ -767,6 +769,9 @@ async function summarizeStage(
 
   const config = aiConfigFromEnv(env);
   let done = 0;
+  // 本轮真正上架(dirty 1→0 且有正文)的 story，轮末一次性提交给 IndexNow。
+  // 收在这里而不是逐条 ping：每轮上限 MAX_SUMMARIZE_PER_ROUND(30) 条，一次提交装得下。
+  const indexNowUrls: string[] = [];
 
   for (const { id, shortId } of targets) {
     if (pastDeadline(deadline, "summarize")) break;
@@ -859,6 +864,10 @@ async function summarizeStage(
           updatedAt: new Date(),
         })
         .where(eq(newsStories.id, id));
+      // 主 UPDATE 之后才登记：dirty 清掉的这一刻，story 才第一次满足站点的可见性
+      // 谓词(dirty = 0)，也才第一次出现在 sitemap 里。孤儿分支那条 continue 同样
+      // 清 dirty，但它没有正文，不该往搜索引擎推。
+      indexNowUrls.push(`${SITE_URL}/news/${shortId}`);
       // 把本 story 的最新 centroid/related 同步回候选集：
       // 1) 修复后续反向补写基于轮初旧值 merge 而覆盖丢新算 related 的问题；
       // 2) 让同轮处理的后续 story 能把它选为相关（否则同轮新 story 永不互链）
@@ -879,6 +888,16 @@ async function summarizeStage(
   }
   if (targets.length > 0)
     log("summarize", `processed ${done}/${targets.length} dirty stories`);
+  // 新闻是全站时效性最强的内容，等下一次 sitemap 抓取太慢。submitIndexNow 未配置
+  // key 或 URL 为空时直接返回，失败一律吞掉，不会拖垮本轮 cron。
+  if (indexNowUrls.length > 0) {
+    // 列表页跟着一起提交：本轮上架的 story 改变的不只是详情页。
+    await submitIndexNow({
+      siteUrl: SITE_URL,
+      key: env.INDEXNOW_KEY,
+      urls: [...indexNowUrls, `${SITE_URL}/news`],
+    });
+  }
 }
 
 // ---- Stage 7: refresh HN signals ----
