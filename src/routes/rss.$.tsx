@@ -99,6 +99,13 @@ async function handler({ request }: { request: Request }) {
     return new Response(null, { status: 304, headers });
   }
 
+  // HEAD 只取头：聚合器会拿它探 ETag 决定要不要真下载，渲染整份 feed 再丢掉
+  // 纯属浪费。故意不补 Content-Length —— 那要求先渲染出来量长度，正好抵消了
+  // 走 HEAD 的意义，而聚合器认的是 ETag。
+  if (request.method === "HEAD") {
+    return new Response(null, { headers });
+  }
+
   return new Response(RENDERERS[ext](channel), { headers });
 }
 
@@ -106,6 +113,11 @@ export const Route = createFileRoute("/rss/$")({
   server: {
     handlers: {
       GET: handler,
+      // 不声明 HEAD 的话请求根本不进这个 handler，会掉回应用外壳拿到一份
+      // 200 text/html —— 连 /rss/news.xml 的 301 都不生效。本仓库既有的
+      // sitemap / llms.txt 也只声明了 GET，但那两个的消费方是搜索引擎爬虫
+      // （走 GET）；feed 的消费方是聚合器，HEAD 探测是常规操作。
+      HEAD: handler,
     },
   },
 });
