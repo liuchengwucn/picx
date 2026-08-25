@@ -8,6 +8,7 @@ export { ChatRunner } from "#/lib/chat-runner-do";
 
 import { prefersMarkdown } from "#/lib/content-negotiation";
 import { negotiateFromAcceptLanguage } from "#/lib/locale-negotiation";
+import { goneIfHiddenStory } from "#/lib/news/gone";
 import { loadPaperMarkdown } from "#/lib/paper-markdown";
 import {
   cookieName,
@@ -234,7 +235,19 @@ export default {
     // custom-negotiate 自实现协商) → baseLocale(en)，并把结果放进
     // AsyncLocalStorage 供渲染期 getLocale() 读取，消除 hydration mismatch。
     // TanStack Router 自己管 URL，按 server.js 文档示例传原始 request。
-    return paraglideMiddleware(request, () => handler.fetch(request));
+    const response = await paraglideMiddleware(request, () =>
+      handler.fetch(request),
+    );
+
+    // 下架的资讯回 410 而不是 404（见 lib/news/gone.ts）。必须在这里做而不是在
+    // 路由 loader 里：SSR 响应的状态码取自 router.state.statusCode（见
+    // react-router 的 renderRouterToStream），loader 侧的 setResponseStatus 改不
+    // 动它，notFound() 一律落成 404。放在响应之后判，正常页面零额外开销。
+    if (response.status === 404) {
+      const gone = await goneIfHiddenStory(pathname, response, drizzle(env.DB));
+      if (gone) return gone;
+    }
+    return response;
   },
   queue: queueConsumer.queue,
   scheduled: dispatchScheduled,
