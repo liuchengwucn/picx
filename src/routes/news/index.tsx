@@ -4,6 +4,7 @@ import {
   Calendar as CalendarIcon,
   Loader2,
   Newspaper,
+  Rss,
   Search,
   X,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import { beforeTsOf, dateFromKey } from "#/lib/news/date-jump";
 import { dateKeyOf, groupStoriesByDay } from "#/lib/news/group-stories";
 import { useDebugScores } from "#/lib/news/use-debug-scores";
 import { SITE_URL } from "#/lib/site-url";
+import { normalizeLocaleKey } from "#/lib/tldr";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 
@@ -46,15 +48,22 @@ export const Route = createFileRoute("/news/")({
   component: NewsPage,
   head: ({ match }) => {
     const filtered = Boolean(match.search.q || match.search.date);
+    const localeKey = normalizeLocaleKey(getLocale());
+    const feedLink = {
+      rel: "alternate",
+      type: "application/atom+xml",
+      title: m.rss_news_feed_title(),
+      href: `${SITE_URL}/rss/news.${localeKey}.xml`,
+    };
     return {
       meta: [
         { title: m.news_page_title() },
         { name: "description", content: m.news_page_desc() },
         ...(filtered ? [{ name: "robots", content: "noindex,follow" }] : []),
       ],
-      ...(filtered
-        ? { links: [{ rel: "canonical", href: `${SITE_URL}/news` }] }
-        : {}),
+      links: filtered
+        ? [{ rel: "canonical", href: `${SITE_URL}/news` }, feedLink]
+        : [feedLink],
     };
   },
 });
@@ -274,6 +283,22 @@ function NewsPage() {
               {m.news_sort_active()}
             </Button>
           </div>
+          {/* 与左侧一排控件同为 h-9, 但走纯文本+图标(不借 Button): outline 变体的
+              hover:text-accent-foreground 若渲成 <a> 会被 styles.css 的全局 a{}
+              规则(未分层, 优先级压过任何 Tailwind text-*)悄悄吃掉。 */}
+          <a
+            href={`${SITE_URL}/rss/news.${normalizeLocaleKey(locale)}.xml`}
+            aria-label={m.rss_subscribe()}
+            className="group ml-auto inline-flex h-9 items-center gap-1.5 rounded-md border border-[var(--line)] px-3 text-sm font-medium no-underline transition-colors hover:bg-[var(--academic-brown)]/8"
+          >
+            <Rss
+              aria-hidden
+              className="size-4 text-[var(--ink-soft)] transition-colors group-hover:text-[var(--academic-brown)]"
+            />
+            <span className="text-[var(--ink-soft)] transition-colors group-hover:text-[var(--academic-brown)]">
+              {m.rss_subscribe()}
+            </span>
+          </a>
         </div>
 
         {dateParam && selectedDate && (

@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, isNotFound, notFound } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
+import { Loader2, Rss } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { DirectionTabs } from "#/components/digest/direction-tabs";
 import { IssueTimeline } from "#/components/digest/issue-timeline";
@@ -190,7 +190,18 @@ export const Route = createFileRoute("/gallery/d/$slug")({
     if (description) {
       meta.push({ property: "og:description", content: description });
     }
-    return { meta, links: [{ rel: "canonical", href: url }] };
+    return {
+      meta,
+      links: [
+        { rel: "canonical", href: url },
+        {
+          rel: "alternate",
+          type: "application/atom+xml",
+          title: m.rss_digest_direction_feed_title({ name }),
+          href: `${SITE_URL}/rss/digest/${params.slug}.${localeKey}.xml`,
+        },
+      ],
+    };
   },
 });
 
@@ -343,17 +354,40 @@ function DirectionPage() {
         {/* 一、为什么跟踪这个方向。intro 从旧版右边栏 150px 的小字提到正文位:
             它正是「这个方向为什么值得看」的答案, 也是这一页唯一只有它能回答的问题。 */}
         <header className="rise-in mt-6">
-          <ModuleKicker
-            as="div"
-            // 方块用方向识别色, 文字仍是 --ink-soft(ModuleKicker 的既有约定: 别把
-            // color 传给文字)。未到货 / listDirections 失败时退 --ink-soft, 不退某个
-            // 默认色相 —— 本页只有一枚方块, 不存在「两个方向撞成同一块铁锈色」那种
-            // 只能靠眼睛发现的错, 但假色相会让读者学到错的身份色。灰方块只是
-            // 「还没认出身份」, 是诚实的。
-            color={accent ?? "var(--ink-soft)"}
-          >
-            {m.direction_eyebrow()}
-          </ModuleKicker>
+          {/* 栏眉自身仍是块级、独占整行的既有约定(见 ModuleKicker 内部注释: 内部
+              的贯通发丝线靠父级 100% 宽度撑开)。订阅入口用外层包一层 flex-1 撑住
+              栏眉, 不碰 ModuleKicker 自身的 className(那个口子只留给锚点偏移)。 */}
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <ModuleKicker
+                as="div"
+                // 方块用方向识别色, 文字仍是 --ink-soft(ModuleKicker 的既有约定: 别把
+                // color 传给文字)。未到货 / listDirections 失败时退 --ink-soft, 不退某个
+                // 默认色相 —— 本页只有一枚方块, 不存在「两个方向撞成同一块铁锈色」那种
+                // 只能靠眼睛发现的错, 但假色相会让读者学到错的身份色。灰方块只是
+                // 「还没认出身份」, 是诚实的。
+                color={accent ?? "var(--ink-soft)"}
+              >
+                {m.direction_eyebrow()}
+              </ModuleKicker>
+            </div>
+            {/* 与栏眉同一行同一字号节奏(11px/大写/字距), 读作发丝线尽头的一枚动作标签。
+                颜色挂在内层 span 上, 不挂在 <a> 本身: styles.css 的全局 a{} 规则
+                未分层, 会压过挂在 <a> 上的任何 Tailwind text-*。 */}
+            <a
+              href={`${SITE_URL}/rss/digest/${slug}.${normalizeLocaleKey(locale)}.xml`}
+              aria-label={m.rss_subscribe()}
+              className="group inline-flex flex-none items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] no-underline"
+            >
+              <Rss
+                aria-hidden
+                className="size-3 text-[var(--ink-soft)] transition-colors group-hover:text-[var(--academic-brown)]"
+              />
+              <span className="text-[var(--ink-soft)] transition-colors group-hover:text-[var(--academic-brown)]">
+                {m.rss_subscribe()}
+              </span>
+            </a>
+          </div>
           <h1 className="mt-2 font-serif text-3xl font-bold leading-tight text-[var(--ink)] sm:text-4xl">
             {name}
           </h1>

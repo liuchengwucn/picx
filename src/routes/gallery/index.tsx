@@ -169,6 +169,7 @@ export const Route = createFileRoute("/gallery/")({
     }
     const title = m.page_title_gallery();
     const description = m.edition_meta_description();
+    const localeKey = normalizeLocaleKey(getLocale());
     return {
       meta: [
         { title },
@@ -179,7 +180,15 @@ export const Route = createFileRoute("/gallery/")({
       ],
       // 有正文时永远自指: 落地页是品牌入口。本周那一期同时住在 /gallery/w/<latest>,
       // 让位的是那一边(见 w.$period.tsx 的 isLatest 条件 canonical)。
-      links: [{ rel: "canonical", href: `${SITE_URL}/gallery` }],
+      links: [
+        { rel: "canonical", href: `${SITE_URL}/gallery` },
+        {
+          rel: "alternate",
+          type: "application/atom+xml",
+          title: m.rss_digest_feed_title(),
+          href: `${SITE_URL}/rss/digest.${localeKey}.xml`,
+        },
+      ],
     };
   },
 });
