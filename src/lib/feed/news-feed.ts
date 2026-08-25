@@ -72,10 +72,14 @@ export async function buildNewsFeed(
         .from(newsItems)
         .innerJoin(newsSources, eq(newsItems.sourceId, newsSources.id))
         .where(
+          // 排序键必须与主查询逐字一致（含 short_id 这个次级键）：news 是每小时
+          // 批量聚合，同秒 earliest_published_at 并不罕见，只按时间排的话两个
+          // 查询会在 LIMIT 边界上选出不同的 50 条，于是某条 story 的来源列表
+          // 静默变空。仓库里那条复合游标（news.list 的 cursor）就是同一个坑。
           sql`${newsItems.storyId} IN (
             SELECT id FROM news_stories
             WHERE status != 'hidden' AND dirty = 0
-            ORDER BY earliest_published_at DESC
+            ORDER BY earliest_published_at DESC, short_id DESC
             LIMIT ${NEWS_FEED_LIMIT}
           )`,
         )
