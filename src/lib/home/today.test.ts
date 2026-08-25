@@ -33,7 +33,7 @@ const edition = (): HomeEdition => ({
   directionCount: 7,
   pickCount: 63,
   highlights: [],
-  otherDirectionNames: [],
+  otherDirections: [],
 });
 
 describe("assembleTodayCards", () => {

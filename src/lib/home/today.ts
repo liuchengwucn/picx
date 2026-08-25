@@ -107,7 +107,7 @@ export interface HomeEdition {
    *
    * 这是**供给**不是渲染量: 首页周刊卡 SSR 只渲染前 2 条, 其余由 fit-level 升档
    * 时才用上。上一轮实测 2 条约 1.15 KB(几乎全部是四语标题, CJK 一字 3 字节),
-   * 按约 550 字节/条线性外推 6 条约 3.3 KB; 加上 otherDirectionNames 的约 0.5 KB,
+   * 按约 550 字节/条线性外推 6 条约 3.3 KB; 加上 otherDirections 的约 0.5 KB,
    * 整个 edition 字段约 3.8 KB。整份 sections 是几十 KB 量级 —— 那才是这个字段
    * 存在的理由。
    */
@@ -119,17 +119,23 @@ export interface HomeEdition {
     title: Record<string, string> | null;
   }>;
   /**
-   * 本期有更新、但没排进 highlights 的方向名(即 sections.slice(EDITION_HIGHLIGHT_MAX))。
+   * 本期有更新、但没排进 highlights 的方向(即 sections.slice(EDITION_HIGHLIGHT_MAX))。
    * 只有名字没有标题: 四语一条约 80–110 字节(实测 seed-directions.sql:13 的
    * 「AI 形式化数学」是 110; 更短的方向名按同构造式推算 80–95 —— 仓库目前只有
    * formal-math 一个方向, 没有第二条可实测, 别再去翻了)。7 个方向 = 这里 1 条,
    * 满打满算约 0.5KB —— 比 highlights 里每条带四语期标题的约 550 字节便宜五六倍,
-   * 所以这个字段可以列全, 而 highlights 仍然只露两条。
+   * 所以这个字段可以列全, 而 highlights 仍然只露两条。slug + issueNumber 跟
+   * highlights 同一个理由: 深链所需, 约 20–30 字节。
    *
    * 刻意不含本期缺席的方向(activeDirectionCount − directionCount 那一部分): 卡上就写着
-   * 「N 个方向 · M 篇入选」, 这一行若混进没更新的方向, 数字与清单会自相矛盾。
+   * 「N 个方向 · M 篇入选」, 这一行若混进没更新的方向, 数字与清单会自相矛盾 ——
+   * 顺带也就没有「点进去却发现这个方向本期没更新」的死链。
    */
-  otherDirectionNames: Array<Record<string, string>>;
+  otherDirections: Array<{
+    directionSlug: string;
+    issueNumber: number;
+    directionName: Record<string, string>;
+  }>;
 }
 
 export interface HomeToday {
@@ -148,7 +154,7 @@ export interface HomeToday {
  * SSR 只渲染 2 条(fit-level L0), 4 / 6 条是客户端测出卡内有空间后才升的档。
  *
  * 每多一条就多一份四语期标题进首屏 HTML(约 550 字节/条, 上一轮实测),
- * 2 → 6 的代价约 +2.2KB。其余方向仍只出名字(otherDirectionNames),
+ * 2 → 6 的代价约 +2.2KB。其余方向仍只出名字(otherDirections),
  * 那个量级是 80–110 字节/条, 便宜五六倍, 所以可以列全。
  */
 const EDITION_HIGHLIGHT_MAX = 6;
@@ -257,9 +263,13 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
         directionName: s.directionName,
         title: s.title,
       })),
-      otherDirectionNames: edition.sections
+      otherDirections: edition.sections
         .slice(EDITION_HIGHLIGHT_MAX)
-        .map((s) => s.directionName),
+        .map((s) => ({
+          directionSlug: s.directionSlug,
+          issueNumber: s.issueNumber,
+          directionName: s.directionName,
+        })),
     },
   };
 }

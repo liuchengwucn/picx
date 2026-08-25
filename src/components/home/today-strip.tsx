@@ -298,9 +298,10 @@ function HeadlineCard({
  * 只是小一号: 读者点进 /gallery 后看到的是同一组信息用同一个顺序放大, 卡与落地页
  * 是同一个对象的两个尺寸而不是两种设计。
  *
- * 栏目条各自深链到 /gallery/d/{slug}/{issue}。这里曾经刻意只留尾链一个门(理由是别把
- * 「本周共 N 个方向」这个整体框架拆散), 但读者报告这些标题「看着像标题却点不动」——
- * 排版把它们做成了与头条卡次条同级的可点条目, 唯独不可点, 这是可供性说谎。
+ * 卡内每一处看着像标题的文字都是链接: 卡标题「最新一期」→ /gallery, 栏目条与
+ * 「本期还有」的每个方向名 → /gallery/d/{slug}/{issue}。这里曾经刻意只留尾链一个门
+ * (理由是别把「本周共 N 个方向」这个整体框架拆散), 但读者两次报告这些字「看着像标题却
+ * 点不动」—— 排版把它们做成了与头条卡次条同级的可点条目, 唯独不可点, 这是可供性说谎。
  * 尾链仍在, 整体框架由刊头那三行(本周 / 周期 / N 个方向 · M 篇)承担, 不靠「无处可点」来维持。
  */
 /**
@@ -359,9 +360,11 @@ function WeeklyEditionCard({
   });
 
   // 「本期还有」只列名字。与 highlights 同源的处理: 取不到当前语言译文的方向直接跳过。
-  const otherNames = edition.otherDirectionNames.flatMap((n) => {
-    const name = pickTldr(n, localeKey);
-    return name ? [name] : [];
+  const otherDirections = edition.otherDirections.flatMap((d) => {
+    const name = pickTldr(d.directionName, localeKey);
+    return name
+      ? [{ slug: d.directionSlug, issue: String(d.issueNumber), name }]
+      : [];
   });
 
   // maxLevel 按实际方向数收窄: 本期只有 3 个方向时升到 tiers[1](=3) 就到头了,
@@ -372,12 +375,11 @@ function WeeklyEditionCard({
   );
   const shownCount = HIGHLIGHT_TIERS[level] ?? HIGHLIGHT_TIERS[0];
   const shownHighlights = highlights.slice(0, shownCount);
-  // 没排进当前档位的重点方向, 降级到「本期还有」里只出名字 —— 与 otherNames 合并成
-  // 一个列表, 读者看到的仍是「本期共 N 个方向」这个完整框架。
-  const restNames = [
-    ...highlights.slice(shownCount).map((h) => h.name),
-    ...otherNames,
-  ];
+  // 没排进当前档位的重点方向, 降级到「本期还有」里只出名字 —— 与 otherDirections 合并
+  // 成一个列表, 读者看到的仍是「本期共 N 个方向」这个完整框架。降级只降信息量(标题不
+  // 出), 不降可达性: 两段合并后每一条都仍带 slug + issue, 链接目的地与上面那些带标题的
+  // 栏目条完全一样, 于是同一个方向在 L2 与 L4 两个档位下点出去落在同一页。
+  const restDirections = [...highlights.slice(shownCount), ...otherDirections];
 
   return (
     <CardShell ref={containerRef} fitLevel={level} className="md:row-span-2">
@@ -391,8 +393,17 @@ function WeeklyEditionCard({
         {m.home_kicker_gallery()}
       </ModuleKicker>
 
-      <h3 className="mt-3 font-serif text-[15px] font-bold leading-snug text-[var(--ink)] sm:text-base">
-        {m.edition_this_week()}
+      {/* 卡标题指向 /gallery 而不是 /gallery/w/{period}: 落地页渲染的就是最新一期,
+          而永久链接是「给人引用的稳定地址」(见 edition-masthead 的注释), 首页不是引用
+          场景 —— 从首页给出第二个地址只会让同一期多一条被索引的路径。与尾链「进入画廊」
+          同一个目的地是刻意的: 标题在读者眼里就是这张卡的门, 让它点不动才是问题。
+          颜色挂内层 span 不挂 <a>(styles.css 那条未分层的 `a { color }`)。 */}
+      <h3 className="mt-3 font-serif text-[15px] font-bold leading-snug sm:text-base">
+        <Link to="/gallery" className="group no-underline">
+          <span className="text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown-deep)]">
+            {m.edition_this_week()}
+          </span>
+        </Link>
       </h3>
       <p className="mt-1 text-[11px] text-[var(--ink-soft)]">{range}</p>
       <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--ink-soft)]">
@@ -446,18 +457,29 @@ function WeeklyEditionCard({
           理由与资讯卡次条列表相同(见那边的注释): 条目封顶后余量回流给下面的 spacer,
           均分只负责把小于一行的零头吸收到行距里。
           gap-1.5 是余量为 0 时的下限(均分在无余量时退化成 0, 撑不出间距)。 */}
-      {restNames.length > 0 ? (
+      {restDirections.length > 0 ? (
         <div className="mt-3 flex flex-col border-t border-[var(--line)] pt-2.5">
           <p className="text-[11px] font-semibold text-[var(--ink-soft)]">
             {m.home_edition_more()}
           </p>
           <ul className="mt-1 flex flex-col gap-1.5">
-            {restNames.map((name) => (
+            {restDirections.map((d) => (
               <li
-                key={name}
-                className="flex max-h-14 flex-1 items-center text-[12px] leading-snug text-[var(--ink-soft)]"
+                key={d.slug}
+                className="flex max-h-14 flex-1 items-center text-[12px] leading-snug"
               >
-                {name}
+                {/* li 是 flex 容器, 里面的块级链接会退化成 shrink-to-fit(flex item 的
+                    flex-basis:auto), 热区从整行缩到文字宽 —— 所以 <a> 必须显式 w-full
+                    (与头条卡次条同一个坑, 见那边的注释)。 */}
+                <Link
+                  to="/gallery/d/$slug/$issue"
+                  params={{ slug: d.slug, issue: d.issue }}
+                  className="group block w-full no-underline"
+                >
+                  <span className="text-[var(--ink-soft)] transition-colors group-hover:text-[var(--ink)]">
+                    {d.name}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
