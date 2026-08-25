@@ -669,5 +669,14 @@
   "assistant_skills_unsaved": "未保存",
   "assistant_skills_open_chat": "これで会話を始める",
   "assistant_skills_invalid": "ハイライトされた項目を確認してください。",
-  "assistant_skills_updated_at": "更新 {date}"
+  "assistant_skills_updated_at": "更新 {date}",
+  "rss_news_feed_title": "PicX · AI最前線ニュース",
+  "rss_news_feed_subtitle": "1時間ごとに集約し、トピック単位にまとめたAIニュース。",
+  "rss_digest_feed_title": "PicX · 研究分野ダイジェスト",
+  "rss_digest_feed_subtitle": "追跡中の全研究分野の週次ダイジェスト。",
+  "rss_digest_direction_feed_title": "PicX · {name} ダイジェスト",
+  "rss_digest_direction_feed_subtitle": "{name} 分野の週次ダイジェスト。",
+  "rss_item_sources": "出典：",
+  "rss_item_read_full": "全文を読む →",
+  "rss_subscribe": "購読"
 }

@@ -669,5 +669,14 @@
   "assistant_skills_unsaved": "未保存",
   "assistant_skills_open_chat": "用它开一段对话",
   "assistant_skills_invalid": "检查一下高亮的字段。",
-  "assistant_skills_updated_at": "更新于 {date}"
+  "assistant_skills_updated_at": "更新于 {date}",
+  "rss_news_feed_title": "PicX · AI 前沿资讯",
+  "rss_news_feed_subtitle": "每小时聚合的 AI 资讯，按事件聚类。",
+  "rss_digest_feed_title": "PicX · 方向周报",
+  "rss_digest_feed_subtitle": "全部跟踪方向的每周简报。",
+  "rss_digest_direction_feed_title": "PicX · {name} 周报",
+  "rss_digest_direction_feed_subtitle": "{name} 方向的每周简报。",
+  "rss_item_sources": "来源：",
+  "rss_item_read_full": "阅读全期 →",
+  "rss_subscribe": "订阅"
 }

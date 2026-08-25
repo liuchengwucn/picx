@@ -669,5 +669,14 @@
   "assistant_skills_unsaved": "Unsaved",
   "assistant_skills_open_chat": "Start a chat with it",
   "assistant_skills_invalid": "Check the highlighted fields.",
-  "assistant_skills_updated_at": "Updated {date}"
+  "assistant_skills_updated_at": "Updated {date}",
+  "rss_news_feed_title": "PicX · AI Frontier News",
+  "rss_news_feed_subtitle": "Hourly-aggregated AI news, clustered into stories.",
+  "rss_digest_feed_title": "PicX · Research Direction Digests",
+  "rss_digest_feed_subtitle": "Weekly digests across all tracked research directions.",
+  "rss_digest_direction_feed_title": "PicX · {name} Digest",
+  "rss_digest_direction_feed_subtitle": "Weekly digest for the {name} research direction.",
+  "rss_item_sources": "Sources: ",
+  "rss_item_read_full": "Read the full issue →",
+  "rss_subscribe": "Subscribe"
 }
