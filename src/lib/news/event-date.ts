@@ -15,11 +15,40 @@ export const DOMINANCE_FACTOR = 2;
 
 // relevanceScore 为 NULL 时的兜底权重（接近入选阈值）。纯防御：若整簇分数为 NULL 导致
 // base = 0，`w >= base * DOMINANCE_FACTOR` 会恒真、一路改锚到最后一簇。
-const FALLBACK_SCORE = 60;
+export const FALLBACK_SCORE = 60;
 
 const GAP_MS = BURST_GAP_HOURS * 60 * 60 * 1000;
 
-function weightOf(burst: BurstMember[]): number {
+/**
+ * 按 BURST_GAP_HOURS 把（已按时间排序或未排序的）成员切成簇：相邻两条间隔超过
+ * GAP_MS 即断成新簇。空输入返回 []。
+ */
+export function splitBursts(members: BurstMember[]): BurstMember[][] {
+  if (members.length === 0) return [];
+
+  const sorted = [...members].sort(
+    (a, b) => a.publishedAt.getTime() - b.publishedAt.getTime(),
+  );
+
+  const bursts: BurstMember[][] = [];
+  let current: BurstMember[] = [];
+  let prev: BurstMember | null = null;
+  for (const member of sorted) {
+    if (
+      prev &&
+      member.publishedAt.getTime() - prev.publishedAt.getTime() > GAP_MS
+    ) {
+      bursts.push(current);
+      current = [];
+    }
+    current.push(member);
+    prev = member;
+  }
+  bursts.push(current);
+  return bursts;
+}
+
+export function weightOf(burst: BurstMember[]): number {
   const sum = burst.reduce(
     (acc, m) => acc + (m.relevanceScore ?? FALLBACK_SCORE),
     0,
@@ -43,29 +72,18 @@ function weightOf(burst: BurstMember[]): number {
  * DOMINANCE_FACTOR 倍才改锚（并列取更晚的簇）→ 返回所选簇首条的发布时间。
  *
  * 调用方不必预排序。members 为空返回 null。
+ *
+ * 两条已知边界：
+ * 1. 锚点不再单调。旧的 MIN 语义只减不增，新语义两个方向都能动——一条更早的条目
+ *    在 72h 聚类窗口内后到，可能把锚点拉回更早的簇，已经出现在「今日」的 story
+ *    会退回旧日期。同输入结果恒定，属算法性质而非缺陷。
+ * 2. 只修「有 >24h 静默期 + 后续 ≥2× 尖峰」这一类。均匀滚动报道修不了：
+ *    每 20h 一条会合成单簇、每 30h 一条会切成一串等权簇，都锚在第一天。
  */
 export function pickEventPublishedAt(members: BurstMember[]): Date | null {
   if (members.length === 0) return null;
 
-  const sorted = [...members].sort(
-    (a, b) => a.publishedAt.getTime() - b.publishedAt.getTime(),
-  );
-
-  const bursts: BurstMember[][] = [];
-  let current: BurstMember[] = [];
-  let prev: BurstMember | null = null;
-  for (const member of sorted) {
-    if (
-      prev &&
-      member.publishedAt.getTime() - prev.publishedAt.getTime() > GAP_MS
-    ) {
-      bursts.push(current);
-      current = [];
-    }
-    current.push(member);
-    prev = member;
-  }
-  bursts.push(current);
+  const bursts = splitBursts(members);
 
   const first = bursts[0];
   const base = weightOf(first);

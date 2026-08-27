@@ -103,4 +103,46 @@ describe("pickEventPublishedAt", () => {
     // 三簇权重都是 FALLBACK_SCORE(60)，无一达到 2 倍门槛 → 留在第一簇
     expect(result).toEqual(new Date("2026-08-10T10:00:00Z"));
   });
+
+  it("单条 NULL 分靠兜底权重不改锚（首簇兜底 60，65 < 120）", () => {
+    const result = pickEventPublishedAt([
+      at("2026-08-10T10:00:00Z", null),
+      at("2026-08-12T10:00:00Z", 65),
+    ]);
+    // 无兜底则 base=0，65 >= 0*2 恒真会误判改锚；有兜底 base=60，65 < 120 不改锚
+    expect(result).toEqual(new Date("2026-08-10T10:00:00Z"));
+  });
+
+  it("两簇分数都是 0 靠权重下限 1 不改锚", () => {
+    const result = pickEventPublishedAt([
+      at("2026-08-14T10:00:00Z", 0),
+      at("2026-08-16T10:00:00Z", 0),
+    ]);
+    // 无下限则 base=0，0 >= 0*2 恒真会误判改锚；有下限两簇权重都是 1，1 < 2 不改锚
+    expect(result).toEqual(new Date("2026-08-14T10:00:00Z"));
+  });
+
+  it("间隔恰好 24h 仍是同一簇（切簇判断是严格大于）", () => {
+    const result = pickEventPublishedAt([
+      at("2026-08-01T00:00:00Z"),
+      at("2026-08-02T00:00:00Z"),
+    ]);
+    expect(result).toEqual(new Date("2026-08-01T00:00:00Z"));
+  });
+
+  it("间隔 24h + 1ms 切成两簇（此时才应改锚）", () => {
+    const result = pickEventPublishedAt([
+      at("2026-08-01T00:00:00Z", 50),
+      at("2026-08-02T00:00:00.001Z", 100),
+    ]);
+    expect(result).toEqual(new Date("2026-08-02T00:00:00.001Z"));
+  });
+
+  it("差额恰好达到 2 倍时改锚（边界值，与「未达 2 倍」对照）", () => {
+    const result = pickEventPublishedAt([
+      at("2026-08-05T10:00:00Z", 40),
+      at("2026-08-07T10:00:00Z", 80),
+    ]);
+    expect(result).toEqual(new Date("2026-08-07T10:00:00Z"));
+  });
 });

@@ -193,6 +193,9 @@ export const newsRouter = createTRPCRouter({
             eq(newsStories.shortId, input.shortId),
             // 有意不过滤 dirty：直达链接展示未生成四语摘要的 story 也没问题，
             // 占位内容（英文标题/摘要）是真实内容，只是还没被四语覆盖。
+            // 注意：不过滤 dirty 意味着 eventPublishedAt 可能滞后——新成员已并入、summarize
+            // 尚未重算时，这里显示的还是上一轮的锚点（页面头部日期与下方条目时间线会短暂打架）。
+            // 窗口通常是一轮 cron，summarize 反复失败时会更久。
             sql`${newsStories.status} != 'hidden'`,
           ),
         )

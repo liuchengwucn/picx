@@ -19,6 +19,10 @@
  *        (SELECT MIN(published_at) FROM news_items WHERE news_items.story_id = news_stories.id),
  *        first_seen_at)）。
  *
+ * 顺序要求：**先部署带新 summarize 的 worker，再跑回填**。反过来的话，线上旧
+ * summarizeStage 会在下一次 dirty 轮用 members[0].publishedAt（旧的 MIN 语义）
+ * 把回填结果悄悄改回去，旧 clusterStage 也会继续往回压。
+ *
  * 用法（在宿主 mac 侧跑）：
  *   mac npx tsx scripts/backfill-story-event-date.mjs            # dry-run 全量
  *   mac npx tsx scripts/backfill-story-event-date.mjs --limit 20 # dry-run 前 20 条
@@ -30,6 +34,8 @@ import { fileURLToPath } from "node:url";
 import {
   BURST_GAP_HOURS,
   pickEventPublishedAt,
+  splitBursts,
+  weightOf,
 } from "../src/lib/news/event-date.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -110,31 +116,22 @@ const SHANGHAI_DAY = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 const fmtDay = (date) => SHANGHAI_DAY.format(date);
+// 该列仍可为 NULL；null * 1000 = 0 会被 new Date() 解析成 1970-01-01，日志会骗人
+// 说存量有个 epoch 值 —— 旧值缺失时打印「(空)」，写入的 newValue 本身不受影响。
+const fmtOldDay = (value) =>
+  value === null || value === undefined ? "(空)" : fmtDay(new Date(value * 1000));
 
 /**
- * 展示用：把成员按 BURST_GAP_HOURS 重新切簇，产出「3条/220分@2026-08-13」这样的形状串。
- * 仅用于打印，不参与决策——真正的选值全部来自 pickEventPublishedAt。
+ * 展示用：把成员按 BURST_GAP_HOURS（此处仅出现在注释里，实际切法来自 splitBursts）
+ * 重新切簇，产出「3条/220分@2026-08-13」这样的形状串。
+ * 仅用于打印，不参与决策——真正的选值全部来自 pickEventPublishedAt；切簇与权重
+ * 复用 event-date.ts 的导出函数，避免打印形状与真实决策脱节。
  */
 function describeBursts(members) {
-  const sorted = [...members].sort(
-    (a, b) => a.publishedAt.getTime() - b.publishedAt.getTime(),
-  );
-  const gapMs = BURST_GAP_HOURS * 60 * 60 * 1000;
-  const bursts = [];
-  let current = [];
-  let prev = null;
-  for (const m of sorted) {
-    if (prev && m.publishedAt.getTime() - prev.publishedAt.getTime() > gapMs) {
-      bursts.push(current);
-      current = [];
-    }
-    current.push(m);
-    prev = m;
-  }
-  bursts.push(current);
+  const bursts = splitBursts(members);
   return bursts
     .map((burst) => {
-      const score = burst.reduce((acc, m) => acc + (m.relevanceScore ?? 60), 0);
+      const score = weightOf(burst);
       return `${burst.length}条/${score}分@${fmtDay(burst[0].publishedAt)}`;
     })
     .join(" | ");
@@ -198,7 +195,7 @@ for (const [i, story] of stories.entries()) {
 
   stats.changed++;
   console.log(
-    `${story.shortId}  ${fmtDay(new Date(oldValue * 1000))} -> ${fmtDay(newDate)}   ${describeBursts(members)}`,
+    `${story.shortId}  ${fmtOldDay(oldValue)} -> ${fmtDay(newDate)}   ${describeBursts(members)}`,
   );
 
   if (APPLY) {

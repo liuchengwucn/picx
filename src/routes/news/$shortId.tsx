@@ -74,6 +74,9 @@ export const Route = createFileRoute("/news/$shortId")({
           .where(
             and(
               eq(newsStories.shortId, params.shortId),
+              // 注意：不过滤 dirty 意味着 eventPublishedAt 可能滞后——新成员已并入、summarize
+              // 尚未重算时，这里显示的还是上一轮的锚点（页面头部日期与下方条目时间线会短暂打架）。
+              // 窗口通常是一轮 cron，summarize 反复失败时会更久。
               sql`${newsStories.status} != 'hidden'`,
             ),
           )
