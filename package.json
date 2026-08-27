@@ -32,6 +32,7 @@
     "db:backfill-paper-titles": "tsx scripts/backfill-paper-titles.mjs",
     "db:backfill-news-excerpts": "tsx scripts/backfill-news-excerpts.mjs",
     "db:backfill-latepost-gists": "tsx scripts/backfill-latepost-gists.mjs",
+    "db:backfill-story-event-date": "tsx scripts/backfill-story-event-date.mjs",
     "format": "biome format",
     "lint": "biome lint",
     "typecheck": "tsc --noEmit",

@@ -502,12 +502,17 @@ export const newsStories = sqliteTable(
     leadImage: text("lead_image", { mode: "json" }).$type<NewsMedia | null>(),
     // 有新成员并入置真，summarize 阶段处理完置假——崩溃可恢复的幂等标记（D1 无事务）
     dirty: integer("dirty", { mode: "boolean" }).notNull().default(true),
-    // story 首次聚合时间；展示与「最新」排序改用 earliestPublishedAt 后作为回退值（与 created_at 同刻，语义独立保留）
+    // story 首次聚合时间；展示与「最新」排序改用 eventPublishedAt 后作为回退值（与 created_at 同刻，语义独立保留）
     firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull(),
-    // 成员条目最早的 publishedAt —— 对外展示与 feed「最新」排序的时间口径
-    // （firstSeenAt 是收录时间，回填/补抓时会晚于新闻实际时间）。
+    // 事件锚点：主导报道簇的起始时间（算法见 lib/news/event-date.ts）——对外展示与
+    // feed「最新」排序的唯一时间口径。
+    // 物理列名 earliest_published_at 是历史遗留：2026-08-27 前该列确为「成员最早
+    // 发布时间」，但一条几天前的前置报道会把整条 story 钉死在起源日、在「每日热点」
+    // 里彻底消失（生产案例 7ye5bB）。列名不改是因为 RENAME COLUMN 会在迁移与部署
+    // 之间的窗口里让线上 news 查询全部 500。首次报道时间不再有列承载，需要时用
+    // MIN(news_items.published_at) 现算。
     // SQLite ALTER 无法补 NOT NULL，列保持 nullable；写入路径（cluster/summarize）始终赋值，读取处回退 firstSeenAt
-    earliestPublishedAt: integer("earliest_published_at", {
+    eventPublishedAt: integer("earliest_published_at", {
       mode: "timestamp",
     }),
     lastActivityAt: integer("last_activity_at", {
@@ -528,7 +533,7 @@ export const newsStories = sqliteTable(
     // 用 drizzle 的 ne()/eq()（绑定参数）会静默退化为全表扫描。下面两组 partial index 均适用。
     // feed 列表：status != 'hidden' + 时间倒序，用 partial index 才能走索引免排序
     feedPublishedIdx: index("news_stories_feed_published_idx")
-      .on(table.earliestPublishedAt)
+      .on(table.eventPublishedAt)
       .where(sql`${table.status} != 'hidden'`),
     feedActiveIdx: index("news_stories_feed_active_idx")
       .on(table.lastActivityAt)

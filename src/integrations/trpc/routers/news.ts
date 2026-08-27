@@ -16,7 +16,7 @@ type StoryCardRow = Pick<
   | "sourceCount"
   | "signalsSummary"
   | "firstSeenAt"
-  | "earliestPublishedAt"
+  | "eventPublishedAt"
   | "lastActivityAt"
   | "status"
   | "leadImage"
@@ -40,7 +40,7 @@ function localizeStory(
     sourceCount: story.sourceCount,
     signalsSummary: story.signalsSummary,
     firstSeenAt: story.firstSeenAt,
-    earliestPublishedAt: story.earliestPublishedAt,
+    eventPublishedAt: story.eventPublishedAt,
     lastActivityAt: story.lastActivityAt,
     status: story.status,
     leadImage: story.leadImage,
@@ -78,7 +78,7 @@ export const newsRouter = createTRPCRouter({
       // latest 命中 feedPublishedIdx / active 命中 feedActiveIdx
       const sortCol =
         input.sort === "latest"
-          ? newsStories.earliestPublishedAt
+          ? newsStories.eventPublishedAt
           : newsStories.lastActivityAt;
       const conditions: SQL[] = [visible];
       if (input.q) {
@@ -125,7 +125,7 @@ export const newsRouter = createTRPCRouter({
           sourceCount: newsStories.sourceCount,
           signalsSummary: newsStories.signalsSummary,
           firstSeenAt: newsStories.firstSeenAt,
-          earliestPublishedAt: newsStories.earliestPublishedAt,
+          eventPublishedAt: newsStories.eventPublishedAt,
           lastActivityAt: newsStories.lastActivityAt,
           status: newsStories.status,
           leadImage: newsStories.leadImage,
@@ -154,9 +154,7 @@ export const newsRouter = createTRPCRouter({
 
       const last = stories.at(-1);
       const lastTs =
-        input.sort === "latest"
-          ? last?.earliestPublishedAt
-          : last?.lastActivityAt;
+        input.sort === "latest" ? last?.eventPublishedAt : last?.lastActivityAt;
       const nextCursor =
         hasMore && last && lastTs
           ? { ts: lastTs.getTime(), shortId: last.shortId }
@@ -184,7 +182,7 @@ export const newsRouter = createTRPCRouter({
           tags: newsStories.tags,
           signalsSummary: newsStories.signalsSummary,
           firstSeenAt: newsStories.firstSeenAt,
-          earliestPublishedAt: newsStories.earliestPublishedAt,
+          eventPublishedAt: newsStories.eventPublishedAt,
           lastActivityAt: newsStories.lastActivityAt,
           keyFacts: newsStories.keyFacts,
           related: newsStories.related,
@@ -195,6 +193,9 @@ export const newsRouter = createTRPCRouter({
             eq(newsStories.shortId, input.shortId),
             // 有意不过滤 dirty：直达链接展示未生成四语摘要的 story 也没问题，
             // 占位内容（英文标题/摘要）是真实内容，只是还没被四语覆盖。
+            // 注意：不过滤 dirty 意味着 eventPublishedAt 可能滞后——新成员已并入、summarize
+            // 尚未重算时，这里显示的还是上一轮的锚点（页面头部日期与下方条目时间线会短暂打架）。
+            // 窗口通常是一轮 cron，summarize 反复失败时会更久。
             sql`${newsStories.status} != 'hidden'`,
           ),
         )
@@ -232,7 +233,7 @@ export const newsRouter = createTRPCRouter({
                 shortId: newsStories.shortId,
                 title: newsStories.title,
                 firstSeenAt: newsStories.firstSeenAt,
-                earliestPublishedAt: newsStories.earliestPublishedAt,
+                eventPublishedAt: newsStories.eventPublishedAt,
               })
               .from(newsStories)
               .where(
@@ -256,7 +257,7 @@ export const newsRouter = createTRPCRouter({
         tags: story.tags ?? [],
         signalsSummary: story.signalsSummary,
         firstSeenAt: story.firstSeenAt,
-        earliestPublishedAt: story.earliestPublishedAt,
+        eventPublishedAt: story.eventPublishedAt,
         lastActivityAt: story.lastActivityAt,
         keyFacts: story.keyFacts,
         related,

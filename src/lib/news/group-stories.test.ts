@@ -14,7 +14,7 @@ const story = (over: Partial<GroupableStory> & { shortId: string }) =>
     sourceCount: 1,
     signalsSummary: null,
     firstSeenAt: new Date("2026-08-04T12:00:00Z"),
-    earliestPublishedAt: new Date("2026-08-04T12:00:00Z"),
+    eventPublishedAt: new Date("2026-08-04T12:00:00Z"),
     ...over,
   }) satisfies GroupableStory;
 
@@ -34,17 +34,17 @@ describe("groupStoriesByDay", () => {
     const a = story({
       shortId: "a",
       scoreMax: 80,
-      earliestPublishedAt: new Date("2026-08-04T17:00:00Z"),
+      eventPublishedAt: new Date("2026-08-04T17:00:00Z"),
     });
     const b = story({
       shortId: "b",
       scoreMax: 90,
-      earliestPublishedAt: new Date("2026-08-04T18:00:00Z"),
+      eventPublishedAt: new Date("2026-08-04T18:00:00Z"),
     });
     const c = story({
       shortId: "c",
       scoreMax: 95,
-      earliestPublishedAt: new Date("2026-08-04T15:00:00Z"),
+      eventPublishedAt: new Date("2026-08-04T15:00:00Z"),
     });
     const groups = groupStoriesByDay([b, a, c], "Asia/Shanghai");
     expect(groups.map((g) => g.dateKey)).toEqual(["2026-08-05", "2026-08-04"]);
@@ -61,7 +61,7 @@ describe("groupStoriesByDay", () => {
       story({
         shortId,
         scoreMax,
-        earliestPublishedAt: new Date(`2026-08-04T0${hour}:00:00Z`),
+        eventPublishedAt: new Date(`2026-08-04T0${hour}:00:00Z`),
       });
     // 输入时间倒序：t85 晚于 t90 发布，但大头条仍取最高分 t90
     const groups = groupStoriesByDay(
@@ -79,7 +79,7 @@ describe("groupStoriesByDay", () => {
       story({
         shortId,
         scoreMax,
-        earliestPublishedAt: new Date(
+        eventPublishedAt: new Date(
           `2026-08-04T${String(hour).padStart(2, "0")}:00:00Z`,
         ),
       });
@@ -113,7 +113,7 @@ describe("groupStoriesByDay", () => {
   });
 
   it("breaks ties by sourceCount then hn points; null score loses", () => {
-    const base = { earliestPublishedAt: new Date("2026-08-04T10:00:00Z") };
+    const base = { eventPublishedAt: new Date("2026-08-04T10:00:00Z") };
     expect(
       compareFeatured(
         story({ shortId: "hi", ...base, scoreMax: 70, sourceCount: 3 }),
@@ -160,17 +160,17 @@ describe("groupStoriesByDay", () => {
   it("groups preserve input order and featured is never duplicated across groups", () => {
     const day1a = story({
       shortId: "d1a",
-      earliestPublishedAt: new Date("2026-08-03T10:00:00Z"),
+      eventPublishedAt: new Date("2026-08-03T10:00:00Z"),
       scoreMax: 10,
     });
     const day2a = story({
       shortId: "d2a",
-      earliestPublishedAt: new Date("2026-08-04T10:00:00Z"),
+      eventPublishedAt: new Date("2026-08-04T10:00:00Z"),
       scoreMax: 20,
     });
     const day1b = story({
       shortId: "d1b",
-      earliestPublishedAt: new Date("2026-08-03T11:00:00Z"),
+      eventPublishedAt: new Date("2026-08-03T11:00:00Z"),
       scoreMax: 5,
     });
     const groups = groupStoriesByDay([day1a, day2a, day1b], "Asia/Shanghai");

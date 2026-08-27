@@ -263,7 +263,7 @@ export function buildAgentTools(deps: AgentToolsDeps) {
             title: newsStories.title,
             summary: newsStories.summary,
             tags: newsStories.tags,
-            earliestPublishedAt: newsStories.earliestPublishedAt,
+            eventPublishedAt: newsStories.eventPublishedAt,
             firstSeenAt: newsStories.firstSeenAt,
           })
           .from(newsStories)
@@ -278,7 +278,7 @@ export function buildAgentTools(deps: AgentToolsDeps) {
               AGENT_LIMITS.abstractChars,
             ),
             tags: r.tags ?? [],
-            date: (r.earliestPublishedAt ?? r.firstSeenAt)
+            date: (r.eventPublishedAt ?? r.firstSeenAt)
               .toISOString()
               .slice(0, 10),
             url: `${SITE_URL}/news/${r.shortId}`,

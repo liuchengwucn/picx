@@ -76,7 +76,7 @@ async function handler({ request }: { request: Request }) {
       .where(
         sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
       )
-      .orderBy(desc(newsStories.earliestPublishedAt))
+      .orderBy(desc(newsStories.eventPublishedAt))
       .limit(1000);
   } catch {
     // Degrade gracefully to sitemap without news stories
@@ -140,7 +140,7 @@ async function handler({ request }: { request: Request }) {
     ?.toISOString()
     .split("T")[0];
 
-  // /news 的新鲜度。必须取 max: stories 按 earliestPublishedAt 倒序(那是事件发生
+  // /news 的新鲜度。必须取 max: stories 按 eventPublishedAt 倒序(那是事件发生
   // 时间), 而列表页会因为老 story 并入新成员而变 —— 那记在 lastActivityAt 上,
   // 与排序键不是同一个量, [0] 拿到的未必是最近变动的那条。
   const latestStoryDate = stories.length

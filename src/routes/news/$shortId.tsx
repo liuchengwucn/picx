@@ -65,7 +65,7 @@ export const Route = createFileRoute("/news/$shortId")({
             tags: newsStories.tags,
             signalsSummary: newsStories.signalsSummary,
             firstSeenAt: newsStories.firstSeenAt,
-            earliestPublishedAt: newsStories.earliestPublishedAt,
+            eventPublishedAt: newsStories.eventPublishedAt,
             lastActivityAt: newsStories.lastActivityAt,
             keyFacts: newsStories.keyFacts,
             related: newsStories.related,
@@ -74,6 +74,9 @@ export const Route = createFileRoute("/news/$shortId")({
           .where(
             and(
               eq(newsStories.shortId, params.shortId),
+              // 注意：不过滤 dirty 意味着 eventPublishedAt 可能滞后——新成员已并入、summarize
+              // 尚未重算时，这里显示的还是上一轮的锚点（页面头部日期与下方条目时间线会短暂打架）。
+              // 窗口通常是一轮 cron，summarize 反复失败时会更久。
               sql`${newsStories.status} != 'hidden'`,
             ),
           )
@@ -110,7 +113,7 @@ export const Route = createFileRoute("/news/$shortId")({
                   shortId: newsStories.shortId,
                   title: newsStories.title,
                   firstSeenAt: newsStories.firstSeenAt,
-                  earliestPublishedAt: newsStories.earliestPublishedAt,
+                  eventPublishedAt: newsStories.eventPublishedAt,
                 })
                 .from(newsStories)
                 .where(
@@ -133,7 +136,7 @@ export const Route = createFileRoute("/news/$shortId")({
           tags: story.tags ?? [],
           signalsSummary: story.signalsSummary,
           firstSeenAt: story.firstSeenAt,
-          earliestPublishedAt: story.earliestPublishedAt,
+          eventPublishedAt: story.eventPublishedAt,
           lastActivityAt: story.lastActivityAt,
           keyFacts: story.keyFacts ?? null,
           related,
@@ -190,7 +193,7 @@ export const Route = createFileRoute("/news/$shortId")({
             url,
             mainEntityOfPage: url,
             datePublished: new Date(
-              story.earliestPublishedAt ?? story.firstSeenAt,
+              story.eventPublishedAt ?? story.firstSeenAt,
             ).toISOString(),
             dateModified: new Date(story.lastActivityAt).toISOString(),
             publisher: {
@@ -235,7 +238,7 @@ function NewsStoryPage() {
   const summary = pickTldr(data.summary, localeKey) ?? "";
   const hn = data.signalsSummary?.hn;
   const timeAgo = formatRelative(
-    new Date(data.earliestPublishedAt ?? data.firstSeenAt).getTime(),
+    new Date(data.eventPublishedAt ?? data.firstSeenAt).getTime(),
     now,
     locale,
   );
@@ -345,7 +348,7 @@ function NewsStoryPage() {
                               <div className="mt-0.5 text-xs text-[var(--ink-soft)]">
                                 {formatRelative(
                                   new Date(
-                                    rel.earliestPublishedAt ?? rel.firstSeenAt,
+                                    rel.eventPublishedAt ?? rel.firstSeenAt,
                                   ).getTime(),
                                   now,
                                   locale,
