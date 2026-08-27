@@ -49,12 +49,12 @@ export async function buildNewsFeed(
       leadImage: newsStories.leadImage,
       tags: newsStories.tags,
       firstSeenAt: newsStories.firstSeenAt,
-      earliestPublishedAt: newsStories.earliestPublishedAt,
+      eventPublishedAt: newsStories.eventPublishedAt,
       lastActivityAt: newsStories.lastActivityAt,
     })
     .from(newsStories)
     .where(visible)
-    .orderBy(desc(newsStories.earliestPublishedAt), desc(newsStories.shortId))
+    .orderBy(desc(newsStories.eventPublishedAt), desc(newsStories.shortId))
     .limit(NEWS_FEED_LIMIT);
 
   // 来源用子查询限定，不给 inArray 传 50 个 id：D1 单查询绑定参数上限是 100，
@@ -76,6 +76,8 @@ export async function buildNewsFeed(
           // 批量聚合，同秒 earliest_published_at 并不罕见，只按时间排的话两个
           // 查询会在 LIMIT 边界上选出不同的 50 条，于是某条 story 的来源列表
           // 静默变空。仓库里那条复合游标（news.list 的 cursor）就是同一个坑。
+          // 注意：裸 SQL 里的列名是 earliest_published_at，TS 侧字段叫
+          // eventPublishedAt —— 语义已改为事件锚点，物理列名是历史遗留，见 schema.ts。
           sql`${newsItems.storyId} IN (
             SELECT id FROM news_stories
             WHERE status != 'hidden' AND dirty = 0
@@ -108,9 +110,9 @@ export async function buildNewsFeed(
     // 外站图床（qbitai / 机器之心一类）直连必 403，阅读器只会拿到坏图。
     // displayImageUrl 已封装「要不要走站内代理」的判断。
     const imageUrl = lead?.url ? displayImageUrl(lead.url) : null;
-    // published 用 earliestPublishedAt（新闻实际时间），列 nullable 只是历史
+    // published 用 eventPublishedAt（事件锚点），列 nullable 只是历史
     // 原因，写入路径始终赋值；回退 firstSeenAt（收录时间）。
-    const published = row.earliestPublishedAt ?? row.firstSeenAt;
+    const published = row.eventPublishedAt ?? row.firstSeenAt;
     const summary = pickTldr(row.summary, locale.key) ?? "";
     const keyFacts =
       (row.keyFacts as Record<string, string[]> | null)?.[locale.key] ?? null;

@@ -15,7 +15,7 @@ export interface NewsListStory {
   sourceCount: number;
   signalsSummary: StorySignalsSummary | null;
   firstSeenAt: Date | string;
-  earliestPublishedAt: Date | string | null;
+  eventPublishedAt: Date | string | null;
   lastActivityAt: Date;
   scoreMin: number | null;
   scoreMax: number | null;
@@ -26,7 +26,7 @@ export interface NewsListStory {
 const MAX_FAVICONS = 5;
 
 // 时间口径:必须与列表当前的排序键一致,否则从上到下不是时间顺序。
-// published = earliestPublishedAt(最早成员发布时间),对应 sort=latest;
+// published = eventPublishedAt(主导报道簇的起始时间),对应 sort=latest;
 // activity  = lastActivityAt(最新成员被并入的收录时刻),对应 sort=active。
 // 注意 lastActivityAt 是收录时刻而非最新成员的 publishedAt,会晚于新闻实际
 // 发布时间(cron 每小时一轮,回填/补抓场景可能晚更多)——这是有意接受的取舍,
@@ -55,7 +55,7 @@ export function StoryMeta({
   const date = new Date(
     timeBasis === "activity"
       ? story.lastActivityAt
-      : (story.earliestPublishedAt ?? story.firstSeenAt),
+      : (story.eventPublishedAt ?? story.firstSeenAt),
   );
   const timeAgo = formatRelative(date.getTime(), Date.now(), locale);
   const countsText = (

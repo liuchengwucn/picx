@@ -99,7 +99,7 @@ async function handler() {
       .where(
         sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
       )
-      .orderBy(desc(newsStories.earliestPublishedAt))
+      .orderBy(desc(newsStories.eventPublishedAt))
       .limit(MAX_STORIES);
   } catch {
     // Degrade to llms.txt without news stories

@@ -48,7 +48,7 @@ const storyProjection = {
   shortId: newsStories.shortId,
   title: newsStories.title,
   leadImage: newsStories.leadImage,
-  earliestPublishedAt: newsStories.earliestPublishedAt,
+  eventPublishedAt: newsStories.eventPublishedAt,
   firstSeenAt: newsStories.firstSeenAt,
   sourceCount: newsStories.sourceCount,
   signalsSummary: newsStories.signalsSummary,
@@ -68,8 +68,8 @@ export interface HomeStory {
    */
   sourceCount: number;
   /**
-   * earliestPublishedAt ?? firstSeenAt, epoch ms。
-   * 排序只看 earliestPublishedAt(0025 迁移已消灭存量 NULL, 写入路径始终赋值);
+   * eventPublishedAt ?? firstSeenAt, epoch ms。
+   * 排序只看 eventPublishedAt(0025 迁移已消灭存量 NULL, 写入路径始终赋值);
    * firstSeenAt 兜底仅为类型安全, 不影响实际排序结果。
    */
   publishedAt: number;
@@ -169,13 +169,13 @@ async function loadStoryCandidates(db: Db, windowStart: Date) {
     .where(
       and(
         sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
-        gte(newsStories.earliestPublishedAt, windowStart),
+        gte(newsStories.eventPublishedAt, windowStart),
       ),
     )
     .orderBy(
       desc(scoreMaxSql),
       desc(newsStories.sourceCount),
-      desc(newsStories.earliestPublishedAt),
+      desc(newsStories.eventPublishedAt),
     )
     .limit(36);
   if (rows.length >= HOME_STORY_COUNT) return rows;
@@ -184,7 +184,7 @@ async function loadStoryCandidates(db: Db, windowStart: Date) {
     .select(storyProjection)
     .from(newsStories)
     .where(sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`)
-    .orderBy(desc(newsStories.earliestPublishedAt), desc(newsStories.shortId))
+    .orderBy(desc(newsStories.eventPublishedAt), desc(newsStories.shortId))
     .limit(12);
 }
 
@@ -240,7 +240,7 @@ export async function getHomeToday(db: Db): Promise<HomeToday> {
       title: s.title,
       leadImage: s.leadImage ?? null,
       sourceCount: s.sourceCount,
-      publishedAt: (s.earliestPublishedAt ?? s.firstSeenAt).getTime(),
+      publishedAt: (s.eventPublishedAt ?? s.firstSeenAt).getTime(),
     })),
     papers: paperRows.map((p) => ({
       shortId: p.shortId,

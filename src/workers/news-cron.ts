@@ -522,7 +522,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
       summary: newsStories.summary,
       centroid: newsStories.centroid,
       itemCount: newsStories.itemCount,
-      earliestPublishedAt: newsStories.earliestPublishedAt,
+      eventPublishedAt: newsStories.eventPublishedAt,
     })
     .from(newsStories)
     .where(
@@ -576,16 +576,16 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           embedding,
         );
         const newEarliestPublishedAt =
-          target.earliestPublishedAt === null ||
-          item.publishedAt < target.earliestPublishedAt
+          target.eventPublishedAt === null ||
+          item.publishedAt < target.eventPublishedAt
             ? item.publishedAt
-            : target.earliestPublishedAt;
+            : target.eventPublishedAt;
         await db
           .update(newsStories)
           .set({
             centroid: newCentroid,
             itemCount: target.itemCount + 1,
-            earliestPublishedAt: newEarliestPublishedAt,
+            eventPublishedAt: newEarliestPublishedAt,
             lastActivityAt: now,
             dirty: true,
             updatedAt: now,
@@ -597,7 +597,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           .where(eq(newsItems.id, item.id));
         target.centroid = newCentroid;
         target.itemCount += 1;
-        target.earliestPublishedAt = newEarliestPublishedAt;
+        target.eventPublishedAt = newEarliestPublishedAt;
         merged++;
       } else {
         const [story] = await db
@@ -613,7 +613,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
             sourceCount: 1,
             dirty: true,
             firstSeenAt: now,
-            earliestPublishedAt: item.publishedAt,
+            eventPublishedAt: item.publishedAt,
             lastActivityAt: now,
           })
           .returning({ id: newsStories.id });
@@ -627,7 +627,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           summary: { en: item.excerpt ?? item.title },
           centroid: embedding,
           itemCount: 1,
-          earliestPublishedAt: item.publishedAt,
+          eventPublishedAt: item.publishedAt,
         });
         created++;
       }
@@ -758,12 +758,12 @@ async function summarizeStage(
             and(
               sql`${newsStories.status} != 'hidden'`,
               gt(
-                newsStories.earliestPublishedAt,
+                newsStories.eventPublishedAt,
                 new Date(Date.now() - RELATED_WINDOW_DAYS * 86_400_000),
               ),
             ),
           )
-          .orderBy(desc(newsStories.earliestPublishedAt))
+          .orderBy(desc(newsStories.eventPublishedAt))
           .limit(500)
       : [];
 
@@ -819,7 +819,7 @@ async function summarizeStage(
         })),
         config,
       );
-      // itemCount/sourceCount/centroid/earliestPublishedAt 一律从成员全量重算，自愈 cluster 阶段
+      // itemCount/sourceCount/centroid/eventPublishedAt 一律从成员全量重算，自愈 cluster 阶段
       // 可能的重复并入（D1 无事务 → story 已更新但 item 更新失败）。
       // centroid 尤其重要：mergeCentroid 是增量的，偏差不会自己消失。
       // members 已按 publishedAt asc 排序，[0] 即最早发布时间。
@@ -854,7 +854,7 @@ async function summarizeStage(
           tags: content.tags,
           itemCount: members.length,
           sourceCount: new Set(members.map((m) => m.sourceId)).size,
-          earliestPublishedAt: members[0].publishedAt,
+          eventPublishedAt: members[0].publishedAt,
           ...(centroid ? { centroid } : {}),
           keyFacts: content.keyFacts,
           leadImage,

@@ -65,7 +65,7 @@ export const Route = createFileRoute("/news/$shortId")({
             tags: newsStories.tags,
             signalsSummary: newsStories.signalsSummary,
             firstSeenAt: newsStories.firstSeenAt,
-            earliestPublishedAt: newsStories.earliestPublishedAt,
+            eventPublishedAt: newsStories.eventPublishedAt,
             lastActivityAt: newsStories.lastActivityAt,
             keyFacts: newsStories.keyFacts,
             related: newsStories.related,
@@ -110,7 +110,7 @@ export const Route = createFileRoute("/news/$shortId")({
                   shortId: newsStories.shortId,
                   title: newsStories.title,
                   firstSeenAt: newsStories.firstSeenAt,
-                  earliestPublishedAt: newsStories.earliestPublishedAt,
+                  eventPublishedAt: newsStories.eventPublishedAt,
                 })
                 .from(newsStories)
                 .where(
@@ -133,7 +133,7 @@ export const Route = createFileRoute("/news/$shortId")({
           tags: story.tags ?? [],
           signalsSummary: story.signalsSummary,
           firstSeenAt: story.firstSeenAt,
-          earliestPublishedAt: story.earliestPublishedAt,
+          eventPublishedAt: story.eventPublishedAt,
           lastActivityAt: story.lastActivityAt,
           keyFacts: story.keyFacts ?? null,
           related,
@@ -190,7 +190,7 @@ export const Route = createFileRoute("/news/$shortId")({
             url,
             mainEntityOfPage: url,
             datePublished: new Date(
-              story.earliestPublishedAt ?? story.firstSeenAt,
+              story.eventPublishedAt ?? story.firstSeenAt,
             ).toISOString(),
             dateModified: new Date(story.lastActivityAt).toISOString(),
             publisher: {
@@ -235,7 +235,7 @@ function NewsStoryPage() {
   const summary = pickTldr(data.summary, localeKey) ?? "";
   const hn = data.signalsSummary?.hn;
   const timeAgo = formatRelative(
-    new Date(data.earliestPublishedAt ?? data.firstSeenAt).getTime(),
+    new Date(data.eventPublishedAt ?? data.firstSeenAt).getTime(),
     now,
     locale,
   );
@@ -345,7 +345,7 @@ function NewsStoryPage() {
                               <div className="mt-0.5 text-xs text-[var(--ink-soft)]">
                                 {formatRelative(
                                   new Date(
-                                    rel.earliestPublishedAt ?? rel.firstSeenAt,
+                                    rel.eventPublishedAt ?? rel.firstSeenAt,
                                   ).getTime(),
                                   now,
                                   locale,

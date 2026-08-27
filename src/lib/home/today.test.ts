@@ -152,7 +152,7 @@ interface Candidate {
   sourceCount: number;
   signalsSummary: StorySignalsSummary | null;
   firstSeenAt: Date;
-  earliestPublishedAt: Date;
+  eventPublishedAt: Date;
 }
 
 const signals = (points: number): StorySignalsSummary => ({
@@ -173,7 +173,7 @@ const candidate = (
   sourceCount,
   signalsSummary,
   firstSeenAt: new Date(NOW - hoursAgo * HOUR),
-  earliestPublishedAt: new Date(NOW - hoursAgo * HOUR),
+  eventPublishedAt: new Date(NOW - hoursAgo * HOUR),
 });
 
 describe("pickTopStories", () => {

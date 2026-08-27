@@ -6,7 +6,7 @@ export interface GroupableStory {
   sourceCount: number;
   signalsSummary: StorySignalsSummary | null;
   firstSeenAt: Date | string;
-  earliestPublishedAt: Date | string | null;
+  eventPublishedAt: Date | string | null;
 }
 
 export interface DayGroup<T extends GroupableStory> {
@@ -46,7 +46,7 @@ export function dateKeyOf(date: Date, timeZone?: string): string {
 }
 
 export function storyDate(story: GroupableStory): Date {
-  return new Date(story.earliestPublishedAt ?? story.firstSeenAt);
+  return new Date(story.eventPublishedAt ?? story.firstSeenAt);
 }
 
 // 大头条优先级：scoreMax（null 视为 -1）→ sourceCount → HN points
