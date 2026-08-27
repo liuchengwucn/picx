@@ -30,6 +30,7 @@ import {
   scoreRelevance,
 } from "#/lib/news/ai";
 import { EnrichRateLimitError, fetchReadable } from "#/lib/news/enrich";
+import { pickEventPublishedAt } from "#/lib/news/event-date";
 import { probeNewsImage } from "#/lib/news/image-source";
 import { mergeRelated, pickRelated } from "#/lib/news/related";
 import { buildSignalsSummary } from "#/lib/news/signals";
@@ -522,7 +523,6 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
       summary: newsStories.summary,
       centroid: newsStories.centroid,
       itemCount: newsStories.itemCount,
-      eventPublishedAt: newsStories.eventPublishedAt,
     })
     .from(newsStories)
     .where(
@@ -570,22 +570,19 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
         // D1 无事务：先更新 story 再更新 item；若中间崩溃，item 仍是 pending，
         // 下轮会再并入一次 → itemCount/centroid 偏高。summarize 阶段从成员全量
         // 重算两者来自愈，所以这里的增量偏差是可收敛的。
+        // eventPublishedAt 刻意不在这里增量维护：锚点要看全量成员的簇分布，
+        // 单条增量算不出来。并入必然置 dirty=true，而所有读取点都带字面量
+        // dirty = 0 过滤，所以「锚点已过期、summarize 尚未重算」的中间态不对外可见。
         const newCentroid = mergeCentroid(
           target.centroid,
           target.itemCount,
           embedding,
         );
-        const newEarliestPublishedAt =
-          target.eventPublishedAt === null ||
-          item.publishedAt < target.eventPublishedAt
-            ? item.publishedAt
-            : target.eventPublishedAt;
         await db
           .update(newsStories)
           .set({
             centroid: newCentroid,
             itemCount: target.itemCount + 1,
-            eventPublishedAt: newEarliestPublishedAt,
             lastActivityAt: now,
             dirty: true,
             updatedAt: now,
@@ -597,7 +594,6 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           .where(eq(newsItems.id, item.id));
         target.centroid = newCentroid;
         target.itemCount += 1;
-        target.eventPublishedAt = newEarliestPublishedAt;
         merged++;
       } else {
         const [story] = await db
@@ -627,7 +623,6 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           summary: { en: item.excerpt ?? item.title },
           centroid: embedding,
           itemCount: 1,
-          eventPublishedAt: item.publishedAt,
         });
         created++;
       }
@@ -789,6 +784,7 @@ async function summarizeStage(
           sourceId: newsItems.sourceId,
           sourceName: newsSources.name,
           publishedAt: newsItems.publishedAt,
+          relevanceScore: newsItems.relevanceScore,
           media: newsItems.media,
         })
         .from(newsItems)
@@ -822,7 +818,7 @@ async function summarizeStage(
       // itemCount/sourceCount/centroid/eventPublishedAt 一律从成员全量重算，自愈 cluster 阶段
       // 可能的重复并入（D1 无事务 → story 已更新但 item 更新失败）。
       // centroid 尤其重要：mergeCentroid 是增量的，偏差不会自己消失。
-      // members 已按 publishedAt asc 排序，[0] 即最早发布时间。
+      // eventPublishedAt 只能在这里算：锚点取决于全量成员的簇分布，cluster 的单条增量算不出来。
       const memberEmbeddings = members
         .map((m) => m.embedding)
         .filter((e): e is Float32Array => e !== null);
@@ -854,7 +850,9 @@ async function summarizeStage(
           tags: content.tags,
           itemCount: members.length,
           sourceCount: new Set(members.map((m) => m.sourceId)).size,
-          eventPublishedAt: members[0].publishedAt,
+          // members.length === 0 已在上面提前 return，?? 只是让类型收敛
+          eventPublishedAt:
+            pickEventPublishedAt(members) ?? members[0].publishedAt,
           ...(centroid ? { centroid } : {}),
           keyFacts: content.keyFacts,
           leadImage,
