@@ -239,6 +239,13 @@
       "when": 1786958180207,
       "tag": "0033_add_lab_rsshub_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1787906139684,
+      "tag": "0034_yielding_lifeguard",
+      "breakpoints": true
     }
   ]
 }

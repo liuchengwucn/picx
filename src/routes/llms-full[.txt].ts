@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createFileRoute } from "@tanstack/react-router";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
   digests,
@@ -10,6 +10,7 @@ import {
   papers,
 } from "#/db/schema";
 import { buildLlmsFullTxt } from "#/lib/llms-txt";
+import { newsVisible } from "#/lib/news/visibility";
 import { publicPaperConditions } from "#/lib/paper-visibility";
 import { SITE_URL } from "#/lib/site-url";
 
@@ -101,10 +102,9 @@ async function handler() {
         summary: newsStories.summary,
       })
       .from(newsStories)
-      // 字面量谓词：partial index 要求，勿改成 ne()/eq()；dirty=0 排除未生成四语摘要的占位 story
-      .where(
-        sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
-      )
+      // 可见性谓词见 lib/news/visibility.ts（字面量 SQL，partial index 要求）：
+      // summarized_at IS NULL 排除从未生成四语摘要的占位 story
+      .where(newsVisible())
       .orderBy(desc(newsStories.eventPublishedAt))
       .limit(MAX_STORIES);
   } catch {

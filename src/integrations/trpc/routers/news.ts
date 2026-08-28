@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 import { newsItems, newsSources, newsStories } from "#/db/schema";
 import { escapeLike } from "#/lib/gallery-search";
+import { newsVisible } from "#/lib/news/visibility";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 import { createTRPCRouter, publicProcedure } from "../init";
 
@@ -70,9 +71,9 @@ export const newsRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const localeKey = normalizeLocaleKey(input.locale ?? "en");
-      // 字面量谓词：feed 的 partial index（WHERE status != 'hidden'）只匹配字面量，ne()/eq() 会失去索引
-      // dirty=0：占位 story（未生成四语摘要）不进公开列表与 SEO，避免英文占位与半成品外泄
-      const visible = sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`;
+      // 可见性谓词收敛在 lib/news/visibility.ts：summarized_at IS NOT NULL 排除
+      // 从未 summarize 成功的占位 story（只有英文半成品），不进公开列表与 SEO
+      const visible = newsVisible();
       // keyset 谓词下 NULL 排序键不可达（lt/eq 对 NULL 恒假）；0025 已回填存量 NULL、
       // 写入路径始终赋值，若出现 NULL 行该页游标直接终止。
       // latest 命中 feedPublishedIdx / active 命中 feedActiveIdx
@@ -191,11 +192,12 @@ export const newsRouter = createTRPCRouter({
         .where(
           and(
             eq(newsStories.shortId, input.shortId),
-            // 有意不过滤 dirty：直达链接展示未生成四语摘要的 story 也没问题，
+            // 有意不带可见性谓词：直达链接展示未生成四语摘要的占位 story 也没问题，
             // 占位内容（英文标题/摘要）是真实内容，只是还没被四语覆盖。
-            // 注意：不过滤 dirty 意味着 eventPublishedAt 可能滞后——新成员已并入、summarize
-            // 尚未重算时，这里显示的还是上一轮的锚点（页面头部日期与下方条目时间线会短暂打架）。
-            // 窗口通常是一轮 cron，summarize 反复失败时会更久。
+            // 注意：eventPublishedAt 可能滞后——新成员已并入、summarize 尚未重算时，
+            // 这里显示的还是上一轮的锚点（页面头部日期与下方条目时间线会短暂打架）。
+            // 窗口通常是一轮 cron，summarize 反复失败时会更久。列表页现在同样如此：
+            // 可见性已与 dirty 解耦，重算中的 story 带着旧锚点继续对外可见。
             sql`${newsStories.status} != 'hidden'`,
           ),
         )
@@ -237,10 +239,7 @@ export const newsRouter = createTRPCRouter({
               })
               .from(newsStories)
               .where(
-                and(
-                  inArray(newsStories.shortId, relatedIds),
-                  sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
-                ),
+                and(inArray(newsStories.shortId, relatedIds), newsVisible()),
               )
           : Promise.resolve([]),
       ]);

@@ -581,8 +581,10 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
         // 下轮会再并入一次 → itemCount/centroid 偏高。summarize 阶段从成员全量
         // 重算两者来自愈，所以这里的增量偏差是可收敛的。
         // eventPublishedAt 刻意不在这里增量维护：锚点要看全量成员的簇分布，
-        // 单条增量算不出来。并入必然置 dirty=true，而所有读取点都带字面量
-        // dirty = 0 过滤，所以「锚点已过期、summarize 尚未重算」的中间态不对外可见。
+        // 单条增量算不出来。并入置 dirty=true 只是给 summarize 排队重算，不影响
+        // 可见性（判据是 summarized_at，见 lib/news/visibility.ts）：story 带着
+        // 上一版内容与至多滞后一轮 cron（约一小时）的旧锚点继续对外可见。这是
+        // 刻意取舍——整条 story 从列表消失，比排序短暂滞后糟糕得多。
         const newCentroid = mergeCentroid(
           target.centroid,
           target.itemCount,
@@ -725,12 +727,18 @@ async function summarizeStage(
   deadline: number,
 ): Promise<void> {
   const dirtyStories = await db
-    .select({ id: newsStories.id, shortId: newsStories.shortId })
+    .select({
+      id: newsStories.id,
+      shortId: newsStories.shortId,
+      // 只为判「本轮是不是首次生成正文」——决定要不要推 IndexNow，见下方 push 处
+      summarizedAt: newsStories.summarizedAt,
+    })
     .from(newsStories)
     // dirty 的 partial index 只认字面量谓词，不能用 eq()/ne()（绑定参数会退化为全表扫描）。
-    // archived 也要取：可见性谓词是 dirty = 0（archived 正常对外可见），
-    // 若这里只认 active，被回填脚本/运维手工置 dirty 的 archived story、以及
-    // 反复失败拖到被 archiveStage 归档的 story 会带着 dirty = 1 永久从站点消失。
+    // archived 也要取：archived story 正常对外可见（可见性只看 summarized_at），
+    // 内容有更新照样要重算；若这里只认 active，被回填脚本/运维手工置 dirty 的
+    // archived story、以及反复失败拖到被 archiveStage 归档的 story 会永远排不上
+    // 队，正文停在旧版本。
     .where(
       and(
         sql`${newsStories.dirty} = 1`,
@@ -744,7 +752,8 @@ async function summarizeStage(
 
   // 2026-08 改版时曾有存量回填选路（key_facts IS NULL），排空后已移除：
   // 稳态下它是每轮空扫。个别 story 需要重新生成要点/相关/封面时，置 dirty = 1
-  // 即可走本轮换全量重算（代价：该 story 在列表消失至多一小时——可见性谓词是 dirty = 0）。
+  // 即可走本轮换全量重算——已 summarize 过的 story 重算期间照常对外可见（可见性
+  // 只看 summarized_at），列表上至多是内容/锚点滞后一轮，不会整条消失。
   const targets = dirtyStories;
 
   // related 候选一次载入。上限 500 行（centroid 每行 4KB，约 2MB 封顶）；90 天窗 + 上限双兜底。
@@ -774,11 +783,11 @@ async function summarizeStage(
 
   const config = aiConfigFromEnv(env);
   let done = 0;
-  // 本轮真正上架(dirty 1→0 且有正文)的 story，轮末一次性提交给 IndexNow。
+  // 本轮真正首次上架(首次写 summarized_at)的 story，轮末一次性提交给 IndexNow。
   // 收在这里而不是逐条 ping：每轮上限 MAX_SUMMARIZE_PER_ROUND(30) 条，一次提交装得下。
   const indexNowUrls: string[] = [];
 
-  for (const { id, shortId } of targets) {
+  for (const { id, shortId, summarizedAt } of targets) {
     if (pastDeadline(deadline, "summarize")) break;
     try {
       const members = await db
@@ -804,6 +813,7 @@ async function summarizeStage(
       if (members.length === 0) {
         // 无成员：cluster 阶段崩溃留下的孤儿。清掉 dirty 让它退出轮换，
         // 实体本身由 archiveStage 的孤儿清理负责删除。
+        // 刻意不写 summarizedAt：它没有正文，清 dirty 只为退出轮换，不该对外可见。
         await db
           .update(newsStories)
           .set({
@@ -869,13 +879,19 @@ async function summarizeStage(
           ...(related ? { related } : {}),
           signalsSummary: buildSignalsSummary(members),
           dirty: false,
+          // 可见性判据：写下这一刻 story 才第一次有四语正文、才对外可见。
+          // 后续重算会刷新它（列语义是「最近一次成功生成」），但只有首次那一次
+          // 值得推 IndexNow——见下方判断。
+          summarizedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(newsStories.id, id));
-      // 主 UPDATE 之后才登记：dirty 清掉的这一刻，story 才第一次满足站点的可见性
-      // 谓词(dirty = 0)，也才第一次出现在 sitemap 里。孤儿分支那条 continue 同样
-      // 清 dirty，但它没有正文，不该往搜索引擎推。
-      indexNowUrls.push(`${SITE_URL}/news/${shortId}`);
+      // 主 UPDATE 之后才登记，且只在首次写 summarized_at 时推：那一刻 story 才第一次
+      // 满足站点可见性谓词、第一次出现在 sitemap 里。已上架 story 的每次跟进重算都会
+      // 再进一轮 dirty，若按「dirty 1→0」判据会把同一条反复推给搜索引擎。
+      // 孤儿分支那条 continue 同样清 dirty，但它没有正文，不该往搜索引擎推。
+      if (summarizedAt === null)
+        indexNowUrls.push(`${SITE_URL}/news/${shortId}`);
       // 把本 story 的最新 centroid/related 同步回候选集：
       // 1) 修复后续反向补写基于轮初旧值 merge 而覆盖丢新算 related 的问题；
       // 2) 让同轮处理的后续 story 能把它选为相关（否则同轮新 story 永不互链）
