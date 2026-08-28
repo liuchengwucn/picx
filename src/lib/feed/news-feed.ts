@@ -8,6 +8,7 @@ import {
   newsStories,
 } from "#/db/schema";
 import { displayImageUrl } from "#/lib/news/image-source";
+import { NEWS_VISIBLE_SQL_TEXT, newsVisible } from "#/lib/news/visibility";
 import { pickTldr } from "#/lib/tldr";
 import { m } from "#/paraglide/messages";
 import { buildNewsItemHtml } from "./item-html";
@@ -27,17 +28,17 @@ type Db = ReturnType<typeof drizzle>;
  * 资讯 feed。
  *
  * 不复用 news.list：那是给分页/搜索/游标用的，既不查 key_facts 也不查来源条目。
- * 但**谓词必须逐字沿用** —— `status != 'hidden' AND dirty = 0` 的字面量写法是
- * partial index（news_stories_feed_published_idx）的匹配前提，换成 ne()/eq()
- * 会静默退化成全表扫描；dirty=0 更不能省，占位 story 只有英文半成品，推给订阅
- * 者就收不回来了。
+ * 但**可见性谓词必须沿用** lib/news/visibility.ts 的那一个：`summarized_at IS NOT
+ * NULL` 一段都不能省——从未 summarize 成功的占位 story 只有英文半成品，推给订阅者
+ * 就收不回来了；而它的字面量写法是 partial index（news_stories_feed_published_idx）
+ * 的匹配前提，换成 ne()/isNotNull() 会静默退化成全表扫描。
  */
 export async function buildNewsFeed(
   db: Db,
   locale: FeedLocale,
   siteUrl: string,
 ): Promise<FeedChannel> {
-  const visible = sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`;
+  const visible = newsVisible();
 
   const rows = await db
     .select({
@@ -80,7 +81,7 @@ export async function buildNewsFeed(
           // eventPublishedAt —— 语义已改为事件锚点，物理列名是历史遗留，见 schema.ts。
           sql`${newsItems.storyId} IN (
             SELECT id FROM news_stories
-            WHERE status != 'hidden' AND dirty = 0
+            WHERE ${sql.raw(NEWS_VISIBLE_SQL_TEXT)}
             ORDER BY earliest_published_at DESC, short_id DESC
             LIMIT ${NEWS_FEED_LIMIT}
           )`,

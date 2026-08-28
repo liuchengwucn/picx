@@ -24,6 +24,7 @@ import {
   DISCOVERY_PROMPT_RULE,
 } from "#/lib/discovery-tools";
 import { escapeLike } from "#/lib/gallery-search";
+import { newsVisible } from "#/lib/news/visibility";
 import { loadPaperText } from "#/lib/paper-text";
 import { SITE_URL } from "#/lib/site-url";
 import { expandSkillBody, mergeBuiltinSkills } from "#/lib/skills";
@@ -246,11 +247,9 @@ export function buildAgentTools(deps: AgentToolsDeps) {
         limit: z.number().int().min(1).max(10).default(5),
       }),
       execute: async ({ query, limit }) => {
-        // partial index 只认字面量谓词：必须 sql 字面量，见 schema.ts news_stories 索引注释。
-        // dirty=0：dirty 行还没跑 summarize，四语摘要可能只有占位英文，同 news router/sitemap/llms.txt 的过滤口径
-        const conditions = [
-          sql`${newsStories.status} != 'hidden' and ${newsStories.dirty} = 0`,
-        ];
+        // 可见性口径与 news router/sitemap/llms.txt 完全一致，收敛在 lib/news/visibility.ts：
+        // summarized_at 为 NULL 的 story 从未 summarize 成功，四语摘要只有占位英文
+        const conditions = [newsVisible()];
         if (query?.trim()) {
           const pattern = `%${escapeLike(query.trim())}%`;
           conditions.push(

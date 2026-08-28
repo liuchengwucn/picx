@@ -10,6 +10,7 @@ import {
 } from "#/db/schema";
 import { getEditionByPeriod } from "#/lib/digest/edition-store";
 import { compareFeatured, type GroupableStory } from "#/lib/news/group-stories";
+import { newsVisible } from "#/lib/news/visibility";
 import {
   defaultWhiteboardOn,
   publicPaperConditions,
@@ -161,17 +162,13 @@ const EDITION_HIGHLIGHT_MAX = 6;
 
 // 主查询: 24h 窗口在 SQL 过滤, 按分数取 top-N(SQLite 的 DESC 排序把 NULL
 // scoreMax 排在最后)。limit 36 只是安全上限, 正常一天的 story 远少于此。
-// 状态谓词保持字面量(partial index 只认字面量), 窗口条件是普通绑定参数。
+// 可见性谓词走 newsVisible()(内部是字面量 SQL, partial index 只认字面量),
+// 窗口条件是普通绑定参数。
 async function loadStoryCandidates(db: Db, windowStart: Date) {
   const rows = await db
     .select(storyProjection)
     .from(newsStories)
-    .where(
-      and(
-        sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`,
-        gte(newsStories.eventPublishedAt, windowStart),
-      ),
-    )
+    .where(and(newsVisible(), gte(newsStories.eventPublishedAt, windowStart)))
     .orderBy(
       desc(scoreMaxSql),
       desc(newsStories.sourceCount),
@@ -183,7 +180,7 @@ async function loadStoryCandidates(db: Db, windowStart: Date) {
   return db
     .select(storyProjection)
     .from(newsStories)
-    .where(sql`${newsStories.status} != 'hidden' AND ${newsStories.dirty} = 0`)
+    .where(newsVisible())
     .orderBy(desc(newsStories.eventPublishedAt), desc(newsStories.shortId))
     .limit(12);
 }

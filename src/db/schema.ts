@@ -500,8 +500,15 @@ export const newsStories = sqliteTable(
     related: text("related", { mode: "json" }).$type<string[]>(),
     // 头条封面图：summarize 阶段从成员 media 预计算，列表查询免 N+1
     leadImage: text("lead_image", { mode: "json" }).$type<NewsMedia | null>(),
-    // 有新成员并入置真，summarize 阶段处理完置假——崩溃可恢复的幂等标记（D1 无事务）
+    // summarize 的工作队列标记：有新成员并入置真，summarize 阶段处理完置假——
+    // 崩溃可恢复的幂等标记（D1 无事务）。**与可见性无关**：一条已成熟 story 被新成员
+    // 并入时同样是 dirty，它带着上一版四语正文继续对外可见（见 summarizedAt）。
     dirty: integer("dirty", { mode: "boolean" }).notNull().default(true),
+    // 非 NULL = 该 story 曾成功生成过四语正文，是站点可见性的唯一判据
+    // （lib/news/visibility.ts）。cluster 建行时为 NULL——那种占位 story 的 title
+    // 只有 {en: 原标题}、summary 是 excerpt，绝不能外泄；summarize 主 UPDATE 成功
+    // 时写入。孤儿分支（无成员）只清 dirty 退出轮换、**不**写此列：它没有正文。
+    summarizedAt: integer("summarized_at", { mode: "timestamp" }),
     // story 首次聚合时间；展示与「最新」排序改用 eventPublishedAt 后作为回退值（与 created_at 同刻，语义独立保留）
     firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull(),
     // 事件锚点：主导报道簇的起始时间（算法见 lib/news/event-date.ts）——对外展示与
