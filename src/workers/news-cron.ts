@@ -32,6 +32,7 @@ import {
 import { EnrichRateLimitError, fetchReadable } from "#/lib/news/enrich";
 import { pickEventPublishedAt } from "#/lib/news/event-date";
 import { probeNewsImage } from "#/lib/news/image-source";
+import { refineFeedPublishedAt } from "#/lib/news/published-at";
 import { mergeRelated, pickRelated } from "#/lib/news/related";
 import { buildSignalsSummary } from "#/lib/news/signals";
 import {
@@ -175,7 +176,15 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
   for (const source of sources) {
     if (pastDeadline(deadline, "fetch")) break;
     try {
-      const items = await fetchForSource(source, env);
+      const fetched = await fetchForSource(source, env);
+      // 取在抓完之后：单源抓取可以耗到 60s，这个时刻才是「我们见到这批条目」的时刻。
+      // 显式写入而不靠列默认值，才能保证入库的两列与判据同源——回填脚本用同一条判据
+      // 反查存量，两边错开会选出不同的候选集。
+      const fetchedAt = new Date();
+      // 只有日期、时分秒被补成当日零点的发布时间修正为首次抓到的时刻（见
+      // refineFeedPublishedAt）。判据要看整个 feed 的分布，所以在逐条入库之前整批做；
+      // 也必须在 ingestCutoff 判断之前，修正只会把时间往后推，先判会用被裁掉的旧值。
+      const items = refineFeedPublishedAt(fetched, fetchedAt);
       let inserted = 0;
       let itemErrors = 0;
       for (const item of items) {
@@ -205,6 +214,7 @@ async function fetchStage(db: Db, env: Env, deadline: number): Promise<void> {
               excerpt: item.excerpt ?? null,
               author: item.author ?? null,
               publishedAt: item.publishedAt,
+              fetchedAt,
               signals: item.signals ?? null,
               media: item.media ?? null,
               extra: item.extra ?? null,
