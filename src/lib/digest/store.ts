@@ -384,8 +384,16 @@ export async function listPoolCandidateItems(
 }
 
 /**
- * 正文引用了、但候选池里没有的外链补写成 recommended intel（跨期去重补漏）。
- * 逐条 insert-on-conflict（沿用 upsertCandidatesSeen 的写法）：每条约 9 个绑定
+ * 正文引用了、但候选池里没有的外链补写成 rejected intel（跨期去重补漏）。
+ *
+ * **后果（写之前想清楚）**：这一行进池后，同一 URL 在 180 天内不会再被当新闻
+ * 讲——partitionCandidates 跳过 rejected，而 intel 没有 arXiv id，迟到爆款那条
+ * 复活路径对它也不成立。用 rejected 而不是 recommended 是刻意的：recommended
+ * 在 loadDirectionContext 里被永久保留，rejected 则随 180 天 lastSeenAt 窗口
+ * 自然遗忘，抑制力一样但不会永久占池。sourceMeta.sourceLabel="content-link"
+ * 标明它不是真被评审拒掉的。
+ *
+ * 逐条 insert-on-conflict（沿用 upsertCandidatesSeen 的写法）：每条约 11 个绑定
  * 参数，天然避开 D1 单查询 100 参数上限，且整体幂等、重放安全。
  */
 export async function upsertContentLinkCandidates(
@@ -403,12 +411,8 @@ export async function upsertContentLinkCandidates(
         canonicalUrl: link.url,
         title: (link.title || link.url).slice(0, 500),
         kind: "intel",
-        status: "recommended",
-        sourceMeta: {
-          sourceLabel: "content-link",
-          via: "content-link",
-          issue: issueNumber,
-        },
+        status: "rejected",
+        sourceMeta: { sourceLabel: "content-link", issue: issueNumber },
         firstSeenAt: now,
         lastSeenAt: now,
       })
@@ -417,10 +421,13 @@ export async function upsertContentLinkCandidates(
           directionCandidates.directionId,
           directionCandidates.canonicalUrl,
         ],
-        // 只提状态、不动 kind/sourceMeta：撞上的可能是一行 seen/rejected 的老
-        // 候选（甚至 paper 行），它自带的 publishedAt 不能被这里的空日期覆盖
-        // ——listPoolCandidateItems 靠 sourceMeta.publishedAt 还原日期。
-        set: { status: "recommended", lastSeenAt: now },
+        // 撞上的只可能是本次运行中途才插进来的行（池快照之后），几乎必然是
+        // upsertCandidatesSeen 写的 seen。只降 seen：setWhere 挡住 recommended
+        // （可能是入刊论文的行）被这里降级。同样不动 kind/sourceMeta——老行
+        // 自带的 publishedAt 不能被这里的空日期覆盖（listPoolCandidateItems
+        // 靠 sourceMeta.publishedAt 还原日期）。
+        set: { status: "rejected", lastSeenAt: now },
+        setWhere: eq(directionCandidates.status, "seen"),
       });
   }
 }
