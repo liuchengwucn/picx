@@ -24,7 +24,8 @@ describe("pastPicksBlock", () => {
       },
       { issueNumber: 11, title: "Plain", note: "", canonicalUrl: null },
     ]);
-    expect(out).toBe("- [#12] Multi line title — why read it\n- [#11] Plain");
+    // 行首是「第N期」而不是「[#N]」：模型会把记号原样抄进正文，源头就得是合法写法
+    expect(out).toBe("- 第12期 Multi line title — why read it\n- 第11期 Plain");
   });
 
   // URL 是 A1 的核心：没有它模型给往期 pick 配链接只能瞎编（moe 第 2/3 期实证）
@@ -40,13 +41,14 @@ describe("pastPicksBlock", () => {
         issueNumber: 2,
         title: "Kimi K3",
         note: "",
-        canonicalUrl: "https://arxiv.org/abs/2606.22222",
+        canonicalUrl: "  https://arxiv.org/abs/2606.22222\n",
       },
     ]);
     expect(out).toBe(
       [
-        "- [#3] PR² — 值得读 (https://arxiv.org/abs/2607.11111)",
-        "- [#2] Kimi K3 (https://arxiv.org/abs/2606.22222)",
+        "- 第3期 PR² — 值得读 (https://arxiv.org/abs/2607.11111)",
+        // URL 也过 clean()：库里的脏值不能破坏行结构
+        "- 第2期 Kimi K3 (https://arxiv.org/abs/2606.22222)",
       ].join("\n"),
     );
   });
