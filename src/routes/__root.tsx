@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
-import DailyBonusClaim from "#/components/DailyBonusClaim";
+import SessionHeartbeat from "#/components/SessionHeartbeat";
 import { Toaster } from "#/components/ui/sonner";
 import type { TRPCRouter } from "#/integrations/trpc/router";
 import { initLocale } from "#/lib/locale-init";
@@ -123,7 +123,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)] pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-        <DailyBonusClaim />
+        <SessionHeartbeat />
         <Header />
         {children}
         <Footer />
