@@ -21,7 +21,6 @@ import {
   synthesizeDigest,
   translateDigest,
 } from "#/lib/digest/ai";
-import { stripIssuePrefix } from "#/lib/digest/synthesis-guards";
 import {
   type ContentLink,
   extractContentLinks,
@@ -54,6 +53,7 @@ import {
   upsertCandidatesSeen,
   upsertContentLinkCandidates,
 } from "#/lib/digest/store";
+import { stripIssuePrefix } from "#/lib/digest/synthesis-guards";
 import type {
   AuthorSignal,
   CandidateItem,
