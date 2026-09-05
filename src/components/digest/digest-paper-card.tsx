@@ -1,9 +1,11 @@
 import { Link } from "@tanstack/react-router";
+import { useMemo } from "react";
 import {
   type FeedbackAuthState,
   FeedbackButtons,
 } from "#/components/papers/feedback-buttons";
 import { m } from "#/paraglide/messages";
+import { getLocale } from "#/paraglide/runtime";
 
 export interface DigestPaperCardPaper {
   id: string;
@@ -17,6 +19,8 @@ export interface DigestPaperCardPaper {
   /** 编辑排序(1 起)。父级是 <ol>, 数字只做视觉标记, 对读屏隐藏 */
   rank: number;
   likeCount: number;
+  /** 原文发表年月 "YYYY-MM"(取自 arXiv id 的 YYMM)。解析不出就是 null, 不渲染 */
+  publishedMonth: string | null;
 }
 
 interface DigestPaperCardProps {
@@ -87,6 +91,11 @@ export function DigestPaperCard({
                 paper.title
               )}
             </h3>
+            {/* 发表年月贴在标题行右端做一条日期线: 简报每期都有三个月内的存量论文
+                (2605 的占四分之一), 「这篇是几月的」是读者扫卡时要的判断依据。
+                放在标题行而不是另起一行, 是为了不给卡再加一层竖向节奏 —— 它是
+                旁注不是内容, 与 rank 一左一右夹住标题。 */}
+            <PublishedMonth value={paper.publishedMonth} />
           </div>
 
           {/* tldr 只留一行: 这张卡的主角是下面的推荐语, tldr 在这里只是「这篇讲什么」
@@ -131,6 +140,43 @@ export function DigestPaperCard({
         </div>
       </article>
     </li>
+  );
+}
+
+/**
+ * 原文发表年月。
+ *
+ * 输入是 "YYYY-MM" 这个机器值而不是 Date: 服务端与客户端拿到同一个字符串、走同一次
+ * 格化, 才不会因为两侧时区不同渲染出不同文本(hydration 不匹配)。timeZone 必须显式
+ * 写 UTC —— 月首零点按东八区渲染会掉到上个月的最后一天, 于是「2026-05」在读者屏幕
+ * 上变成 2026年4月。
+ *
+ * 月份用 month:"long" 而不是 "short": 英文缩写在不同 ICU 版本里不一致(Sep / Sept),
+ * SSR 的 workerd 与浏览器各用各的 ICU, 缩写正是会漂的那一档。
+ */
+function PublishedMonth({ value }: { value: string | null }) {
+  const locale = getLocale();
+  const label = useMemo(() => {
+    if (!value) return null;
+    const date = new Date(`${value}-01T00:00:00Z`);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "long",
+      timeZone: "UTC",
+    }).format(date);
+  }, [locale, value]);
+
+  if (!label || !value) return null;
+  return (
+    <time
+      dateTime={value}
+      className="ml-auto shrink-0 text-xs tabular-nums text-[var(--ink-soft)]"
+    >
+      {/* 读屏里一个孤零零的年月说不清是什么日期(投稿? 入选? 上架?) */}
+      <span className="sr-only">{`${m.digest_paper_published()} `}</span>
+      {label}
+    </time>
   );
 }
 
