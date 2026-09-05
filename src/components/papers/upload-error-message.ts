@@ -26,7 +26,8 @@ const UPLOAD_ERROR_MESSAGE: Record<UploadErrorCode, (() => string) | null> = {
   empty_file: () => m.upload_err_empty_file(),
   api_config_not_found: () => m.upload_err_api_config_not_found(),
   prompt_not_found: () => m.upload_err_prompt_not_found(),
-  insufficient_credits: () => m.error_insufficient_credits(),
+  // 服务端兜底（并发 / 陈旧余额）时也用同一句额度文案，不说「积分不足」
+  insufficient_credits: () => m.whiteboard_quota_exhausted(),
 
   // 以下刻意落 generic —— 给它们写专属文案只是白白增加四个语言包的翻译负担。
   /** 客户端自己拼的 query，缺了就是编程错误，正常用户碰不到 */
@@ -45,7 +46,10 @@ const UPLOAD_ERROR_MESSAGE: Record<UploadErrorCode, (() => string) | null> = {
  * 不导出：外部一律走 localizeUploadError（约定是「throw 码、catch 里统一本地化」，
  * 没有拿裸码本地化的场景）。
  */
-function localizeUploadErrorCode(code: string, fallback?: () => string): string {
+function localizeUploadErrorCode(
+  code: string,
+  fallback?: () => string,
+): string {
   // Object.hasOwn 而非直接索引：对象字面量继承了 toString / valueOf 等原型成员，
   // 未知码若撞上它们会取到函数并渲染出 "[object Object]" 之类的垃圾，甚至抛
   // TypeError。只认自有属性。
