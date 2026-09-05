@@ -4,7 +4,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { inferRouterOutputs } from "@trpc/server";
-import { ArrowDown, Check, Loader2, X } from "lucide-react";
+import { ArrowDown, Check, Loader2, TriangleAlert, X } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import {
@@ -14,10 +14,25 @@ import {
   Pill,
   useInvalidateAdmin,
 } from "#/components/admin/admin-ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useTRPC } from "#/integrations/trpc/react";
 import type { TRPCRouter } from "#/integrations/trpc/router";
+import {
+  checkProposalCompleteness,
+  type ProposalCompleteness,
+} from "#/lib/digest/focus-proposal";
 import { normalizeLocaleKey, pickTldr } from "#/lib/tldr";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
@@ -128,6 +143,29 @@ function ProposalCard({
   const issueLabel = m.admin_proposal_proposed({
     issue: String(proposal.issueNumber),
   });
+  // 提案是全量重写：先算清楚这次覆盖会丢掉现 brief 的哪些护栏段落
+  const completeness = useMemo(
+    () =>
+      checkProposalCompleteness(proposal.currentFocusBrief, proposal.proposal),
+    [proposal.currentFocusBrief, proposal.proposal],
+  );
+
+  const adoptButton = (
+    <Button
+      type="button"
+      size="sm"
+      disabled={disabled}
+      data-testid="admin-adopt-proposal"
+      onClick={completeness.ok ? onAdopt : undefined}
+    >
+      {adoptPending ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <Check className="size-3.5" />
+      )}
+      {m.admin_adopt()}
+    </Button>
+  );
 
   return (
     <li
@@ -189,23 +227,37 @@ function ProposalCard({
           emphasis
           testId="admin-proposal-text"
         />
+        <ProposalRisk completeness={completeness} />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          disabled={disabled}
-          data-testid="admin-adopt-proposal"
-          onClick={onAdopt}
-        >
-          {adoptPending ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Check className="size-3.5" />
-          )}
-          {m.admin_adopt()}
-        </Button>
+        {completeness.ok ? (
+          adoptButton
+        ) : (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>{adoptButton}</AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {m.admin_adopt_confirm_title()}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {m.admin_adopt_confirm_body()}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{m.admin_cancel()}</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={onAdopt}
+                  data-testid="admin-adopt-proposal-confirm"
+                  className="bg-[var(--sienna)] hover:bg-[var(--sienna)]/90"
+                >
+                  {m.admin_adopt_confirm_action()}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
         <Button
           type="button"
           size="sm"
@@ -224,6 +276,45 @@ function ProposalCard({
         </Button>
       </div>
     </li>
+  );
+}
+
+/**
+ * 提案的缺失清单。刻意贴在提案那一格正下方、沿用同一道左侧竖线（换成 sienna），
+ * 读作「对这一格的批注」而不是页面级横幅——出问题的是这份提案，不是整张卡片。
+ * 缺失的段落标记用 mono 原样引出（它们是上面那两格里的原文片段）；长度那条是
+ * 我们自己的话，换回正文字体，两者不该长得一样。
+ */
+function ProposalRisk({
+  completeness,
+}: {
+  completeness: ProposalCompleteness;
+}) {
+  if (completeness.ok) return null;
+  return (
+    <div
+      className="border-l-2 border-[var(--sienna)] bg-[var(--sienna)]/5 py-3 pr-3 pl-4"
+      data-testid="admin-proposal-risk"
+    >
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--sienna)]">
+        <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+        {m.admin_proposal_risk_heading()}
+      </p>
+      <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-[var(--ink)]">
+        {completeness.missingSections.map((section) => (
+          <li key={section} className="font-mono">
+            「{section}」
+          </li>
+        ))}
+        {completeness.tooShort ? (
+          <li>
+            {m.admin_proposal_risk_short({
+              percent: String(Math.round(completeness.lengthRatio * 100)),
+            })}
+          </li>
+        ) : null}
+      </ul>
+    </div>
   );
 }
 
