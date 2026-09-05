@@ -13,7 +13,7 @@ import {
 } from "#/lib/digest/retranslate";
 import {
   decideRequestLocale,
-  isHtmlNavigation,
+  isHtmlResponse,
   withLocaleCookies,
 } from "#/lib/locale-cookie-policy";
 import { goneIfHiddenStory } from "#/lib/news/gone";
@@ -296,9 +296,10 @@ export default {
     );
 
     // 协商/重置出来的 locale 由 HTTP 下发 cookie：脚本执行前就进 document.cookie，
-    // 客户端 hydration 那帧读到的和服务端渲染用的是同一个值。只对页面导航做，
-    // 同时给每个浏览器打上「已过修复后代码」的标记（见 locale-cookie-policy.ts）。
-    if (isHtmlNavigation(request)) {
+    // 客户端 hydration 那帧读到的和服务端渲染用的是同一个值。只挂在 HTML 响应上
+    // （sitemap/rss/R2 等 public 可缓存响应不能带 cookie），同时给每个浏览器打上
+    // 「已过修复后代码」的标记（见 locale-cookie-policy.ts）。
+    if (isHtmlResponse(response)) {
       response = withLocaleCookies(
         response,
         decideRequestLocale(

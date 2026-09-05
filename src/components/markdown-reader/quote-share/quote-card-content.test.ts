@@ -127,10 +127,10 @@ describe("buildCardContent", () => {
 });
 
 describe("plainCardContent", () => {
-  // 必须钉住 locale：paraglide 的默认策略链首项是 localStorage，而 Node 22 起
-  // globalThis 上那个实验性的 localStorage 会让 jsdom 不再注入自己的实现，
-  // 策略链于是撞在 `localStorage.getItem` 上抛 TypeError。overwriteGetLocale 是
-  // paraglide 给的官方旁路，顺带让断言不依赖环境里的语言。
+  // 钉住 locale：策略链首项是 cookie，Node 下没有 document，getLocale 会直接抛；
+  // overwriteGetLocale 是 paraglide 给的官方旁路，顺带让断言不依赖环境里的语言。
+  // （历史上策略链里还有 localStorage，Node 22 的实验性 localStorage 会压掉 jsdom
+  // 的实现导致 TypeError，2026-09 已从策略里移除。）
   overwriteGetLocale(() => "en");
 
   it("把纯文本包成单块、不加高亮，副标题是本地化页码", () => {

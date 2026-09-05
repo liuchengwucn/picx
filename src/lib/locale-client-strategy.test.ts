@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { customClientStrategies } from "#/paraglide/runtime";
 import "#/lib/locale-client-strategy";
@@ -17,6 +18,17 @@ describe("client custom-negotiate strategy", () => {
 
   it("registers under the same name the server strategy uses", () => {
     expect(customClientStrategies.has("custom-negotiate")).toBe(true);
+  });
+
+  it("is the very first import of router.tsx so it precedes any getLocale()", () => {
+    // 注册晚于第一次 getLocale() 的话首访又会落到 en 并被写进 cookie。biome 的
+    // organizeImports 不会移动 side-effect import，但也不会替我们守住这条。
+    const source = readFileSync(
+      new URL("../router.tsx", import.meta.url),
+      "utf8",
+    );
+    const firstImport = source.match(/^import\b.*$/m)?.[0];
+    expect(firstImport).toBe('import "#/lib/locale-client-strategy";');
   });
 
   it("negotiates from navigator.languages with the shared mapping", () => {

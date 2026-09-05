@@ -1,94 +1,86 @@
 import { describe, expect, it } from "vitest";
 import {
   decideRequestLocale,
-  isHtmlNavigation,
+  isHtmlResponse,
   LOCALE_CHECKED_COOKIE,
   withLocaleCookies,
 } from "#/lib/locale-cookie-policy";
 
+const ATTRS = "; path=/; max-age=34560000";
 const CHECKED = `${LOCALE_CHECKED_COOKIE}=1`;
-const names = (d: ReturnType<typeof decideRequestLocale>) =>
-  d.setCookies.map((c) => c.split(";")[0]);
+const CHECKED_FULL = `${CHECKED}${ATTRS}`;
+const localeCookie = (l: string) => `PARAGLIDE_LOCALE=${l}${ATTRS}`;
 
 describe("decideRequestLocale", () => {
   it("negotiates and persists on a cookieless first visit", () => {
     const d = decideRequestLocale(null, "zh-CN,zh;q=0.9");
     expect(d.locale).toBe("zh-CN");
-    expect(names(d)).toEqual([CHECKED, "PARAGLIDE_LOCALE=zh-CN"]);
+    // 属性必须与 runtime setLocale 写的一字不差，否则是两个不同的 cookie
+    expect(d.setCookies).toEqual([CHECKED_FULL, localeCookie("zh-CN")]);
   });
 
-  it("only marks the browser when nothing negotiates", () => {
+  it("pins baseLocale when nothing negotiates so the client cannot disagree", () => {
     const d = decideRequestLocale(null, "fr-FR,fr;q=0.8");
     expect(d.locale).toBeUndefined();
-    expect(names(d)).toEqual([CHECKED]);
+    expect(d.setCookies).toEqual([CHECKED_FULL, localeCookie("en")]);
   });
 
   it("respects a non-en cookie even without the marker", () => {
     const d = decideRequestLocale("PARAGLIDE_LOCALE=zh-TW", "zh-CN");
     expect(d.locale).toBeUndefined();
-    expect(names(d)).toEqual([CHECKED]);
+    expect(d.setCookies).toEqual([CHECKED_FULL]);
   });
 
   it("resets an unmarked en cookie when the browser prefers another locale", () => {
     const d = decideRequestLocale("_ga=x; PARAGLIDE_LOCALE=en", "ja,en;q=0.5");
     expect(d.locale).toBe("ja");
-    expect(names(d)).toEqual([CHECKED, "PARAGLIDE_LOCALE=ja"]);
+    expect(d.setCookies).toEqual([CHECKED_FULL, localeCookie("ja")]);
   });
 
   it("keeps an unmarked en cookie for English or unsupported browsers", () => {
-    expect(
-      decideRequestLocale("PARAGLIDE_LOCALE=en", "en-US").locale,
-    ).toBeUndefined();
-    expect(
-      decideRequestLocale("PARAGLIDE_LOCALE=en", "fr").locale,
-    ).toBeUndefined();
-    expect(
-      decideRequestLocale("PARAGLIDE_LOCALE=en", null).locale,
-    ).toBeUndefined();
+    for (const accept of ["en-US", "fr", null]) {
+      const d = decideRequestLocale("PARAGLIDE_LOCALE=en", accept);
+      expect(d.locale).toBeUndefined();
+      expect(d.setCookies).toEqual([CHECKED_FULL]);
+    }
   });
 
-  it("never touches an en cookie once the browser is marked", () => {
+  it("never touches an en cookie once the browser is marked, but keeps refreshing the marker", () => {
     const d = decideRequestLocale(`PARAGLIDE_LOCALE=en; ${CHECKED}`, "zh-CN");
     expect(d.locale).toBeUndefined();
-    expect(d.setCookies).toEqual([]);
+    expect(d.setCookies).toEqual([CHECKED_FULL]);
   });
 
   it("negotiates when the cookie holds garbage", () => {
     const d = decideRequestLocale(`PARAGLIDE_LOCALE=xx; ${CHECKED}`, "ja");
     expect(d.locale).toBe("ja");
-    expect(names(d)).toEqual(["PARAGLIDE_LOCALE=ja"]);
+    expect(d.setCookies).toEqual([CHECKED_FULL, localeCookie("ja")]);
+  });
+
+  it("reads the first duplicate like paraglide's own cookie strategy does", () => {
+    const d = decideRequestLocale(
+      "PARAGLIDE_LOCALE=zh-TW; PARAGLIDE_LOCALE=en",
+      "zh-CN",
+    );
+    expect(d.locale).toBeUndefined();
+    expect(d.setCookies).toEqual([CHECKED_FULL]);
   });
 });
 
-describe("isHtmlNavigation", () => {
-  it("accepts document fetches and html Accept, rejects api calls", () => {
-    expect(
-      isHtmlNavigation(
-        new Request("https://x/", {
-          headers: { "sec-fetch-dest": "document" },
-        }),
-      ),
-    ).toBe(true);
-    expect(
-      isHtmlNavigation(
-        new Request("https://x/", { headers: { accept: "text/html,*/*" } }),
-      ),
-    ).toBe(true);
-    expect(
-      isHtmlNavigation(
-        new Request("https://x/api/trpc", {
-          headers: { accept: "application/json" },
-        }),
-      ),
-    ).toBe(false);
-    expect(
-      isHtmlNavigation(
-        new Request("https://x/", {
-          method: "POST",
-          headers: { accept: "text/html" },
-        }),
-      ),
-    ).toBe(false);
+describe("isHtmlResponse", () => {
+  it("keys off the response content type only", () => {
+    const html = new Response("", {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+    const xml = new Response("", {
+      headers: {
+        "content-type": "application/xml",
+        "cache-control": "public, max-age=3600",
+      },
+    });
+    expect(isHtmlResponse(html)).toBe(true);
+    expect(isHtmlResponse(xml)).toBe(false);
+    expect(isHtmlResponse(new Response(null, { status: 304 }))).toBe(false);
   });
 });
 
@@ -109,6 +101,21 @@ describe("withLocaleCookies", () => {
       "PARAGLIDE_LOCALE=ja; path=/",
       `${CHECKED}; path=/`,
     ]);
+    expect(await out.text()).toBe("<html/>");
+  });
+
+  it("passes a streaming body through untouched", async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("<ht"));
+        controller.enqueue(new TextEncoder().encode("ml/>"));
+        controller.close();
+      },
+    });
+    const out = withLocaleCookies(new Response(stream), {
+      locale: undefined,
+      setCookies: [`${CHECKED}; path=/`],
+    });
     expect(await out.text()).toBe("<html/>");
   });
 
