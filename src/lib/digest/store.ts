@@ -344,10 +344,21 @@ export async function upsertCandidatesSeen(
           directionCandidates.directionId,
           directionCandidates.canonicalUrl,
         ],
-        // sourceMeta 也要刷：否则 4b 日期解析补出来的 publishedAt 对已存在的行
-        // 永远落不了库，每次 pool 重放都要为同一批无日期行重付一次 Jina+LLM
-        // 成本（listPoolCandidateItems 靠 sourceMeta.publishedAt 还原日期）。
-        set: { lastSeenAt: now, sourceMeta },
+        // sourceMeta 要刷但**不能整体覆盖**：
+        // - 必须刷——否则 4b 日期解析补出来的 publishedAt 对已存在的行永远落不了
+        //   库，每次 pool 重放都要为同一批无日期行重付一次 Jina+LLM 成本
+        //   （listPoolCandidateItems 靠 sourceMeta.publishedAt 还原日期）；
+        // - 不能整体覆盖——source_meta 是多方共写的口袋（精读阶段还会往里写
+        //   hardRule 等标注），整份写回会把别人写的键连同本行的历史一起抹掉。
+        // json_patch 做 RFC 7396 浅合并：只覆盖 patch 里出现的键。注意 patch 里
+        // 值为 JSON null 的键会被**删除**，所以 publishedAt 缺省时是整个不出现，
+        // 而不是写 null——那样会把老行已有的日期删掉。
+        // 裸列名 source_meta 是刻意的：在 DO UPDATE SET 里它指向冲突的那一行，
+        // 而插值 drizzle Column 渲染出来的是带表限定符的形式。
+        set: {
+          lastSeenAt: now,
+          sourceMeta: sql`json_patch(coalesce(source_meta, '{}'), ${JSON.stringify(sourceMeta)})`,
+        },
       });
   }
 }
