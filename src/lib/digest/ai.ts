@@ -416,6 +416,15 @@ export function parseHardRule(raw: unknown): HardRuleVerdict {
   };
 }
 
+/**
+ * 剔除判据（仅 HARD_RULE_FILTER=true 时生效）：判违且**说得出被违反的规则原文**才剔。
+ * violated=true 但 rule 为空是「判违但给不出依据」，属于无依据剔除，一律放行；
+ * 该档在影子期照常落库统计（见 parseHardRule 的注释）。
+ */
+export function hardRuleBlocks(verdict: HardRuleVerdict | undefined): boolean {
+  return verdict?.violated === true && verdict.rule !== "";
+}
+
 /** 精读评审（廉价模型）：新意必须有原文引用支撑 */
 export async function reviewCandidate(
   cfg: DigestModelConfig,
