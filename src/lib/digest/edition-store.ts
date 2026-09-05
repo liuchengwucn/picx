@@ -6,6 +6,7 @@
 // 纯读聚合也塞进去。
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
+import { arxivPublishedMonth } from "#/lib/arxiv";
 import {
   digestPapers,
   digests,
@@ -27,6 +28,8 @@ export interface EditionPick {
   /** 兜底发布的期会有未完成白板管线的论文 —— leftJoin，可为 null */
   whiteboardImageR2Key: string | null;
   rank: number;
+  /** 原文发表年月 "YYYY-MM"，从 arXiv id 的 YYMM 段派生；非 arXiv/旧式 id 为 null */
+  publishedMonth: string | null;
 }
 
 export interface EditionSection {
@@ -216,6 +219,11 @@ export async function getEditionByPeriod(
       recommendationNote: digestPapers.recommendationNote,
       whiteboardImageR2Key: whiteboardImages.imageR2Key,
       rank: digestPapers.rank,
+      // 发表年月只从 arXiv id 派生（arxivPublishedMonth）：papers.published_at 是
+      // 本站上架时间, 不是原文发表时间。sourceType 一并取回, 用户上传论文的
+      // source_url 不是 arXiv 链接, 不能拿去碰运气解析
+      sourceType: papers.sourceType,
+      sourceUrl: papers.sourceUrl,
     })
     .from(digestPapers)
     .innerJoin(papers, eq(digestPapers.paperId, papers.id))
@@ -248,6 +256,8 @@ export async function getEditionByPeriod(
       recommendationNote: p.recommendationNote,
       whiteboardImageR2Key: p.whiteboardImageR2Key,
       rank: p.rank,
+      publishedMonth:
+        p.sourceType === "arxiv" ? arxivPublishedMonth(p.sourceUrl) : null,
     });
     picksByDigest.set(p.digestId, list);
   }

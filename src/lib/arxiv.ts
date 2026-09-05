@@ -45,6 +45,27 @@ export function canonicalArxivId(idOrUrl: string): string | null {
 }
 
 /**
+ * arXiv id 自带的首次投稿年月(YYMM) -> "YYYY-MM"。
+ *
+ * 论文表没有存 arXiv 的发表日期(papers.published_at 是本站的上架时间, 不是原文
+ * 发表时间), 而 id 前四位就是 v1 的投稿年月 —— 这是不需要迁移也不需要回填就能
+ * 拿到的权威口径, 与 canonicalizeCandidate 判龄用的是同一个来源。
+ *
+ * 只认新格式 id: 旧格式(hep-th/9901001, 一律 2007 年前)与月份越界的伪 id 返回
+ * null, 调用方按「解析不出就不显示」处理, 绝不猜。
+ */
+export function arxivPublishedMonth(
+  idOrUrl: string | null | undefined,
+): string | null {
+  if (!idOrUrl) return null;
+  const modern = canonicalArxivId(idOrUrl)?.match(/^(\d{2})(\d{2})\./);
+  if (!modern) return null;
+  const month = Number(modern[2]);
+  if (month < 1 || month > 12) return null;
+  return `20${modern[1]}-${modern[2]}`;
+}
+
+/**
  * arXiv 旧格式(2007 年前)id 的 archive 段闭集。
  *
  * 收成白名单而非 `[a-z-]+` 是因为: 旧格式形如 `hep-th/9901001`, 而两字母的学科类

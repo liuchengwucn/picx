@@ -78,6 +78,8 @@ export function mapIssueToLocale(issue: IssueDetail, localeKey: LocaleKey) {
       recommendationNote: pickTldr(p.recommendationNote, localeKey) ?? "",
       rank: p.rank,
       likeCount: p.likeCount,
+      // "YYYY-MM" 机器值下发, 由组件按 locale 格化(SSR/CSR 同一个输入才不会漂)
+      publishedMonth: p.publishedMonth,
     })),
     prevIssue: issue.prevIssue,
     nextIssue: issue.nextIssue,
@@ -122,6 +124,7 @@ export function mapEditionToLocale(
         recommendationNote: pickTldr(p.recommendationNote, localeKey) ?? "",
         whiteboardImageR2Key: p.whiteboardImageR2Key,
         rank: p.rank,
+        publishedMonth: p.publishedMonth,
       })),
     })),
   };

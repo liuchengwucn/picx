@@ -564,6 +564,7 @@
   "digest_prev_issue": "Previous issue",
   "digest_next_issue": "Next issue",
   "digest_editor_note": "Editor's note",
+  "digest_paper_published": "Published",
   "digest_issue_load_failed": "Couldn't load this digest. Please try again.",
   "digest_issue_not_found": "This digest doesn't exist, or hasn't been published yet.",
   "digest_issue_not_found_title": "Digest not found",

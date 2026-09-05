@@ -225,6 +225,9 @@ async function seed(db: Db) {
       userId: "u1",
       title,
       sourceType: "arxiv",
+      // 只有 p1 带 arXiv 链接：期页卡上的发表年月是从 id 的 YYMM 段派生的，
+      // 与「没有链接就不显示」两条分支都要有夹具（p2 是后者）
+      sourceUrl: id === "p1" ? "https://arxiv.org/abs/2605.00001v2" : null,
       pdfR2Key: `papers/${id}.pdf`,
       fileSize: 1,
       status: "completed",
@@ -478,6 +481,7 @@ describe("digest.getIssue", () => {
     expect(Object.keys(issue?.papers[0] ?? {}).sort()).toEqual([
       "id",
       "likeCount",
+      "publishedMonth",
       "rank",
       "recommendationNote",
       "shortId",
@@ -485,6 +489,10 @@ describe("digest.getIssue", () => {
       "tldr",
       "whiteboardImageR2Key",
     ]);
+    // 派生量而非列：sourceUrl 的 v2 后缀与 abs 路径都不该影响年月，且中间量
+    // (sourceType/sourceUrl) 不能跟着漏到公开响应里
+    expect(issue?.papers[0].publishedMonth).toBe("2026-05");
+    expect(issue?.papers[1].publishedMonth).toBeNull();
   });
 });
 
@@ -706,12 +714,16 @@ describe("digest.getEdition", () => {
     expect(first?.picks.map((p) => p.id)).toEqual(["p1", "p2"]);
     expect(Object.keys(first?.picks[0] ?? {}).sort()).toEqual([
       "id",
+      "publishedMonth",
       "rank",
       "recommendationNote",
       "shortId",
       "title",
       "whiteboardImageR2Key",
     ]);
+    // 合刊与单期页共用同一个派生口径：p1 有 arXiv 链接、p2 没有
+    expect(first?.picks[0].publishedMonth).toBe("2026-05");
+    expect(first?.picks[1].publishedMonth).toBeNull();
 
     const second = edition?.sections[1];
     expect(second).toMatchObject({

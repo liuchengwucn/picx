@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { PublishedMonth } from "#/components/digest/published-month";
 import {
   type FeedbackAuthState,
   FeedbackButtons,
@@ -17,6 +18,8 @@ export interface DigestPaperCardPaper {
   /** 编辑排序(1 起)。父级是 <ol>, 数字只做视觉标记, 对读屏隐藏 */
   rank: number;
   likeCount: number;
+  /** 原文发表年月 "YYYY-MM"(取自 arXiv id 的 YYMM)。解析不出就是 null, 不渲染 */
+  publishedMonth: string | null;
 }
 
 interface DigestPaperCardProps {
@@ -87,6 +90,14 @@ export function DigestPaperCard({
                 paper.title
               )}
             </h3>
+            {/* 发表年月贴在标题行右端做一条日期线: 简报每期都有三个月内的存量论文
+                (2605 的占四分之一), 「这篇是几月的」是读者扫卡时要的判断依据。
+                放在标题行而不是另起一行, 是为了不给卡再加一层竖向节奏 —— 它是
+                旁注不是内容, 与 rank 一左一右夹住标题。 */}
+            <PublishedMonth
+              value={paper.publishedMonth}
+              className="ml-auto shrink-0 text-xs tabular-nums text-[var(--ink-soft)]"
+            />
           </div>
 
           {/* tldr 只留一行: 这张卡的主角是下面的推荐语, tldr 在这里只是「这篇讲什么」

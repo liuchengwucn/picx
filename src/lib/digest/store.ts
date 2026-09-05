@@ -27,7 +27,11 @@ import {
   papers,
   whiteboardImages,
 } from "#/db/schema";
-import { canonicalArxivId, canonicalArxivUrl } from "#/lib/arxiv";
+import {
+  arxivPublishedMonth,
+  canonicalArxivId,
+  canonicalArxivUrl,
+} from "#/lib/arxiv";
 import { createGalleryPaper, ensureGuestUser } from "#/lib/gallery-paper";
 import { MAX_SOURCE_FAILURES } from "#/lib/news/source-health";
 import { likeCountSql } from "#/lib/paper-feedback";
@@ -959,6 +963,8 @@ export interface IssueDetail {
     recommendationNote: Record<string, string> | null;
     rank: number;
     likeCount: number;
+    /** 原文发表年月 "YYYY-MM"，从 arXiv id 的 YYMM 段派生；非 arXiv/旧式 id 为 null */
+    publishedMonth: string | null;
   }>;
   prevIssue: number | null;
   nextIssue: number | null;
@@ -1018,6 +1024,10 @@ export async function getPublishedIssueDetail(
       rank: digestPapers.rank,
       // 多表查询, 满足 likeCountSql 的前提（单表会被剥表限定符）
       likeCount: likeCountSql(papers.id),
+      // 发表年月只从 arXiv id 派生（见 arxivPublishedMonth）；sourceType 一并取回，
+      // 用户上传论文的 source_url 不是 arXiv 链接，不能拿去碰运气解析
+      sourceType: papers.sourceType,
+      sourceUrl: papers.sourceUrl,
     })
     .from(digestPapers)
     .innerJoin(papers, eq(digestPapers.paperId, papers.id))
@@ -1069,7 +1079,12 @@ export async function getPublishedIssueDetail(
     periodStart: row.periodStart,
     periodEnd: row.periodEnd,
     publishedAt: row.publishedAt,
-    papers: paperRows,
+    // sourceType/sourceUrl 只是派生 publishedMonth 的中间量，不进对外形状
+    papers: paperRows.map(({ sourceType, sourceUrl, ...p }) => ({
+      ...p,
+      publishedMonth:
+        sourceType === "arxiv" ? arxivPublishedMonth(sourceUrl) : null,
+    })),
     prevIssue: prev?.issueNumber ?? null,
     nextIssue: next?.issueNumber ?? null,
   };

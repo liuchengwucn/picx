@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { PublishedMonth } from "#/components/digest/published-month";
 import { SelfHidingImage } from "#/components/self-hiding-image";
 
 export interface EditionPickView {
@@ -8,6 +9,8 @@ export interface EditionPickView {
   recommendationNote: string;
   whiteboardImageR2Key: string | null;
   rank: number;
+  /** 原文发表年月 "YYYY-MM"(取自 arXiv id 的 YYMM)。解析不出就是 null, 不渲染 */
+  publishedMonth: string | null;
 }
 
 /**
@@ -29,8 +32,17 @@ export function PickEntry({
 }) {
   const body = (
     <span className="block min-w-0">
-      <span className="block text-[13.5px] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown-deep)]">
-        {pick.title}
+      {/* 标题与发表年月同一条基线: 合刊一屏七个栏目, 年月另起一行会把每条 picks
+          从两行拉成三行, 整页高度翻一截 —— 它是旁注, 只配占标题行右端那点余量。
+          hover 变色只跟着标题走(年月是元信息, 不参与「这条可以点」的表达)。 */}
+      <span className="flex items-baseline gap-2">
+        <span className="min-w-0 text-[13.5px] font-semibold leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--academic-brown-deep)]">
+          {pick.title}
+        </span>
+        <PublishedMonth
+          value={pick.publishedMonth}
+          className="ml-auto shrink-0 text-[11px] tabular-nums text-[var(--ink-soft)]"
+        />
       </span>
       {pick.recommendationNote ? (
         <span className="mt-1 block text-xs leading-relaxed text-[var(--ink-soft)]">

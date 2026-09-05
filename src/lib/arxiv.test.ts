@@ -1,5 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { canonicalArxivId, isArxivLink, LEGACY_ARCHIVES } from "./arxiv";
+import {
+  arxivPublishedMonth,
+  canonicalArxivId,
+  isArxivLink,
+  LEGACY_ARCHIVES,
+} from "./arxiv";
+
+describe("arxivPublishedMonth", () => {
+  it("reads the YYMM segment through abs/pdf paths and version suffixes", () => {
+    expect(arxivPublishedMonth("https://arxiv.org/abs/2605.00001")).toBe(
+      "2026-05",
+    );
+    expect(arxivPublishedMonth("https://arxiv.org/pdf/2612.09999v3.pdf")).toBe(
+      "2026-12",
+    );
+    expect(arxivPublishedMonth("2601.13209")).toBe("2026-01");
+  });
+
+  it("returns null for missing input instead of guessing a month", () => {
+    expect(arxivPublishedMonth(null)).toBeNull();
+    expect(arxivPublishedMonth(undefined)).toBeNull();
+    expect(arxivPublishedMonth("")).toBeNull();
+    expect(arxivPublishedMonth("https://example.com/blog/post")).toBeNull();
+  });
+
+  it("returns null for legacy ids (all pre-2008, no YYMM to read)", () => {
+    expect(arxivPublishedMonth("hep-th/9901001")).toBeNull();
+    expect(
+      arxivPublishedMonth("https://arxiv.org/abs/math/0601001"),
+    ).toBeNull();
+  });
+
+  it("returns null when the month segment is out of range", () => {
+    // canonicalArxivId 的正则未锚定，纯数字串会被当成 id：月份是最后一道闸
+    expect(arxivPublishedMonth("2600.12345")).toBeNull();
+    expect(arxivPublishedMonth("2613.12345")).toBeNull();
+  });
+});
 
 describe("isArxivLink", () => {
   // 分流判据，直接决定 sourceType 与是否写 canonical source_url。
