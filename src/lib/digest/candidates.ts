@@ -43,6 +43,8 @@ const TRACKING_PARAMS = new Set([
  *
  * 规则：去协议、host 小写去 `www.`、去 `#fragment`、去跟踪参数、去尾斜杠；
  * aclanthology 去 `.pdf` 后缀；arXiv 走 canonicalArxivId 统一 abs/pdf/版本号。
+ * 两处刻意的有损：端口被丢弃（hostname 不含端口），query 值经 searchParams
+ * 解码后重拼（`?q=a%20b` → `q=a b`）。两边比对走的是同一套变换，不影响判等。
  *
  * 起因（实测）：moe 第 1/2 期同引 `2026.findings-acl.1944`，池里
  * `…1944.pdf`（8/15 recommended）与 `…1944/`（8/22 recommended）是两行，
@@ -82,9 +84,31 @@ export function urlDedupKey(raw: string): string {
 /**
  * 搜索工具的中转页：exa.ai/library/* 是 Exa 自己的检索结果详情页，读者点开看到
  * 的不是论文/原文。底层论文会从 arXiv 源另行进池，直接在入池阶段丢弃即可。
+ * 判据落在 dedupKey 上（已算过 key 的调用方直接用 Key 版，别重算）。
  */
+export function isSearchToolArtifactKey(dedupKey: string): boolean {
+  return dedupKey.toLowerCase().startsWith("exa.ai/library/");
+}
+
 export function isSearchToolArtifactUrl(url: string): boolean {
-  return urlDedupKey(url).toLowerCase().startsWith("exa.ai/library/");
+  return isSearchToolArtifactKey(urlDedupKey(url));
+}
+
+/**
+ * 能不能拿这个 URL 新插一行候选。抽取阶段再小心也可能截出畸形 URL（正文里裸链
+ * 紧贴中文、markdown 链接嵌套括号），而畸形 URL 一旦落库就是一行永远对不上池里
+ * 真实行的死候选——正是本次要修的病。所以只在「新插行」这一步收紧：
+ * 非 ASCII 直接拒（正文语境下几乎必然是把中文尾巴吞进了 URL），再过一遍
+ * new URL() 与 http(s) 协议。标记池里已有行不走这道闸，那条路径无副作用。
+ */
+export function isStorableCandidateUrl(url: string): boolean {
+  if (!/^[\x21-\x7e]+$/.test(url)) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 /** 候选池行的最小形状（store 层从 direction_candidates 读出后传入） */
@@ -107,13 +131,13 @@ export function mergeCandidates(
   const byUrl = new Map<string, CandidateItem>();
   for (const group of groups) {
     for (const item of group) {
-      if (isSearchToolArtifactUrl(item.canonicalUrl)) {
+      const key = urlDedupKey(item.canonicalUrl);
+      if (isSearchToolArtifactKey(key)) {
         console.warn(
           `[Digest] dropping search-tool artifact URL: ${item.canonicalUrl}`,
         );
         continue;
       }
-      const key = urlDedupKey(item.canonicalUrl);
       const existing = byUrl.get(key);
       if (existing) {
         if (!existing.sourceLabel.split(",").includes(item.sourceLabel)) {
@@ -245,29 +269,35 @@ export interface ContentLink {
  */
 export function extractContentLinks(markdown: string): ContentLink[] {
   // 每次新建（而非模块级常量）：/g 正则带 lastIndex 状态，跨调用复用会漏匹配
-  const mdLink = /(!?)\[([^\]]*)\]\(\s*<?(https?:\/\/[^\s<>)]+)>?[^)]*\)/g;
-  const bareUrl = /https?:\/\/[^\s<>"'）】」，。；]+/g;
+  //
+  // URL 段两处边界都是实测踩出来的：
+  // - markdown 链接允许一层平衡括号，否则维基百科的
+  //   `…/Mixture_of_experts_(MoE)` 会被截成 `…_(MoE`；
+  // - 裸链只收 RFC 3986 的合法字符，否则「https://…/abc的说明，另见」会把整条
+  //   中文尾巴吞进 URL。
+  const mdLink =
+    /(!?)\[([^\]]*)\]\(\s*<?(https?:\/\/(?:[^\s<>()]|\([^\s<>()]*\))+)>?[^)\n]*\)/g;
+  const bareUrl = /https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'*+,;=%]+/g;
   const trailingJunk = /[)\]}>.,;:!?"'’”，。；：、）】」！？]+$/;
   const out: ContentLink[] = [];
   const seen = new Set<string>();
   const push = (url: string, title: string) => {
-    const clean = url.replace(trailingJunk, "");
-    if (!/^https?:\/\/\S/i.test(clean)) return;
-    const key = urlDedupKey(clean);
+    if (!/^https?:\/\/\S/i.test(url)) return;
+    const key = urlDedupKey(url);
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({
-      url: clean,
-      title: title.replace(/\*+/g, "").trim() || clean,
-    });
+    out.push({ url, title: title.replace(/\*+/g, "").trim() || url });
   };
   // 先摘 markdown 链接并把整段抹成等长空白，剩下的才当裸链扫，避免同一条
-  // 链接被数两次（图片 `![alt](url)` 不算引用，跳过）
+  // 链接被数两次（图片 `![alt](url)` 不算引用，跳过）。markdown 那侧的 URL
+  // 由 `)` 界定、已经是完整的，**不能再剥尾部标点**——`…_(MoE)` 的收尾括号
+  // 是 URL 的一部分。只有裸链需要剥掉句末标点。
   const rest = markdown.replace(mdLink, (whole, bang, text, url) => {
     if (!bang) push(url, text);
     return " ".repeat(whole.length);
   });
-  for (const m of rest.matchAll(bareUrl)) push(m[0], "");
+  for (const m of rest.matchAll(bareUrl))
+    push(m[0].replace(trailingJunk, ""), "");
   return out;
 }
 

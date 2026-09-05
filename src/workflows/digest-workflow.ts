@@ -23,7 +23,8 @@ import {
 import {
   type ContentLink,
   extractContentLinks,
-  isSearchToolArtifactUrl,
+  isSearchToolArtifactKey,
+  isStorableCandidateUrl,
   mergeCandidates,
   partitionCandidates,
   quoteAppearsInText,
@@ -741,9 +742,26 @@ export class DigestWorkflow extends WorkflowEntrypoint<
             r.item.canonicalUrl,
           ]),
         );
-        const cited: ContentLink[] = [
-          ...(synthesis.usedIntelUrls ?? []).map((url) => ({ url, title: "" })),
-          ...extractContentLinks(translations["zh-cn"].content),
+        // 池里任意一行（不止本期精读过的 intel）：`…1944/` 出现在正文时，若池里
+        // 已有 `…1944.pdf`(seen)，要标那一行，而不是插第二行。
+        const poolByKey = new Map<string, string>();
+        for (const entry of ctx.pool) {
+          const key = urlDedupKey(entry.canonicalUrl);
+          if (!poolByKey.has(key)) poolByKey.set(key, entry.canonicalUrl);
+        }
+        // 正文实扫排在前面：它带链接文字，比自报 URL 的空标题更适合做标题。
+        // fromContent 决定能否新插行——自报 URL 可能是模型幻觉出来的，只允许
+        // 它去命中池里已有的行，绝不凭它落库。
+        const cited = [
+          ...extractContentLinks(translations["zh-cn"].content).map((l) => ({
+            ...l,
+            fromContent: true,
+          })),
+          ...(synthesis.usedIntelUrls ?? []).map((url) => ({
+            url,
+            title: "",
+            fromContent: false,
+          })),
         ];
         const citedKeys = new Set<string>();
         const orphanLinks: ContentLink[] = [];
@@ -754,17 +772,27 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           // 本就不该入池；裸域名首页（openai.com 这种）不是「讲过的那条内容」，
           // 记下去会连带把整站后续文章全抑制掉。
           if (key.startsWith("arxiv:")) continue;
-          if (isSearchToolArtifactUrl(link.url)) continue;
+          if (isSearchToolArtifactKey(key)) continue;
           if (!key.includes("/")) continue;
           citedKeys.add(key);
-          const poolUrl = intelByKey.get(key);
+          const poolUrl = intelByKey.get(key) ?? poolByKey.get(key);
           if (poolUrl) {
             await updateCandidateStatus(db, directionId, poolUrl, {
               status: "recommended",
             });
-          } else {
-            orphanLinks.push({ url: link.url, title: link.title || link.url });
+            continue;
           }
+          if (!link.fromContent) continue;
+          // 代码仓 / 模型页是引用材料，不是「这期讲过的那条新闻」，抑制它们
+          // 只会误伤后续真正该讲的发布
+          if (/^(github\.com|huggingface\.co)\//.test(key)) continue;
+          if (!isStorableCandidateUrl(link.url)) {
+            console.warn(
+              `[Digest] skipping malformed content link, not stored: ${link.url}`,
+            );
+            continue;
+          }
+          orphanLinks.push({ url: link.url, title: link.title || link.url });
         }
         if (orphanLinks.length > 0) {
           await upsertContentLinkCandidates(

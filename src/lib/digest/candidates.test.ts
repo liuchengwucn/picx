@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractContentLinks,
   isSearchToolArtifactUrl,
+  isStorableCandidateUrl,
   LATE_BLOOMER_UPVOTES,
   mergeCandidates,
   PAPER_REVIEW_BUDGET,
@@ -364,5 +365,67 @@ describe("extractContentLinks", () => {
 
   it("returns nothing for link-free content", () => {
     expect(extractContentLinks("本期没有任何外链。")).toEqual([]);
+  });
+});
+
+describe("extractContentLinks URL boundaries", () => {
+  it("keeps the closing paren of a balanced-paren markdown link", () => {
+    const wiki = "https://en.wikipedia.org/wiki/Mixture_of_experts_(MoE)";
+    expect(
+      extractContentLinks(`见 [Mixture of experts](${wiki}) 词条`),
+    ).toEqual([{ url: wiki, title: "Mixture of experts" }]);
+  });
+
+  it("stops a bare URL at the first non-URL character", () => {
+    // 中文正文里裸链常常紧贴后文，不设边界会把「的说明，另见…」整段吞进 URL
+    const links = extractContentLinks(`${OPENAI_CODING}的说明，另见别处。`);
+    expect(links.map((l) => l.url)).toEqual([OPENAI_CODING]);
+  });
+
+  it("does not swallow following text across a markdown link title", () => {
+    const links = extractContentLinks(
+      `[评测](${OPENAI_CODING} "OpenAI 的说明")，以及后文`,
+    );
+    expect(links.map((l) => l.url)).toEqual([OPENAI_CODING]);
+  });
+});
+
+describe("isStorableCandidateUrl", () => {
+  it("accepts ordinary http(s) URLs", () => {
+    expect(isStorableCandidateUrl(OPENAI_CODING)).toBe(true);
+    expect(
+      isStorableCandidateUrl("https://en.wikipedia.org/wiki/Mixture_(MoE)"),
+    ).toBe(true);
+  });
+
+  it("rejects URLs carrying non-ASCII tails, unparseable strings and other schemes", () => {
+    expect(isStorableCandidateUrl(`${OPENAI_CODING}的说明`)).toBe(false);
+    expect(isStorableCandidateUrl("https://")).toBe(false);
+    expect(isStorableCandidateUrl("mailto:x@y.z")).toBe(false);
+    expect(isStorableCandidateUrl("not a url")).toBe(false);
+  });
+});
+
+describe("partitionCandidates rejected-vs-seen pool rank", () => {
+  it("aligns a variant onto the rejected row rather than a seen duplicate", () => {
+    const result = partitionCandidates(
+      [paper(ACL_857)],
+      [
+        { canonicalUrl: `${ACL_857}/`, status: "seen", score: null },
+        { canonicalUrl: `${ACL_857}.pdf`, status: "rejected", score: 20 },
+      ],
+    );
+    // rejected 优先于 seen：intel 没有 HF 热度，迟到爆款不会复活它
+    expect(result.toReview).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+  });
+
+  it("still revives a rejected paper with late-bloomer heat", () => {
+    const result = partitionCandidates(
+      [paper(`${ACL_857}/`, { hfUpvotes: LATE_BLOOMER_UPVOTES })],
+      [{ canonicalUrl: `${ACL_857}.pdf`, status: "rejected", score: 20 }],
+    );
+    expect(result.toReview).toHaveLength(1);
+    expect(result.toReview[0].canonicalUrl).toBe(`${ACL_857}.pdf`);
   });
 });
