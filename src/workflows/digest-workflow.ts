@@ -11,6 +11,7 @@ import { drizzle } from "drizzle-orm/d1";
 import {
   annotateCandidate,
   fetchFullText,
+  hardRuleBlocks,
   RELEVANCE_THRESHOLD,
   resolveIntelDate,
   reviewCandidate,
@@ -615,8 +616,9 @@ export class DigestWorkflow extends WorkflowEntrypoint<
       );
       // 影子期 HARD_RULE_FILTER=false：违规候选照常参选，只留痕。打开后它们在
       // 选材前就被剔除（状态保持 seen，下期可再评），空出的名额由次优候选补上。
+      // 剔除判据比观测口径严：判违但说不出规则原文的不剔（见 hardRuleBlocks）。
       const eligible = HARD_RULE_FILTER
-        ? reviewed.filter((r) => r.review.hardRule?.violated !== true)
+        ? reviewed.filter((r) => !hardRuleBlocks(r.review.hardRule))
         : reviewed;
 
       const paperCandidates = eligible.filter(

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   authorSignalBlock,
   buildReviewSystemPrompt,
+  hardRuleBlocks,
   normalizeResolvedMonth,
   parseHardRule,
   pastPicksBlock,
@@ -221,6 +222,12 @@ describe("parseHardRule", () => {
     expect(parseHardRule({ violated: false, rule: "r" }).violated).toBe(false);
   });
 
+  it("keeps the observed verdict separable from the blocking decision", () => {
+    // 观测口径（violated）与剔除口径（hardRuleBlocks）故意不同，见下一个 describe
+    expect(parseHardRule({ violated: true }).violated).toBe(true);
+    expect(hardRuleBlocks(parseHardRule({ violated: true }))).toBe(false);
+  });
+
   it("truncates over-long rule and reason instead of throwing", () => {
     const out = parseHardRule({
       violated: true,
@@ -229,5 +236,33 @@ describe("parseHardRule", () => {
     });
     expect(out.rule).toHaveLength(120);
     expect(out.reason).toHaveLength(300);
+  });
+});
+
+describe("hardRuleBlocks", () => {
+  it("blocks only when the verdict cites the rule it applied", () => {
+    expect(
+      hardRuleBlocks({
+        violated: true,
+        rule: "单一饱和基准且无 held-out",
+        reason: "只在 GSM8K 上报增益",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not block a violation that cannot name a rule (no unsupported culls)", () => {
+    expect(
+      hardRuleBlocks({ violated: true, rule: "", reason: "感觉不符" }),
+    ).toBe(false);
+  });
+
+  it("does not block a non-violation or a missing verdict (replayed old state)", () => {
+    expect(hardRuleBlocks({ violated: false, rule: "", reason: "" })).toBe(
+      false,
+    );
+    expect(
+      hardRuleBlocks({ violated: false, rule: "某条硬标准", reason: "" }),
+    ).toBe(false);
+    expect(hardRuleBlocks(undefined)).toBe(false);
   });
 });
