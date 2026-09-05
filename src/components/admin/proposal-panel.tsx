@@ -291,29 +291,31 @@ function ProposalRisk({
   completeness: ProposalCompleteness;
 }) {
   if (completeness.ok) return null;
+  const shortNote = m.admin_proposal_risk_short({
+    percent: String(Math.round(completeness.lengthRatio * 100)),
+  });
+  // 只是变短、没丢段落时，「会删掉这些段落」是句错话——那一行本身就是全部结论，
+  // 直接当标题用，下面不再列清单（列出来只会把同一句话说两遍）。
+  const dropsSections = completeness.missingSections.length > 0;
   return (
     <div
-      className="border-l-2 border-[var(--sienna)] bg-[var(--sienna)]/5 py-3 pr-3 pl-4"
+      className="border-l-2 border-[var(--sienna)] bg-[var(--sienna)]/8 py-3 pr-3 pl-4"
       data-testid="admin-proposal-risk"
     >
       <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--sienna)]">
         <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
-        {m.admin_proposal_risk_heading()}
+        {dropsSections ? m.admin_proposal_risk_heading() : shortNote}
       </p>
-      <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-[var(--ink)]">
-        {completeness.missingSections.map((section) => (
-          <li key={section} className="font-mono">
-            「{section}」
-          </li>
-        ))}
-        {completeness.tooShort ? (
-          <li>
-            {m.admin_proposal_risk_short({
-              percent: String(Math.round(completeness.lengthRatio * 100)),
-            })}
-          </li>
-        ) : null}
-      </ul>
+      {dropsSections ? (
+        <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-[var(--ink)]">
+          {completeness.missingSections.map((section) => (
+            <li key={section} className="font-mono">
+              「{section}」
+            </li>
+          ))}
+          {completeness.tooShort ? <li>{shortNote}</li> : null}
+        </ul>
+      ) : null}
     </div>
   );
 }

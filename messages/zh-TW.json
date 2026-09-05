@@ -627,7 +627,7 @@
   "admin_proposal_risk_short": "提案只有原 brief 的 {percent}%，可能整段漏寫",
   "admin_adopt": "採納",
   "admin_adopt_confirm_title": "仍要採納嗎？",
-  "admin_adopt_confirm_body": "採納會用提案整段取代目前的 focus brief，上面列出的內容將不再存在。",
+  "admin_adopt_confirm_body": "採納會用提案整段取代目前的 focus brief，舊文字不再保留。",
   "admin_adopt_confirm_action": "仍然採納",
   "admin_dismiss": "駁回",
   "admin_adopt_intro_failed": "已採納，但四語簡介重新產生失敗。可用產生按鈕重試。",

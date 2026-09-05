@@ -627,7 +627,7 @@
   "admin_proposal_risk_short": "提案は現在の brief の {percent}% しかありません",
   "admin_adopt": "採用",
   "admin_adopt_confirm_title": "このまま採用しますか？",
-  "admin_adopt_confirm_body": "採用すると focus brief 全体が提案で置き換えられ、上に挙げた箇所はなくなります。",
+  "admin_adopt_confirm_body": "採用すると focus brief 全体が提案で置き換えられ、現在の文面は残りません。",
   "admin_adopt_confirm_action": "このまま採用する",
   "admin_dismiss": "却下",
   "admin_adopt_intro_failed": "採用しましたが、4 言語の紹介文の再生成に失敗しました。生成ボタンで再試行してください。",

@@ -627,7 +627,7 @@
   "admin_proposal_risk_short": "The proposal is only {percent}% as long as the current brief",
   "admin_adopt": "Adopt",
   "admin_adopt_confirm_title": "Adopt anyway?",
-  "admin_adopt_confirm_body": "Adopting replaces the focus brief in full. The parts listed above will be gone.",
+  "admin_adopt_confirm_body": "Adopting replaces the focus brief in full. The current text is not kept anywhere.",
   "admin_adopt_confirm_action": "Adopt anyway",
   "admin_dismiss": "Dismiss",
   "admin_adopt_intro_failed": "Adopted, but regenerating the intro failed. Use the generate button to retry.",
