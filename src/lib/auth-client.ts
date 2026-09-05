@@ -58,3 +58,27 @@ export async function startGitHubSignIn(callbackURL = "/") {
   // 无人处理的 promise rejection —— 用户看到的还是「什么都没发生」, 反倒多一条噪音。
   // 提示已经在 failGitHubSignIn 里给了, 错误到此为止。
 }
+
+/**
+ * 退出并把整份 query 缓存清掉再整页回首页。头像菜单和设置页共用：两处退出必须
+ * 做同样的三件事，否则一处漏 clear 会把上一个人的数据留给下一个登录者看。
+ *
+ * 必须查 { error }：better-auth 的 react 客户端默认 throw:false，HTTP 失败是
+ * **返回** error 而不是抛（见上面 startGitHubSignIn 的注释，403 INVALID_ORIGIN
+ * 就是这么来的）。不查就会在退出失败时照样清缓存并跳首页——用户看到一个「已退出」
+ * 的界面，而会话 cookie 还活着，下一次导航又被静默登了回去。共用机器上这是真问题。
+ *
+ * 参数收成结构类型而不是 QueryClient，是为了不把 @tanstack/react-query 拖进
+ * auth-client 的依赖里（它被登录前的代码路径引用）。
+ */
+export async function signOutAndReset(queryClient: {
+  clear: () => void;
+}): Promise<void> {
+  const { error } = await authClient.signOut();
+  if (error) {
+    toast.error(m.auth_sign_out_failed());
+    return;
+  }
+  queryClient.clear();
+  window.location.assign("/");
+}
