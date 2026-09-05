@@ -129,4 +129,10 @@ export interface PastPick {
   title: string;
   /** recommendationNote 的 zh-cn（缺则按 DIGEST_LOCALES 顺序回退），可为空串 */
   note: string;
+  /**
+   * 论文的 papers.source_url（arXiv canonical）。清单不带 URL 时模型给往期 pick
+   * 配链接只能瞎编（moe 第 2/3 期把 PR²、Kimi K3 配成了别人的 arXiv 号），所以
+   * 这里必须带上；papers.source_url 可空，故允许 null。
+   */
+  canonicalUrl: string | null;
 }

@@ -176,6 +176,8 @@ export async function loadDirectionContext(
         issueNumber: digests.issueNumber,
         title: papers.title,
         note: digestPapers.recommendationNote,
+        // 出口校验的 arXiv 链接白名单要用它，缺了模型只能瞎编往期 pick 的链接
+        canonicalUrl: papers.sourceUrl,
       })
       .from(digestPapers)
       .innerJoin(digests, eq(digestPapers.digestId, digests.id))
@@ -192,6 +194,7 @@ export async function loadDirectionContext(
       issueNumber: r.issueNumber,
       title: r.title,
       note: localeTextWithFallback(r.note),
+      canonicalUrl: r.canonicalUrl ?? null,
     }));
   }
 

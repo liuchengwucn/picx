@@ -19,10 +19,35 @@ describe("pastPicksBlock", () => {
         issueNumber: 12,
         title: "  Multi\n line\ttitle ",
         note: "why  read\nit",
+        canonicalUrl: null,
       },
-      { issueNumber: 11, title: "Plain", note: "" },
+      { issueNumber: 11, title: "Plain", note: "", canonicalUrl: null },
     ]);
     expect(out).toBe("- [#12] Multi line title — why read it\n- [#11] Plain");
+  });
+
+  // URL 是 A1 的核心：没有它模型给往期 pick 配链接只能瞎编（moe 第 2/3 期实证）
+  it("appends the paper URL when known, with and without a note", () => {
+    const out = pastPicksBlock([
+      {
+        issueNumber: 3,
+        title: "PR²",
+        note: "值得读",
+        canonicalUrl: "https://arxiv.org/abs/2607.11111",
+      },
+      {
+        issueNumber: 2,
+        title: "Kimi K3",
+        note: "",
+        canonicalUrl: "https://arxiv.org/abs/2606.22222",
+      },
+    ]);
+    expect(out).toBe(
+      [
+        "- [#3] PR² — 值得读 (https://arxiv.org/abs/2607.11111)",
+        "- [#2] Kimi K3 (https://arxiv.org/abs/2606.22222)",
+      ].join("\n"),
+    );
   });
 });
 
