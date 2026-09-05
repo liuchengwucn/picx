@@ -6,6 +6,16 @@ import { extractFirstJsonObject } from "#/lib/json-extract";
 import type { Env } from "#/types/env";
 import { chatJson, clean, DigestAiError, type DigestModelConfig } from "./llm";
 import {
+  buildAllowedArxivIds,
+  buildRetryInstruction,
+  collectSynthesisIssues,
+  demoteMarkdownLinks,
+  replaceWeeklyWording,
+  SECTION_LEAD,
+  SECTION_OPEN_QUESTIONS,
+  stripIssuePrefix,
+} from "./synthesis-guards";
+import {
   type AuthorMetric,
   type CandidateItem,
   type CandidateReview,
@@ -41,13 +51,17 @@ function feedbackBlock(samples: FeedbackSample[]): string {
  * 相关指令在空清单下自然空转（intel 精读、首期冷启动都走这条路）。
  * title/note 过 clean() 压成单行；note/期号是自产数据，title 源自网络论文标题；
  * 整体不额外挂 UNTRUSTED_NOTE，clean() 压单行即可防换行/控制字符破坏行结构。
+ *
+ * 行尾带 URL 是硬要求：不给 URL 时模型在正文里提往期 pick 只能瞎编 arXiv 号
+ * （moe 第 2/3 期把 PR²、Kimi K3 分别配成了 TEMPO、ReLibra 的链接）。
+ * synthesize / reviewCandidate / annotateCandidate 共用本块，URL 自然全都带上。
  */
 export function pastPicksBlock(picks: PastPick[]): string {
   if (picks.length === 0) return "(no prior picks yet)";
   return picks
     .map(
       (p) =>
-        `- [#${p.issueNumber}] ${clean(p.title)}${p.note ? ` — ${clean(p.note)}` : ""}`,
+        `- [#${p.issueNumber}] ${clean(p.title)}${p.note ? ` — ${clean(p.note)}` : ""}${p.canonicalUrl ? ` (${p.canonicalUrl})` : ""}`,
     )
     .join("\n");
 }
@@ -476,19 +490,24 @@ export async function synthesizeDigest(
     "1. picks: select papers genuinely worth the reader's time. Quality bar over quota — typically 3-10, fewer is fine. Rank by importance. For each write recommendationNote (zh-cn, 2-4 sentences: what's new + why read it).",
     "   Cross-issue dedup: downgrade any candidate methodologically similar to a prior pick (see Prior picks below) unless its recommendationNote names that prior pick (with issue number) and states the concrete increment over it.",
     "   Author signal (when present) is a tiebreaker between borderline picks only — never a primary selection reason, and never mention author reputation in recommendationNote or content.",
-    "2. content: the issue body in markdown (zh-cn), sections: 本期看点 (2-3 段总评) / 社区与动态 (based on intel items; skip if none) / 未解之问 (2-4 open questions).",
+    "2. content: the issue body in markdown (zh-cn), with these section headings written EXACTLY as shown, in this order:",
+    `   "${SECTION_LEAD}" (2-3 段总评, must be the first line of content) / "## 社区与动态" (based on intel items; omit the whole section if there are none) / "${SECTION_OPEN_QUESTIONS}" (2-4 open questions as a numbered list "1." "2." ..., never bullets).`,
     "   Do NOT re-describe each picked paper in content — the picks render as cards below the body.",
-    "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them.",
+    "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them. To point at a past issue write 「第 N 期的 X」, never 「[#N]」/「#N 期」/「上期 #N」 — those are internal list markers.",
+    "   Every arxiv.org link you write MUST be copied verbatim from a candidate's URL line or from a prior pick's URL below. NEVER construct, guess or recall an arXiv ID from memory: if you want to name a paper you have no URL for, name it in plain text with no link. Never link exa.ai pages (they are search-tool internals, not sources).",
+    "   Never leak internal pipeline wording into reader-facing text: 作者信号/author signal, 全文不可得, 摘要较薄, Draft note, Risk flags are field names from the material below, not things a reader may see. Judge the work and describe only the work.",
     "   Every named team/system/dataset/benchmark/result claim in content MUST carry an inline markdown link [标题](URL) to its source. If the provided material has no URL for a claim and web_search cannot find an authoritative one, omit the claim entirely — 宁可不写, never leave a named claim unlinked.",
     "   Do NOT repeat the previous issue's themes or open questions (its body is provided below when available). A carried-over open question may appear only when framed as progress since last issue (e.g. 「上期提出的X，本周有了…」), never restated as-is.",
-    `   Never describe an item as "new", "this week", "just released" or similar unless its Published date falls inside the issue window (${input.periodLabel}); for items whose Published date is unknown or older than the window, present them without temporal claims (e.g. "X provides…" not "X was released this week").`,
+    `   Time wording: say 「本期」 when you mean this issue. 「本周」/「这周」 (and "new", "just released", "this week") are allowed ONLY for an item whose Published date falls inside the issue window (${input.periodLabel}) — most candidates are months old, so the default is 「本期」. For items whose Published date is unknown or older than the window, present them without temporal claims (e.g. "X provides…" not "X was released this week").`,
     "You have a web_search tool. Its ONLY purpose is to find or verify the canonical URL / details for claims you want to mention in content (official announcement, repo, blog post). NEVER use it to discover new candidate papers or expand coverage beyond the material provided below.",
-    "3. title: issue title (zh-cn), concrete not clickbait, e.g. 「第N期：<本期最重要主题>」.",
+    // 期号由栏眉渲染，标题再带一次就是双重期号（线上「ISSUE 3」+「Issue 3: …」）
+    "3. title: issue title (zh-cn), concrete not clickbait — name the issue's single most important theme, e.g. 「稀疏注意力开始吃掉长上下文」. NEVER put an issue number or 「第N期」/「Issue N」 prefix in the title.",
     "4. proposedFocusUpdate: if this week's findings or feedback suggest the focus brief should evolve (new sub-topic emerging, stale sub-topic), propose the FULL revised focus brief text (zh-cn); otherwise omit.",
     "5. usedIntelUrls: the canonicalUrl of every intel item you actually cited in content (exact URLs from the list below).",
     "Respect user feedback below when judging taste.",
     UNTRUSTED_NOTE,
-    "Final check before returning: content must contain ZERO internal/positional item codes (P1, I3, Paper 2, Item 4 三类式样都算) — every item reference must be an inline markdown link [标题](URL).",
+    "The wording rules above (no internal codes, no invented arxiv.org links, no internal pipeline wording, 本期 vs 本周) apply to recommendationNote exactly as they do to content — both are read by the same reader.",
+    `Final check before returning: content must contain ZERO internal/positional item codes (P1, I3, Paper 2, Item 4, [#2], 上期 #1 都算) — every item reference must be an inline markdown link [标题](URL); content must start with "${SECTION_LEAD}" and contain "${SECTION_OPEN_QUESTIONS}"; every arxiv.org link must appear verbatim in the material below.`,
     // content 示例不能写成 "..."：生产实测模型会把占位符原样回填（首期 self-improvement 事故）
     'Return JSON only: {"title":"<issue title>","content":"<the FULL issue body in markdown, never a placeholder>","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"usedIntelUrls":["..."],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
   ].join("\n");
@@ -581,29 +600,77 @@ export async function synthesizeDigest(
       );
     }
   };
-  const INTERNAL_REF_RE = /\b[IP]\d{1,2}\b/;
+  const assertShape = (res: SynthesisResult): void => {
+    if (!res.title || !res.content || !Array.isArray(res.picks)) {
+      throw new DigestAiError("synthesize: malformed result");
+    }
+    // 生产实测（2026-08-15 self-improvement 首期）：模型可能把 content 字面回填成
+    // 返回格式示例里的占位符 "..."（picks/标题正常、耗时极短），truthy 检查拦不住，
+    // 会一路 published 出四语省略号正文。按长度下限拦截，抛错交给 step 重试。
+    if (res.content.trim().length < 500) {
+      throw new DigestAiError(
+        `synthesize: content too short (${res.content.trim().length} chars), likely placeholder echo: ${res.content.slice(0, 80)}`,
+      );
+    }
+  };
+  // 允许出现的 arXiv 链接 = 本期论文候选 ∪ intel 候选 ∪ 往期 picks
+  const allowedArxivIds = buildAllowedArxivIds([
+    ...input.papers.map((p) => p.item.canonicalUrl),
+    ...input.intel.map((p) => p.item.canonicalUrl),
+    ...input.pastPicks.map((p) => p.canonicalUrl),
+  ]);
+  const collect = (res: SynthesisResult) =>
+    collectSynthesisIssues({
+      content: res.content,
+      notes: res.picks.map((p) => p.recommendationNote ?? ""),
+      allowedArxivIds,
+    });
+
   let r = await runAgent();
-  if (r.content && INTERNAL_REF_RE.test(r.content)) {
-    // 模型没听话用了内部编号：带着违规样例重试一次；再失败则放行并留痕（不失败整期）
-    const offending = r.content.match(INTERNAL_REF_RE)?.[0];
-    r = await runAgent(
-      `Your previous draft referenced items by internal code ("${offending}") which readers cannot resolve. Rewrite using inline markdown links [标题](URL) only.`,
+  assertShape(r);
+  let issues = collect(r);
+  if (issues.length > 0) {
+    // 四类违规合并成一次重试（定稿是强模型 + 8 步 agent 循环，逐条重试烧不起）；
+    // 重试稿仍违规则按可修/不可修分流，绝不抛错——一处措辞瑕疵不值一整期失败。
+    const retried = await runAgent(buildRetryInstruction(issues));
+    assertShape(retried);
+    r = retried;
+    issues = collect(r);
+  }
+  if (issues.length > 0) {
+    console.warn(
+      `[Digest] synthesize: guards still failing after retry: ${issues.map((i) => i.type).join(", ")}`,
     );
-    if (r.content && INTERNAL_REF_RE.test(r.content)) {
-      console.warn("[Digest] synthesize: internal refs remain after retry");
+    const bad = new Set<string>();
+    for (const issue of issues) {
+      if (issue.type === "fabricated_arxiv" || issue.type === "exa_link") {
+        for (const url of issue.urls) bad.add(url);
+      }
+    }
+    if (bad.size > 0) {
+      // 编造/无效链接降级成纯文本：错链比无链更伤——读者点进去是另一篇论文
+      console.warn(
+        `[Digest] synthesize: demoting ${bad.size} bad link(s): ${[...bad].join(", ")}`,
+      );
+      const demote = (md: string) => demoteMarkdownLinks(md, (u) => bad.has(u));
+      r.content = demote(r.content);
+      r.picks = r.picks.map((p) => ({
+        ...p,
+        recommendationNote: demote(p.recommendationNote ?? ""),
+      }));
+    }
+    if (issues.some((i) => i.type === "weekly_wording")) {
+      r.content = replaceWeeklyWording(r.content);
+      r.picks = r.picks.map((p) => ({
+        ...p,
+        recommendationNote: replaceWeeklyWording(p.recommendationNote ?? ""),
+      }));
     }
   }
-  if (!r.title || !r.content || !Array.isArray(r.picks)) {
-    throw new DigestAiError("synthesize: malformed result");
-  }
-  // 生产实测（2026-08-15 self-improvement 首期）：模型可能把 content 字面回填成
-  // 返回格式示例里的占位符 "..."（picks/标题正常、耗时极短），truthy 检查拦不住，
-  // 会一路 published 出四语省略号正文。按长度下限拦截，抛错交给 step 重试。
-  if (r.content.trim().length < 500) {
-    throw new DigestAiError(
-      `synthesize: content too short (${r.content.trim().length} chars), likely placeholder echo: ${r.content.slice(0, 80)}`,
-    );
-  }
+  // 期号前缀无条件 strip（栏眉已渲染 ISSUE N，标题再带就是双重期号）。
+  // zh-cn 干净后翻译步自然跟着不带期号，无需另在 workflow 里后处理。
+  // 退化标题（如「第3期：」）宁可原样放行也不抛错：出口校验不做整期失败的新来源
+  r.title = stripIssuePrefix(r.title) || r.title;
   return r;
 }
 
