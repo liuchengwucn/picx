@@ -384,6 +384,8 @@ export async function listPoolCandidateItems(
  * 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。
  * sourceMeta 走「读-改-写」浅合并：D1 无事务，同一 (direction,url) 的写入只来自
  * 该候选自己的 review step，不存在并发；重放时同键覆盖成同值，仍然幂等。
+ * 前提是同方向单实例——手动重触发叠在 cron 上时两个实例会读到同一份旧值，
+ * 读-改-写可能丢更新（丢的是观测字段，不影响出刊）。
  */
 export async function updateCandidateStatus(
   db: Db,

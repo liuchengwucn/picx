@@ -605,11 +605,18 @@ export class DigestWorkflow extends WorkflowEntrypoint<
 
       // 硬规则影子模式观测行（step 外，休眠重放会重复打印——同下方通过率观测行）。
       // 明天用 source_meta.hardRule 统计误杀率再决定是否打开 HARD_RULE_FILTER。
+      // 开关决策以 source_meta.hardRule 为准（含 rule 空/非空两档）；此行随休眠重放
+      // 重复打印，按 (direction, issue) 去重。
+      // violated 是观测口径、blocked 是剔除口径（后者要求引用了规则原文），两个数
+      // 必须并排出现：只看 violated 会把「判违但说不出规则」误当成会被剔除的量。
       const hardRuleViolations = reviewed.filter(
         (r) => r.review.hardRule?.violated === true,
       );
+      const hardRuleBlocked = reviewed.filter((r) =>
+        hardRuleBlocks(r.review.hardRule),
+      );
       console.log(
-        `[Digest] hard-rule shadow: direction=${ctx.direction.slug} issue=${shell.issueNumber} reviewed=${reviewed.length} violated=${hardRuleViolations.length} titles=[${hardRuleViolations
+        `[Digest] hard-rule shadow: direction=${ctx.direction.slug} issue=${shell.issueNumber} reviewed=${reviewed.length} violated=${hardRuleViolations.length} blocked=${hardRuleBlocked.length} titles=[${hardRuleViolations
           .slice(0, 10)
           .map((r) => `"${r.item.title.replace(/\s+/g, " ").slice(0, 80)}"`)
           .join(", ")}]`,
