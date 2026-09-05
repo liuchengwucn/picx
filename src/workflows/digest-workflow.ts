@@ -21,6 +21,7 @@ import {
   synthesizeDigest,
   translateDigest,
 } from "#/lib/digest/ai";
+import { stripIssuePrefix } from "#/lib/digest/synthesis-guards";
 import {
   type ContentLink,
   extractContentLinks,
@@ -817,8 +818,13 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           );
         }
         await saveDigestContent(db, shell.digestId, {
+          // synthesize 出口已对 zh-cn 去过期号，但翻译模型可能自己补上「Issue 3:」，
+          // 四语各再过一遍（栏眉已渲染 ISSUE N，标题再带就是双重期号）
           title: Object.fromEntries(
-            Object.entries(translations).map(([loc, t]) => [loc, t.title]),
+            Object.entries(translations).map(([loc, t]) => [
+              loc,
+              stripIssuePrefix(t.title) || t.title,
+            ]),
           ),
           content: Object.fromEntries(
             Object.entries(translations).map(([loc, t]) => [loc, t.content]),
