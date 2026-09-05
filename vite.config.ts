@@ -115,9 +115,12 @@ const config = defineConfig({
     paraglideVitePlugin({
       project: "./project.inlang",
       outdir: "./src/paraglide",
-      // custom-negotiate 只在服务端注册（见 src/server.ts）；客户端解析时未注册的
-      // custom 策略会被跳过，等效链条是 cookie → localStorage → baseLocale。
-      strategy: ["cookie", "localStorage", "custom-negotiate", "baseLocale"],
+      // custom-negotiate 两侧成对注册：服务端喂 Accept-Language（src/server.ts），
+      // 客户端喂 navigator.languages（src/lib/locale-client-strategy.ts）。不放
+      // localStorage：它只在客户端生效，cookie 缺失时会让两侧解析出不同 locale。
+      // 这个数组是编译期烧进 src/paraglide/runtime.js 的，改完靠 vite build/dev
+      // 重新生成，不能用 paraglide-js compile CLI。
+      strategy: ["cookie", "custom-negotiate", "baseLocale"],
     }),
     // 本地 dev 不建 remote preview 会话（AI binding 是 remote-only，在部分网络下
     // 隧道不可达会导致 dev server 启动失败）；embed 在 dev 走 REST 回退，

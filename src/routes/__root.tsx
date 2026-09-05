@@ -10,7 +10,6 @@ import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import SessionHeartbeat from "#/components/SessionHeartbeat";
 import { Toaster } from "#/components/ui/sonner";
 import type { TRPCRouter } from "#/integrations/trpc/router";
-import { initLocale } from "#/lib/locale-init";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
 import Footer from "../components/Footer";
@@ -29,9 +28,9 @@ const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getIte
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
   beforeLoad: async () => {
-    // Initialize locale based on browser language on first visit
-    initLocale();
-
+    // locale 的解析与首访持久化全部由 paraglide runtime 的 strategy 链负责
+    // （cookie → custom-negotiate → baseLocale，客户端策略见 lib/locale-client-strategy.ts），
+    // 这里只同步 <html lang>。
     // Other redirect strategies are possible; see
     // https://github.com/TanStack/router/tree/main/examples/react/i18n-paraglide#offline-redirect
     if (typeof document !== "undefined") {

@@ -1,6 +1,6 @@
 /**
  * 浏览器语言标签 → 应用 locale 的共享映射与协商逻辑。
- * 被服务端 (server.ts 的 custom-negotiate 策略) 和客户端 (locale-init.ts)
+ * 被服务端 (server.ts 的 custom-negotiate 策略) 和客户端 (locale-client-strategy.ts)
  * 共同 import，必须保持纯函数、无副作用。
  */
 
