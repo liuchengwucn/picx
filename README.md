@@ -41,8 +41,8 @@ English | [简体中文](README.zh-CN.md)
 
 ### Plus
 
-- **One-click whiteboards** — turn any paper into a visual whiteboard image, with a shared prompt library at `/whiteboard-prompts`.
-- **Credits & BYOK** — daily check-in credits and a transaction history at `/credits`; bring your own API keys at `/api-configs` (stored encrypted).
+- **One-click whiteboards** — turn any paper into a visual whiteboard image, using the built-in template or your own, managed at `/settings/prompts`.
+- **BYOK** — every account gets a daily whiteboard allowance; bring your own API keys at `/settings/providers` (stored encrypted) to generate without spending it.
 - **AI visibility (GEO)** — `/llms.txt`, `/llms-full.txt`, per-paper Markdown via content negotiation, sitemap, and IndexNow push.
 - **Auto-posting** — a daily cron posts the top picks to X.
 - **PWA** — installable, with a mobile tab bar.

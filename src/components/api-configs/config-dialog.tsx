@@ -1,32 +1,24 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Cpu,
-  Eye,
-  EyeOff,
-  Globe,
-  Key,
-  Loader2,
-  Star,
-  Zap,
-} from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, Loader2, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
+import { ModuleKicker } from "#/components/home/module-kicker";
 import { Button } from "#/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
+import { Switch } from "#/components/ui/switch";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
-import styles from "./config-dialog.module.css";
 
 interface ConfigDialogProps {
   open: boolean;
@@ -46,6 +38,13 @@ interface FormValues {
   isDefault: boolean;
 }
 
+type TestState = "success" | "failed" | "testing" | "untested";
+
+/**
+ * BYOK 配置的新建 / 编辑弹窗。两组服务商（OpenAI 兼容 + Gemini）各三个字段，
+ * 「测试连接」的结果内联在各组标题右侧，不再有独立的状态徽标组件。
+ * 后端 procedure 与字段集合与旧版完全一致。
+ */
 export function ConfigDialog({
   open,
   onOpenChange,
@@ -56,11 +55,11 @@ export function ConfigDialog({
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [testStatus, setTestStatus] = useState<{
-    openai?: "success" | "failed" | "testing";
-    gemini?: "success" | "failed" | "testing";
+    openai?: TestState;
+    gemini?: TestState;
   }>({});
+  const defaultSwitchId = useId();
 
-  // Load existing config if editing
   const configQuery = useQuery({
     ...trpc.apiConfig.getById.queryOptions(configId ?? ""),
     enabled: !!configId,
@@ -84,10 +83,7 @@ export function ConfigDialog({
     onSubmit: async ({ value }) => {
       try {
         if (configId) {
-          await updateMutation.mutateAsync({
-            id: configId,
-            ...value,
-          });
+          await updateMutation.mutateAsync({ id: configId, ...value });
           toast.success(m.api_config_updated());
         } else {
           await createMutation.mutateAsync(value);
@@ -105,36 +101,28 @@ export function ConfigDialog({
     },
   });
 
-  // Load config data when editing, or reset to defaults when creating
   useEffect(() => {
-    if (open) {
-      if (configQuery.data) {
-        // Editing: load saved config
-        form.setFieldValue("name", configQuery.data.name);
-        form.setFieldValue("openaiApiKey", configQuery.data.openaiApiKey);
-        form.setFieldValue("openaiBaseUrl", configQuery.data.openaiBaseUrl);
-        form.setFieldValue("openaiModel", configQuery.data.openaiModel);
-        form.setFieldValue("geminiApiKey", configQuery.data.geminiApiKey);
-        form.setFieldValue("geminiBaseUrl", configQuery.data.geminiBaseUrl);
-        form.setFieldValue("geminiModel", configQuery.data.geminiModel);
-        form.setFieldValue("isDefault", configQuery.data.isDefault);
-      } else if (!configId) {
-        // Creating: reset to defaults
-        form.reset();
-      }
-      // Clear test status when dialog opens
-      setTestStatus({});
+    if (!open) return;
+    if (configQuery.data) {
+      form.setFieldValue("name", configQuery.data.name);
+      form.setFieldValue("openaiApiKey", configQuery.data.openaiApiKey);
+      form.setFieldValue("openaiBaseUrl", configQuery.data.openaiBaseUrl);
+      form.setFieldValue("openaiModel", configQuery.data.openaiModel);
+      form.setFieldValue("geminiApiKey", configQuery.data.geminiApiKey);
+      form.setFieldValue("geminiBaseUrl", configQuery.data.geminiBaseUrl);
+      form.setFieldValue("geminiModel", configQuery.data.geminiModel);
+      form.setFieldValue("isDefault", configQuery.data.isDefault);
+    } else if (!configId) {
+      form.reset();
     }
+    setTestStatus({});
+    setShowOpenaiKey(false);
+    setShowGeminiKey(false);
   }, [open, configQuery.data, configId, form]);
 
   const handleTest = async () => {
     const values = form.state.values;
-
-    setTestStatus({
-      openai: "testing",
-      gemini: "testing",
-    });
-
+    setTestStatus({ openai: "testing", gemini: "testing" });
     try {
       const result = await testMutation.mutateAsync({
         id: configId,
@@ -145,363 +133,371 @@ export function ConfigDialog({
         geminiBaseUrl: values.geminiBaseUrl || undefined,
         geminiModel: values.geminiModel || undefined,
       });
-
+      // 后端对没填的那一侧返回 undefined（不是失败，是压根没测）。落成显式
+      // "untested" 而不是让状态消失：否则只填了 OpenAI 的新配置测完会「什么都没
+      // 显示 + 弹一句测试成功」，等于谎报 Gemini 也通过了。
       setTestStatus({
-        openai: result.openaiStatus,
-        gemini: result.geminiStatus,
+        openai: result.openaiStatus ?? "untested",
+        gemini: result.geminiStatus ?? "untested",
       });
-
       const hasErrors = result.errors?.openai || result.errors?.gemini;
       if (hasErrors) {
-        const errorMsg = [
-          result.errors?.openai && `OpenAI: ${result.errors.openai}`,
-          result.errors?.gemini && `Gemini: ${result.errors.gemini}`,
-        ]
-          .filter(Boolean)
-          .join("; ");
-        toast.error(errorMsg);
+        toast.error(
+          [
+            result.errors?.openai && `OpenAI: ${result.errors.openai}`,
+            result.errors?.gemini && `Gemini: ${result.errors.gemini}`,
+          ]
+            .filter(Boolean)
+            .join("; "),
+        );
       } else {
         toast.success(m.api_config_test_success());
       }
     } catch {
-      setTestStatus({
-        openai: "failed",
-        gemini: "failed",
-      });
+      setTestStatus({ openai: "failed", gemini: "failed" });
       toast.error(m.api_config_test_failed());
     }
   };
 
-  const isLoading = createMutation.isPending || updateMutation.isPending;
+  const isSaving = createMutation.isPending || updateMutation.isPending;
   const isTesting = testMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={`sm:max-w-[680px] max-h-[90vh] rounded-3xl border-[var(--line)] bg-[var(--parchment)] flex flex-col ${styles.dialogContent}`}
-      >
+      <DialogContent className="flex max-h-[90vh] flex-col rounded-2xl border-[var(--line)] bg-[var(--parchment)] sm:max-w-[600px]">
         <DialogHeader className="flex-shrink-0">
-          <DialogTitle className="font-serif text-2xl text-[var(--ink)]">
-            {configId ? m.edit() : m.create()}
+          <DialogTitle className="font-serif text-xl text-[var(--ink)]">
+            {configId ? m.api_config_edit() : m.api_config_create()}
           </DialogTitle>
+          <DialogDescription className="text-xs text-[var(--ink-soft)]">
+            {m.settings_providers_subtitle()}
+          </DialogDescription>
         </DialogHeader>
 
         <form
           onSubmit={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            form.handleSubmit();
+            void form.handleSubmit();
           }}
-          className="space-y-6 mt-4 overflow-y-auto flex-1 min-h-0"
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto py-1"
         >
-          {/* Configuration Name */}
-          <div className={`space-y-2 ${styles.fieldGroup}`}>
-            <form.Field name="name">
-              {(field) => (
-                <>
-                  <Label className="text-sm font-medium text-[var(--ink)]">
-                    {m.api_config_name()}
-                  </Label>
+          <form.Field name="name">
+            {(field) => (
+              <FieldRow label={m.api_config_name()}>
+                {(id) => (
                   <Input
+                    id={id}
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder={m.api_config_name_placeholder()}
-                    className="border-[var(--line)]"
+                    className="h-9 border-[var(--line)]"
                   />
-                </>
+                )}
+              </FieldRow>
+            )}
+          </form.Field>
+
+          <ProviderGroup
+            title={m.settings_providers_openai()}
+            status={testStatus.openai}
+          >
+            <form.Field name="openaiApiKey">
+              {(field) => (
+                <FieldRow label={m.openai_api_key()}>
+                  {(id) => (
+                    <KeyInput
+                      id={id}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                      shown={showOpenaiKey}
+                      onToggle={() => setShowOpenaiKey((v) => !v)}
+                      placeholder="sk-..."
+                    />
+                  )}
+                </FieldRow>
               )}
             </form.Field>
-          </div>
-
-          {/* OpenAI Configuration */}
-          <div
-            className={`space-y-4 p-5 rounded-xl bg-[var(--parchment-warm)]/50 border border-[var(--line)] ${styles.configSection}`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--academic-brown)]/10">
-                  <Cpu className="h-4 w-4 text-[var(--academic-brown)]" />
-                </div>
-                <span className="text-sm font-semibold text-[var(--ink)] uppercase tracking-wide">
-                  {m.openai_config()}
-                </span>
-              </div>
-              {testStatus.openai && (
-                <TestStatusIndicator status={testStatus.openai} />
-              )}
-            </div>
-
-            <div className="grid gap-4">
-              <form.Field name="openaiApiKey">
-                {(field) => (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-[var(--ink-soft)] flex items-center gap-1.5">
-                      <Key className="h-3 w-3" />
-                      {m.openai_api_key()}
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        type={showOpenaiKey ? "text" : "password"}
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        placeholder="sk-..."
-                        className="border-[var(--line)] pr-10 font-mono text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors"
-                      >
-                        {showOpenaiKey ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </form.Field>
-
-              <form.Field name="openaiBaseUrl">
-                {(field) => (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-[var(--ink-soft)] flex items-center gap-1.5">
-                      <Globe className="h-3 w-3" />
-                      {m.openai_base_url()}
-                    </Label>
+            <form.Field name="openaiBaseUrl">
+              {(field) => (
+                <FieldRow label={m.openai_base_url()}>
+                  {(id) => (
                     <Input
+                      id={id}
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="https://api.openai.com/v1"
-                      className="border-[var(--line)] font-mono text-sm"
+                      className="h-9 border-[var(--line)] font-mono text-sm"
                     />
-                  </div>
-                )}
-              </form.Field>
-
-              <form.Field name="openaiModel">
-                {(field) => (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-[var(--ink-soft)] flex items-center gap-1.5">
-                      <Cpu className="h-3 w-3" />
-                      {m.openai_model()}
-                    </Label>
+                  )}
+                </FieldRow>
+              )}
+            </form.Field>
+            <form.Field name="openaiModel">
+              {(field) => (
+                <FieldRow label={m.openai_model()}>
+                  {(id) => (
                     <Input
+                      id={id}
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="gpt-4o-mini"
-                      className="border-[var(--line)] font-mono text-sm"
+                      className="h-9 border-[var(--line)] font-mono text-sm"
                     />
-                  </div>
-                )}
-              </form.Field>
-            </div>
-          </div>
-
-          {/* Gemini Configuration */}
-          <div
-            className={`space-y-4 p-5 rounded-xl bg-[var(--parchment-warm)]/50 border border-[var(--line)] ${styles.configSection}`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--gold)]/10">
-                  <Cpu className="h-4 w-4 text-[var(--academic-brown-deep)]" />
-                </div>
-                <span className="text-sm font-semibold text-[var(--ink)] uppercase tracking-wide">
-                  {m.gemini_config()}
-                </span>
-              </div>
-              {testStatus.gemini && (
-                <TestStatusIndicator status={testStatus.gemini} />
+                  )}
+                </FieldRow>
               )}
-            </div>
+            </form.Field>
+          </ProviderGroup>
 
-            <div className="grid gap-4">
-              <form.Field name="geminiApiKey">
-                {(field) => (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-[var(--ink-soft)] flex items-center gap-1.5">
-                      <Key className="h-3 w-3" />
-                      {m.gemini_api_key()}
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        type={showGeminiKey ? "text" : "password"}
-                        value={field.state.value}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        placeholder="AIza..."
-                        className="border-[var(--line)] pr-10 font-mono text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowGeminiKey(!showGeminiKey)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors"
-                      >
-                        {showGeminiKey ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </form.Field>
-
-              <form.Field name="geminiBaseUrl">
-                {(field) => (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-[var(--ink-soft)] flex items-center gap-1.5">
-                      <Globe className="h-3 w-3" />
-                      {m.gemini_base_url()}
-                    </Label>
+          <ProviderGroup
+            title={m.settings_providers_gemini()}
+            status={testStatus.gemini}
+          >
+            <form.Field name="geminiApiKey">
+              {(field) => (
+                <FieldRow label={m.gemini_api_key()}>
+                  {(id) => (
+                    <KeyInput
+                      id={id}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                      shown={showGeminiKey}
+                      onToggle={() => setShowGeminiKey((v) => !v)}
+                      placeholder="AIza..."
+                    />
+                  )}
+                </FieldRow>
+              )}
+            </form.Field>
+            <form.Field name="geminiBaseUrl">
+              {(field) => (
+                <FieldRow label={m.gemini_base_url()}>
+                  {(id) => (
                     <Input
+                      id={id}
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="https://generativelanguage.googleapis.com/v1beta"
-                      className="border-[var(--line)] font-mono text-sm"
+                      className="h-9 border-[var(--line)] font-mono text-sm"
                     />
-                  </div>
-                )}
-              </form.Field>
-
-              <form.Field name="geminiModel">
-                {(field) => (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-[var(--ink-soft)] flex items-center gap-1.5">
-                      <Cpu className="h-3 w-3" />
-                      {m.gemini_model()}
-                    </Label>
+                  )}
+                </FieldRow>
+              )}
+            </form.Field>
+            <form.Field name="geminiModel">
+              {(field) => (
+                <FieldRow label={m.gemini_model()}>
+                  {(id) => (
                     <Input
+                      id={id}
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       placeholder="gemini-3.1-flash-image-preview"
-                      className="border-[var(--line)] font-mono text-sm"
+                      className="h-9 border-[var(--line)] font-mono text-sm"
                     />
-                  </div>
-                )}
-              </form.Field>
-            </div>
-          </div>
-          {/* Default Configuration Toggle */}
+                  )}
+                </FieldRow>
+              )}
+            </form.Field>
+          </ProviderGroup>
+
           <form.Field name="isDefault">
             {(field) => (
-              <label
-                className={`flex items-center gap-3 p-4 rounded-xl border border-[var(--line)] cursor-pointer transition-all hover:border-[var(--gold)] hover:bg-[var(--gold)]/5 ${field.state.value ? "bg-gradient-to-r from-[var(--gold)]/10 to-transparent border-[var(--gold)]" : ""} ${styles.defaultToggle}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.checked)}
-                  className="sr-only"
-                />
-                <div
-                  className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-all ${field.state.value ? "bg-gradient-to-br from-[var(--academic-brown)] to-[var(--gold)] border-[var(--gold)]" : "border-[var(--neutral-mid)]"}`}
-                >
-                  {field.state.value && (
-                    <Star className="h-3 w-3 text-white fill-white" />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <div className="text-sm font-medium text-[var(--ink)]">
+              <div className="flex items-center justify-between gap-3 border-t border-[var(--line)] pt-4">
+                <div>
+                  <Label
+                    htmlFor={defaultSwitchId}
+                    className="text-sm text-[var(--ink)]"
+                  >
                     {m.api_config_set_default()}
-                  </div>
-                  <div className="text-xs text-[var(--ink-soft)]">
+                  </Label>
+                  <p className="text-xs text-[var(--ink-soft)]">
                     {m.api_config_default_description()}
-                  </div>
+                  </p>
                 </div>
-              </label>
+                <Switch
+                  id={defaultSwitchId}
+                  checked={field.state.value}
+                  onCheckedChange={field.handleChange}
+                />
+              </div>
             )}
           </form.Field>
         </form>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col gap-3 pt-4 border-t border-[var(--line)] flex-shrink-0 sm:flex-row sm:items-center">
+        <DialogFooter className="flex-shrink-0 gap-2 border-t border-[var(--line)] pt-4 sm:justify-between">
           <Button
             type="button"
             variant="outline"
             onClick={handleTest}
-            disabled={isTesting || isLoading}
-            className={`w-full gap-2 border-[var(--academic-brown)] text-[var(--academic-brown)] hover:bg-[var(--academic-brown)]/10 sm:w-auto ${styles.testButton}`}
+            disabled={isTesting || isSaving}
+            className="h-9 border-[var(--line)]"
           >
             {isTesting ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 {m.api_config_testing()}
               </>
             ) : (
-              <>
-                <Zap className="h-4 w-4" />
-                {m.api_config_test()}
-              </>
+              m.api_config_test()
             )}
           </Button>
-
-          <DialogFooter className="w-full sm:ml-auto sm:w-auto">
+          <div className="flex gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={() => onOpenChange(false)}
-              disabled={isLoading}
-              className="w-full border-[var(--line)] sm:w-auto"
+              disabled={isSaving}
+              className="h-9 text-[var(--ink-soft)]"
             >
               {m.cancel()}
             </Button>
-
             <Button
               type="button"
-              onClick={() => form.handleSubmit()}
-              disabled={isLoading}
-              className="w-full gap-2 bg-[var(--academic-brown)] text-white shadow-[0_4px_16px_rgba(139,111,71,0.24)] transition-all duration-300 hover:bg-[var(--academic-brown-deep)] hover:shadow-[0_8px_24px_rgba(139,111,71,0.32)] sm:w-auto"
+              onClick={() => void form.handleSubmit()}
+              disabled={isSaving}
+              className="h-9 bg-[var(--academic-brown)] text-white hover:bg-[var(--academic-brown-deep)]"
             >
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {m.save()}
             </Button>
-          </DialogFooter>
-        </div>
+          </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-function TestStatusIndicator({
-  status,
+/**
+ * children 收成 (id) => ReactNode 而不是裸 ReactNode：<Label> 与输入框是兄弟节点，
+ * 不 htmlFor/id 配对的话这个 <label> 谁也没标注——点它不聚焦，可访问名退化成
+ * placeholder。本文件里 Switch 那一处已经是正确写法，文本框不该两套标准。
+ */
+function FieldRow({
+  label,
+  children,
 }: {
-  status: "success" | "failed" | "testing";
+  label: string;
+  children: (id: string) => ReactNode;
 }) {
+  const id = useId();
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs text-[var(--ink-soft)]">
+        {label}
+      </Label>
+      {children(id)}
+    </div>
+  );
+}
+
+/**
+ * 一组服务商字段：栏眉 + 内联测试结果 + 三个输入。
+ *
+ * 用 role="group" + aria-labelledby 而不是 fieldset/legend，有三个理由：legend 上
+ * 的 display:flex 各浏览器行为不一；fieldset 默认 min-inline-size:min-content，
+ * 里面那条 52 字符的 base URL 占位符会在窄屏撑出横向滚动；而且状态若落在 legend
+ * 里就成了整组的可访问名（读作「OpenAI 兼容 通过」并随测试变动）。
+ * aria-labelledby 只指向标题那个 span，状态另挂 <output> 自己播报。
+ */
+function ProviderGroup({
+  title,
+  status,
+  children,
+}: {
+  title: string;
+  status?: TestState;
+  children: ReactNode;
+}) {
+  const labelId = useId();
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: 规则建议的 <fieldset> 正是上面三条理由排除掉的那个元素
+    <div role="group" aria-labelledby={labelId} className="min-w-0 space-y-3">
+      <ModuleKicker
+        color="var(--olive)"
+        trailing={status ? <InlineTestStatus status={status} /> : null}
+      >
+        <span id={labelId}>{title}</span>
+      </ModuleKicker>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * 用 <output> 而不是 span + role="status"：它自带 role=status 与 aria-live=polite，
+ * 测试结束时会自动播报（与 pdf-reader-view 里的用法一致）。它同时是这一组表单
+ * 字段「算出来的结果」，语义正好对上。
+ */
+function InlineTestStatus({ status }: { status: TestState }) {
+  const className =
+    "inline-flex items-center gap-1 normal-case tracking-normal";
   if (status === "testing") {
     return (
-      <div className={`flex items-center gap-1.5 ${styles.testIndicator}`}>
-        <Loader2 className="h-4 w-4 animate-spin text-[var(--academic-brown)]" />
-        <span className="text-xs text-[var(--ink-soft)]">
-          {m.api_config_testing()}
-        </span>
-      </div>
+      <output className={className}>
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+        {m.api_config_testing()}
+      </output>
     );
   }
-
-  if (status === "success") {
+  if (status === "untested") {
     return (
-      <div
-        className={`flex items-center gap-1.5 ${styles.testIndicator} ${styles.success}`}
-      >
-        <CheckCircle2 className="h-4 w-4 text-[var(--olive)]" />
-        <span className="text-xs text-[var(--olive)] font-medium">
-          {m.api_config_test_status_success()}
-        </span>
-      </div>
+      <output className={className}>{m.settings_providers_untested()}</output>
     );
   }
-
+  const ok = status === "success";
+  const Icon = ok ? Check : X;
   return (
-    <div
-      className={`flex items-center gap-1.5 ${styles.testIndicator} ${styles.failed}`}
-    >
-      <AlertCircle className="h-4 w-4 text-[var(--sienna)]" />
-      <span className="text-xs text-[var(--sienna)] font-medium">
-        {m.api_config_test_status_failed()}
-      </span>
+    <output className={className}>
+      <Icon className="h-3 w-3" strokeWidth={1.25} aria-hidden />
+      {ok ? m.settings_providers_test_pass() : m.settings_providers_test_fail()}
+    </output>
+  );
+}
+
+/**
+ * 密钥输入：右侧「显示 / 隐藏」文字切换，不用眼睛图标（icon-only 按钮不可解释）。
+ *
+ * aria-pressed 是必须的：弹窗里有两个都叫「显示」的按钮，光靠标签读不出当前
+ * 是明文还是密文——切换态得由 pressed 承载，标签只说这个按钮是干什么的。
+ */
+function KeyInput({
+  id,
+  value,
+  onChange,
+  shown,
+  onToggle,
+  placeholder,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  shown: boolean;
+  onToggle: () => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="flex gap-2">
+      <Input
+        id={id}
+        type={shown ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="h-9 border-[var(--line)] font-mono text-sm"
+        autoComplete="off"
+      />
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={shown}
+        className="h-9 flex-none px-2 text-xs text-[var(--ink-soft)] underline-offset-2 hover:text-[var(--ink)] hover:underline"
+      >
+        {shown
+          ? m.settings_providers_hide_key()
+          : m.settings_providers_show_key()}
+      </button>
     </div>
   );
 }

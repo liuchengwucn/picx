@@ -1,8 +1,10 @@
 import { TRPCError } from "@trpc/server";
-import { count, desc, eq } from "drizzle-orm";
-import { z } from "zod";
-import { creditTransactions, user } from "#/db/schema";
-import { claimDailyBonusIfEligible } from "#/db/user-extensions";
+import { eq } from "drizzle-orm";
+import { user } from "#/db/schema";
+import {
+  claimDailyBonusIfEligible,
+  shouldStampLastSeen,
+} from "#/db/user-extensions";
 import { isReviewGuestReadOnlySession } from "#/lib/review-guest";
 import { protectedProcedure, router } from "../init";
 
@@ -40,49 +42,38 @@ export const userRouter = router({
   }),
 
   /**
-   * Get user's credit transaction history with pagination
-   * @param page - Page number (min: 1)
-   * @param limit - Items per page (min: 1, max: 100)
-   * @returns Paginated credit transactions and total count
-   * @throws UNAUTHORIZED if user is not logged in
+   * 会话心跳：客户端在挂载 / 聚焦时打一次。两件事各自幂等、互不依赖（D1 无事务）：
+   * 1. 距上次 lastSeenAt 满一小时就盖戳——积分满 20 的用户以前因 lastDailyBonusDate
+   *    不再更新而「记录不了活跃」，这一条把它解开；
+   * 2. 领当日 +3（条件由 claimDailyBonusIfEligible 判）。
+   * 只返回 granted：前端拿它决定要不要失效 getProfile，不再向用户播报金额。
    */
-  getCreditHistory: protectedProcedure
-    .input(
-      z.object({
-        page: z.number().int().min(1).default(1),
-        limit: z.number().int().min(1).max(100).default(20),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      const offset = (input.page - 1) * input.limit;
-
-      const transactions = await ctx.db
-        .select()
-        .from(creditTransactions)
-        .where(eq(creditTransactions.userId, ctx.session.user.id))
-        .orderBy(desc(creditTransactions.createdAt))
-        .limit(input.limit)
-        .offset(offset);
-
-      const [totalResult] = await ctx.db
-        .select({ count: count() })
-        .from(creditTransactions)
-        .where(eq(creditTransactions.userId, ctx.session.user.id));
-
-      return {
-        transactions,
-        total: totalResult.count,
-      };
-    }),
-
-  claimDailyBonus: protectedProcedure.mutation(async ({ ctx }) => {
+  heartbeat: protectedProcedure.mutation(async ({ ctx }) => {
     if (isReviewGuestReadOnlySession(ctx.session)) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Review guest mode is read-only",
-      });
+      return { granted: false };
     }
 
-    return claimDailyBonusIfEligible(ctx.session.user.id, ctx.db);
+    const userId = ctx.session.user.id;
+    const now = new Date();
+
+    const [row] = await ctx.db
+      .select({ lastSeenAt: user.lastSeenAt })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+
+    if (!row) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+    }
+
+    if (shouldStampLastSeen(row.lastSeenAt, now)) {
+      await ctx.db
+        .update(user)
+        .set({ lastSeenAt: now })
+        .where(eq(user.id, userId));
+    }
+
+    const bonus = await claimDailyBonusIfEligible(userId, ctx.db);
+    return { granted: bonus.granted };
   }),
 });
