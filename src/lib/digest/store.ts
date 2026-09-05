@@ -380,6 +380,48 @@ export async function listPoolCandidateItems(
   });
 }
 
+/**
+ * 正文引用了、但候选池里没有的外链补写成 recommended intel（跨期去重补漏）。
+ * 逐条 insert-on-conflict（沿用 upsertCandidatesSeen 的写法）：每条约 9 个绑定
+ * 参数，天然避开 D1 单查询 100 参数上限，且整体幂等、重放安全。
+ */
+export async function upsertContentLinkCandidates(
+  db: Db,
+  directionId: string,
+  issueNumber: number,
+  links: { url: string; title: string }[],
+): Promise<void> {
+  const now = new Date();
+  for (const link of links) {
+    await db
+      .insert(directionCandidates)
+      .values({
+        directionId,
+        canonicalUrl: link.url,
+        title: (link.title || link.url).slice(0, 500),
+        kind: "intel",
+        status: "recommended",
+        sourceMeta: {
+          sourceLabel: "content-link",
+          via: "content-link",
+          issue: issueNumber,
+        },
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          directionCandidates.directionId,
+          directionCandidates.canonicalUrl,
+        ],
+        // 只提状态、不动 kind/sourceMeta：撞上的可能是一行 seen/rejected 的老
+        // 候选（甚至 paper 行），它自带的 publishedAt 不能被这里的空日期覆盖
+        // ——listPoolCandidateItems 靠 sourceMeta.publishedAt 还原日期。
+        set: { status: "recommended", lastSeenAt: now },
+      });
+  }
+}
+
 /** 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。 */
 export async function updateCandidateStatus(
   db: Db,

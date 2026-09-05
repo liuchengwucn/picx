@@ -21,11 +21,15 @@ import {
   translateDigest,
 } from "#/lib/digest/ai";
 import {
+  type ContentLink,
+  extractContentLinks,
+  isSearchToolArtifactUrl,
   mergeCandidates,
   partitionCandidates,
   quoteAppearsInText,
   selectTopPapers,
   TOP_K_PAPERS,
+  urlDedupKey,
 } from "#/lib/digest/candidates";
 import { enrichAuthorSignals } from "#/lib/digest/enrich";
 import { cheapModel, strongModel } from "#/lib/digest/llm";
@@ -46,6 +50,7 @@ import {
   saveDigestContent,
   updateCandidateStatus,
   upsertCandidatesSeen,
+  upsertContentLinkCandidates,
 } from "#/lib/digest/store";
 import type {
   AuthorSignal,
@@ -724,15 +729,53 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         });
         // intel 跨期去重：只有被正文实际引用的 intel 才标 recommended（下期跳过）；
         // 精读过但没用上的保持 seen，下期仍有入选机会。
-        const intelUrls = new Set(
-          intelCandidates.map((r) => r.item.canonicalUrl),
+        //
+        // 判据 = 模型自报的 usedIntelUrls ∪ 正文实扫外链。只信自报会漏两类：
+        // (a) 自报不全；(b) 正文引用的 URL 根本不在候选池（第 1 期讲的 OpenAI
+        // 那条来自 the-decoder 报道正文，池里没有 → 匹配不上 → 第 3 期又讲一遍）。
+        // 匹配一律按 dedupKey：池里 `…1944.pdf` 与 `…1944/` 是两行，exact-URL
+        // 比对会漏标。
+        const intelByKey = new Map(
+          intelCandidates.map((r) => [
+            urlDedupKey(r.item.canonicalUrl),
+            r.item.canonicalUrl,
+          ]),
         );
-        for (const url of synthesis.usedIntelUrls ?? []) {
-          if (intelUrls.has(url)) {
-            await updateCandidateStatus(db, directionId, url, {
+        const cited: ContentLink[] = [
+          ...(synthesis.usedIntelUrls ?? []).map((url) => ({ url, title: "" })),
+          ...extractContentLinks(translations["zh-cn"].content),
+        ];
+        const citedKeys = new Set<string>();
+        const orphanLinks: ContentLink[] = [];
+        for (const link of cited) {
+          const key = urlDedupKey(link.url);
+          if (citedKeys.has(key)) continue;
+          // arXiv 走 pick 路径（有自己的 digest_papers 记忆）；搜索工具中转页
+          // 本就不该入池；裸域名首页（openai.com 这种）不是「讲过的那条内容」，
+          // 记下去会连带把整站后续文章全抑制掉。
+          if (key.startsWith("arxiv:")) continue;
+          if (isSearchToolArtifactUrl(link.url)) continue;
+          if (!key.includes("/")) continue;
+          citedKeys.add(key);
+          const poolUrl = intelByKey.get(key);
+          if (poolUrl) {
+            await updateCandidateStatus(db, directionId, poolUrl, {
               status: "recommended",
             });
+          } else {
+            orphanLinks.push({ url: link.url, title: link.title || link.url });
           }
+        }
+        if (orphanLinks.length > 0) {
+          await upsertContentLinkCandidates(
+            db,
+            directionId,
+            shell.issueNumber,
+            orphanLinks,
+          );
+          console.log(
+            `[Digest] ${ctx.direction.slug} #${shell.issueNumber}: recorded ${orphanLinks.length} content-link intel not in pool: ${orphanLinks.map((l) => l.url).join(", ")}`,
+          );
         }
         await saveDigestContent(db, shell.digestId, {
           title: Object.fromEntries(

@@ -12,6 +12,81 @@ export const INTEL_REVIEW_BUDGET = 50;
 /** 已 rejected 的候选，HF 热度达到该值时允许重新浮出（迟到爆款） */
 export const LATE_BLOOMER_UPVOTES = 30;
 
+/**
+ * 只影响来源统计、不影响页面内容的跟踪参数：算 dedupKey 前一律剥掉。
+ * `utm_*` 另按前缀匹配。收成闭集而非「只保留白名单参数」——很多站点靠 query
+ * 定位内容（openreview 的 ?id=、youtube 的 ?v=），过度剥离会把两篇不同的东西
+ * 合并成一条。
+ */
+const TRACKING_PARAMS = new Set([
+  "ref",
+  "ref_src",
+  "ref_url",
+  "referrer",
+  "source",
+  "fbclid",
+  "gclid",
+  "gbraid",
+  "wbraid",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+  "spm",
+  "cmpid",
+  "__twitter_impression",
+]);
+
+/**
+ * 跨期/跨来源去重键。**只用于比对，不写库**——库里的 canonical_url 是唯一索引
+ * 的一半且已被 recommended 的行引用过，不能重写（见 partitionCandidates 的对齐
+ * 写法：命中池里已有行时改写的是新候选的 URL，不是池里那一行）。
+ *
+ * 规则：去协议、host 小写去 `www.`、去 `#fragment`、去跟踪参数、去尾斜杠；
+ * aclanthology 去 `.pdf` 后缀；arXiv 走 canonicalArxivId 统一 abs/pdf/版本号。
+ *
+ * 起因（实测）：moe 第 1/2 期同引 `2026.findings-acl.1944`，池里
+ * `…1944.pdf`（8/15 recommended）与 `…1944/`（8/22 recommended）是两行，
+ * exact-URL 去重被 `.pdf`/尾斜杠变体整个绕过，同一篇 findings 被当新发现讲了两遍。
+ */
+export function urlDedupKey(raw: string): string {
+  const trimmed = raw.trim();
+  let u: URL;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    return trimmed.toLowerCase();
+  }
+  const host = u.hostname.toLowerCase().replace(/^www\./, "");
+  // arXiv 只在 arxiv 域名上认：canonicalArxivId 的正则未锚定，任意 URL 里的
+  // `1234.56789` 都会被它当成 arXiv id（见 lib/arxiv.ts 注释里的短链前科）。
+  if (host === "arxiv.org" || host.endsWith(".arxiv.org")) {
+    const id = canonicalArxivId(u.pathname);
+    if (id) return `arxiv:${id}`;
+  }
+  let path = u.pathname;
+  // ACL Anthology 的 `…1944.pdf` 与 `…1944/` 是同一篇的两个表示；其他站点的
+  // `.pdf` 可能确实是另一个资源，不做泛化。
+  if (host === "aclanthology.org") path = path.replace(/\.pdf$/i, "");
+  path = path.replace(/\/+$/, "");
+  const params = [...u.searchParams.entries()]
+    .filter(
+      ([k]) =>
+        !TRACKING_PARAMS.has(k.toLowerCase()) &&
+        !k.toLowerCase().startsWith("utm_"),
+    )
+    .sort(([a], [b]) => a.localeCompare(b));
+  const query = params.map(([k, v]) => `${k}=${v}`).join("&");
+  return `${host}${path}${query ? `?${query}` : ""}`;
+}
+
+/**
+ * 搜索工具的中转页：exa.ai/library/* 是 Exa 自己的检索结果详情页，读者点开看到
+ * 的不是论文/原文。底层论文会从 arXiv 源另行进池，直接在入池阶段丢弃即可。
+ */
+export function isSearchToolArtifactUrl(url: string): boolean {
+  return urlDedupKey(url).toLowerCase().startsWith("exa.ai/library/");
+}
+
 /** 候选池行的最小形状（store 层从 direction_candidates 读出后传入） */
 export interface PoolEntry {
   canonicalUrl: string;
@@ -20,8 +95,10 @@ export interface PoolEntry {
 }
 
 /**
- * 跨来源合并去重：同 canonicalUrl 首见者保留，后见者只合并 sourceLabel；
+ * 跨来源合并去重：同 dedupKey 首见者保留，后见者只合并 sourceLabel；
  * 并用 hf_signals（arxivId → upvotes）标注热度。
+ * 顺带在这里丢弃搜索工具中转页——所有入池路径（扫源/角度搜索/S2 兜底/pool
+ * 重放）都汇到这个函数，是唯一的单点闸门。
  */
 export function mergeCandidates(
   groups: CandidateItem[][],
@@ -30,7 +107,13 @@ export function mergeCandidates(
   const byUrl = new Map<string, CandidateItem>();
   for (const group of groups) {
     for (const item of group) {
-      const key = item.canonicalUrl;
+      if (isSearchToolArtifactUrl(item.canonicalUrl)) {
+        console.warn(
+          `[Digest] dropping search-tool artifact URL: ${item.canonicalUrl}`,
+        );
+        continue;
+      }
+      const key = urlDedupKey(item.canonicalUrl);
       const existing = byUrl.get(key);
       if (existing) {
         if (!existing.sourceLabel.split(",").includes(item.sourceLabel)) {
@@ -57,16 +140,37 @@ export interface PartitionResult {
   overBudget: CandidateItem[];
 }
 
-/** 对齐历史候选池 + 应用精读预算。热度高者优先占预算。 */
+/** 池里同 dedupKey 有多行时的取舍序：抑制力强者优先（否则 `.pdf` 变体会对到
+ * 一行 seen 上，重新参评又讲一遍） */
+const STATUS_RANK = { recommended: 0, rejected: 1, seen: 2 } as const;
+
+/**
+ * 对齐历史候选池 + 应用精读预算。热度高者优先占预算。
+ *
+ * 池比对按 dedupKey，但**返回的候选 URL 会被改写成池里那一行的 canonical_url**：
+ * 下游 upsertCandidatesSeen / updateCandidateStatus 都按 canonical_url 定位，
+ * 不对齐的话 `…1944.pdf` 会插出第二行，跨期去重再次失效。
+ */
 export function partitionCandidates(
   merged: CandidateItem[],
   pool: PoolEntry[],
 ): PartitionResult {
-  const poolByUrl = new Map(pool.map((p) => [p.canonicalUrl, p]));
+  const poolByKey = new Map<string, PoolEntry>();
+  for (const p of pool) {
+    const key = urlDedupKey(p.canonicalUrl);
+    const prev = poolByKey.get(key);
+    if (!prev || STATUS_RANK[p.status] < STATUS_RANK[prev.status]) {
+      poolByKey.set(key, p);
+    }
+  }
   const eligible: CandidateItem[] = [];
   const skipped: CandidateItem[] = [];
-  for (const item of merged) {
-    const entry = poolByUrl.get(item.canonicalUrl);
+  for (const raw of merged) {
+    const entry = poolByKey.get(urlDedupKey(raw.canonicalUrl));
+    const item =
+      entry && entry.canonicalUrl !== raw.canonicalUrl
+        ? { ...raw, canonicalUrl: entry.canonicalUrl }
+        : raw;
     if (!entry) {
       eligible.push(item);
       continue;
@@ -122,6 +226,49 @@ export function selectTopPapers(
   const sorted = [...papers].sort((a, b) => b.review.score - a.review.score);
   const threshold = sorted[k - 1].review.score;
   return sorted.filter((p) => p.review.score >= threshold);
+}
+
+/** 正文里的一条外链：url + 展示文字（无文字时回退 URL 本身） */
+export interface ContentLink {
+  url: string;
+  title: string;
+}
+
+/**
+ * 扫出正文（主语言 markdown）里的全部 http(s) 外链，含 `[文字](url)` 与裸链，
+ * 按 dedupKey 去重、保留首次出现的展示文字。
+ *
+ * 用途见 workflow finalize：synthesize 自报的 usedIntelUrls 会漏——第 1 期正文
+ * 引用的 OpenAI 那条 URL 来自 the-decoder 报道的正文，从来就不在候选池里，
+ * 自然也匹配不上 intelCandidates，于是第 3 期又当新闻讲了一遍。正文实扫是补漏
+ * 口径：正文出现过的外链一律记成「已讲过」。
+ */
+export function extractContentLinks(markdown: string): ContentLink[] {
+  // 每次新建（而非模块级常量）：/g 正则带 lastIndex 状态，跨调用复用会漏匹配
+  const mdLink = /(!?)\[([^\]]*)\]\(\s*<?(https?:\/\/[^\s<>)]+)>?[^)]*\)/g;
+  const bareUrl = /https?:\/\/[^\s<>"'）】」，。；]+/g;
+  const trailingJunk = /[)\]}>.,;:!?"'’”，。；：、）】」！？]+$/;
+  const out: ContentLink[] = [];
+  const seen = new Set<string>();
+  const push = (url: string, title: string) => {
+    const clean = url.replace(trailingJunk, "");
+    if (!/^https?:\/\/\S/i.test(clean)) return;
+    const key = urlDedupKey(clean);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      url: clean,
+      title: title.replace(/\*+/g, "").trim() || clean,
+    });
+  };
+  // 先摘 markdown 链接并把整段抹成等长空白，剩下的才当裸链扫，避免同一条
+  // 链接被数两次（图片 `![alt](url)` 不算引用，跳过）
+  const rest = markdown.replace(mdLink, (whole, bang, text, url) => {
+    if (!bang) push(url, text);
+    return " ".repeat(whole.length);
+  });
+  for (const m of rest.matchAll(bareUrl)) push(m[0], "");
+  return out;
 }
 
 const normalizeForMatch = (s: string) =>
