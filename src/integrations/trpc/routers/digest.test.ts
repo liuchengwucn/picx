@@ -714,12 +714,16 @@ describe("digest.getEdition", () => {
     expect(first?.picks.map((p) => p.id)).toEqual(["p1", "p2"]);
     expect(Object.keys(first?.picks[0] ?? {}).sort()).toEqual([
       "id",
+      "publishedMonth",
       "rank",
       "recommendationNote",
       "shortId",
       "title",
       "whiteboardImageR2Key",
     ]);
+    // 合刊与单期页共用同一个派生口径：p1 有 arXiv 链接、p2 没有
+    expect(first?.picks[0].publishedMonth).toBe("2026-05");
+    expect(first?.picks[1].publishedMonth).toBeNull();
 
     const second = edition?.sections[1];
     expect(second).toMatchObject({

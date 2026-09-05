@@ -124,6 +124,7 @@ export function mapEditionToLocale(
         recommendationNote: pickTldr(p.recommendationNote, localeKey) ?? "",
         whiteboardImageR2Key: p.whiteboardImageR2Key,
         rank: p.rank,
+        publishedMonth: p.publishedMonth,
       })),
     })),
   };
