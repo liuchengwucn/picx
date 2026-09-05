@@ -64,6 +64,22 @@ export interface CandidateReview {
   relevance: number; // 0-100 相对 focusBrief
   recommendation: string; // 推荐点草稿
   score: number; // 0-100 综合
+  /** 硬规则影子判定；模型不返回时由 parseHardRule 兜底成 violated=false。
+   * optional 是为了运行中 workflow 实例重放旧 state（无此字段）时不炸 */
+  hardRule?: HardRuleVerdict;
+}
+
+/**
+ * focusBrief 里「硬标准」「不在本方向范围内（一律不选）」「…不感兴趣」这类措辞
+ * 此前只是 prompt 文本、无机制执行（模型常在推荐语里自首违反）。此结构是逐条对照
+ * 的影子判定：先只观测落库（source_meta.hardRule），过滤由 HARD_RULE_FILTER 控制。
+ */
+export interface HardRuleVerdict {
+  violated: boolean;
+  /** 被违反的那条规则的原文片段（<=40 字）；未违反或模型没给为空串 */
+  rule: string;
+  /** 一句依据 */
+  reason: string;
 }
 
 /** 参谋标注（#69/#72 校准实验定稿）：结构化风险检查结果，只供 synthesize 参考，无否决权 */
