@@ -178,11 +178,15 @@ export async function decrypt(
 }
 
 /**
- * Mask an API key for display purposes
- * @param apiKey - The API key to mask
- * @returns Masked API key as "***"
- * @example maskApiKey("sk-proj-abc123xyz789") => "***"
+ * 展示用的密钥掩码：保留末四位，够用户认出「这是哪把 key」，又不足以复用。
+ * 与各家控制台的惯例一致（Stripe / OpenAI 都露末四位）。
+ *
+ * 唯一调用方是 apiConfig.list——编辑弹窗走 getById 拿的是完整明文，别把这里
+ * 的产物喂回表单。
+ *
+ * @example maskApiKey("sk-proj-abc123xyz789") => "···z789"
  */
-export function maskApiKey(_apiKey: string): string {
-  return "***";
+export function maskApiKey(apiKey: string): string {
+  const tail = apiKey.slice(-4);
+  return apiKey.length > 8 ? `···${tail}` : "***";
 }
