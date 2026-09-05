@@ -17,6 +17,11 @@ import {
   stripIssuePrefix,
 } from "./synthesis-guards";
 import {
+  detectTranslationLeak,
+  leakRetryInstruction,
+  type TranslationLeak,
+} from "./translation-guard";
+import {
   type AuthorMetric,
   type CandidateItem,
   type CandidateReview,
@@ -768,14 +773,56 @@ export async function translateDigest(
     "Keep markdown structure, technical terms, paper titles and URLs unchanged. Translate values only, never keys.",
     "Return the same JSON shape, JSON only.",
   ].join("\n");
-  const r = await chatJson<{
-    title: string;
-    content: string;
-    notes: Record<string, string>;
-  }>(cfg, system, JSON.stringify(payload), 8000);
-  if (!r.title || !r.content)
-    throw new DigestAiError(`translate ${target}: malformed`);
-  return { title: r.title, content: r.content, notes: r.notes ?? {} };
+  // 出口校验（见 translation-guard）：cheap 模型会偶发整段照抄原文，2026-08-29
+  // 的第 3 期有三个方向的 ja 正文与 24/169 条 ja 推荐语根本没翻。首轮违规就把
+  // 具体字段回灌给模型重来一次，并把温度从 0 抬到 0.3——温度 0 时"照抄"是个稳定
+  // 吸引子，只换 prompt 不换采样容易原样再来一遍。
+  let leaks: TranslationLeak[] = [];
+  let retryHint = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let r: { title: string; content: string; notes: Record<string, string> };
+    try {
+      r = await chatJson<{
+        title: string;
+        content: string;
+        notes: Record<string, string>;
+      }>(
+        cfg,
+        retryHint ? `${system}\n\n${retryHint}` : system,
+        JSON.stringify(payload),
+        8000,
+        attempt === 0 ? 0 : 0.3,
+      );
+    } catch (error) {
+      // 本地实跑撞到过：整篇 markdown 正文里模型把裸换行写进 JSON 字符串，
+      // JSON.parse 抛 "Bad control character"。这条和语言泄漏是同一个后果——
+      // step 重试耗尽后 fallback 回 zh-cn，所以同样在函数内先自救一次。
+      if (attempt === 1) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[digest-ai] translate ${target}: ${message}, retrying`);
+      retryHint =
+        'RETRY: your previous output was not valid JSON. Emit a single JSON object; inside string values escape newlines as \\n and quotes as \\", and never emit raw control characters.';
+      continue;
+    }
+    if (!r.title || !r.content)
+      throw new DigestAiError(`translate ${target}: malformed`);
+    const out = { title: r.title, content: r.content, notes: r.notes ?? {} };
+    leaks = detectTranslationLeak(target, out);
+    if (leaks.length === 0) return out;
+    console.warn(
+      `[digest-ai] translate ${target}: untranslated fields on attempt ${attempt + 1}/2: ${leaks.map((l) => l.field).join(", ")}`,
+    );
+    retryHint = leakRetryInstruction(target, leaks);
+  }
+  // 抛给 step 重试（LLM_RETRIES，3 次）。注意 digest-workflow 的翻译步在重试
+  // 耗尽后会 fallback 回 zh-cn——那正是今天线上 ja 槽里躺着中文的样子，所以这
+  // 里的判据宁可漏也不能误报。
+  throw new DigestAiError(
+    `translate ${target}: untranslated after retry — ${leaks
+      .slice(0, 5)
+      .map((l) => `${l.field} (${l.reason})`)
+      .join("; ")}${leaks.length > 5 ? ` +${leaks.length - 5} more` : ""}`,
+  );
 }
 
 const INTRO_SYSTEM = [

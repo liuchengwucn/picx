@@ -7,6 +7,10 @@ import { papers } from "#/db/schema";
 export { ChatRunner } from "#/lib/chat-runner-do";
 
 import { prefersMarkdown } from "#/lib/content-negotiation";
+import {
+  resolveDigestRef,
+  retranslateDigestLocale,
+} from "#/lib/digest/retranslate";
 import { negotiateFromAcceptLanguage } from "#/lib/locale-negotiation";
 import { goneIfHiddenStory } from "#/lib/news/gone";
 import { loadPaperMarkdown } from "#/lib/paper-markdown";
@@ -216,6 +220,62 @@ export default {
         ...(wantWhiteboard ? { generateWhiteboard: true } : {}),
       });
       return new Response(`requeued ${shortId} (${paper.id})`, { status: 200 });
+    }
+
+    // 运维通道：按期重译简报的**单个**语言（与 /__scheduled 同门禁）。
+    // 用途是回填 2026-08-29 那批没翻的 ja（出口校验上线前生成的存量）。
+    // ids= 逗号分隔，每项可以是 digest id，也可以是 `slug#issue`（如
+    // formal-math#3）；locale= 默认 ja；dry=1 只翻不写。
+    // 逐期串行、每期译完立刻写回：客户端断连最多丢掉后面几期，已写回的那几期
+    // 是完整的，而且重译幂等（源恒为 zh-cn），重跑即可。一次别传太多期——
+    // 每期一次 LLM 调用，攒太长会把 HTTP 响应拖到超时。
+    if (pathname === "/__ops/retranslate-digest") {
+      const params = new URL(request.url).searchParams;
+      if (
+        env.ENVIRONMENT === "production" &&
+        (!env.CRON_TRIGGER_KEY || params.get("key") !== env.CRON_TRIGGER_KEY)
+      ) {
+        return new Response("Not Found", { status: 404 });
+      }
+      const localeParam = params.get("locale") ?? "ja";
+      const target = (["zh-tw", "en", "ja"] as const).find(
+        (l) => l === localeParam,
+      );
+      if (!target) return new Response("invalid locale", { status: 400 });
+      const refs = (params.get("ids") ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (refs.length === 0)
+        return new Response("ids required", { status: 400 });
+      const dryRun = params.get("dry") === "1";
+
+      const db = drizzle(env.DB);
+      const results: unknown[] = [];
+      for (const ref of refs) {
+        const digestId = await resolveDigestRef(db, ref);
+        if (!digestId) {
+          results.push({ ref, status: "failed", detail: "unresolved ref" });
+          continue;
+        }
+        try {
+          results.push({
+            ref,
+            ...(await retranslateDigestLocale(db, env, digestId, target, {
+              dryRun,
+            })),
+          });
+        } catch (error) {
+          // 译文没过语言校验也走这里：那一期原样保留，不写半成品
+          results.push({
+            ref,
+            digestId,
+            status: "failed",
+            detail: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return Response.json({ locale: target, dryRun, results });
     }
 
     // /about 已下线(2026-08 首页重构): 301 保外链权重
