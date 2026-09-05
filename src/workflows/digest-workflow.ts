@@ -739,7 +739,17 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           .do(`translate-${locale}`, LLM_RETRIES, () =>
             translateDigest(cheapModel(env), locale, translations["zh-cn"]),
           )
-          .catch(() => translations["zh-cn"]); // 翻译失败回退主语言，不失败整期
+          .catch((e) => {
+            // 翻译失败不失败整期，但回退目标要避开「ja 槽里躺着中文」这个线上原病：
+            // ja 优先回退到已译好的 en（循环顺序保证 en 在 ja 之前），其余回退主语言
+            console.warn(
+              `[Digest] translate-${locale} failed, falling back:`,
+              e,
+            );
+            return (
+              (locale === "ja" && translations.en) || translations["zh-cn"]
+            );
+          });
       }
 
       // ── 10. 落库：论文入 gallery 管线 + digest 内容 ──
