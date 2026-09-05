@@ -1,31 +1,19 @@
 import { useEffect } from "react";
-import { authClient, startGitHubSignIn } from "#/lib/auth-client";
-import {
-  getReviewGuestClientSession,
-  isReviewGuestModeEnabled,
-} from "#/lib/review-guest";
+import { startGitHubSignIn } from "#/lib/auth-client";
+import { useEffectiveSession } from "./use-effective-session";
 
 /**
  * Redirect to GitHub login if user is not authenticated
  * @param callbackURL - URL to redirect to after successful login
  */
 export function useRequireAuth(callbackURL = "/papers") {
-  const { data: session, isPending: isSessionPending } =
-    authClient.useSession();
-
-  const guestSession =
-    !session && isReviewGuestModeEnabled()
-      ? getReviewGuestClientSession()
-      : null;
+  const { session, isPending } = useEffectiveSession();
 
   useEffect(() => {
-    if (!isSessionPending && !session && !guestSession) {
+    if (!isPending && !session) {
       void startGitHubSignIn(callbackURL);
     }
-  }, [session, isSessionPending, guestSession, callbackURL]);
+  }, [session, isPending, callbackURL]);
 
-  return {
-    session: session ?? guestSession,
-    isSessionPending,
-  };
+  return { session, isSessionPending: isPending };
 }

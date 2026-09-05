@@ -62,12 +62,12 @@ describe("sanitizeErrorShape", () => {
       message: "Upstream service unavailable",
     });
     // 不传 message：构造器继承 cause.message，若无 TRPCError 豁免子句会被误脱敏
-    const outer = new TRPCError({ code: "INTERNAL_SERVER_ERROR", cause: inner });
+    const outer = new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      cause: inner,
+    });
     expect(outer.message).toBe(inner.message);
-    const out = sanitizeErrorShape(
-      { ...shape, message: outer.message },
-      outer,
-    );
+    const out = sanitizeErrorShape({ ...shape, message: outer.message }, outer);
     expect(out.message).toBe("Upstream service unavailable");
   });
 

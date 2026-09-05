@@ -8,6 +8,17 @@ export const INITIAL_CREDITS = 10;
 export const DAILY_BONUS_CREDITS = 3;
 export const MAX_CREDITS = 20;
 
+/** lastSeenAt 两次盖戳之间的最小间隔。粒度是「运营看活跃」，小时够用，省 D1 写。 */
+export const LAST_SEEN_STAMP_INTERVAL_MS = 60 * 60 * 1000;
+
+/** 上次戳为空，或距今已满一个间隔，才写。纯函数，便于单测。 */
+export function shouldStampLastSeen(prev: Date | null, now: Date): boolean {
+  return (
+    prev === null ||
+    now.getTime() - prev.getTime() >= LAST_SEEN_STAMP_INTERVAL_MS
+  );
+}
+
 export type DailyBonusClaimResult = {
   granted: boolean;
   amount: number;

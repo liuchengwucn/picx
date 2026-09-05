@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Clipboard, Coins, Key } from "lucide-react";
+import { Settings } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,17 +8,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
+import { useEffectiveSession } from "#/hooks/use-effective-session";
 import { useHydrated } from "#/hooks/use-hydrated";
-import { authClient, startGitHubSignIn } from "#/lib/auth-client";
-import {
-  getReviewGuestClientSession,
-  isReviewGuestModeEnabled,
-} from "#/lib/review-guest";
+import { signOutAndReset, startGitHubSignIn } from "#/lib/auth-client";
 import * as m from "#/paraglide/messages";
 
 export default function BetterAuthHeader() {
   const queryClient = useQueryClient();
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const {
+    session: effectiveSession,
+    isPending: sessionPending,
+    isGuest,
+  } = useEffectiveSession();
   const hydrated = useHydrated();
   /**
    * 首帧一律按 pending 渲染: 服务端渲染时 session fetch 根本不跑(客户端才发),
@@ -30,12 +31,6 @@ export default function BetterAuthHeader() {
    * 翻牌不会给已登录用户闪一下登录按钮: 是从骨架翻到真实状态, 不经过 signed-out 分支。
    */
   const isPending = !hydrated || sessionPending;
-  const guestSession =
-    !session && isReviewGuestModeEnabled()
-      ? getReviewGuestClientSession()
-      : null;
-  const effectiveSession = session ?? guestSession;
-  const isGuestSession = !session && !!guestSession;
 
   if (isPending) {
     return (
@@ -67,7 +62,7 @@ export default function BetterAuthHeader() {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {isGuestSession ? (
+          {isGuest ? (
             <DropdownMenuItem
               onClick={() => {
                 void startGitHubSignIn("/");
@@ -78,32 +73,15 @@ export default function BetterAuthHeader() {
           ) : (
             <>
               <DropdownMenuItem asChild>
-                <Link to="/credits" className="flex items-center gap-2">
-                  <Coins className="h-4 w-4" />
-                  {m.nav_credits()}
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/api-configs" className="flex items-center gap-2">
-                  <Key className="h-4 w-4" />
-                  {m.nav_api_configs()}
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link
-                  to="/whiteboard-prompts"
-                  className="flex items-center gap-2"
-                >
-                  <Clipboard className="h-4 w-4" />
-                  {m.nav_whiteboard_prompts()}
+                <Link to="/settings" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" strokeWidth={1.25} />
+                  {m.nav_settings()}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={async () => {
-                  await authClient.signOut();
-                  queryClient.clear();
-                  window.location.assign("/");
+                onClick={() => {
+                  void signOutAndReset(queryClient);
                 }}
               >
                 {m.auth_sign_out()}

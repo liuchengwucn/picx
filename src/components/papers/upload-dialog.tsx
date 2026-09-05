@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { FileText, Link as LinkIcon, Loader2, Upload } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -40,12 +41,18 @@ import {
 import { UPLOAD_ERROR } from "#/lib/upload-errors";
 import { m } from "#/paraglide/messages";
 import { getLocale } from "#/paraglide/runtime";
+import { WhiteboardQuotaHint } from "./whiteboard-quota-hint";
 
 // 前端预检，避免大文件传完才被服务端拒绝；与 /api/papers/upload 的 100MB 硬上限对齐。
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 interface UploadDialogProps {
   credits: number;
+  /**
+   * credits 还没查回来**或查失败**——两者都是「不知道还剩几张」。
+   * 必填：漏传就等于把「未知」当成「用完」。
+   */
+  creditsLoading: boolean;
   onSuccess?: () => void;
 }
 
@@ -177,12 +184,14 @@ function ApiConfigSelector({
           <p className="text-sm text-[var(--ink-soft)]">
             {m.upload_no_api_config()}
           </p>
-          <a
-            href="/api-configs"
-            className="mt-2 inline-block text-sm font-medium text-[var(--academic-brown)] hover:underline"
+          <Link
+            to="/settings/providers"
+            className="mt-2 inline-block text-sm font-medium hover:underline"
           >
-            {m.upload_go_to_settings()}
-          </a>
+            <span className="text-[var(--academic-brown)]">
+              {m.upload_go_to_settings()}
+            </span>
+          </Link>
         </div>
       )}
     </div>
@@ -237,19 +246,34 @@ function PromptSelector({
 interface WhiteboardToggleProps {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  /** 额度用完且走站点 API 时禁用；解释文字由 describedById 指向的元素承担 */
+  disabled: boolean;
+  /** 只在禁用时给：额度提示在加载中不渲染，指过去就是个悬空 id */
+  describedById: string | undefined;
 }
 
-function WhiteboardToggle({ checked, onCheckedChange }: WhiteboardToggleProps) {
+function WhiteboardToggle({
+  checked,
+  onCheckedChange,
+  disabled,
+  describedById,
+}: WhiteboardToggleProps) {
   const toggleId = useId();
   return (
     <div className="flex items-center justify-between gap-3">
-      <Label htmlFor={toggleId} className="text-sm cursor-pointer">
+      <Label
+        htmlFor={toggleId}
+        className={`text-sm ${disabled ? "text-[var(--ink-soft)]" : "cursor-pointer"}`}
+      >
         {m.upload_whiteboard_toggle_label()}
       </Label>
+      {/* 禁用的 Switch 不接收指针事件，解释必须常驻可见（下方 hint），而不是 title */}
       <Switch
         id={toggleId}
         checked={checked}
         onCheckedChange={onCheckedChange}
+        disabled={disabled}
+        aria-describedby={describedById}
       />
     </div>
   );
@@ -262,22 +286,26 @@ interface UploadOptionsProps
   generateWhiteboard: boolean;
   onGenerateWhiteboardChange: (checked: boolean) => void;
   credits: number;
-  willCharge: boolean;
+  creditsLoading: boolean;
+  /** 由 UploadDialog 单点算出：禁用开关与强制复位必须同源，见那里的注释 */
+  exhausted: boolean;
+  onUseOwnApi: () => void;
 }
 
 /**
  * 上传选项区。文件与链接两条路径共用同一份选项,与用哪条路径无关。
  *
- * 只有「同时生成白板图」留在外层:它是唯一影响计费的开关,也决定折叠区里
+ * 只有「同时生成白板图」留在外层:它是唯一有额度成本的开关,也决定折叠区里
  * 白板图语言、提示词模板还有没有意义。语言选择进折叠区 —— 默认值(摘要跟随
  * 界面语言、白板图英文)对绝大多数人已经是对的,常驻只是让主界面更长。
- * 积分与计费文案同理:不出图就不花钱,没勾选时提计费只会让人以为要付费。
  */
 function UploadOptions({
   generateWhiteboard,
   onGenerateWhiteboardChange,
   credits,
-  willCharge,
+  creditsLoading,
+  exhausted,
+  onUseOwnApi,
   summaryLanguage,
   whiteboardLanguage,
   showWhiteboardLanguage,
@@ -292,12 +320,26 @@ function UploadOptions({
   prompts,
   onPromptChange,
 }: UploadOptionsProps) {
+  const quotaHintId = useId();
+  const hasApiConfigs = !!apiConfigs && apiConfigs.length > 0;
+
   return (
     <>
-      <div className="mt-4">
+      <div className="mt-4 space-y-1.5">
         <WhiteboardToggle
           checked={generateWhiteboard}
           onCheckedChange={onGenerateWhiteboardChange}
+          disabled={exhausted}
+          describedById={exhausted ? quotaHintId : undefined}
+        />
+        {/* 勾选前也显示：「还可生成 N 张」正是决定要不要勾的依据 */}
+        <WhiteboardQuotaHint
+          id={quotaHintId}
+          remaining={credits}
+          apiSource={apiSource}
+          hasApiConfigs={hasApiConfigs}
+          onUseOwnApi={onUseOwnApi}
+          loading={creditsLoading}
         />
       </div>
       <div className="mt-2">
@@ -339,23 +381,15 @@ function UploadOptions({
           </AccordionItem>
         </Accordion>
       </div>
-      {generateWhiteboard && (
-        <div className="mt-4 flex items-center justify-between text-sm">
-          <span className="text-[var(--ink-soft)]">
-            {m.credits_balance()}: {credits}
-          </span>
-          <span className="text-[var(--ink-soft)]">
-            {willCharge
-              ? m.upload_whiteboard_toggle_cost()
-              : m.upload_free_hint()}
-          </span>
-        </div>
-      )}
     </>
   );
 }
 
-export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
+export function UploadDialog({
+  credits,
+  creditsLoading,
+  onSuccess,
+}: UploadDialogProps) {
   const fileInputId = useId();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -398,6 +432,32 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     ...trpc.whiteboardPrompt.list.queryOptions(),
     enabled: !!session,
   });
+
+  // 只在这里算一次，再往下传：禁用开关的条件和强制复位的条件必须是同一个值。
+  // 两处各算一遍的话，一旦漂移就会出现「开关看着可用、值却被按住」这种
+  // 「状态不等于行为」的情形，而那正是这次改版要杜绝的。
+  // 额度没查回来（或查失败）都不算「用完」：宁可放行让服务端去判，也不能凭一个
+  // 还没到手的数字把开关锁死（见 WhiteboardQuotaHint 里 loading 分支的说明）。
+  const exhausted = apiSource === "system" && !creditsLoading && credits < 1;
+
+  // 额度用完时开关必须为 false：开关状态永远等于实际行为。
+  // 只有这样「勾了却什么也不出图」才不可能发生——开关被禁用的同时也被复位。
+  useEffect(() => {
+    if (exhausted && generateWhiteboard) setGenerateWhiteboard(false);
+  }, [exhausted, generateWhiteboard]);
+
+  // 额度用完时提示里的「用我的 API」：一次点击就把来源切走并选中默认配置，
+  // 用户不必再展开高级设置去找那个单选框。
+  // 同时把开关重新打开——它是被上面那个 effect 强制关掉的，不在这里补回来的话，
+  // 用户顺着我们给的台阶走下来，按下「开始」却依然没有图，且没有任何解释。
+  // 这个回调只由「额度用完」的提示触发，所以「他就是想要图」的意图是明确的。
+  const useOwnApi = useCallback(() => {
+    if (!apiConfigs || apiConfigs.length === 0) return;
+    const preferred = apiConfigs.find((c) => c.isDefault) ?? apiConfigs[0];
+    setApiSource("user");
+    setSelectedApiConfigId(preferred.id);
+    setGenerateWhiteboard(true);
+  }, [apiConfigs]);
 
   // Set default API source and config when apiConfigs are loaded
   useEffect(() => {
@@ -607,10 +667,6 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
     generateWhiteboard,
   ]);
 
-  const insufficientCredits = credits < 1;
-  const willCharge = generateWhiteboard && apiSource === "system";
-  const blockedByCredits = willCharge && insufficientCredits;
-
   const handleDialogOpenChange = useCallback(
     (nextOpen: boolean) => {
       setOpen(nextOpen);
@@ -805,7 +861,9 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             generateWhiteboard={generateWhiteboard}
             onGenerateWhiteboardChange={setGenerateWhiteboard}
             credits={credits}
-            willCharge={willCharge}
+            creditsLoading={creditsLoading}
+            exhausted={exhausted}
+            onUseOwnApi={useOwnApi}
             summaryLanguage={summaryLanguage}
             whiteboardLanguage={whiteboardLanguage}
             showWhiteboardLanguage={generateWhiteboard}
@@ -825,7 +883,6 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             disabled={
               (!file && !hasLink) ||
               uploading ||
-              blockedByCredits ||
               (apiSource === "user" && !selectedApiConfigId)
             }
             className="mt-3 w-full bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white"
@@ -833,11 +890,6 @@ export function UploadDialog({ credits, onSuccess }: UploadDialogProps) {
             {uploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {m.upload_start()}
           </Button>
-          {blockedByCredits && (
-            <p className="mt-2 text-center text-xs text-[var(--sienna)]">
-              {m.error_insufficient_credits()}
-            </p>
-          )}
         </div>
 
         {dragActive && (

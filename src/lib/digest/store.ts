@@ -180,6 +180,8 @@ export async function loadDirectionContext(
         issueNumber: digests.issueNumber,
         title: papers.title,
         note: digestPapers.recommendationNote,
+        // 出口校验的 arXiv 链接白名单要用它，缺了模型只能瞎编往期 pick 的链接
+        canonicalUrl: papers.sourceUrl,
       })
       .from(digestPapers)
       .innerJoin(digests, eq(digestPapers.digestId, digests.id))
@@ -196,6 +198,7 @@ export async function loadDirectionContext(
       issueNumber: r.issueNumber,
       title: r.title,
       note: localeTextWithFallback(r.note),
+      canonicalUrl: r.canonicalUrl ?? null,
     }));
   }
 
@@ -384,22 +387,95 @@ export async function listPoolCandidateItems(
   });
 }
 
-/** 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。 */
+/**
+ * 正文引用了、但候选池里没有的外链补写成 rejected intel（跨期去重补漏）。
+ *
+ * **后果（写之前想清楚）**：这一行进池后，同一 URL 在 180 天内不会再被当新闻
+ * 讲——partitionCandidates 跳过 rejected，而 intel 没有 arXiv id，迟到爆款那条
+ * 复活路径对它也不成立。用 rejected 而不是 recommended 是刻意的：recommended
+ * 在 loadDirectionContext 里被永久保留，rejected 则随 180 天 lastSeenAt 窗口
+ * 自然遗忘，抑制力一样但不会永久占池。sourceMeta.sourceLabel="content-link"
+ * 标明它不是真被评审拒掉的。
+ *
+ * 逐条 insert-on-conflict（沿用 upsertCandidatesSeen 的写法）：每条约 11 个绑定
+ * 参数，天然避开 D1 单查询 100 参数上限，且整体幂等、重放安全。
+ */
+export async function upsertContentLinkCandidates(
+  db: Db,
+  directionId: string,
+  issueNumber: number,
+  links: { url: string; title: string }[],
+): Promise<void> {
+  const now = new Date();
+  for (const link of links) {
+    await db
+      .insert(directionCandidates)
+      .values({
+        directionId,
+        canonicalUrl: link.url,
+        title: (link.title || link.url).slice(0, 500),
+        kind: "intel",
+        status: "rejected",
+        sourceMeta: { sourceLabel: "content-link", issue: issueNumber },
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          directionCandidates.directionId,
+          directionCandidates.canonicalUrl,
+        ],
+        // 撞上的只可能是本次运行中途才插进来的行（池快照之后），几乎必然是
+        // upsertCandidatesSeen 写的 seen。只降 seen：setWhere 挡住 recommended
+        // （可能是入刊论文的行）被这里降级。同样不动 kind/sourceMeta——老行
+        // 自带的 publishedAt 不能被这里的空日期覆盖（listPoolCandidateItems
+        // 靠 sourceMeta.publishedAt 还原日期）。
+        set: { status: "rejected", lastSeenAt: now },
+        setWhere: eq(directionCandidates.status, "seen"),
+      });
+  }
+}
+
+/**
+ * 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。
+ * sourceMeta 走「读-改-写」浅合并：D1 无事务，同一 (direction,url) 的写入只来自
+ * 该候选自己的 review step，不存在并发；重放时同键覆盖成同值，仍然幂等。
+ * 前提是同方向单实例——手动重触发叠在 cron 上时两个实例会读到同一份旧值，
+ * 读-改-写可能丢更新（丢的是观测字段，不影响出刊）。
+ */
 export async function updateCandidateStatus(
   db: Db,
   directionId: string,
   canonicalUrl: string,
-  patch: { status?: "seen" | "recommended" | "rejected"; score?: number },
+  patch: {
+    status?: "seen" | "recommended" | "rejected";
+    score?: number;
+    /** 与现有 source_meta 浅合并（保留 sourceLabel/publishedAt 等既有键） */
+    sourceMeta?: Record<string, unknown>;
+  },
 ): Promise<void> {
+  const { sourceMeta, ...rest } = patch;
+  const where = and(
+    eq(directionCandidates.directionId, directionId),
+    eq(directionCandidates.canonicalUrl, canonicalUrl),
+  );
+  let merged: Record<string, unknown> | undefined;
+  if (sourceMeta) {
+    const [row] = await db
+      .select({ sourceMeta: directionCandidates.sourceMeta })
+      .from(directionCandidates)
+      .where(where)
+      .limit(1);
+    merged = { ...(row?.sourceMeta ?? {}), ...sourceMeta };
+  }
   await db
     .update(directionCandidates)
-    .set({ ...patch, lastSeenAt: new Date() })
-    .where(
-      and(
-        eq(directionCandidates.directionId, directionId),
-        eq(directionCandidates.canonicalUrl, canonicalUrl),
-      ),
-    );
+    .set({
+      ...rest,
+      ...(merged ? { sourceMeta: merged } : {}),
+      lastSeenAt: new Date(),
+    })
+    .where(where);
 }
 
 export interface FinalizeResult {
