@@ -10,6 +10,7 @@ import {
   buildRetryInstruction,
   collectSynthesisIssues,
   demoteMarkdownLinks,
+  extractUrls,
   replaceWeeklyWording,
   SECTION_LEAD,
   SECTION_OPEN_QUESTIONS,
@@ -55,13 +56,17 @@ function feedbackBlock(samples: FeedbackSample[]): string {
  * 行尾带 URL 是硬要求：不给 URL 时模型在正文里提往期 pick 只能瞎编 arXiv 号
  * （moe 第 2/3 期把 PR²、Kimi K3 分别配成了 TEMPO、ReLibra 的链接）。
  * synthesize / reviewCandidate / annotateCandidate 共用本块，URL 自然全都带上。
+ *
+ * 行首用「第N期」而不是「[#N]」是源头消除：模型会把清单里的记号原样抄进正文
+ * （线上三个方向各抄出一种式样），那就让它能抄到的形状本身就是合法写法。
+ * 出口的 `\[#\d+\]` 拦截保留作兜底。
  */
 export function pastPicksBlock(picks: PastPick[]): string {
   if (picks.length === 0) return "(no prior picks yet)";
   return picks
     .map(
       (p) =>
-        `- [#${p.issueNumber}] ${clean(p.title)}${p.note ? ` — ${clean(p.note)}` : ""}${p.canonicalUrl ? ` (${p.canonicalUrl})` : ""}`,
+        `- 第${p.issueNumber}期 ${clean(p.title)}${p.note ? ` — ${clean(p.note)}` : ""}${p.canonicalUrl ? ` (${clean(p.canonicalUrl)})` : ""}`,
     )
     .join("\n");
 }
@@ -497,8 +502,8 @@ export async function synthesizeDigest(
     "   Every arxiv.org link you write MUST be copied verbatim from a candidate's URL line or from a prior pick's URL below. NEVER construct, guess or recall an arXiv ID from memory: if you want to name a paper you have no URL for, name it in plain text with no link. Never link exa.ai pages (they are search-tool internals, not sources).",
     "   Never leak internal pipeline wording into reader-facing text: 作者信号/author signal, 全文不可得, 摘要较薄, Draft note, Risk flags are field names from the material below, not things a reader may see. Judge the work and describe only the work.",
     "   Every named team/system/dataset/benchmark/result claim in content MUST carry an inline markdown link [标题](URL) to its source. If the provided material has no URL for a claim and web_search cannot find an authoritative one, omit the claim entirely — 宁可不写, never leave a named claim unlinked.",
-    "   Do NOT repeat the previous issue's themes or open questions (its body is provided below when available). A carried-over open question may appear only when framed as progress since last issue (e.g. 「上期提出的X，本周有了…」), never restated as-is.",
-    `   Time wording: say 「本期」 when you mean this issue. 「本周」/「这周」 (and "new", "just released", "this week") are allowed ONLY for an item whose Published date falls inside the issue window (${input.periodLabel}) — most candidates are months old, so the default is 「本期」. For items whose Published date is unknown or older than the window, present them without temporal claims (e.g. "X provides…" not "X was released this week").`,
+    "   Do NOT repeat the previous issue's themes or open questions (its body is provided below when available). A carried-over open question may appear only when framed as progress since last issue (e.g. 「上期提出的X，本期有了…」), never restated as-is.",
+    `   Time wording: always say 「本期」 for this issue — NEVER 「本周」/「这周」, whatever the item's date (most candidates are months old, and the issue window ${input.periodLabel} is not what the reader sees). Likewise avoid "new", "just released", "this week" for any item whose Published date is unknown or older than the window: present it without temporal claims (e.g. "X provides…" not "X was released this week").`,
     "You have a web_search tool. Its ONLY purpose is to find or verify the canonical URL / details for claims you want to mention in content (official announcement, repo, blog post). NEVER use it to discover new candidate papers or expand coverage beyond the material provided below.",
     // 期号由栏眉渲染，标题再带一次就是双重期号（线上「ISSUE 3」+「Issue 3: …」）
     "3. title: issue title (zh-cn), concrete not clickbait — name the issue's single most important theme, e.g. 「稀疏注意力开始吃掉长上下文」. NEVER put an issue number or 「第N期」/「Issue N」 prefix in the title.",
@@ -506,7 +511,7 @@ export async function synthesizeDigest(
     "5. usedIntelUrls: the canonicalUrl of every intel item you actually cited in content (exact URLs from the list below).",
     "Respect user feedback below when judging taste.",
     UNTRUSTED_NOTE,
-    "The wording rules above (no internal codes, no invented arxiv.org links, no internal pipeline wording, 本期 vs 本周) apply to recommendationNote exactly as they do to content — both are read by the same reader.",
+    "The wording rules above (no internal codes, no invented arxiv.org links, no internal pipeline wording, 本期 never 本周) apply to recommendationNote exactly as they do to content — both are read by the same reader.",
     `Final check before returning: content must contain ZERO internal/positional item codes (P1, I3, Paper 2, Item 4, [#2], 上期 #1 都算) — every item reference must be an inline markdown link [标题](URL); content must start with "${SECTION_LEAD}" and contain "${SECTION_OPEN_QUESTIONS}"; every arxiv.org link must appear verbatim in the material below.`,
     // content 示例不能写成 "..."：生产实测模型会把占位符原样回填（首期 self-improvement 事故）
     'Return JSON only: {"title":"<issue title>","content":"<the FULL issue body in markdown, never a placeholder>","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"usedIntelUrls":["..."],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
@@ -613,16 +618,18 @@ export async function synthesizeDigest(
       );
     }
   };
-  // 允许出现的 arXiv 链接 = 本期论文候选 ∪ intel 候选 ∪ 往期 picks
+  // 允许出现的 arXiv 链接 = 本期论文候选 ∪ intel 候选 ∪ 往期 picks ∪ 上期正文里的链接
+  // （上期正文作为防复读对照物整段注入，模型从中原样抄来的链接是合法引用，不是编的）
   const allowedArxivIds = buildAllowedArxivIds([
     ...input.papers.map((p) => p.item.canonicalUrl),
     ...input.intel.map((p) => p.item.canonicalUrl),
     ...input.pastPicks.map((p) => p.canonicalUrl),
+    ...extractUrls(input.lastIssue?.body ?? ""),
   ]);
   const collect = (res: SynthesisResult) =>
     collectSynthesisIssues({
       content: res.content,
-      notes: res.picks.map((p) => p.recommendationNote ?? ""),
+      notes: res.picks.map((p) => p?.recommendationNote ?? ""),
       allowedArxivIds,
     });
 
@@ -630,12 +637,27 @@ export async function synthesizeDigest(
   assertShape(r);
   let issues = collect(r);
   if (issues.length > 0) {
-    // 四类违规合并成一次重试（定稿是强模型 + 8 步 agent 循环，逐条重试烧不起）；
-    // 重试稿仍违规则按可修/不可修分流，绝不抛错——一处措辞瑕疵不值一整期失败。
-    const retried = await runAgent(buildRetryInstruction(issues));
-    assertShape(retried);
-    r = retried;
-    issues = collect(r);
+    // 违规合并成一次重试（定稿是强模型 + 8 步 agent 循环，逐条重试烧不起）。
+    // 重试整个包在 try 里：原稿已过 assertShape，是一份可用的稿子，绝不能被
+    // 重试的网关错/JSON 转义错连坐掉——出口校验不做整期失败的新来源。
+    try {
+      const retried = await runAgent(buildRetryInstruction(issues));
+      assertShape(retried);
+      const retriedIssues = collect(retried);
+      // 只在「没变得更糟」时采用：整篇重写可能修好措辞却新编一个 arXiv 链接
+      if (retriedIssues.length <= issues.length) {
+        r = retried;
+        issues = retriedIssues;
+      } else {
+        console.warn(
+          `[Digest] synthesize: retry made it worse (${issues.length} → ${retriedIssues.length} issues), keeping the original draft`,
+        );
+      }
+    } catch (e) {
+      console.warn(
+        `[Digest] synthesize: guard retry failed, keeping the original draft: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
   if (issues.length > 0) {
     console.warn(
@@ -659,17 +681,17 @@ export async function synthesizeDigest(
         recommendationNote: demote(p.recommendationNote ?? ""),
       }));
     }
-    if (issues.some((i) => i.type === "weekly_wording")) {
-      r.content = replaceWeeklyWording(r.content);
-      r.picks = r.picks.map((p) => ({
-        ...p,
-        recommendationNote: replaceWeeklyWording(p.recommendationNote ?? ""),
-      }));
-    }
   }
-  // 期号前缀无条件 strip（栏眉已渲染 ISSUE N，标题再带就是双重期号）。
-  // zh-cn 干净后翻译步自然跟着不带期号，无需另在 workflow 里后处理。
-  // 退化标题（如「第3期：」）宁可原样放行也不抛错：出口校验不做整期失败的新来源
+  // ── 两项确定性改写：无条件跑，不进重试判据（代码几个字符就能修好的事，
+  //    不值得多烧一次强模型调用，更不值得冒「整篇重写把别处改坏」的风险）──
+  // 1. 「本周/这周」→「本期」（负向先行断言已排掉「本周五/本周期/这周末」）
+  r.content = replaceWeeklyWording(r.content);
+  r.picks = r.picks.map((p) => ({
+    ...p,
+    recommendationNote: replaceWeeklyWording(p?.recommendationNote ?? ""),
+  }));
+  // 2. 标题期号前缀（栏眉已渲染 ISSUE N，标题再带就是双重期号）。zh-cn 干净后
+  //    翻译步自然跟着不带期号。退化标题（如「第3期：」）宁可原样放行也不抛错。
   r.title = stripIssuePrefix(r.title) || r.title;
   return r;
 }

@@ -237,6 +237,29 @@ describe("replaceWeeklyWording", () => {
   it("leaves 本期 alone", () => {
     expect(replaceWeeklyWording("本期共选 5 篇")).toBe("本期共选 5 篇");
   });
+
+  // 「周」属于后一个词时不能动：改成「本期五」「本期末」会把好句子改坏
+  it.each([
+    "本周五发布的模型",
+    "本周期内的评测口径",
+    "这周末的社区讨论",
+    "本周日凌晨的更新",
+    "本周刊登的评论",
+    "本周年回顾",
+    "本周初的基准",
+    "本周中的中间结论",
+    "本周天的实验",
+    "本周三与本周六各跑一次",
+  ])("leaves %s untouched", (text) => {
+    expect(replaceWeeklyWording(text)).toBe(text);
+  });
+
+  it("still rewrites when 周 is followed by an unrelated char", () => {
+    expect(replaceWeeklyWording("本周有了新的进展")).toBe("本期有了新的进展");
+    expect(replaceWeeklyWording("本周，社区讨论转向")).toBe(
+      "本期，社区讨论转向",
+    );
+  });
 });
 
 describe("collectSynthesisIssues", () => {
@@ -259,10 +282,10 @@ describe("collectSynthesisIssues", () => {
     ).toEqual([]);
   });
 
-  it("catches all four defect classes at once", () => {
+  it("catches every retry-worthy defect class at once", () => {
     const content = [
       "## 本期要点",
-      "本周 [#1] MiniMax 与 P2 的对比见 [PR²](https://arxiv.org/abs/2608.13057)，另见 [综述](https://exa.ai/library/x)。",
+      "[#1] MiniMax 与 P2 的对比见 [PR²](https://arxiv.org/abs/2608.13057)，另见 [综述](https://exa.ai/library/x)。",
     ].join("\n");
     const issues = collectSynthesisIssues({
       content,
@@ -275,8 +298,18 @@ describe("collectSynthesisIssues", () => {
       "internal_ref",
       "internal_wording",
       "missing_sections",
-      "weekly_wording",
     ]);
+  });
+
+  // 「本周」是确定性改写，不该为它重跑一次强模型定稿
+  it("does not treat 本周 as a retry-worthy issue", () => {
+    expect(
+      collectSynthesisIssues({
+        content: cleanBody.replace("给出了", "本周给出了"),
+        notes: ["本周最值得读的一篇。"],
+        allowedArxivIds: allowed,
+      }),
+    ).toEqual([]);
   });
 
   it.each([
@@ -303,13 +336,23 @@ describe("collectSynthesisIssues", () => {
     expect(issues).toEqual([]);
   });
 
-  it("detects 本周 inside a recommendationNote, not only in content", () => {
+  it("detects internal markers inside a recommendationNote, not only in content", () => {
     const issues = collectSynthesisIssues({
       content: cleanBody,
-      notes: ["本周最值得读的一篇。"],
+      notes: ["与上期 #1 的方法相比增量明确。"],
       allowedArxivIds: allowed,
     });
-    expect(issues).toEqual([{ type: "weekly_wording" }]);
+    expect(issues).toEqual([{ type: "internal_ref", sample: "上期 #1" }]);
+  });
+
+  // `#\d+\s*期` 收紧后不再命中「## 3 期以来…」这类正常标题
+  it("does not flag a heading like 「## 3 期以来的进展」", () => {
+    const issues = collectSynthesisIssues({
+      content: "## 本期看点\n## 3 期以来的进展\nx\n## 未解之问\n1. a",
+      notes: [],
+      allowedArxivIds: allowed,
+    });
+    expect(issues).toEqual([]);
   });
 });
 
@@ -321,7 +364,6 @@ describe("buildRetryInstruction", () => {
       { type: "exa_link", urls: ["https://exa.ai/library/x"] },
       { type: "missing_sections", missing: ["## 本期看点"] },
       { type: "internal_wording", terms: ["作者信号"] },
-      { type: "weekly_wording" },
     ];
     const out = buildRetryInstruction(issues);
     expect(out).toContain("[#1]");
@@ -329,7 +371,6 @@ describe("buildRetryInstruction", () => {
     expect(out).toContain("https://exa.ai/library/x");
     expect(out).toContain("## 本期看点");
     expect(out).toContain("作者信号");
-    expect(out).toContain("本周");
     // 每类违规恰好一行，外加一行开场白
     expect(out.split("\n")).toHaveLength(issues.length + 1);
   });

@@ -21,7 +21,7 @@ export const SECTION_OPEN_QUESTIONS = "## 未解之问";
  *   （线上 efficient-attention / moe / pretrain-data 三个方向各出一种式样）
  * 允许的写法只有「第 N 期的 X」。
  */
-const INTERNAL_REF_RE = /\b[IP]\d{1,2}\b|\[#\d+\]|#\s*\d+\s*期|上期\s*#\s*\d+/;
+const INTERNAL_REF_RE = /\b[IP]\d{1,2}\b|\[#\d+\]|#\d+\s*期|上期\s*#\s*\d+/;
 
 /**
  * 内部措辞黑名单：素材块的字段名与内部指标名，混进面向读者的推荐语/正文即是穿帮
@@ -37,20 +37,37 @@ export const INTERNAL_WORDING_TERMS = [
   "摘要较薄",
 ] as const;
 
-/** 「本周」类时间措辞：169 篇 picks 里六成是数月前的论文，正文一律该说「本期」。
- * 刻意不带 /g：带 /g 的正则 test() 有 lastIndex 状态，跨多段文本轮询会漏检。 */
-const WEEKLY_WORDING_RE = /本周|这周/;
+/**
+ * 「本周」类时间措辞：169 篇 picks 里六成是数月前的论文，正文一律说「本期」。
+ *
+ * 负向先行断言排掉「本周五/本周末/本周期/本周刊/这周日……」——它们的「周」属于
+ * 后一个词，替换成「本期五」「本期末」会把好句子改坏。检出与替换共用这一条正则，
+ * 口径不可能漂。刻意不带 /g：带 /g 的正则 test() 有 lastIndex 状态，跨多段文本
+ * 轮询会漏检；replaceWeeklyWording 里再按 source 现造带 /g 的。
+ */
+const WEEKLY_WORDING_RE = /(?:本|这)周(?![期刊末日一二三四五六天年初中])/;
 
 /** 标题里的期号前缀：栏眉已显示 ISSUE N，标题再带一次就是双重期号。
  * 四语都可能出现（zh 期 / zh-tw 期 / ja 号·回 / en Issue），分隔符含全半角。 */
 const ISSUE_PREFIX_RE =
-  /^\s*(?:第\s*\d+\s*(?:期|号|號|回)|(?:Issue|Vol\.?|No\.?)\s*#?\s*\d+)\s*[:：—\-–·]\s*/i;
+  /^\s*(?:第\s*\d+\s*(?:期|号|號|回)|(?:Issue|Vol\.?|No\.?)\s*#?\s*\d+)\s*[:：—\-–·|｜]\s*/i;
 
-/** markdown 行内链接（含可选 title 段）。图片链接 `![alt](url)` 的 `!` 不在捕获内，
- * 降级时会退化成 alt 文本——简报正文不产图片链接，不额外处理。 */
+/**
+ * markdown 行内链接（含可选 title 段）。只覆盖 inline 形态：
+ * 引用式链接 `[t][ref]` + `[ref]: url` 与尖括号自动链接 `<url>` 都不匹配，
+ * 定稿 prompt 只要求 inline 形态，出现别的形态时降级会静默不生效（只 warn 留痕）。
+ * 图片 `![alt](url)` 的 `!` 不在匹配范围内，降级后会留下 `!alt`——
+ * 简报正文不产图片链接，不额外处理。
+ */
 const MD_LINK_RE = /\[([^\]\n]*)\]\(\s*([^\s)]+)(?:\s+"[^"]*")?\s*\)/g;
 
-/** 裸 URL：用于检出没写成 markdown 链接的引用。右界排除 markdown/中英标点 */
+/**
+ * 裸 URL：用于检出没写成 markdown 链接的引用。
+ * 右界刻意在 `)` 处断——URL 绝大多数不含 `)`，而 markdown 链接 `[t](url)` 与
+ * 中文行文里的 `（见 url）` 都以 `)` 收尾，在此断开才能取到干净的链接；
+ * 代价是极少数路径里真含 `)` 的 URL 会被截短（只影响留痕文案，不影响降级——
+ * 降级走 MD_LINK_RE 的完整匹配）。
+ */
 const BARE_URL_RE = /https?:\/\/[^\s)<>"'\]，。；：！？]+/g;
 
 /** URL 尾随标点不属于链接本身（正文里常见 `…(url)。`） */
@@ -146,7 +163,11 @@ export function collectLinkViolations(
   return { fabricatedArxiv, exa };
 }
 
-/** 把命中的 markdown 链接降级为纯文本：`[标题](url)` → `标题`。裸链保持原样（只留痕不改写） */
+/**
+ * 把命中的 markdown 链接降级为纯文本：`[标题](url)` → `标题`。
+ * 只处理 MD_LINK_RE 覆盖的 inline 形态（引用式/自动链接不动，图片会留下 `!`）；
+ * 裸链一律保持原样——改写裸链等于改写正文措辞，只留痕不动手。
+ */
 export function demoteMarkdownLinks(
   md: string,
   shouldDemote: (url: string) => boolean,
@@ -165,7 +186,8 @@ export function findMissingSections(content: string): string[] {
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? "";
   if (firstLine !== SECTION_LEAD) missing.push(SECTION_LEAD);
-  if (!new RegExp(`^${SECTION_OPEN_QUESTIONS}\\s*$`, "m").test(content)) {
+  // 与首节判据同样容忍缩进：模型偶尔会给小节标题带前导空格
+  if (!new RegExp(`^\\s*${SECTION_OPEN_QUESTIONS}\\s*$`, "m").test(content)) {
     missing.push(SECTION_OPEN_QUESTIONS);
   }
   return missing;
@@ -186,7 +208,11 @@ export function stripIssuePrefix(title: string): string {
   return title.replace(ISSUE_PREFIX_RE, "").trim();
 }
 
-/** 「本周/这周」→「本期」（重试后仍不改时的兜底改写） */
+/**
+ * 「本周/这周」→「本期」。这一项**不进重试判据**：它是纯确定性改写，
+ * 让强模型为它重跑一次 8 步 agent 循环不划算，而且整篇重写可能修好措辞
+ * 却新编一个 arXiv 链接。出口无条件跑一次即可。
+ */
 export function replaceWeeklyWording(text: string): string {
   return text.replace(new RegExp(WEEKLY_WORDING_RE.source, "g"), "本期");
 }
@@ -196,13 +222,15 @@ export type SynthesisIssue =
   | { type: "fabricated_arxiv"; urls: string[] }
   | { type: "exa_link"; urls: string[] }
   | { type: "missing_sections"; missing: string[] }
-  | { type: "internal_wording"; terms: string[] }
-  | { type: "weekly_wording" };
+  | { type: "internal_wording"; terms: string[] };
 
 /**
- * 出口全检（content + 全部 recommendationNote）。返回空数组即放行。
- * 标题期号不进这里：prompt 给的示例本来就不带期号，代码无条件 strip 即可，
- * 不值得为它多烧一次强模型调用。
+ * 出口全检（content + 全部 recommendationNote），返回的每一项都值得为它重跑一次
+ * 定稿——只有模型才能修的问题才进这里。返回空数组即放行。
+ *
+ * 两类确定性改写刻意不进来：标题期号（无条件 stripIssuePrefix）与「本周」
+ * （无条件 replaceWeeklyWording）。代码几个字符就能修好的事，不值得多烧一次
+ * 强模型调用，更不值得冒「整篇重写把别处改坏」的风险。
  */
 export function collectSynthesisIssues(input: {
   content: string;
@@ -212,7 +240,8 @@ export function collectSynthesisIssues(input: {
   const texts = [input.content, ...input.notes];
   const issues: SynthesisIssue[] = [];
 
-  const ref = input.content.match(INTERNAL_REF_RE);
+  // 内部记号在推荐语里同样穿帮，content 与 notes 一起扫
+  const ref = texts.map((t) => t.match(INTERNAL_REF_RE)).find(Boolean);
   if (ref) issues.push({ type: "internal_ref", sample: ref[0] });
 
   const links = collectLinkViolations(texts, input.allowedArxivIds);
@@ -227,16 +256,12 @@ export function collectSynthesisIssues(input: {
   const terms = findInternalWording(texts);
   if (terms.length > 0) issues.push({ type: "internal_wording", terms });
 
-  if (texts.some((t) => WEEKLY_WORDING_RE.test(t))) {
-    issues.push({ type: "weekly_wording" });
-  }
-
   return issues;
 }
 
 /**
- * 把违规清单渲染成重试用的 extraSystem。四类问题合并成**一次**重试而不是各来一次：
- * 定稿走强模型 + 8 步 agent 循环，四次串行重试的代价（钱与 step 超时风险）远大于收益。
+ * 把违规清单渲染成重试用的 extraSystem。所有问题合并成**一次**重试而不是各来一次：
+ * 定稿走强模型 + 8 步 agent 循环，逐条串行重试的代价（钱与 step 超时风险）远大于收益。
  */
 export function buildRetryInstruction(issues: SynthesisIssue[]): string {
   const lines = ["Your previous draft violated these hard rules. Rewrite it:"];
@@ -265,11 +290,6 @@ export function buildRetryInstruction(issues: SynthesisIssue[]): string {
       case "internal_wording":
         lines.push(
           `- It leaked internal pipeline wording (${issue.terms.join(", ")}) into reader-facing text. Never mention author signals, missing full text, thin abstracts, draft notes or risk flags — judge the work, describe only the work.`,
-        );
-        break;
-      case "weekly_wording":
-        lines.push(
-          "- It used 「本周」/「这周」 for items that are not necessarily from this week. Use 「本期」 for anything about the issue itself; 「本周」 is allowed ONLY for an item whose Published date falls inside the issue window.",
         );
         break;
     }

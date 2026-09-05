@@ -633,13 +633,15 @@ export class DigestWorkflow extends WorkflowEntrypoint<
 
       // ── 8. 定稿（强模型）──
       // 重试上限高于其他 LLM step：实跑网关会间歇吐空白 body（约 40s 截断，
-      // 重试可穿过），叠加模型偶发 JSON 转义错，3 次尝试不够、曾整期失败
+      // 重试可穿过），叠加模型偶发 JSON 转义错，3 次尝试不够、曾整期失败。
+      // timeout 15 分钟而非 10：出口校验命中时 synthesizeDigest 内部会再跑一次
+      // 8 步 agent 循环，一个 step 里要装得下两轮定稿。
       const synthesis: SynthesisResult = await step.do(
         "synthesize",
         {
           ...LLM_RETRIES,
           retries: { ...LLM_RETRIES.retries, limit: 5 },
-          timeout: "10 minutes",
+          timeout: "15 minutes",
         },
         () =>
           synthesizeDigest(env, strongModel(env).model, {
