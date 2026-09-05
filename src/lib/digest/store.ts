@@ -380,22 +380,44 @@ export async function listPoolCandidateItems(
   });
 }
 
-/** 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。 */
+/**
+ * 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。
+ * sourceMeta 走「读-改-写」浅合并：D1 无事务，同一 (direction,url) 的写入只来自
+ * 该候选自己的 review step，不存在并发；重放时同键覆盖成同值，仍然幂等。
+ */
 export async function updateCandidateStatus(
   db: Db,
   directionId: string,
   canonicalUrl: string,
-  patch: { status?: "seen" | "recommended" | "rejected"; score?: number },
+  patch: {
+    status?: "seen" | "recommended" | "rejected";
+    score?: number;
+    /** 与现有 source_meta 浅合并（保留 sourceLabel/publishedAt 等既有键） */
+    sourceMeta?: Record<string, unknown>;
+  },
 ): Promise<void> {
+  const { sourceMeta, ...rest } = patch;
+  const where = and(
+    eq(directionCandidates.directionId, directionId),
+    eq(directionCandidates.canonicalUrl, canonicalUrl),
+  );
+  let merged: Record<string, unknown> | undefined;
+  if (sourceMeta) {
+    const [row] = await db
+      .select({ sourceMeta: directionCandidates.sourceMeta })
+      .from(directionCandidates)
+      .where(where)
+      .limit(1);
+    merged = { ...(row?.sourceMeta ?? {}), ...sourceMeta };
+  }
   await db
     .update(directionCandidates)
-    .set({ ...patch, lastSeenAt: new Date() })
-    .where(
-      and(
-        eq(directionCandidates.directionId, directionId),
-        eq(directionCandidates.canonicalUrl, canonicalUrl),
-      ),
-    );
+    .set({
+      ...rest,
+      ...(merged ? { sourceMeta: merged } : {}),
+      lastSeenAt: new Date(),
+    })
+    .where(where);
 }
 
 export interface FinalizeResult {
