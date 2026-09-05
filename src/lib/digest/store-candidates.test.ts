@@ -65,14 +65,14 @@ describe("upsertCandidatesSeen", () => {
     await upsertCandidatesSeen(db, DIRECTION_ID, [
       candidate({ publishedAt: "2026-08-01T00:00:00.000Z" }),
     ]);
-    // 精读阶段往同一个口袋里写标注（本行模拟 hardRule 影子判定的写入）
+    // 其他阶段往同一个口袋里写标注（本行模拟一个第三方写入的标注键）
     await db
       .update(directionCandidates)
       .set({
         sourceMeta: {
           sourceLabel: "src-a",
           publishedAt: "2026-08-01T00:00:00.000Z",
-          hardRule: { verdict: "fail", note: "toy scale" },
+          reviewNote: { verdict: "fail", note: "toy scale" },
         },
       })
       .where(eq(directionCandidates.canonicalUrl, URL_A));
@@ -87,7 +87,7 @@ describe("upsertCandidatesSeen", () => {
     expect((await readRow()).sourceMeta).toEqual({
       sourceLabel: "angle-2",
       publishedAt: "2026-08-08T00:00:00.000Z",
-      hardRule: { verdict: "fail", note: "toy scale" },
+      reviewNote: { verdict: "fail", note: "toy scale" },
     });
   });
 

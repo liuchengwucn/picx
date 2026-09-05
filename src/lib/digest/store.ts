@@ -348,8 +348,8 @@ export async function upsertCandidatesSeen(
         // - 必须刷——否则 4b 日期解析补出来的 publishedAt 对已存在的行永远落不了
         //   库，每次 pool 重放都要为同一批无日期行重付一次 Jina+LLM 成本
         //   （listPoolCandidateItems 靠 sourceMeta.publishedAt 还原日期）；
-        // - 不能整体覆盖——source_meta 是多方共写的口袋（精读阶段还会往里写
-        //   hardRule 等标注），整份写回会把别人写的键连同本行的历史一起抹掉。
+        // - 不能整体覆盖——source_meta 是多方共写的口袋（其他阶段也可能往里写
+        //   标注键），整份写回会把别人写的键连同本行的历史一起抹掉。
         // json_patch 做 RFC 7396 浅合并：只覆盖 patch 里出现的键。注意 patch 里
         // 值为 JSON null 的键会被**删除**，所以 publishedAt 缺省时是整个不出现，
         // 而不是写 null——那样会把老行已有的日期删掉。
@@ -447,46 +447,22 @@ export async function upsertContentLinkCandidates(
   }
 }
 
-/**
- * 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。
- * sourceMeta 走「读-改-写」浅合并：D1 无事务，同一 (direction,url) 的写入只来自
- * 该候选自己的 review step，不存在并发；重放时同键覆盖成同值，仍然幂等。
- * 前提是同方向单实例——手动重触发叠在 cron 上时两个实例会读到同一份旧值，
- * 读-改-写可能丢更新（丢的是观测字段，不影响出刊）。
- */
+/** 评审/验证后的状态回写（rejected 或 seen+score）。幂等（重复 update 无害）。 */
 export async function updateCandidateStatus(
   db: Db,
   directionId: string,
   canonicalUrl: string,
-  patch: {
-    status?: "seen" | "recommended" | "rejected";
-    score?: number;
-    /** 与现有 source_meta 浅合并（保留 sourceLabel/publishedAt 等既有键） */
-    sourceMeta?: Record<string, unknown>;
-  },
+  patch: { status?: "seen" | "recommended" | "rejected"; score?: number },
 ): Promise<void> {
-  const { sourceMeta, ...rest } = patch;
-  const where = and(
-    eq(directionCandidates.directionId, directionId),
-    eq(directionCandidates.canonicalUrl, canonicalUrl),
-  );
-  let merged: Record<string, unknown> | undefined;
-  if (sourceMeta) {
-    const [row] = await db
-      .select({ sourceMeta: directionCandidates.sourceMeta })
-      .from(directionCandidates)
-      .where(where)
-      .limit(1);
-    merged = { ...(row?.sourceMeta ?? {}), ...sourceMeta };
-  }
   await db
     .update(directionCandidates)
-    .set({
-      ...rest,
-      ...(merged ? { sourceMeta: merged } : {}),
-      lastSeenAt: new Date(),
-    })
-    .where(where);
+    .set({ ...patch, lastSeenAt: new Date() })
+    .where(
+      and(
+        eq(directionCandidates.directionId, directionId),
+        eq(directionCandidates.canonicalUrl, canonicalUrl),
+      ),
+    );
 }
 
 export interface FinalizeResult {
