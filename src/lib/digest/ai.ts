@@ -6,12 +6,29 @@ import { extractFirstJsonObject } from "#/lib/json-extract";
 import type { Env } from "#/types/env";
 import { chatJson, clean, DigestAiError, type DigestModelConfig } from "./llm";
 import {
+  buildAllowedArxivIds,
+  buildRetryInstruction,
+  collectSynthesisIssues,
+  demoteMarkdownLinks,
+  extractUrls,
+  replaceWeeklyWording,
+  SECTION_LEAD,
+  SECTION_OPEN_QUESTIONS,
+  stripIssuePrefix,
+} from "./synthesis-guards";
+import {
+  detectTranslationLeak,
+  leakRetryInstruction,
+  type TranslationLeak,
+} from "./translation-guard";
+import {
   type AuthorMetric,
   type CandidateItem,
   type CandidateReview,
   DIGEST_LOCALES,
   type DigestLocale,
   type FeedbackSample,
+  type HardRuleVerdict,
   type PastPick,
   type ReviewedCandidate,
   type RiskAnnotation,
@@ -41,13 +58,21 @@ function feedbackBlock(samples: FeedbackSample[]): string {
  * 相关指令在空清单下自然空转（intel 精读、首期冷启动都走这条路）。
  * title/note 过 clean() 压成单行；note/期号是自产数据，title 源自网络论文标题；
  * 整体不额外挂 UNTRUSTED_NOTE，clean() 压单行即可防换行/控制字符破坏行结构。
+ *
+ * 行尾带 URL 是硬要求：不给 URL 时模型在正文里提往期 pick 只能瞎编 arXiv 号
+ * （moe 第 2/3 期把 PR²、Kimi K3 分别配成了 TEMPO、ReLibra 的链接）。
+ * synthesize / reviewCandidate / annotateCandidate 共用本块，URL 自然全都带上。
+ *
+ * 行首用「第N期」而不是「[#N]」是源头消除：模型会把清单里的记号原样抄进正文
+ * （线上三个方向各抄出一种式样），那就让它能抄到的形状本身就是合法写法。
+ * 出口的 `\[#\d+\]` 拦截保留作兜底。
  */
 export function pastPicksBlock(picks: PastPick[]): string {
   if (picks.length === 0) return "(no prior picks yet)";
   return picks
     .map(
       (p) =>
-        `- [#${p.issueNumber}] ${clean(p.title)}${p.note ? ` — ${clean(p.note)}` : ""}`,
+        `- 第${p.issueNumber}期 ${clean(p.title)}${p.note ? ` — ${clean(p.note)}` : ""}${p.canonicalUrl ? ` (${clean(p.canonicalUrl)})` : ""}`,
     )
     .join("\n");
 }
@@ -348,15 +373,24 @@ export async function resolveIntelDate(
   }
 }
 
-/** 精读评审（廉价模型）：新意必须有原文引用支撑 */
-export async function reviewCandidate(
-  cfg: DigestModelConfig,
+/**
+ * 硬规则影子判定的 prompt 段：focusBrief 里的「硬标准/一律不选/不感兴趣」此前只是
+ * 文本、没有任何机制执行（模型甚至会一边入选一边在推荐语里自首违反）。这里要求逐条
+ * 对照并单独结构化输出，先只观测（HARD_RULE_FILTER），不参与打分也不影响 score。
+ */
+const HARD_RULE_INSTRUCTION = [
+  "- hard_rule: the research focus below may state HARD rules — look for wording like 硬标准 / 不在本方向范围内 / 一律不选 / 不感兴趣 / 只报…按 filler 处理, or English equivalents (hard requirement, never pick, out of scope, not interested).",
+  "  Go through each such rule one by one and check this item against it. This applies to non-paper items (news, blog posts, discussion threads) exactly as much as to papers — out-of-scope intel is just as common.",
+  "  Mark violated=true ONLY when the item itself gives explicit evidence that it breaks a stated hard rule; quote the rule fragment you are applying. Soft preferences, wishes and 'prefer/偏好' wording are NOT hard rules unless the focus marks them as hard. If the focus states no hard rules, or you are unsure, return violated=false.",
+  '  Shape: "hard_rule":{"violated":bool,"rule":"<verbatim fragment of the violated rule, <=40 chars, empty when not violated>","reason":"<one sentence of evidence, empty when not violated>"}',
+].join("\n");
+
+/** 精读 system prompt 组装（纯函数，便于单测锚定硬规则段真的进了 prompt） */
+export function buildReviewSystemPrompt(
   focusBrief: string,
-  item: CandidateItem,
-  fullText: string | null,
   pastPicks: PastPick[],
-): Promise<CandidateReview> {
-  const system = [
+): string {
+  return [
     "You review one candidate for a weekly research digest. Judge NOVELTY and FIT, not popularity.",
     "Rules:",
     "- novelty: what is genuinely new here, in one or two sentences. Novelty means novel to a reader of this direction who has already seen every prior pick listed below. If the method is very similar to a prior pick, novelty MUST name that pick (title or issue number) and state the concrete increment over it.",
@@ -367,11 +401,49 @@ export async function reviewCandidate(
     "- Staleness: this digest covers current work. If the item is clearly more than 3 months old (from its Published line, its venue/proceedings year, or the text itself) and is not just now becoming relevant, score it low and say so in recommendation.",
     "- Author signal / author list (when present) are a WEAK prior on report credibility (the rigor axis) ONLY: extraordinary claims from a low-track-record team with no code and no independent evals deserve extra skepticism; a strong track record slightly raises benefit-of-the-doubt for borderline scores. If the full text reveals a well-known lab or research group, weigh that the same way.",
     "- NEVER use author signal to judge novelty, and never let reputation substitute for reading the content. Missing or unknown author data is NOT a negative signal.",
+    HARD_RULE_INSTRUCTION,
     UNTRUSTED_NOTE,
     `Research focus:\n${focusBrief}`,
     `Prior picks (already recommended in past issues):\n${pastPicksBlock(pastPicks)}`,
-    'Return JSON only: {"novelty":"...","noveltyQuote":"...","relevance":n,"recommendation":"...","score":n}',
+    'Return JSON only: {"novelty":"...","noveltyQuote":"...","relevance":n,"recommendation":"...","score":n,"hard_rule":{"violated":false,"rule":"","reason":""}}',
   ].join("\n");
+}
+
+/**
+ * hard_rule 字段解析：新字段全 optional，任何缺失/类型不对都退化成 violated=false，
+ * 绝不因为影子字段让既有精读解析失败（模型返回旧形状时必须照常出刊）。
+ */
+export function parseHardRule(raw: unknown): HardRuleVerdict {
+  const none: HardRuleVerdict = { violated: false, rule: "", reason: "" };
+  if (!raw || typeof raw !== "object") return none;
+  const o = raw as Record<string, unknown>;
+  if (o.violated !== true && o.violated !== "true") return none;
+  return {
+    violated: true,
+    // rule 缺失不降级为 false：影子期要如实统计「判违但说不出规则」这一档
+    rule: typeof o.rule === "string" ? clean(o.rule).slice(0, 120) : "",
+    reason: typeof o.reason === "string" ? clean(o.reason).slice(0, 300) : "",
+  };
+}
+
+/**
+ * 剔除判据（仅 HARD_RULE_FILTER=true 时生效）：判违且**说得出被违反的规则原文**才剔。
+ * violated=true 但 rule 为空是「判违但给不出依据」，属于无依据剔除，一律放行；
+ * 该档在影子期照常落库统计（见 parseHardRule 的注释）。
+ */
+export function hardRuleBlocks(verdict: HardRuleVerdict | undefined): boolean {
+  return verdict?.violated === true && verdict.rule !== "";
+}
+
+/** 精读评审（廉价模型）：新意必须有原文引用支撑 */
+export async function reviewCandidate(
+  cfg: DigestModelConfig,
+  focusBrief: string,
+  item: CandidateItem,
+  fullText: string | null,
+  pastPicks: PastPick[],
+): Promise<CandidateReview> {
+  const system = buildReviewSystemPrompt(focusBrief, pastPicks);
   const authorLines = authorSignalBlock(item);
   const user = [
     `# ${clean(item.title)}`,
@@ -384,7 +456,14 @@ export async function reviewCandidate(
     fullText ??
       `(full text unavailable; abstract/excerpt only)\n${clean(item.excerpt ?? "")}`,
   ].join("\n");
-  const r = await chatJson<CandidateReview>(cfg, system, user, 900);
+  // 预算随 hard_rule 段上调：900 是按旧字段量估的，多一个对象容易顶到
+  // finish_reason=length（chatJson 会直接抛，重试三次后整篇候选被丢弃）
+  const r = await chatJson<CandidateReview & { hard_rule?: unknown }>(
+    cfg,
+    system,
+    user,
+    1200,
+  );
   if (typeof r.score !== "number" || typeof r.novelty !== "string") {
     throw new DigestAiError("review: malformed result");
   }
@@ -394,6 +473,7 @@ export async function reviewCandidate(
     relevance: Math.max(0, Math.min(100, Math.round(Number(r.relevance) || 0))),
     recommendation: r.recommendation ?? "",
     score: Math.max(0, Math.min(100, Math.round(r.score))),
+    hardRule: parseHardRule(r.hard_rule ?? r.hardRule),
   };
 }
 
@@ -476,19 +556,24 @@ export async function synthesizeDigest(
     "1. picks: select papers genuinely worth the reader's time. Quality bar over quota — typically 3-10, fewer is fine. Rank by importance. For each write recommendationNote (zh-cn, 2-4 sentences: what's new + why read it).",
     "   Cross-issue dedup: downgrade any candidate methodologically similar to a prior pick (see Prior picks below) unless its recommendationNote names that prior pick (with issue number) and states the concrete increment over it.",
     "   Author signal (when present) is a tiebreaker between borderline picks only — never a primary selection reason, and never mention author reputation in recommendationNote or content.",
-    "2. content: the issue body in markdown (zh-cn), sections: 本期看点 (2-3 段总评) / 社区与动态 (based on intel items; skip if none) / 未解之问 (2-4 open questions).",
+    "2. content: the issue body in markdown (zh-cn), with these section headings written EXACTLY as shown, in this order:",
+    `   "${SECTION_LEAD}" (2-3 段总评, must be the first line of content) / "## 社区与动态" (based on intel items; omit the whole section if there are none) / "${SECTION_OPEN_QUESTIONS}" (2-4 open questions as a numbered list "1." "2." ..., never bullets).`,
     "   Do NOT re-describe each picked paper in content — the picks render as cards below the body.",
-    "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them.",
+    "   In content, reference items ONLY as inline markdown links [标题](URL); NEVER use internal codes like I3 or P1 — readers cannot resolve them. To point at a past issue write 「第 N 期的 X」, never 「[#N]」/「#N 期」/「上期 #N」 — those are internal list markers.",
+    "   Every arxiv.org link you write MUST be copied verbatim from a candidate's URL line or from a prior pick's URL below. NEVER construct, guess or recall an arXiv ID from memory: if you want to name a paper you have no URL for, name it in plain text with no link. Never link exa.ai pages (they are search-tool internals, not sources).",
+    "   Never leak internal pipeline wording into reader-facing text: 作者信号/author signal, 全文不可得, 摘要较薄, Draft note, Risk flags are field names from the material below, not things a reader may see. Judge the work and describe only the work.",
     "   Every named team/system/dataset/benchmark/result claim in content MUST carry an inline markdown link [标题](URL) to its source. If the provided material has no URL for a claim and web_search cannot find an authoritative one, omit the claim entirely — 宁可不写, never leave a named claim unlinked.",
-    "   Do NOT repeat the previous issue's themes or open questions (its body is provided below when available). A carried-over open question may appear only when framed as progress since last issue (e.g. 「上期提出的X，本周有了…」), never restated as-is.",
-    `   Never describe an item as "new", "this week", "just released" or similar unless its Published date falls inside the issue window (${input.periodLabel}); for items whose Published date is unknown or older than the window, present them without temporal claims (e.g. "X provides…" not "X was released this week").`,
+    "   Do NOT repeat the previous issue's themes or open questions (its body is provided below when available). A carried-over open question may appear only when framed as progress since last issue (e.g. 「上期提出的X，本期有了…」), never restated as-is.",
+    `   Time wording: always say 「本期」 for this issue — NEVER 「本周」/「这周」, whatever the item's date (most candidates are months old, and the issue window ${input.periodLabel} is not what the reader sees). Likewise avoid "new", "just released", "this week" for any item whose Published date is unknown or older than the window: present it without temporal claims (e.g. "X provides…" not "X was released this week").`,
     "You have a web_search tool. Its ONLY purpose is to find or verify the canonical URL / details for claims you want to mention in content (official announcement, repo, blog post). NEVER use it to discover new candidate papers or expand coverage beyond the material provided below.",
-    "3. title: issue title (zh-cn), concrete not clickbait, e.g. 「第N期：<本期最重要主题>」.",
+    // 期号由栏眉渲染，标题再带一次就是双重期号（线上「ISSUE 3」+「Issue 3: …」）
+    "3. title: issue title (zh-cn), concrete not clickbait — name the issue's single most important theme, e.g. 「稀疏注意力开始吃掉长上下文」. NEVER put an issue number or 「第N期」/「Issue N」 prefix in the title.",
     "4. proposedFocusUpdate: if this week's findings or feedback suggest the focus brief should evolve (new sub-topic emerging, stale sub-topic), propose the FULL revised focus brief text (zh-cn); otherwise omit.",
     "5. usedIntelUrls: the canonicalUrl of every intel item you actually cited in content (exact URLs from the list below).",
     "Respect user feedback below when judging taste.",
     UNTRUSTED_NOTE,
-    "Final check before returning: content must contain ZERO internal/positional item codes (P1, I3, Paper 2, Item 4 三类式样都算) — every item reference must be an inline markdown link [标题](URL).",
+    "The wording rules above (no internal codes, no invented arxiv.org links, no internal pipeline wording, 本期 never 本周) apply to recommendationNote exactly as they do to content — both are read by the same reader.",
+    `Final check before returning: content must contain ZERO internal/positional item codes (P1, I3, Paper 2, Item 4, [#2], 上期 #1 都算) — every item reference must be an inline markdown link [标题](URL); content must start with "${SECTION_LEAD}" and contain "${SECTION_OPEN_QUESTIONS}"; every arxiv.org link must appear verbatim in the material below.`,
     // content 示例不能写成 "..."：生产实测模型会把占位符原样回填（首期 self-improvement 事故）
     'Return JSON only: {"title":"<issue title>","content":"<the FULL issue body in markdown, never a placeholder>","picks":[{"canonicalUrl":"...","rank":1,"recommendationNote":"..."}],"usedIntelUrls":["..."],"proposedFocusUpdate":"..."} (proposedFocusUpdate optional)',
   ].join("\n");
@@ -581,29 +666,94 @@ export async function synthesizeDigest(
       );
     }
   };
-  const INTERNAL_REF_RE = /\b[IP]\d{1,2}\b/;
+  const assertShape = (res: SynthesisResult): void => {
+    if (!res.title || !res.content || !Array.isArray(res.picks)) {
+      throw new DigestAiError("synthesize: malformed result");
+    }
+    // 生产实测（2026-08-15 self-improvement 首期）：模型可能把 content 字面回填成
+    // 返回格式示例里的占位符 "..."（picks/标题正常、耗时极短），truthy 检查拦不住，
+    // 会一路 published 出四语省略号正文。按长度下限拦截，抛错交给 step 重试。
+    if (res.content.trim().length < 500) {
+      throw new DigestAiError(
+        `synthesize: content too short (${res.content.trim().length} chars), likely placeholder echo: ${res.content.slice(0, 80)}`,
+      );
+    }
+  };
+  // 允许出现的 arXiv 链接 = 本期论文候选 ∪ intel 候选 ∪ 往期 picks ∪ 上期正文里的链接
+  // （上期正文作为防复读对照物整段注入，模型从中原样抄来的链接是合法引用，不是编的）
+  const allowedArxivIds = buildAllowedArxivIds([
+    ...input.papers.map((p) => p.item.canonicalUrl),
+    ...input.intel.map((p) => p.item.canonicalUrl),
+    ...input.pastPicks.map((p) => p.canonicalUrl),
+    ...extractUrls(input.lastIssue?.body ?? ""),
+  ]);
+  const collect = (res: SynthesisResult) =>
+    collectSynthesisIssues({
+      content: res.content,
+      notes: res.picks.map((p) => p?.recommendationNote ?? ""),
+      allowedArxivIds,
+    });
+
   let r = await runAgent();
-  if (r.content && INTERNAL_REF_RE.test(r.content)) {
-    // 模型没听话用了内部编号：带着违规样例重试一次；再失败则放行并留痕（不失败整期）
-    const offending = r.content.match(INTERNAL_REF_RE)?.[0];
-    r = await runAgent(
-      `Your previous draft referenced items by internal code ("${offending}") which readers cannot resolve. Rewrite using inline markdown links [标题](URL) only.`,
-    );
-    if (r.content && INTERNAL_REF_RE.test(r.content)) {
-      console.warn("[Digest] synthesize: internal refs remain after retry");
+  assertShape(r);
+  let issues = collect(r);
+  if (issues.length > 0) {
+    // 违规合并成一次重试（定稿是强模型 + 8 步 agent 循环，逐条重试烧不起）。
+    // 重试整个包在 try 里：原稿已过 assertShape，是一份可用的稿子，绝不能被
+    // 重试的网关错/JSON 转义错连坐掉——出口校验不做整期失败的新来源。
+    try {
+      const retried = await runAgent(buildRetryInstruction(issues));
+      assertShape(retried);
+      const retriedIssues = collect(retried);
+      // 只在「没变得更糟」时采用：整篇重写可能修好措辞却新编一个 arXiv 链接
+      if (retriedIssues.length <= issues.length) {
+        r = retried;
+        issues = retriedIssues;
+      } else {
+        console.warn(
+          `[Digest] synthesize: retry made it worse (${issues.length} → ${retriedIssues.length} issues), keeping the original draft`,
+        );
+      }
+    } catch (e) {
+      console.warn(
+        `[Digest] synthesize: guard retry failed, keeping the original draft: ${e instanceof Error ? e.message : e}`,
+      );
     }
   }
-  if (!r.title || !r.content || !Array.isArray(r.picks)) {
-    throw new DigestAiError("synthesize: malformed result");
-  }
-  // 生产实测（2026-08-15 self-improvement 首期）：模型可能把 content 字面回填成
-  // 返回格式示例里的占位符 "..."（picks/标题正常、耗时极短），truthy 检查拦不住，
-  // 会一路 published 出四语省略号正文。按长度下限拦截，抛错交给 step 重试。
-  if (r.content.trim().length < 500) {
-    throw new DigestAiError(
-      `synthesize: content too short (${r.content.trim().length} chars), likely placeholder echo: ${r.content.slice(0, 80)}`,
+  if (issues.length > 0) {
+    console.warn(
+      `[Digest] synthesize: guards still failing after retry: ${issues.map((i) => i.type).join(", ")}`,
     );
+    const bad = new Set<string>();
+    for (const issue of issues) {
+      if (issue.type === "fabricated_arxiv" || issue.type === "exa_link") {
+        for (const url of issue.urls) bad.add(url);
+      }
+    }
+    if (bad.size > 0) {
+      // 编造/无效链接降级成纯文本：错链比无链更伤——读者点进去是另一篇论文
+      console.warn(
+        `[Digest] synthesize: demoting ${bad.size} bad link(s): ${[...bad].join(", ")}`,
+      );
+      const demote = (md: string) => demoteMarkdownLinks(md, (u) => bad.has(u));
+      r.content = demote(r.content);
+      r.picks = r.picks.map((p) => ({
+        ...p,
+        recommendationNote: demote(p.recommendationNote ?? ""),
+      }));
+    }
   }
+  // ── 两项确定性改写：无条件跑，不进重试判据（代码几个字符就能修好的事，
+  //    不值得多烧一次强模型调用，更不值得冒「整篇重写把别处改坏」的风险）──
+  // 1. 「本周/这周」→「本期」（负向先行断言已排掉「本周五/本周期/这周末」）
+  r.content = replaceWeeklyWording(r.content);
+  r.picks = r.picks.map((p) => ({
+    ...p,
+    recommendationNote: replaceWeeklyWording(p?.recommendationNote ?? ""),
+  }));
+  // 2. 标题期号前缀（栏眉已渲染 ISSUE N，标题再带就是双重期号）。zh-cn 干净后
+  //    翻译步自然跟着不带期号。退化标题（如「第3期：」）宁可原样放行也不抛错。
+  r.title = stripIssuePrefix(r.title) || r.title;
   return r;
 }
 
@@ -623,14 +773,56 @@ export async function translateDigest(
     "Keep markdown structure, technical terms, paper titles and URLs unchanged. Translate values only, never keys.",
     "Return the same JSON shape, JSON only.",
   ].join("\n");
-  const r = await chatJson<{
-    title: string;
-    content: string;
-    notes: Record<string, string>;
-  }>(cfg, system, JSON.stringify(payload), 8000);
-  if (!r.title || !r.content)
-    throw new DigestAiError(`translate ${target}: malformed`);
-  return { title: r.title, content: r.content, notes: r.notes ?? {} };
+  // 出口校验（见 translation-guard）：cheap 模型会偶发整段照抄原文，2026-08-29
+  // 的第 3 期有三个方向的 ja 正文与 24/169 条 ja 推荐语根本没翻。首轮违规就把
+  // 具体字段回灌给模型重来一次，并把温度从 0 抬到 0.3——温度 0 时"照抄"是个稳定
+  // 吸引子，只换 prompt 不换采样容易原样再来一遍。
+  let leaks: TranslationLeak[] = [];
+  let retryHint = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let r: { title: string; content: string; notes: Record<string, string> };
+    try {
+      r = await chatJson<{
+        title: string;
+        content: string;
+        notes: Record<string, string>;
+      }>(
+        cfg,
+        retryHint ? `${system}\n\n${retryHint}` : system,
+        JSON.stringify(payload),
+        8000,
+        attempt === 0 ? 0 : 0.3,
+      );
+    } catch (error) {
+      // 本地实跑撞到过：整篇 markdown 正文里模型把裸换行写进 JSON 字符串，
+      // JSON.parse 抛 "Bad control character"。这条和语言泄漏是同一个后果——
+      // step 重试耗尽后 fallback 回 zh-cn，所以同样在函数内先自救一次。
+      if (attempt === 1) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[digest-ai] translate ${target}: ${message}, retrying`);
+      retryHint =
+        'RETRY: your previous output was not valid JSON. Emit a single JSON object; inside string values escape newlines as \\n and quotes as \\", and never emit raw control characters.';
+      continue;
+    }
+    if (!r.title || !r.content)
+      throw new DigestAiError(`translate ${target}: malformed`);
+    const out = { title: r.title, content: r.content, notes: r.notes ?? {} };
+    leaks = detectTranslationLeak(target, out);
+    if (leaks.length === 0) return out;
+    console.warn(
+      `[digest-ai] translate ${target}: untranslated fields on attempt ${attempt + 1}/2: ${leaks.map((l) => l.field).join(", ")}`,
+    );
+    retryHint = leakRetryInstruction(target, leaks);
+  }
+  // 抛给 step 重试（LLM_RETRIES，3 次）。注意 digest-workflow 的翻译步在重试
+  // 耗尽后会 fallback 回 zh-cn——那正是今天线上 ja 槽里躺着中文的样子，所以这
+  // 里的判据宁可漏也不能误报。
+  throw new DigestAiError(
+    `translate ${target}: untranslated after retry — ${leaks
+      .slice(0, 5)
+      .map((l) => `${l.field} (${l.reason})`)
+      .join("; ")}${leaks.length > 5 ? ` +${leaks.length - 5} more` : ""}`,
+  );
 }
 
 const INTRO_SYSTEM = [

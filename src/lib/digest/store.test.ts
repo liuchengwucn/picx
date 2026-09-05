@@ -1,6 +1,15 @@
-// 纯函数 canonicalizeCandidate 的新鲜度硬裁定与 kind 定性测试
+// 纯函数 canonicalizeCandidate 的新鲜度硬裁定与 kind 定性测试；
+// updateCandidateStatus 的 source_meta 合并跑真 SQLite（读-改-写的语义 mock 不出来）
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { canonicalizeCandidate, MAX_CANDIDATE_AGE_MONTHS } from "./store";
+import { directionCandidates, directions } from "#/db/schema";
+import { createTestDb } from "../../../test/helpers/sqlite-d1";
+import {
+  canonicalizeCandidate,
+  MAX_CANDIDATE_AGE_MONTHS,
+  updateCandidateStatus,
+  upsertCandidatesSeen,
+} from "./store";
 import type { CandidateItem } from "./types";
 
 function makeItem(
@@ -186,5 +195,113 @@ describe("canonicalizeCandidate", () => {
       periodEnd,
     );
     expect(out).toBeNull();
+  });
+});
+
+describe("updateCandidateStatus source_meta merge", () => {
+  const URL = "https://arxiv.org/abs/2608.00042";
+
+  async function seedCandidate() {
+    const { db } = createTestDb();
+    await db.insert(directions).values({
+      id: "dir-1",
+      slug: "coding-agent",
+      name: { en: "Agents", "zh-cn": "智能体", "zh-tw": "智能體", ja: "AI" },
+      focusBrief: "硬标准：单一饱和基准且无 held-out 的按 filler 处理",
+      isActive: true,
+      sortOrder: 0,
+    });
+    await upsertCandidatesSeen(db, "dir-1", [
+      {
+        canonicalUrl: URL,
+        title: "Agent Lightning",
+        kind: "paper",
+        sourceLabel: "arxiv-cs-ai",
+        publishedAt: "2026-08-20",
+      },
+    ]);
+    return db;
+  }
+
+  const read = async (db: Awaited<ReturnType<typeof seedCandidate>>) => {
+    const [row] = await db
+      .select()
+      .from(directionCandidates)
+      .where(
+        and(
+          eq(directionCandidates.directionId, "dir-1"),
+          eq(directionCandidates.canonicalUrl, URL),
+        ),
+      );
+    return row;
+  };
+
+  const verdict = {
+    hardRule: {
+      violated: true,
+      rule: "单一饱和基准且无 held-out",
+      reason: "只在 GSM8K 上报增益",
+      issue: 4,
+      checkedAt: "2026-09-05T12:00:00.000Z",
+    },
+  };
+
+  it("adds hardRule while keeping the keys upsert wrote (sourceLabel/publishedAt)", async () => {
+    const db = await seedCandidate();
+    await updateCandidateStatus(db, "dir-1", URL, {
+      score: 71,
+      sourceMeta: verdict,
+    });
+    const row = await read(db);
+    expect(row.score).toBe(71);
+    expect(row.status).toBe("seen");
+    expect(row.sourceMeta).toEqual({
+      sourceLabel: "arxiv-cs-ai",
+      publishedAt: "2026-08-20",
+      ...verdict,
+    });
+  });
+
+  it("is idempotent under step replay and overwrites a stale verdict in place", async () => {
+    const db = await seedCandidate();
+    await updateCandidateStatus(db, "dir-1", URL, { sourceMeta: verdict });
+    await updateCandidateStatus(db, "dir-1", URL, { sourceMeta: verdict });
+    expect((await read(db)).sourceMeta).toEqual({
+      sourceLabel: "arxiv-cs-ai",
+      publishedAt: "2026-08-20",
+      ...verdict,
+    });
+    const next = {
+      hardRule: { ...verdict.hardRule, violated: false, rule: "", issue: 5 },
+    };
+    await updateCandidateStatus(db, "dir-1", URL, { sourceMeta: next });
+    expect((await read(db)).sourceMeta).toEqual({
+      sourceLabel: "arxiv-cs-ai",
+      publishedAt: "2026-08-20",
+      ...next,
+    });
+  });
+
+  it("leaves source_meta untouched when the patch omits it", async () => {
+    const db = await seedCandidate();
+    await updateCandidateStatus(db, "dir-1", URL, { sourceMeta: verdict });
+    await updateCandidateStatus(db, "dir-1", URL, { status: "recommended" });
+    const row = await read(db);
+    expect(row.status).toBe("recommended");
+    expect(row.sourceMeta).toEqual({
+      sourceLabel: "arxiv-cs-ai",
+      publishedAt: "2026-08-20",
+      ...verdict,
+    });
+  });
+
+  it("does not create a row when the candidate is absent (update-only)", async () => {
+    const db = await seedCandidate();
+    await updateCandidateStatus(db, "dir-1", "https://example.com/missing", {
+      sourceMeta: verdict,
+    });
+    const rows = await db.select().from(directionCandidates);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].canonicalUrl).toBe(URL);
   });
 });

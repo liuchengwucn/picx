@@ -13,6 +13,7 @@ export function ModuleKicker({
   id,
   className,
   children,
+  trailing,
 }: {
   /** 渲染标签。卡片栏眉即该卡的真实小节标题,传 "h2" 让层级落到 DOM 上。 */
   as?: "div" | "h2" | "h3";
@@ -26,6 +27,14 @@ export function ModuleKicker({
   /** 只用来配 scroll-margin-top 之类的锚点偏移,别拿来改栏眉自身的排版 */
   className?: string;
   children: ReactNode;
+  /**
+   * 发丝线之后、贴右缘的附加内容(设置页里是那一组服务商的连接测试结果)。
+   * 发丝线保持 flex-1,所以 trailing 自然被推到最右。
+   *
+   * 存在的意义是让调用方不必手抄这份栏眉标记 —— 手抄件的几何会漂移(见
+   * edition-skeleton 里的同类注释),上一版就抄丢了 style={{ background }}。
+   */
+  trailing?: ReactNode;
 }) {
   return (
     <Tag
@@ -42,6 +51,7 @@ export function ModuleKicker({
       />
       <span>{children}</span>
       <span aria-hidden className="h-px flex-1 bg-[var(--line)]" />
+      {trailing}
     </Tag>
   );
 }

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Zap } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Loader2 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { Button } from "#/components/ui/button";
 import {
@@ -20,6 +21,7 @@ import {
 } from "#/components/ui/select";
 import { useTRPC } from "#/integrations/trpc/react";
 import { m } from "#/paraglide/messages";
+import { WhiteboardQuotaHint } from "./whiteboard-quota-hint";
 
 interface RegenerateWhiteboardDialogProps {
   paperId: string;
@@ -108,12 +110,14 @@ function ApiConfigSelector({
           <p className="text-sm text-[var(--ink-soft)]">
             {m.upload_no_api_config()}
           </p>
-          <a
-            href="/api-configs"
-            className="mt-2 inline-block text-sm font-medium text-[var(--academic-brown)] hover:underline"
+          <Link
+            to="/settings/providers"
+            className="mt-2 inline-block text-sm font-medium hover:underline"
           >
-            {m.upload_go_to_settings()}
-          </a>
+            <span className="text-[var(--academic-brown)]">
+              {m.upload_go_to_settings()}
+            </span>
+          </Link>
         </div>
       )}
     </div>
@@ -204,8 +208,12 @@ export function RegenerateWhiteboardDialog({
   // Fetch user's API configs
   const { data: apiConfigsData } = useQuery(trpc.apiConfig.list.queryOptions());
 
-  // Fetch user profile for credits
-  const { data: profile } = useQuery(trpc.user.getProfile.queryOptions());
+  // Fetch user profile for the remaining whiteboard allowance
+  const {
+    data: profile,
+    isPending: profilePending,
+    isError: profileFailed,
+  } = useQuery(trpc.user.getProfile.queryOptions());
 
   // Reset form state when dialog opens
   useEffect(() => {
@@ -277,8 +285,23 @@ export function RegenerateWhiteboardDialog({
     });
   };
 
-  const willConsumeCredit = apiSource === "system";
-  const hasEnoughCredits = (profile?.credits ?? 0) >= 1;
+  const remaining = profile?.credits ?? 0;
+  const hasApiConfigs = !!apiConfigsData && apiConfigsData.length > 0;
+  // 还没查回来、以及查失败，都算「不知道还剩几张」：宁可放行让服务端去判，
+  // 也不能凭一个还没到手的数字把提交按钮锁死——一次网络抖动就告诉用户额度没了，
+  // 正是这次改版要消灭的焦虑（见 WhiteboardQuotaHint 里 loading 分支的说明）。
+  const allowanceUnknown = profilePending || profileFailed;
+  const exhausted =
+    apiSource === "system" && !allowanceUnknown && remaining < 1;
+  const quotaHintId = useId();
+
+  const useOwnApi = () => {
+    if (!hasApiConfigs || !apiConfigsData) return;
+    const preferred =
+      apiConfigsData.find((c) => c.isDefault) ?? apiConfigsData[0];
+    setApiSource("user");
+    setSelectedApiConfigId(preferred.id);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -314,34 +337,14 @@ export function RegenerateWhiteboardDialog({
             {m.upload_english_image_hint()}
           </p>
 
-          {/* Credit Cost Display */}
-          <div className="rounded-2xl border-2 border-[var(--line)] bg-gradient-to-br from-[var(--parchment-warm)] to-white/50 p-6">
-            <div className="flex items-start gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--academic-brown)]/10">
-                <Zap className="h-5 w-5 text-[var(--academic-brown)]" />
-              </div>
-              <div className="flex-1">
-                <h4 className="font-semibold text-[var(--ink)] mb-1">
-                  {willConsumeCredit
-                    ? m.paper_whiteboard_regenerate_credit_cost()
-                    : m.paper_whiteboard_regenerate_no_credit_cost()}
-                </h4>
-                <p className="text-sm text-[var(--ink-soft)]">
-                  {willConsumeCredit
-                    ? m.paper_whiteboard_regenerate_credit_info({
-                        credits: "1",
-                        balance: String(profile?.credits ?? 0),
-                      })
-                    : m.paper_whiteboard_regenerate_no_credit_info()}
-                </p>
-                {willConsumeCredit && !hasEnoughCredits && (
-                  <p className="text-sm text-[var(--sienna)] font-medium mt-2">
-                    ⚠️ {m.error_insufficient_credits_use_api()}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
+          <WhiteboardQuotaHint
+            id={quotaHintId}
+            remaining={remaining}
+            apiSource={apiSource}
+            hasApiConfigs={hasApiConfigs}
+            onUseOwnApi={useOwnApi}
+            loading={allowanceUnknown}
+          />
 
           {/* Actions */}
           <div className="flex gap-3 pt-4 border-t border-[var(--line)]/30">
@@ -358,9 +361,12 @@ export function RegenerateWhiteboardDialog({
               type="submit"
               disabled={
                 regenerateMutation.isPending ||
-                (willConsumeCredit && !hasEnoughCredits) ||
+                exhausted ||
                 (apiSource === "user" && !selectedApiConfigId)
               }
+              // 这个对话框没有开关，禁用的解释只能挂在提交按钮上；
+              // 指向常驻可见的额度提示，而不是 title（禁用控件收不到指针事件）
+              aria-describedby={exhausted ? quotaHintId : undefined}
               className="flex-1 h-12 bg-[var(--academic-brown)] hover:bg-[var(--academic-brown-deep)] text-white shadow-lg hover:shadow-xl transition-all"
             >
               {regenerateMutation.isPending ? (

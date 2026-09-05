@@ -254,6 +254,9 @@ function PapersPage() {
           </h1>
           <UploadDialog
             credits={profile.data?.credits ?? 0}
+            // 查失败与还没查回来同等对待：两者都不知道还剩几张，
+            // 而「不知道」绝不能渲染成「用完了」并把开关锁死。
+            creditsLoading={profile.isPending || profile.isError}
             onSuccess={handleUploadSuccess}
           />
         </div>

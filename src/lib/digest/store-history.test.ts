@@ -60,6 +60,8 @@ async function seedIssue(input: {
     paperId: string;
     rank: number;
     note: Record<string, string> | null;
+    /** 缺省不写 source_url（papers.source_url 可空），锁住 canonicalUrl 的 null 路径 */
+    sourceUrl?: string;
   }>;
 }) {
   const directionId = input.directionId ?? "dir-1";
@@ -90,6 +92,7 @@ async function seedIssue(input: {
       isPublic: true,
       isListedInGallery: true,
       directionId,
+      sourceUrl: pick.sourceUrl,
     });
     await db.insert(digestPapers).values({
       digestId,
@@ -114,7 +117,12 @@ describe("loadDirectionContext history", () => {
       issueNumber: 1,
       status: "published",
       picks: [
-        { paperId: "p1a", rank: 1, note: four("N1a") },
+        {
+          paperId: "p1a",
+          rank: 1,
+          note: four("N1a"),
+          sourceUrl: "https://arxiv.org/abs/2601.00001",
+        },
         { paperId: "p1b", rank: 2, note: { en: "only english" } },
       ],
     });
@@ -135,10 +143,25 @@ describe("loadDirectionContext history", () => {
     });
     const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.pastPicks).toEqual([
-      { issueNumber: 2, title: "Paper p2a", note: "N2a zh-cn" },
-      { issueNumber: 2, title: "Paper p2b", note: "" },
-      { issueNumber: 1, title: "Paper p1a", note: "N1a zh-cn" },
-      { issueNumber: 1, title: "Paper p1b", note: "only english" },
+      {
+        issueNumber: 2,
+        title: "Paper p2a",
+        note: "N2a zh-cn",
+        canonicalUrl: null,
+      },
+      { issueNumber: 2, title: "Paper p2b", note: "", canonicalUrl: null },
+      {
+        issueNumber: 1,
+        title: "Paper p1a",
+        note: "N1a zh-cn",
+        canonicalUrl: "https://arxiv.org/abs/2601.00001",
+      },
+      {
+        issueNumber: 1,
+        title: "Paper p1b",
+        note: "only english",
+        canonicalUrl: null,
+      },
     ]);
     expect(ctx.history.lastIssueBody).toBe("Body 2 zh-cn");
     expect(ctx.history.lastIssueNumber).toBe(2);
@@ -227,7 +250,12 @@ describe("loadDirectionContext history", () => {
     });
     const ctx = await loadDirectionContext(db, "dir-1", PERIOD_END);
     expect(ctx.history.pastPicks).toEqual([
-      { issueNumber: 1, title: "Paper p1-dir1", note: "N1-dir1 zh-cn" },
+      {
+        issueNumber: 1,
+        title: "Paper p1-dir1",
+        note: "N1-dir1 zh-cn",
+        canonicalUrl: null,
+      },
     ]);
     expect(ctx.history.lastIssueBody).toBe("Body 1 zh-cn");
     expect(ctx.history.lastIssueNumber).toBe(1);

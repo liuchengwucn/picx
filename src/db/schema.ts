@@ -22,6 +22,12 @@ export const user = sqliteTable("user", {
   image: text("image"),
   credits: integer("credits").notNull().default(10),
   lastDailyBonusDate: text("last_daily_bonus_date"),
+  // 最后活跃时间：只写不读，供运营分析用 D1 直查。由 user.heartbeat 盖戳，服务端
+  // 节流 1 小时。不上屏——用户自己看永远是「刚才」。
+  // 注意单位：mode "timestamp" 存的是**秒**级 unix 戳，与紧邻的 better-auth 列
+  // （createdAt / updatedAt 为 timestamp_ms，毫秒）差 1000 倍。手写 D1 查询把两者
+  // 放一起比较前必须先换算。秒级与其余业务表（direction_candidates.last_seen_at 等）一致。
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
   // better-auth admin plugin 的 schema 列（Phase 3 管理页）。ban/impersonate 本期
   // 不接 UI，但列是插件 schema 的一部分，缺列会在插件运行时报错，一次补齐。
   // 列名 camelCase 与 better-auth 既有列（emailVerified 等）一致。

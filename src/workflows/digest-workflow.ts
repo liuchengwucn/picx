@@ -11,6 +11,7 @@ import { drizzle } from "drizzle-orm/d1";
 import {
   annotateCandidate,
   fetchFullText,
+  hardRuleBlocks,
   RELEVANCE_THRESHOLD,
   resolveIntelDate,
   reviewCandidate,
@@ -21,11 +22,16 @@ import {
   translateDigest,
 } from "#/lib/digest/ai";
 import {
+  type ContentLink,
+  extractContentLinks,
+  isSearchToolArtifactKey,
+  isStorableCandidateUrl,
   mergeCandidates,
   partitionCandidates,
   quoteAppearsInText,
   selectTopPapers,
   TOP_K_PAPERS,
+  urlDedupKey,
 } from "#/lib/digest/candidates";
 import { enrichAuthorSignals } from "#/lib/digest/enrich";
 import { cheapModel, strongModel } from "#/lib/digest/llm";
@@ -46,7 +52,9 @@ import {
   saveDigestContent,
   updateCandidateStatus,
   upsertCandidatesSeen,
+  upsertContentLinkCandidates,
 } from "#/lib/digest/store";
+import { stripIssuePrefix } from "#/lib/digest/synthesis-guards";
 import type {
   AuthorSignal,
   CandidateItem,
@@ -88,6 +96,13 @@ const LLM_RETRIES = {
 };
 /** 精读分数过线才进 top-K 选材 */
 const REVIEW_PASS_SCORE = 55;
+/**
+ * focusBrief 硬规则的执行开关。false = 影子模式：只判定、落库（source_meta.hardRule）
+ * 和打日志，不改变选材；true = 违规候选在选材前剔除（状态保持 seen，下期可再评）。
+ * 先影子跑一期统计误杀率再打开——判定来自廉价模型，误杀会静默吃掉好候选。
+ * 类型显式标 boolean：否则 false 字面量类型会让下方分支被当成死代码。
+ */
+const HARD_RULE_FILTER: boolean = false;
 /** 论文处理等待：18 轮 × 10 分钟 = 最多 3 小时后兜底发布 */
 const PUBLISH_POLL_ROUNDS = 18;
 /** arXiv 429 惩罚期实测是分钟级，20s 级退避只会连吃 429，须用分钟级恒定退避 */
@@ -563,6 +578,19 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     item.canonicalUrl,
                     {
                       score: review.score,
+                      // 硬规则影子判定落库供离线统计误杀率（step 内取时间：
+                      // 已完成的 step 重放不重跑 body，不会漂）
+                      ...(review.hardRule
+                        ? {
+                            sourceMeta: {
+                              hardRule: {
+                                ...review.hardRule,
+                                issue: shell.issueNumber,
+                                checkedAt: new Date().toISOString(),
+                              },
+                            },
+                          }
+                        : {}),
                     },
                   );
                   return { item, review, quoteVerified };
@@ -582,10 +610,35 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         );
       }
 
-      const paperCandidates = reviewed.filter(
+      // 硬规则影子模式观测行（step 外，休眠重放会重复打印——同下方通过率观测行）。
+      // 明天用 source_meta.hardRule 统计误杀率再决定是否打开 HARD_RULE_FILTER。
+      // 开关决策以 source_meta.hardRule 为准（含 rule 空/非空两档）；此行随休眠重放
+      // 重复打印，按 (direction, issue) 去重。
+      // violated 是观测口径、blocked 是剔除口径（后者要求引用了规则原文），两个数
+      // 必须并排出现：只看 violated 会把「判违但说不出规则」误当成会被剔除的量。
+      const hardRuleViolations = reviewed.filter(
+        (r) => r.review.hardRule?.violated === true,
+      );
+      const hardRuleBlocked = reviewed.filter((r) =>
+        hardRuleBlocks(r.review.hardRule),
+      );
+      console.log(
+        `[Digest] hard-rule shadow: direction=${ctx.direction.slug} issue=${shell.issueNumber} reviewed=${reviewed.length} violated=${hardRuleViolations.length} blocked=${hardRuleBlocked.length} titles=[${hardRuleViolations
+          .slice(0, 10)
+          .map((r) => `"${r.item.title.replace(/\s+/g, " ").slice(0, 80)}"`)
+          .join(", ")}]`,
+      );
+      // 影子期 HARD_RULE_FILTER=false：违规候选照常参选，只留痕。打开后它们在
+      // 选材前就被剔除（状态保持 seen，下期可再评），空出的名额由次优候选补上。
+      // 剔除判据比观测口径严：判违但说不出规则原文的不剔（见 hardRuleBlocks）。
+      const eligible = HARD_RULE_FILTER
+        ? reviewed.filter((r) => !hardRuleBlocks(r.review.hardRule))
+        : reviewed;
+
+      const paperCandidates = eligible.filter(
         (r) => r.item.kind === "paper" && r.review.score >= REVIEW_PASS_SCORE,
       );
-      const intelCandidates = reviewed.filter((r) => r.item.kind === "intel");
+      const intelCandidates = eligible.filter((r) => r.item.kind === "intel");
 
       // ── 7. top-K 选材 + 参谋标注（#69/#72 校准：标注只参谋，不否决、不写状态）──
       // 未进 top-K 的论文保持 seen，下期可再战；rejected 不再由本流程写入。
@@ -633,13 +686,15 @@ export class DigestWorkflow extends WorkflowEntrypoint<
 
       // ── 8. 定稿（强模型）──
       // 重试上限高于其他 LLM step：实跑网关会间歇吐空白 body（约 40s 截断，
-      // 重试可穿过），叠加模型偶发 JSON 转义错，3 次尝试不够、曾整期失败
+      // 重试可穿过），叠加模型偶发 JSON 转义错，3 次尝试不够、曾整期失败。
+      // timeout 15 分钟而非 10：出口校验命中时 synthesizeDigest 内部会再跑一次
+      // 8 步 agent 循环，一个 step 里要装得下两轮定稿。
       const synthesis: SynthesisResult = await step.do(
         "synthesize",
         {
           ...LLM_RETRIES,
           retries: { ...LLM_RETRIES.retries, limit: 5 },
-          timeout: "10 minutes",
+          timeout: "15 minutes",
         },
         () =>
           synthesizeDigest(env, strongModel(env).model, {
@@ -684,7 +739,17 @@ export class DigestWorkflow extends WorkflowEntrypoint<
           .do(`translate-${locale}`, LLM_RETRIES, () =>
             translateDigest(cheapModel(env), locale, translations["zh-cn"]),
           )
-          .catch(() => translations["zh-cn"]); // 翻译失败回退主语言，不失败整期
+          .catch((e) => {
+            // 翻译失败不失败整期，但回退目标要避开「ja 槽里躺着中文」这个线上原病：
+            // ja 优先回退到已译好的 en（循环顺序保证 en 在 ja 之前），其余回退主语言
+            console.warn(
+              `[Digest] translate-${locale} failed, falling back:`,
+              e,
+            );
+            return (
+              (locale === "ja" && translations.en) || translations["zh-cn"]
+            );
+          });
       }
 
       // ── 10. 落库：论文入 gallery 管线 + digest 内容 ──
@@ -724,19 +789,89 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         });
         // intel 跨期去重：只有被正文实际引用的 intel 才标 recommended（下期跳过）；
         // 精读过但没用上的保持 seen，下期仍有入选机会。
-        const intelUrls = new Set(
-          intelCandidates.map((r) => r.item.canonicalUrl),
+        //
+        // 判据 = 模型自报的 usedIntelUrls ∪ 正文实扫外链。只信自报会漏两类：
+        // (a) 自报不全；(b) 正文引用的 URL 根本不在候选池（第 1 期讲的 OpenAI
+        // 那条来自 the-decoder 报道正文，池里没有 → 匹配不上 → 第 3 期又讲一遍）。
+        // 匹配一律按 dedupKey：池里 `…1944.pdf` 与 `…1944/` 是两行，exact-URL
+        // 比对会漏标。
+        const intelByKey = new Map(
+          intelCandidates.map((r) => [
+            urlDedupKey(r.item.canonicalUrl),
+            r.item.canonicalUrl,
+          ]),
         );
-        for (const url of synthesis.usedIntelUrls ?? []) {
-          if (intelUrls.has(url)) {
-            await updateCandidateStatus(db, directionId, url, {
+        // 池里任意一行（不止本期精读过的 intel）：`…1944/` 出现在正文时，若池里
+        // 已有 `…1944.pdf`(seen)，要标那一行，而不是插第二行。
+        const poolByKey = new Map<string, string>();
+        for (const entry of ctx.pool) {
+          const key = urlDedupKey(entry.canonicalUrl);
+          if (!poolByKey.has(key)) poolByKey.set(key, entry.canonicalUrl);
+        }
+        // 正文实扫排在前面：它带链接文字，比自报 URL 的空标题更适合做标题。
+        // fromContent 决定能否新插行——自报 URL 可能是模型幻觉出来的，只允许
+        // 它去命中池里已有的行，绝不凭它落库。
+        const cited = [
+          ...extractContentLinks(translations["zh-cn"].content).map((l) => ({
+            ...l,
+            fromContent: true,
+          })),
+          ...(synthesis.usedIntelUrls ?? []).map((url) => ({
+            url,
+            title: "",
+            fromContent: false,
+          })),
+        ];
+        const citedKeys = new Set<string>();
+        const orphanLinks: ContentLink[] = [];
+        for (const link of cited) {
+          const key = urlDedupKey(link.url);
+          if (citedKeys.has(key)) continue;
+          // arXiv 走 pick 路径（有自己的 digest_papers 记忆）；搜索工具中转页
+          // 本就不该入池；裸域名首页（openai.com 这种）不是「讲过的那条内容」，
+          // 记下去会连带把整站后续文章全抑制掉。
+          if (key.startsWith("arxiv:")) continue;
+          if (isSearchToolArtifactKey(key)) continue;
+          if (!key.includes("/")) continue;
+          citedKeys.add(key);
+          const poolUrl = intelByKey.get(key) ?? poolByKey.get(key);
+          if (poolUrl) {
+            await updateCandidateStatus(db, directionId, poolUrl, {
               status: "recommended",
             });
+            continue;
           }
+          if (!link.fromContent) continue;
+          // 代码仓 / 模型页是引用材料，不是「这期讲过的那条新闻」，抑制它们
+          // 只会误伤后续真正该讲的发布
+          if (/^(github\.com|huggingface\.co)\//.test(key)) continue;
+          if (!isStorableCandidateUrl(link.url)) {
+            console.warn(
+              `[Digest] skipping malformed content link, not stored: ${link.url}`,
+            );
+            continue;
+          }
+          orphanLinks.push({ url: link.url, title: link.title || link.url });
+        }
+        if (orphanLinks.length > 0) {
+          await upsertContentLinkCandidates(
+            db,
+            directionId,
+            shell.issueNumber,
+            orphanLinks,
+          );
+          console.log(
+            `[Digest] ${ctx.direction.slug} #${shell.issueNumber}: recorded ${orphanLinks.length} content-link intel not in pool: ${orphanLinks.map((l) => l.url).join(", ")}`,
+          );
         }
         await saveDigestContent(db, shell.digestId, {
+          // synthesize 出口已对 zh-cn 去过期号，但翻译模型可能自己补上「Issue 3:」，
+          // 四语各再过一遍（栏眉已渲染 ISSUE N，标题再带就是双重期号）
           title: Object.fromEntries(
-            Object.entries(translations).map(([loc, t]) => [loc, t.title]),
+            Object.entries(translations).map(([loc, t]) => [
+              loc,
+              stripIssuePrefix(t.title) || t.title,
+            ]),
           ),
           content: Object.fromEntries(
             Object.entries(translations).map(([loc, t]) => [loc, t.content]),
