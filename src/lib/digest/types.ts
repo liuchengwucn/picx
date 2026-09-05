@@ -76,7 +76,10 @@ export interface CandidateReview {
  */
 export interface HardRuleVerdict {
   violated: boolean;
-  /** 被违反的那条规则的原文片段（<=40 字）；未违反或模型没给为空串 */
+  /**
+   * 被违反的那条规则的原文片段：prompt 要求 ≤40 字，解析放宽到 120 兜底
+   * （模型超长时截断而不是丢弃）。未违反或模型没给为空串。
+   */
   rule: string;
   /** 一句依据 */
   reason: string;
