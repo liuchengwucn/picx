@@ -32,15 +32,13 @@ const env = {
 
 async function seed(db: Db) {
   const now = new Date();
-  await db
-    .insert(user)
-    .values({
-      id: "u1",
-      name: "u1",
-      email: "u1@example.com",
-      createdAt: now,
-      updatedAt: now,
-    });
+  await db.insert(user).values({
+    id: "u1",
+    name: "u1",
+    email: "u1@example.com",
+    createdAt: now,
+    updatedAt: now,
+  });
   await db.insert(directions).values({
     id: "dir-a",
     slug: "formal-math",
@@ -78,8 +76,18 @@ async function seed(db: Db) {
     })),
   );
   await db.insert(digestPapers).values([
-    { digestId: "dg-1", paperId: "p1", rank: 1, recommendationNote: four("n1") },
-    { digestId: "dg-1", paperId: "p2", rank: 2, recommendationNote: four("n2") },
+    {
+      digestId: "dg-1",
+      paperId: "p1",
+      rank: 1,
+      recommendationNote: four("n1"),
+    },
+    {
+      digestId: "dg-1",
+      paperId: "p2",
+      rank: 2,
+      recommendationNote: four("n2"),
+    },
   ]);
 }
 
@@ -120,7 +128,10 @@ describe("retranslateDigestLocale", () => {
     expect(row.title).toEqual({ ...four("T"), ja: "新TITLE" });
     expect(row.content).toEqual({ ...four("BODY"), ja: "新BODY" });
 
-    const notes = await db.select().from(digestPapers).orderBy(digestPapers.rank);
+    const notes = await db
+      .select()
+      .from(digestPapers)
+      .orderBy(digestPapers.rank);
     expect(notes[0].recommendationNote).toEqual({
       ...four("n1"),
       ja: "新note p1",
@@ -142,7 +153,10 @@ describe("retranslateDigestLocale", () => {
     expect(result.written).toBe(3);
     expect(result.detail).toContain("1 note(s) missing");
 
-    const notes = await db.select().from(digestPapers).orderBy(digestPapers.rank);
+    const notes = await db
+      .select()
+      .from(digestPapers)
+      .orderBy(digestPapers.rank);
     expect(notes[1].recommendationNote).toEqual(four("n2"));
   });
 
