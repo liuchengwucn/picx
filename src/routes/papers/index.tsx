@@ -19,6 +19,7 @@ import { RecentPapers } from "#/components/papers/recent-papers";
 import { UploadDialog } from "#/components/papers/upload-dialog";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import { useHydrated } from "#/hooks/use-hydrated";
 import { usePaperSSE } from "#/hooks/use-paper-sse";
 import { useTRPC } from "#/integrations/trpc/react";
 import { authClient } from "#/lib/auth-client";
@@ -92,6 +93,12 @@ function PapersPage() {
       ? getReviewGuestClientSession()
       : null;
   const session = authSession ?? guestSession;
+  // 登录态是否已确定。只看 isSessionPending 不够：服务端渲染时它恒为 true，出的是
+  // 骨架；而客户端 better-auth 若已有缓存会在首帧就把它翻成 false，于是 hydration
+  // 那一帧渲染的是正文，与服务端那帧结构不符 —— React 不修补，直接丢弃子树重渲。
+  // 同 /settings 与 /p/$shortId 的写法。
+  const hydrated = useHydrated();
+  const isSessionResolved = hydrated && !isSessionPending;
   const profile = useQuery({
     ...trpc.user.getProfile.queryOptions(),
     enabled: !!session,
@@ -220,7 +227,7 @@ function PapersPage() {
     return () => observer.disconnect();
   }, [sentinel, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  if (isSessionPending) {
+  if (!isSessionResolved) {
     return (
       <main className="page-wrap py-8">
         <div className="h-8 w-32 animate-pulse bg-neutral-100 dark:bg-neutral-800" />

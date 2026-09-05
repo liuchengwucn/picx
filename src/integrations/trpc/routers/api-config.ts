@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { userApiConfigs } from "#/db/schema";
 import { reasoningParam } from "#/lib/ai";
@@ -386,6 +386,24 @@ export const apiConfigRouter = router({
           code: "NOT_FOUND",
           message: "API configuration not found",
         });
+      }
+
+      // 删掉的是默认配置就把默认继承给剩下最早创建的那条，与 whiteboardPrompt.delete
+      // 同语义。不补的话用户会落到「一条配置都不是默认」的状态且刷新后依旧：
+      // upload-dialog / regenerate-dialog 只在存在默认配置时才自动选中用户自己的 API。
+      // D1 没有事务，删除与这次改写不是原子的；中途失败最坏也只是退回「无默认」，
+      // 与修复前的状态相同，不会产生两条默认。
+      if (result[0].isDefault) {
+        const oldest = await ctx.db.query.userApiConfigs.findFirst({
+          where: eq(userApiConfigs.userId, ctx.session.user.id),
+          orderBy: asc(userApiConfigs.createdAt),
+        });
+        if (oldest) {
+          await ctx.db
+            .update(userApiConfigs)
+            .set({ isDefault: true, updatedAt: new Date() })
+            .where(eq(userApiConfigs.id, oldest.id));
+        }
       }
 
       return { success: true };
