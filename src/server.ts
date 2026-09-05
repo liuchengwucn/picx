@@ -11,14 +11,14 @@ import {
   resolveDigestRef,
   retranslateDigestLocale,
 } from "#/lib/digest/retranslate";
-import { negotiateFromAcceptLanguage } from "#/lib/locale-negotiation";
+import {
+  decideRequestLocale,
+  isHtmlResponse,
+  withLocaleCookies,
+} from "#/lib/locale-cookie-policy";
 import { goneIfHiddenStory } from "#/lib/news/gone";
 import { loadPaperMarkdown } from "#/lib/paper-markdown";
-import {
-  cookieName,
-  defineCustomServerStrategy,
-  isLocale,
-} from "#/paraglide/runtime";
+import { defineCustomServerStrategy } from "#/paraglide/runtime";
 import { paraglideMiddleware } from "#/paraglide/server.js";
 import type { Env } from "#/types/env";
 import arxivCron from "#/workers/arxiv-cron";
@@ -29,25 +29,21 @@ import tweetPosterCron from "#/workers/tweet-poster-cron";
 
 export { DigestWorkflow } from "#/workflows/digest-workflow";
 
-// SSR locale 的 Accept-Language 兜底协商（cookie 没命中时走到这里）。
+// SSR locale 的 Accept-Language 兜底协商（cookie 没命中时走到这里）。客户端的
+// 成对实现在 src/lib/locale-client-strategy.ts，两边共用 locale-negotiation.ts。
 // 不能用 paraglide 内置的 preferredLanguage 策略：它的服务端实现会把语言标签
 // toLowerCase 后原样返回（如 "zh-cn"），而 message 分发是 locale === "zh-CN"
 // 精确比较、else 兜底是 ja → 中文用户会被渲染成日文。
 // 注意：extractLocaleFromRequestAsync 会把 custom 策略排在所有内置策略之前执行
-// （无视 strategy 数组里的顺序），所以这里必须先看 cookie——有合法 locale cookie
-// 时返回 undefined 让位，内置 cookie 策略才能按预期优先生效。
+// （无视 strategy 数组里的顺序），所以判定必须自己先看 cookie——尊重现有 cookie
+// 时返回 undefined 让位，内置 cookie 策略才能按预期优先生效。判定本身（含存量
+// en cookie 的一次性重置）在 locale-cookie-policy.ts，与响应侧 Set-Cookie 共用。
 defineCustomServerStrategy("custom-negotiate", {
-  getLocale: (request?: Request) => {
-    const cookieLocale = request?.headers
-      .get("cookie")
-      ?.split("; ")
-      .find((c) => c.startsWith(`${cookieName}=`))
-      ?.split("=")[1];
-    if (isLocale(cookieLocale)) {
-      return undefined;
-    }
-    return negotiateFromAcceptLanguage(request?.headers.get("accept-language"));
-  },
+  getLocale: (request?: Request) =>
+    decideRequestLocale(
+      request?.headers.get("cookie"),
+      request?.headers.get("accept-language"),
+    ).locale,
 });
 
 const MARKDOWN_HEADERS = {
@@ -295,9 +291,23 @@ export default {
     // custom-negotiate 自实现协商) → baseLocale(en)，并把结果放进
     // AsyncLocalStorage 供渲染期 getLocale() 读取，消除 hydration mismatch。
     // TanStack Router 自己管 URL，按 server.js 文档示例传原始 request。
-    const response = await paraglideMiddleware(request, () =>
+    let response = await paraglideMiddleware(request, () =>
       handler.fetch(request),
     );
+
+    // 协商/重置出来的 locale 由 HTTP 下发 cookie：脚本执行前就进 document.cookie，
+    // 客户端 hydration 那帧读到的和服务端渲染用的是同一个值。只挂在 HTML 响应上
+    // （sitemap/rss/R2 等 public 可缓存响应不能带 cookie），同时给每个浏览器打上
+    // 「已过修复后代码」的标记（见 locale-cookie-policy.ts）。
+    if (isHtmlResponse(response)) {
+      response = withLocaleCookies(
+        response,
+        decideRequestLocale(
+          request.headers.get("cookie"),
+          request.headers.get("accept-language"),
+        ),
+      );
+    }
 
     // 下架的资讯回 410 而不是 404（见 lib/news/gone.ts）。必须在这里做而不是在
     // 路由 loader 里：SSR 响应的状态码取自 router.state.statusCode（见

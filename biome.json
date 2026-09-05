@@ -16,7 +16,8 @@
       "!**/src/routeTree.gen.ts",
       "!**/src/paraglide",
       "!**/src/styles.css",
-      "!**/.claude"
+      "!**/.claude",
+      "!.worktrees"
     ]
   },
   "formatter": {

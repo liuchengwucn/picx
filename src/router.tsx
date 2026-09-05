@@ -1,3 +1,6 @@
+// 必须排在 routeTree 之前：路由模块加载期就可能触发 getLocale()，客户端的
+// custom-negotiate 策略得先注册好，否则首访解析落到 en 并被写进 cookie。
+import "#/lib/locale-client-strategy";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import TanStackQueryProvider, {
   getContext,

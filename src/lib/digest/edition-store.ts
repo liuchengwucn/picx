@@ -6,7 +6,6 @@
 // 纯读聚合也塞进去。
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
-import { arxivPublishedMonth } from "#/lib/arxiv";
 import {
   digestPapers,
   digests,
@@ -14,6 +13,7 @@ import {
   papers,
   whiteboardImages,
 } from "#/db/schema";
+import { arxivPublishedMonth } from "#/lib/arxiv";
 
 type Db = ReturnType<typeof drizzle>;
 
