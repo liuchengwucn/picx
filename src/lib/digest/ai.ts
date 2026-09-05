@@ -28,7 +28,6 @@ import {
   DIGEST_LOCALES,
   type DigestLocale,
   type FeedbackSample,
-  type HardRuleVerdict,
   type PastPick,
   type ReviewedCandidate,
   type RiskAnnotation,
@@ -373,19 +372,7 @@ export async function resolveIntelDate(
   }
 }
 
-/**
- * 硬规则影子判定的 prompt 段：focusBrief 里的「硬标准/一律不选/不感兴趣」此前只是
- * 文本、没有任何机制执行（模型甚至会一边入选一边在推荐语里自首违反）。这里要求逐条
- * 对照并单独结构化输出，先只观测（HARD_RULE_FILTER），不参与打分也不影响 score。
- */
-const HARD_RULE_INSTRUCTION = [
-  "- hard_rule: the research focus below may state HARD rules — look for wording like 硬标准 / 不在本方向范围内 / 一律不选 / 不感兴趣 / 只报…按 filler 处理, or English equivalents (hard requirement, never pick, out of scope, not interested).",
-  "  Go through each such rule one by one and check this item against it. This applies to non-paper items (news, blog posts, discussion threads) exactly as much as to papers — out-of-scope intel is just as common.",
-  "  Mark violated=true ONLY when the item itself gives explicit evidence that it breaks a stated hard rule; quote the rule fragment you are applying. Soft preferences, wishes and 'prefer/偏好' wording are NOT hard rules unless the focus marks them as hard. If the focus states no hard rules, or you are unsure, return violated=false.",
-  '  Shape: "hard_rule":{"violated":bool,"rule":"<verbatim fragment of the violated rule, <=40 chars, empty when not violated>","reason":"<one sentence of evidence, empty when not violated>"}',
-].join("\n");
-
-/** 精读 system prompt 组装（纯函数，便于单测锚定硬规则段真的进了 prompt） */
+/** 精读 system prompt 组装（纯函数，便于单测锚定 prompt 内容） */
 export function buildReviewSystemPrompt(
   focusBrief: string,
   pastPicks: PastPick[],
@@ -401,38 +388,11 @@ export function buildReviewSystemPrompt(
     "- Staleness: this digest covers current work. If the item is clearly more than 3 months old (from its Published line, its venue/proceedings year, or the text itself) and is not just now becoming relevant, score it low and say so in recommendation.",
     "- Author signal / author list (when present) are a WEAK prior on report credibility (the rigor axis) ONLY: extraordinary claims from a low-track-record team with no code and no independent evals deserve extra skepticism; a strong track record slightly raises benefit-of-the-doubt for borderline scores. If the full text reveals a well-known lab or research group, weigh that the same way.",
     "- NEVER use author signal to judge novelty, and never let reputation substitute for reading the content. Missing or unknown author data is NOT a negative signal.",
-    HARD_RULE_INSTRUCTION,
     UNTRUSTED_NOTE,
     `Research focus:\n${focusBrief}`,
     `Prior picks (already recommended in past issues):\n${pastPicksBlock(pastPicks)}`,
-    'Return JSON only: {"novelty":"...","noveltyQuote":"...","relevance":n,"recommendation":"...","score":n,"hard_rule":{"violated":false,"rule":"","reason":""}}',
+    'Return JSON only: {"novelty":"...","noveltyQuote":"...","relevance":n,"recommendation":"...","score":n}',
   ].join("\n");
-}
-
-/**
- * hard_rule 字段解析：新字段全 optional，任何缺失/类型不对都退化成 violated=false，
- * 绝不因为影子字段让既有精读解析失败（模型返回旧形状时必须照常出刊）。
- */
-export function parseHardRule(raw: unknown): HardRuleVerdict {
-  const none: HardRuleVerdict = { violated: false, rule: "", reason: "" };
-  if (!raw || typeof raw !== "object") return none;
-  const o = raw as Record<string, unknown>;
-  if (o.violated !== true && o.violated !== "true") return none;
-  return {
-    violated: true,
-    // rule 缺失不降级为 false：影子期要如实统计「判违但说不出规则」这一档
-    rule: typeof o.rule === "string" ? clean(o.rule).slice(0, 120) : "",
-    reason: typeof o.reason === "string" ? clean(o.reason).slice(0, 300) : "",
-  };
-}
-
-/**
- * 剔除判据（仅 HARD_RULE_FILTER=true 时生效）：判违且**说得出被违反的规则原文**才剔。
- * violated=true 但 rule 为空是「判违但给不出依据」，属于无依据剔除，一律放行；
- * 该档在影子期照常落库统计（见 parseHardRule 的注释）。
- */
-export function hardRuleBlocks(verdict: HardRuleVerdict | undefined): boolean {
-  return verdict?.violated === true && verdict.rule !== "";
 }
 
 /** 精读评审（廉价模型）：新意必须有原文引用支撑 */
@@ -456,14 +416,9 @@ export async function reviewCandidate(
     fullText ??
       `(full text unavailable; abstract/excerpt only)\n${clean(item.excerpt ?? "")}`,
   ].join("\n");
-  // 预算随 hard_rule 段上调：900 是按旧字段量估的，多一个对象容易顶到
-  // finish_reason=length（chatJson 会直接抛，重试三次后整篇候选被丢弃）
-  const r = await chatJson<CandidateReview & { hard_rule?: unknown }>(
-    cfg,
-    system,
-    user,
-    1200,
-  );
+  // 输出预算留足余量：顶到 finish_reason=length 时 chatJson 会直接抛，重试三次后
+  // 整篇候选被丢弃；上限本身不计费，宁宽勿紧
+  const r = await chatJson<CandidateReview>(cfg, system, user, 1200);
   if (typeof r.score !== "number" || typeof r.novelty !== "string") {
     throw new DigestAiError("review: malformed result");
   }
@@ -473,7 +428,6 @@ export async function reviewCandidate(
     relevance: Math.max(0, Math.min(100, Math.round(Number(r.relevance) || 0))),
     recommendation: r.recommendation ?? "",
     score: Math.max(0, Math.min(100, Math.round(r.score))),
-    hardRule: parseHardRule(r.hard_rule ?? r.hardRule),
   };
 }
 

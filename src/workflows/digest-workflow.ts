@@ -11,7 +11,6 @@ import { drizzle } from "drizzle-orm/d1";
 import {
   annotateCandidate,
   fetchFullText,
-  hardRuleBlocks,
   RELEVANCE_THRESHOLD,
   resolveIntelDate,
   reviewCandidate,
@@ -96,13 +95,6 @@ const LLM_RETRIES = {
 };
 /** 精读分数过线才进 top-K 选材 */
 const REVIEW_PASS_SCORE = 55;
-/**
- * focusBrief 硬规则的执行开关。false = 影子模式：只判定、落库（source_meta.hardRule）
- * 和打日志，不改变选材；true = 违规候选在选材前剔除（状态保持 seen，下期可再评）。
- * 先影子跑一期统计误杀率再打开——判定来自廉价模型，误杀会静默吃掉好候选。
- * 类型显式标 boolean：否则 false 字面量类型会让下方分支被当成死代码。
- */
-const HARD_RULE_FILTER: boolean = false;
 /** 论文处理等待：18 轮 × 10 分钟 = 最多 3 小时后兜底发布 */
 const PUBLISH_POLL_ROUNDS = 18;
 /** arXiv 429 惩罚期实测是分钟级，20s 级退避只会连吃 429，须用分钟级恒定退避 */
@@ -576,22 +568,7 @@ export class DigestWorkflow extends WorkflowEntrypoint<
                     db,
                     directionId,
                     item.canonicalUrl,
-                    {
-                      score: review.score,
-                      // 硬规则影子判定落库供离线统计误杀率（step 内取时间：
-                      // 已完成的 step 重放不重跑 body，不会漂）
-                      ...(review.hardRule
-                        ? {
-                            sourceMeta: {
-                              hardRule: {
-                                ...review.hardRule,
-                                issue: shell.issueNumber,
-                                checkedAt: new Date().toISOString(),
-                              },
-                            },
-                          }
-                        : {}),
-                    },
+                    { score: review.score },
                   );
                   return { item, review, quoteVerified };
                 },
@@ -610,35 +587,10 @@ export class DigestWorkflow extends WorkflowEntrypoint<
         );
       }
 
-      // 硬规则影子模式观测行（step 外，休眠重放会重复打印——同下方通过率观测行）。
-      // 明天用 source_meta.hardRule 统计误杀率再决定是否打开 HARD_RULE_FILTER。
-      // 开关决策以 source_meta.hardRule 为准（含 rule 空/非空两档）；此行随休眠重放
-      // 重复打印，按 (direction, issue) 去重。
-      // violated 是观测口径、blocked 是剔除口径（后者要求引用了规则原文），两个数
-      // 必须并排出现：只看 violated 会把「判违但说不出规则」误当成会被剔除的量。
-      const hardRuleViolations = reviewed.filter(
-        (r) => r.review.hardRule?.violated === true,
-      );
-      const hardRuleBlocked = reviewed.filter((r) =>
-        hardRuleBlocks(r.review.hardRule),
-      );
-      console.log(
-        `[Digest] hard-rule shadow: direction=${ctx.direction.slug} issue=${shell.issueNumber} reviewed=${reviewed.length} violated=${hardRuleViolations.length} blocked=${hardRuleBlocked.length} titles=[${hardRuleViolations
-          .slice(0, 10)
-          .map((r) => `"${r.item.title.replace(/\s+/g, " ").slice(0, 80)}"`)
-          .join(", ")}]`,
-      );
-      // 影子期 HARD_RULE_FILTER=false：违规候选照常参选，只留痕。打开后它们在
-      // 选材前就被剔除（状态保持 seen，下期可再评），空出的名额由次优候选补上。
-      // 剔除判据比观测口径严：判违但说不出规则原文的不剔（见 hardRuleBlocks）。
-      const eligible = HARD_RULE_FILTER
-        ? reviewed.filter((r) => !hardRuleBlocks(r.review.hardRule))
-        : reviewed;
-
-      const paperCandidates = eligible.filter(
+      const paperCandidates = reviewed.filter(
         (r) => r.item.kind === "paper" && r.review.score >= REVIEW_PASS_SCORE,
       );
-      const intelCandidates = eligible.filter((r) => r.item.kind === "intel");
+      const intelCandidates = reviewed.filter((r) => r.item.kind === "intel");
 
       // ── 7. top-K 选材 + 参谋标注（#69/#72 校准：标注只参谋，不否决、不写状态）──
       // 未进 top-K 的论文保持 seen，下期可再战；rejected 不再由本流程写入。
