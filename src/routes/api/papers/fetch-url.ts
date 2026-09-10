@@ -6,6 +6,7 @@ import {
   PDF_FETCH_HEADERS,
   pdfFetchErrorCode,
   pdfFilenameFromUrl,
+  toDirectPdfUrl,
 } from "#/lib/pdf-url";
 import { UPLOAD_ERROR, type UploadErrorCode } from "#/lib/upload-errors";
 
@@ -63,6 +64,8 @@ async function fetchFollowingRedirects(
     if (!check.ok) {
       throw new FetchUrlError(UPLOAD_ERROR.BAD_URL, 400);
     }
+    // Per hop, not just hop 0: hf.co short links 307 to the `/blob/` viewer.
+    current = toDirectPdfUrl(check.url).toString();
     const resp = await fetch(current, {
       redirect: "manual",
       signal,

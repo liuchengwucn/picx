@@ -101,6 +101,59 @@ export function isAllowedPdfUrl(raw: string): UrlCheck {
   return { ok: true, url };
 }
 
+/**
+ * Locate the "file viewer" path segment of a code-hosting URL and what to
+ * replace it with to get the raw bytes. Checked by position, so a repo
+ * literally named "blob" isn't mistaken for the marker.
+ */
+function viewerSegment(
+  host: string,
+  segs: string[],
+): { index: number; raw: string } | null {
+  if (host === "huggingface.co") {
+    // Datasets and Spaces carry a `datasets/` / `spaces/` prefix before the repo.
+    const repoStart = segs[0] === "datasets" || segs[0] === "spaces" ? 1 : 0;
+    const i = repoStart + 2;
+    return segs[i] === "blob" ? { index: i, raw: "resolve" } : null;
+  }
+  if (host === "github.com") {
+    return segs[2] === "blob" ? { index: 2, raw: "raw" } : null;
+  }
+  // GitLab: groups nest arbitrarily deep, but `-` can't be a group or project
+  // name, so the first `-` segment is the separator. Any host — self-hosted
+  // instances share the route.
+  const dash = segs.indexOf("-");
+  if (dash > 0 && segs[dash + 1] === "blob") {
+    return { index: dash + 1, raw: "raw" };
+  }
+  return null;
+}
+
+/**
+ * Rewrite a code-hosting "file viewer" URL to the one that serves the file.
+ *
+ * Viewer pages are HTML, so importing them fails as "not a PDF" (GitHub's even
+ * answers 429 → "blocked"). Each raw endpoint redirects to its CDN
+ * (HF → cdn.hf.co, GitHub → raw.githubusercontent.com), which the caller's
+ * per-hop check re-validates. The host is never changed here, so the SSRF
+ * check on the input still holds.
+ *
+ * - Hugging Face: `/{repo}/blob/{rev}/{path}` → `/resolve/`
+ * - GitHub:       `/{owner}/{repo}/blob/{ref}/{path}` → `/raw/`
+ * - GitLab:       `/{group…}/{project}/-/blob/{ref}/{path}` → `/-/raw/`
+ */
+export function toDirectPdfUrl(url: URL): URL {
+  const segs = url.pathname.split("/").slice(1);
+  const viewer = viewerSegment(url.hostname, segs);
+  if (!viewer) {
+    return url;
+  }
+  segs[viewer.index] = viewer.raw;
+  const out = new URL(url);
+  out.pathname = `/${segs.join("/")}`;
+  return out;
+}
+
 /** Keep a safe, ASCII-ish filename and guarantee a .pdf extension. */
 function ensurePdfName(name: string): string {
   const cleaned = name

@@ -4,6 +4,7 @@ import {
   PDF_FETCH_HEADERS,
   pdfFetchErrorCode,
   pdfFilenameFromUrl,
+  toDirectPdfUrl,
 } from "./pdf-url";
 
 describe("PDF_FETCH_HEADERS", () => {
@@ -145,5 +146,73 @@ describe("pdfFilenameFromUrl", () => {
 
   it("falls back to document.pdf for a root URL", () => {
     expect(pdfFilenameFromUrl("https://x.com/")).toBe("document.pdf");
+  });
+});
+
+describe("toDirectPdfUrl", () => {
+  const direct = (raw: string) => toDirectPdfUrl(new URL(raw)).toString();
+
+  // Regression: the /blob/ viewer page returned 200 text/html → "not a PDF".
+  it("rewrites a Hugging Face model /blob/ URL to /resolve/", () => {
+    expect(
+      direct(
+        "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/blob/main/DeepSeek_V41_Tech_Report.pdf",
+      ),
+    ).toBe(
+      "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/resolve/main/DeepSeek_V41_Tech_Report.pdf",
+    );
+  });
+
+  it("handles dataset and space repos", () => {
+    expect(direct("https://huggingface.co/datasets/o/r/blob/main/a.pdf")).toBe(
+      "https://huggingface.co/datasets/o/r/resolve/main/a.pdf",
+    );
+    expect(direct("https://huggingface.co/spaces/o/r/blob/v1/docs/a.pdf")).toBe(
+      "https://huggingface.co/spaces/o/r/resolve/v1/docs/a.pdf",
+    );
+  });
+
+  it("only rewrites the marker position, not a repo named blob", () => {
+    expect(direct("https://huggingface.co/o/blob/blob/main/a.pdf")).toBe(
+      "https://huggingface.co/o/blob/resolve/main/a.pdf",
+    );
+    expect(direct("https://github.com/o/blob/blob/main/a.pdf")).toBe(
+      "https://github.com/o/blob/raw/main/a.pdf",
+    );
+  });
+
+  // Regression: GitHub's /blob/ viewer answered 429 text/html → "blocked".
+  it("rewrites a GitHub /blob/ URL to /raw/", () => {
+    expect(
+      direct(
+        "https://github.com/mozilla/pdf.js/blob/master/test/pdfs/tracemonkey.pdf",
+      ),
+    ).toBe(
+      "https://github.com/mozilla/pdf.js/raw/master/test/pdfs/tracemonkey.pdf",
+    );
+  });
+
+  it("rewrites GitLab /-/blob/ on nested groups and self-hosted instances", () => {
+    expect(direct("https://gitlab.com/g/sub/p/-/blob/main/docs/a.pdf")).toBe(
+      "https://gitlab.com/g/sub/p/-/raw/main/docs/a.pdf",
+    );
+    expect(direct("https://git.example.edu/g/p/-/blob/v2/a.pdf")).toBe(
+      "https://git.example.edu/g/p/-/raw/v2/a.pdf",
+    );
+  });
+
+  it("leaves other URLs untouched", () => {
+    const same = [
+      "https://huggingface.co/o/r/resolve/main/a.pdf",
+      "https://huggingface.co/papers/2601.00001",
+      "https://github.com/o/r/raw/main/a.pdf",
+      "https://github.com/o/r/releases/download/v1/a.pdf",
+      "https://gitlab.com/g/p/-/raw/main/a.pdf",
+      "https://x.com/-/blob/a.pdf",
+      "https://arxiv.org/pdf/2301.00001",
+    ];
+    for (const raw of same) {
+      expect(direct(raw)).toBe(raw);
+    }
   });
 });
