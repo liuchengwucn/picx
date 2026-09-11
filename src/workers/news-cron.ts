@@ -25,9 +25,11 @@ import {
   type EmbedProvider,
   embedTexts,
   generateStoryContent,
+  type JudgeMember,
   judgeAssignment,
   normalizeKeyFacts,
   scoreRelevance,
+  toJudgeMember,
 } from "#/lib/news/ai";
 import { EnrichRateLimitError, fetchReadable } from "#/lib/news/enrich";
 import { pickEventPublishedAt } from "#/lib/news/event-date";
@@ -525,22 +527,52 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
     .limit(MAX_CLUSTER_PER_ROUND);
   if (items.length === 0) return;
 
+  const since = windowStart(env);
+  const activeCondition = and(
+    eq(newsStories.status, "active"),
+    gt(newsStories.lastActivityAt, since),
+  );
+
   // 活跃 story 一次载入内存（每天几十个 story 量级，72h 窗口内远小于内存/行数限制）
-  const active = await db
+  const activeRows = await db
     .select({
       id: newsStories.id,
-      title: newsStories.title,
-      summary: newsStories.summary,
       centroid: newsStories.centroid,
       itemCount: newsStories.itemCount,
     })
     .from(newsStories)
+    .where(activeCondition);
+
+  // 判官要看每个候选 story 的成员事件（见 lib/news/ai.ts JudgeCandidate）。
+  // 子查询而非 inArray(数组)：活跃 story 可达上百个，D1 单查询绑定参数上限 100。
+  const memberRows = await db
+    .select({
+      storyId: newsItems.storyId,
+      title: newsItems.title,
+      gist: newsItems.gist,
+      publishedAt: newsItems.publishedAt,
+    })
+    .from(newsItems)
     .where(
-      and(
-        eq(newsStories.status, "active"),
-        gt(newsStories.lastActivityAt, windowStart(env)),
+      inArray(
+        newsItems.storyId,
+        db
+          .select({ id: newsStories.id })
+          .from(newsStories)
+          .where(activeCondition),
       ),
     );
+  const membersByStory = new Map<string, JudgeMember[]>();
+  for (const row of memberRows) {
+    if (!row.storyId) continue;
+    const list = membersByStory.get(row.storyId) ?? [];
+    list.push(toJudgeMember(row));
+    membersByStory.set(row.storyId, list);
+  }
+  const active = activeRows.map((story) => ({
+    ...story,
+    members: membersByStory.get(story.id) ?? [],
+  }));
 
   const config = aiConfigFromEnv(env);
   let merged = 0;
@@ -557,19 +589,25 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           story,
           sim: cosineSimilarity(embedding, story.centroid),
         }))
-        .filter((entry) => entry.sim >= SIM_CANDIDATE_THRESHOLD)
+        .filter(
+          (entry) =>
+            entry.sim >= SIM_CANDIDATE_THRESHOLD &&
+            // 无成员 = cluster 崩溃留下的孤儿，没东西可给判官看；由 archiveStage 清理
+            entry.story.members.length > 0,
+        )
         .sort((a, b) => b.sim - a.sim)
         .slice(0, TOP_K);
 
       let target: (typeof active)[number] | null = null;
       if (scored.length > 0) {
         const idx = await judgeAssignment(
-          { title: item.title, excerpt: item.excerpt, gist: item.gist },
-          scored.map((entry) => ({
-            // Record<string, string> 上 en 可能缺失（旧数据/异常），?? 兜底
-            title: entry.story.title.en ?? "",
-            summary: entry.story.summary.en ?? "",
-          })),
+          {
+            title: item.title,
+            excerpt: item.excerpt,
+            gist: item.gist,
+            publishedAt: item.publishedAt,
+          },
+          scored.map((entry) => ({ members: entry.story.members })),
           config,
         );
         if (idx !== null) target = scored[idx].story;
@@ -606,6 +644,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           .where(eq(newsItems.id, item.id));
         target.centroid = newCentroid;
         target.itemCount += 1;
+        target.members.push(toJudgeMember(item));
         merged++;
       } else {
         const [story] = await db
@@ -631,10 +670,9 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           .where(eq(newsItems.id, item.id));
         active.push({
           id: story.id,
-          title: { en: item.title },
-          summary: { en: item.excerpt ?? item.title },
           centroid: embedding,
           itemCount: 1,
+          members: [toJudgeMember(item)],
         });
         created++;
       }
