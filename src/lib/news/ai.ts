@@ -224,8 +224,14 @@ export function buildJudgeUserPrompt(
   return `ITEM (published ${formatUtcMinute(item.publishedAt)}):\n${clean(item.title)}\n${body}\n\nCANDIDATE STORIES:\n${blocks.join("\n")}`;
 }
 
+// 措辞经生产回放校准（docs/calib/news-cluster-judge/，30 条同事件多来源对照 + 多事件合并案例）。
+// 「同一公告的组成部分」一句修的是 DIFFERENT 规则误伤：同一场发布里的档位/限量预览模式、
+// 同一份报告的各项发现被 preview/variant 规则拆开。该句末尾的护栏不能删——只加子句时，
+// 候选只剩一个的情况下模型会把它外推成宽松合并，实测把「X-Flash 正式发布」并进了
+// 三天前「X 的传闻」。
 const JUDGE_SYSTEM = `You decide whether a news item reports the same concrete news event as one of the existing story clusters. A story is exactly one concrete event: one model release, one paper, one incident, one announcement, one price change. Each candidate story is shown as the dated list of events its reports cover; judge against those concrete events, never against a broad shared theme, company, or product line.
 Merge when the item is another source's coverage of the same event, including analysis, benchmarks, commentary, and reactions about that event.
+One announcement often has several parts released together by the same organization: a model together with its tiers, modes, editions, limited-preview access or launch partners, or a report together with the individual findings in it. Items published within hours of each other that describe parts or details of the same announcement or report are the same event. The DIFFERENT-events rules below separate distinct announcements, not the parts of one. This never joins a release with earlier rumors, leaks, plans, teasers or tests, or with a different model, version or variant: those stay DIFFERENT events as listed below.
 These are DIFFERENT events and must not be merged, even for the same company or product:
 - a rumor, leak, report of plans, pre-announcement, teaser, preview, or beta/limited test, versus the official release or general availability;
 - a release versus a later price change, availability on a new platform, or a separate update;
