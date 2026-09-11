@@ -226,7 +226,7 @@ describe("judgeAssignment", () => {
     expect(calls[0].user).toContain("some excerpt body");
   });
 
-  it("shows item and member dates, not story summaries", async () => {
+  it("shows item and member dates", async () => {
     const calls = stubChat({ assign: null });
     await judgeAssignment(
       {
@@ -277,6 +277,18 @@ describe("pickJudgeMembers", () => {
     // 排序后最早是 e6（9/1），最近 4 条是 e3..e0（9/4..9/7）
     expect(shown.map((m) => m.event)).toEqual(["e6", "e3", "e2", "e1", "e0"]);
   });
+
+  it("clamps max=1 to 2 (first + at least one latest)", () => {
+    const members = Array.from({ length: 7 }, (_, i) => ({
+      publishedAt: new Date(
+        `2026-09-${String(7 - i).padStart(2, "0")}T00:00:00Z`,
+      ),
+      event: `e${i}`,
+    }));
+    const { shown, omitted } = pickJudgeMembers(members, 1);
+    expect(shown.map((m) => m.event)).toEqual(["e6", "e0"]);
+    expect(omitted).toBe(5);
+  });
 });
 
 describe("buildJudgeUserPrompt", () => {
@@ -291,6 +303,8 @@ describe("buildJudgeUserPrompt", () => {
       { title: "t", publishedAt: new Date("2026-09-10T00:00:00Z") },
       [{ members }],
     );
+    // header 报的是成员总数（7），不是本轮实际展示的条数（5）
+    expect(prompt).toContain("Story with 7 report(s)");
     const lines = prompt.split("\n");
     const firstIdx = lines.findIndex((l) => l.includes("e0"));
     const omittedIdx = lines.findIndex((l) =>

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { JudgeCandidate } from "./ai";
-import { generateStoryContent, judgeAssignment } from "./ai";
+import {
+  generateStoryContent,
+  type JudgeCandidate,
+  judgeAssignment,
+} from "./ai";
 
 // 手动评估脚本（golden cases）：不进 CI，需显式 opt-in 才会跑（避免任何配了
 // OPENAI_API_KEY 的开发者环境意外触发真实调用）。

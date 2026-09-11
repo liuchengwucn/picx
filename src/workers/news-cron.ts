@@ -29,6 +29,7 @@ import {
   judgeAssignment,
   normalizeKeyFacts,
   scoreRelevance,
+  toJudgeMember,
 } from "#/lib/news/ai";
 import { EnrichRateLimitError, fetchReadable } from "#/lib/news/enrich";
 import { pickEventPublishedAt } from "#/lib/news/event-date";
@@ -565,7 +566,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
   for (const row of memberRows) {
     if (!row.storyId) continue;
     const list = membersByStory.get(row.storyId) ?? [];
-    list.push({ publishedAt: row.publishedAt, event: row.gist ?? row.title });
+    list.push(toJudgeMember(row));
     membersByStory.set(row.storyId, list);
   }
   const active = activeRows.map((story) => ({
@@ -591,6 +592,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
         .filter(
           (entry) =>
             entry.sim >= SIM_CANDIDATE_THRESHOLD &&
+            // 无成员 = cluster 崩溃留下的孤儿，没东西可给判官看；由 archiveStage 清理
             entry.story.members.length > 0,
         )
         .sort((a, b) => b.sim - a.sim)
@@ -642,10 +644,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           .where(eq(newsItems.id, item.id));
         target.centroid = newCentroid;
         target.itemCount += 1;
-        target.members.push({
-          publishedAt: item.publishedAt,
-          event: item.gist ?? item.title,
-        });
+        target.members.push(toJudgeMember(item));
         merged++;
       } else {
         const [story] = await db
@@ -673,9 +672,7 @@ async function clusterStage(db: Db, env: Env, deadline: number): Promise<void> {
           id: story.id,
           centroid: embedding,
           itemCount: 1,
-          members: [
-            { publishedAt: item.publishedAt, event: item.gist ?? item.title },
-          ],
+          members: [toJudgeMember(item)],
         });
         created++;
       }

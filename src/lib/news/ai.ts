@@ -148,6 +148,15 @@ export interface JudgeMember {
   event: string;
 }
 
+/** news-cron.ts 三处（新建/并入/存量成员）共用的 JudgeMember 构造规则 */
+export function toJudgeMember(item: {
+  publishedAt: Date;
+  gist: string | null;
+  title: string;
+}): JudgeMember {
+  return { publishedAt: item.publishedAt, event: item.gist ?? item.title };
+}
+
 /**
  * 判官眼中的候选 story = 带日期的成员事件列表。
  *
@@ -164,20 +173,23 @@ export interface JudgeCandidate {
 export const JUDGE_MAX_MEMBERS = 5;
 
 /**
- * 成员超过上限时保留首条（story 的起源事件）+ 最近 max-1 条（当前在报道什么），
+ * 成员超过上限时保留首条（story 的起源事件）+ 最近 keep-1 条（当前在报道什么），
  * omitted 是被省略的条数。输入不必预排序。
  */
 export function pickJudgeMembers(
   members: JudgeMember[],
   max = JUDGE_MAX_MEMBERS,
 ): { shown: JudgeMember[]; omitted: number } {
+  // max<2 时「首条 + 最近 max-1 条」会退化：max-1<=0 时 slice(-0) 取到整个数组，
+  // 起不到限流作用；钳到至少 2 保证「首条 + 至少 1 条最近」恒成立
+  const keep = Math.max(2, max);
   const sorted = [...members].sort(
     (a, b) => a.publishedAt.getTime() - b.publishedAt.getTime(),
   );
-  if (sorted.length <= max) return { shown: sorted, omitted: 0 };
+  if (sorted.length <= keep) return { shown: sorted, omitted: 0 };
   return {
-    shown: [sorted[0], ...sorted.slice(-(max - 1))],
-    omitted: sorted.length - max,
+    shown: [sorted[0], ...sorted.slice(sorted.length - (keep - 1))],
+    omitted: sorted.length - keep,
   };
 }
 
@@ -203,7 +215,7 @@ export function buildJudgeUserPrompt(
     const { shown, omitted } = pickJudgeMembers(c.members);
     const lines = shown.map(
       (m) =>
-        `   - ${formatUtcMinute(m.publishedAt)}: ${clean(m.event).slice(0, 200)}`,
+        `   - ${formatUtcMinute(m.publishedAt)}: ${clean(m.event).slice(0, MAX_GIST)}`,
     );
     if (omitted > 0)
       lines.splice(1, 0, `   - … ${omitted} more report(s) in between`);
