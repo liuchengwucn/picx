@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AIConfig } from "#/lib/ai";
 import { extractFirstJsonObject } from "#/lib/json-extract";
 import {
+  buildJudgeUserPrompt,
   embedTexts,
   generateStoryContent,
   judgeAssignment,
   NewsAiError,
   normalizeKeyFacts,
+  pickJudgeMembers,
   scoreRelevance,
 } from "./ai";
 
@@ -184,7 +186,13 @@ describe("scoreRelevance", () => {
 describe("judgeAssignment", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  const candidates = [{ title: "Story", summary: "Summary" }];
+  const candidates = [
+    {
+      members: [
+        { publishedAt: new Date("2026-09-08T10:18:00Z"), event: "Story event" },
+      ],
+    },
+  ];
 
   it("uses gist as the item body when present", async () => {
     const calls = stubChat({ assign: 1 });
@@ -193,6 +201,7 @@ describe("judgeAssignment", () => {
         title: "对谈某人",
         excerpt: "背景铺垫".repeat(100),
         gist: "LatePost interviews X about RSI",
+        publishedAt: new Date("2026-09-10T06:11:00Z"),
       },
       candidates,
       TEST_CONFIG,
@@ -205,11 +214,90 @@ describe("judgeAssignment", () => {
   it("falls back to excerpt when gist is null", async () => {
     const calls = stubChat({ assign: null });
     await judgeAssignment(
-      { title: "t", excerpt: "some excerpt body", gist: null },
+      {
+        title: "t",
+        excerpt: "some excerpt body",
+        gist: null,
+        publishedAt: new Date("2026-09-10T06:11:00Z"),
+      },
       candidates,
       TEST_CONFIG,
     );
     expect(calls[0].user).toContain("some excerpt body");
+  });
+
+  it("shows item and member dates, not story summaries", async () => {
+    const calls = stubChat({ assign: null });
+    await judgeAssignment(
+      {
+        title: "t",
+        gist: "DeepSeek releases V4.1 Flash",
+        publishedAt: new Date("2026-09-10T06:11:00Z"),
+      },
+      [
+        {
+          members: [
+            {
+              publishedAt: new Date("2026-09-08T10:18:00Z"),
+              event: "DeepSeek begins beta testing V4.1 Flash",
+            },
+          ],
+        },
+      ],
+      TEST_CONFIG,
+    );
+    expect(calls[0].user).toContain("ITEM (published 2026-09-10 06:11 UTC)");
+    expect(calls[0].user).toContain(
+      "2026-09-08 10:18 UTC: DeepSeek begins beta testing V4.1 Flash",
+    );
+  });
+});
+
+describe("pickJudgeMembers", () => {
+  it("returns all members sorted ascending when at or under the max", () => {
+    const members = [
+      { publishedAt: new Date("2026-09-08T00:00:00Z"), event: "b" },
+      { publishedAt: new Date("2026-09-06T00:00:00Z"), event: "a" },
+    ];
+    const { shown, omitted } = pickJudgeMembers(members);
+    expect(omitted).toBe(0);
+    expect(shown.map((m) => m.event)).toEqual(["a", "b"]);
+  });
+
+  it("keeps the first member plus the most recent max-1 when over the max, omitting the rest", () => {
+    const members = Array.from({ length: 7 }, (_, i) => ({
+      // 乱序输入：按 i 倒序生成日期，验证函数内部会重新按时间升序排
+      publishedAt: new Date(
+        `2026-09-${String(7 - i).padStart(2, "0")}T00:00:00Z`,
+      ),
+      event: `e${i}`,
+    }));
+    const { shown, omitted } = pickJudgeMembers(members, 5);
+    expect(omitted).toBe(2);
+    // 排序后最早是 e6（9/1），最近 4 条是 e3..e0（9/4..9/7）
+    expect(shown.map((m) => m.event)).toEqual(["e6", "e3", "e2", "e1", "e0"]);
+  });
+});
+
+describe("buildJudgeUserPrompt", () => {
+  it("marks omitted members between the first and the recent ones", () => {
+    const members = Array.from({ length: 7 }, (_, i) => ({
+      publishedAt: new Date(
+        `2026-09-${String(1 + i).padStart(2, "0")}T00:00:00Z`,
+      ),
+      event: `e${i}`,
+    }));
+    const prompt = buildJudgeUserPrompt(
+      { title: "t", publishedAt: new Date("2026-09-10T00:00:00Z") },
+      [{ members }],
+    );
+    const lines = prompt.split("\n");
+    const firstIdx = lines.findIndex((l) => l.includes("e0"));
+    const omittedIdx = lines.findIndex((l) =>
+      l.includes("… 2 more report(s) in between"),
+    );
+    expect(omittedIdx).toBeGreaterThan(firstIdx);
+    expect(omittedIdx).toBe(firstIdx + 1);
   });
 });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { JudgeCandidate } from "./ai";
 import { generateStoryContent, judgeAssignment } from "./ai";
 
 // 手动评估脚本（golden cases）：不进 CI，需显式 opt-in 才会跑（避免任何配了
@@ -15,15 +16,22 @@ const config = {
   cfApiToken: process.env.CF_API_TOKEN,
 };
 
-const CANDIDATES = [
+const CANDIDATES: JudgeCandidate[] = [
   {
-    title: "DeepSeek releases DeepSeek-V4 with 1M context",
-    summary:
-      "DeepSeek launched V4, a new MoE flagship model with a 1M-token context window.",
+    members: [
+      {
+        publishedAt: new Date("2026-08-01T00:00:00Z"),
+        event: "DeepSeek releases DeepSeek-V4 with 1M context",
+      },
+    ],
   },
   {
-    title: "Anthropic publishes interpretability paper on feature circuits",
-    summary: "New research tracing circuits in production LLMs.",
+    members: [
+      {
+        publishedAt: new Date("2026-08-01T00:00:00Z"),
+        event: "Anthropic publishes interpretability paper on feature circuits",
+      },
+    ],
   },
 ];
 
@@ -34,6 +42,7 @@ describe.skipIf(!enabled)("judgeAssignment golden cases", () => {
         title: "DeepSeek V4 tops open-model leaderboards on day one",
         excerpt:
           "The newly released DeepSeek-V4 already leads several benchmarks.",
+        publishedAt: new Date("2026-08-01T06:00:00Z"),
       },
       CANDIDATES,
       config,
@@ -45,6 +54,7 @@ describe.skipIf(!enabled)("judgeAssignment golden cases", () => {
       {
         title: "Qwen 4 announced with new attention variant",
         excerpt: "Alibaba's Qwen team announced Qwen 4.",
+        publishedAt: new Date("2026-08-01T06:00:00Z"),
       },
       CANDIDATES,
       config,
@@ -56,6 +66,7 @@ describe.skipIf(!enabled)("judgeAssignment golden cases", () => {
       {
         title: "Why 1M context windows are mostly marketing",
         excerpt: "An essay arguing long-context claims rarely hold up.",
+        publishedAt: new Date("2026-08-01T06:00:00Z"),
       },
       CANDIDATES,
       config,
@@ -69,11 +80,56 @@ describe.skipIf(!enabled)("judgeAssignment golden cases", () => {
           "Anthropic's new interpretability paper on feature circuits gets replicated",
         excerpt:
           "An independent team reproduced the feature-circuit tracing results.",
+        publishedAt: new Date("2026-08-01T06:00:00Z"),
       },
       CANDIDATES,
       config,
     );
     expect(idx).toBe(1);
+  }, 30_000);
+  it("does not merge an official release into a beta-test story", async () => {
+    const idx = await judgeAssignment(
+      {
+        title: "DeepSeek-V4.1-Flash Release",
+        gist: "DeepSeek officially releases DeepSeek-V4.1-Flash on web, app and API.",
+        publishedAt: new Date("2026-09-10T08:01:00Z"),
+      },
+      [
+        {
+          members: [
+            {
+              publishedAt: new Date("2026-09-08T10:18:00Z"),
+              event:
+                "DeepSeek begins beta testing DeepSeek V4.1 Flash for API users.",
+            },
+          ],
+        },
+      ],
+      config,
+    );
+    expect(idx).toBeNull();
+  }, 30_000);
+  it("merges same-day coverage of the same release", async () => {
+    const idx = await judgeAssignment(
+      {
+        title: "DeepSeek debuts V4.1 Flash",
+        gist: "Reuters reports DeepSeek launched DeepSeek-V4.1-Flash, a 552B MoE model.",
+        publishedAt: new Date("2026-09-10T09:55:00Z"),
+      },
+      [
+        {
+          members: [
+            {
+              publishedAt: new Date("2026-09-10T08:01:00Z"),
+              event:
+                "DeepSeek officially releases DeepSeek-V4.1-Flash on web, app and API.",
+            },
+          ],
+        },
+      ],
+      config,
+    );
+    expect(idx).toBe(0);
   }, 30_000);
 });
 
